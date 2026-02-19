@@ -32,7 +32,7 @@ else:
     def _unlock(f):
         fcntl.flock(f, fcntl.LOCK_UN)
 
-from config import PIPELINES_DIR, JST
+from config import PIPELINES_DIR, JST, MAX_HISTORY
 
 
 def now_iso() -> str:
@@ -107,9 +107,12 @@ def save_pipeline(path: Path, data: dict) -> None:
 
 
 def add_history(data: dict, from_s: str, to_s: str, actor: str = "cli") -> None:
-    data.setdefault("history", []).append({
+    history = data.setdefault("history", [])
+    history.append({
         "from": from_s, "to": to_s, "at": now_iso(), "actor": actor,
     })
+    if len(history) > MAX_HISTORY:
+        data["history"] = history[-MAX_HISTORY:]
 
 
 _PROJECT_RE = re.compile(r'^[A-Za-z0-9_-]+$')

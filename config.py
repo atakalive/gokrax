@@ -20,6 +20,7 @@ JST = timezone(timedelta(hours=9))
 
 # パイプライン
 MAX_BATCH = 5
+MAX_HISTORY = 100
 MIN_REVIEWS = 3
 VALID_VERDICTS = ["APPROVE", "P0", "P1", "REJECT"]
 

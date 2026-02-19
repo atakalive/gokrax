@@ -9,35 +9,13 @@ import json
 import fcntl
 import sys
 from pathlib import Path
-from datetime import datetime, timezone, timedelta
+from datetime import datetime
 
-JST = timezone(timedelta(hours=9))
-PIPELINES_DIR = Path.home() / ".openclaw/shared/pipelines"
-
-VALID_STATES = [
-    "IDLE", "TRIAGE",
-    "DESIGN_PLAN", "DESIGN_REVIEW", "DESIGN_REVISE", "DESIGN_APPROVED",
-    "IMPLEMENTATION",
-    "CODE_REVIEW", "CODE_REVISE", "CODE_APPROVED",
-    "MERGE_SUMMARY_SENT", "DONE", "BLOCKED",
-]
-
-# 許可される遷移: from → [to, ...]
-VALID_TRANSITIONS = {
-    "IDLE": ["DESIGN_PLAN"],
-    "DESIGN_PLAN": ["DESIGN_REVIEW"],
-    "DESIGN_REVIEW": ["DESIGN_APPROVED", "DESIGN_REVISE"],
-    "DESIGN_REVISE": ["DESIGN_REVIEW"],
-    "DESIGN_APPROVED": ["IMPLEMENTATION"],
-    "IMPLEMENTATION": ["CODE_REVIEW"],
-    "CODE_REVIEW": ["CODE_APPROVED", "CODE_REVISE"],
-    "CODE_REVISE": ["CODE_REVIEW"],
-    "CODE_APPROVED": ["MERGE_SUMMARY_SENT"],
-    "MERGE_SUMMARY_SENT": ["DONE"],
-    "DONE": ["IDLE"],
-}
-
-MAX_BATCH = 5
+sys.path.insert(0, str(Path(__file__).parent))
+from config import (
+    PIPELINES_DIR, GLAB_BIN, JST,
+    VALID_STATES, VALID_TRANSITIONS, MAX_BATCH, TRIAGE_ALLOWED_STATES,
+)
 
 
 def now_iso():
@@ -111,7 +89,7 @@ def cmd_init(args):
         "gitlab": args.gitlab or f"atakalive/{args.project}",
         "state": "IDLE",
         "enabled": False,
-        "implementer": args.implementer or "reviewer00",
+        "implementer": args.implementer or "kaneko",
         "batch": [],
         "history": [],
         "created_at": now_iso(),
@@ -141,6 +119,12 @@ def cmd_triage(args):
     """Issueをバッチに投入"""
     path = get_path(args.project)
     data = load(path)
+    state = data.get("state", "IDLE")
+
+    if state not in TRIAGE_ALLOWED_STATES:
+        print(f"Cannot add issues in state {state} (allowed: {TRIAGE_ALLOWED_STATES})", file=sys.stderr)
+        sys.exit(1)
+
     batch = data.get("batch", [])
 
     if len(batch) >= MAX_BATCH:
@@ -192,14 +176,14 @@ def cmd_transition(args):
 
 
 def cmd_review(args):
-    """レビュー結果を記録"""
+    """レビュー結果を記録（pipeline JSON + GitLab Issue note）"""
     path = get_path(args.project)
     data = load(path)
     state = data.get("state", "IDLE")
 
-    if "DESIGN_REVIEW" in state:
+    if state == "DESIGN_REVIEW":
         key = "design_reviews"
-    elif "CODE_REVIEW" in state:
+    elif state == "CODE_REVIEW":
         key = "code_reviews"
     else:
         print(f"Not in review state: {state}", file=sys.stderr)
@@ -218,21 +202,67 @@ def cmd_review(args):
     save(path, data)
     print(f"{args.project}: #{args.issue} review by {args.reviewer} = {args.verdict}")
 
+    # GitLab Issue note に自動投稿
+    gitlab = data.get("gitlab", f"atakalive/{args.project}")
+    phase = "設計" if "DESIGN" in state else "コード"
+    note_body = f"[{args.reviewer}] {args.verdict} ({phase}レビュー)\n\n{args.summary or ''}"
+    try:
+        import subprocess
+        result = subprocess.run(
+            [GLAB_BIN, "issue", "note", str(args.issue), "-m", note_body,
+             "-R", gitlab],
+            capture_output=True, text=True, timeout=15,
+        )
+        if result.returncode == 0:
+            print(f"  → GitLab issue note posted")
+        else:
+            print(f"  ⚠ GitLab note failed: {result.stderr.strip()}", file=sys.stderr)
+    except Exception as e:
+        print(f"  ⚠ GitLab note error: {e}", file=sys.stderr)
+
 
 def cmd_commit(args):
     """commit hash を記録"""
     path = get_path(args.project)
     data = load(path)
-    issue = find_issue(data.get("batch", []), args.issue)
-    if not issue:
-        print(f"Issue #{args.issue} not in batch", file=sys.stderr)
+    batch = data.get("batch", [])
+    done = []
+    for num in args.issue:
+        issue = find_issue(batch, num)
+        if not issue:
+            print(f"Issue #{num} not in batch", file=sys.stderr)
+            sys.exit(1)
+        issue["commit"] = args.hash
+        if args.session_id:
+            issue["cc_session_id"] = args.session_id
+        done.append(f"#{num}")
+
+    save(path, data)
+    print(f"{args.project}: commit={args.hash} ({', '.join(done)})")
+
+
+def cmd_plan_done(args):
+    """設計完了フラグを設定"""
+    path = get_path(args.project)
+    data = load(path)
+    state = data.get("state", "IDLE")
+
+    if state != "DESIGN_PLAN":
+        print(f"Not in DESIGN_PLAN state: {state}", file=sys.stderr)
         sys.exit(1)
 
-    issue["commit"] = args.hash
-    if args.session_id:
-        issue["cc_session_id"] = args.session_id
+    batch = data.get("batch", [])
+    done = []
+    for num in args.issue:
+        issue = find_issue(batch, num)
+        if not issue:
+            print(f"Issue #{num} not in batch", file=sys.stderr)
+            sys.exit(1)
+        issue["design_ready"] = True
+        done.append(f"#{num}")
+
     save(path, data)
-    print(f"{args.project}: #{args.issue} commit={args.hash}")
+    print(f"{args.project}: design plan done ({', '.join(done)})")
 
 
 def cmd_revise(args):
@@ -270,7 +300,7 @@ def main():
     p = sub.add_parser("init", help="新PJ初期化")
     p.add_argument("--project", required=True)
     p.add_argument("--gitlab", help="GitLab path (default: atakalive/<project>)")
-    p.add_argument("--implementer", default="reviewer00")
+    p.add_argument("--implementer", default="kaneko")
 
     # enable / disable
     p = sub.add_parser("enable", help="watchdog有効化")
@@ -301,9 +331,14 @@ def main():
     # commit
     p = sub.add_parser("commit", help="commit hash記録")
     p.add_argument("--project", required=True)
-    p.add_argument("--issue", type=int, required=True)
+    p.add_argument("--issue", type=int, nargs="+", required=True, help="Issue番号（複数指定可）")
     p.add_argument("--hash", required=True)
     p.add_argument("--session-id", default=None)
+
+    # plan-done
+    p = sub.add_parser("plan-done", help="設計完了フラグ設定")
+    p.add_argument("--project", required=True)
+    p.add_argument("--issue", type=int, nargs="+", required=True, help="Issue番号（複数指定可）")
 
     # revise
     p = sub.add_parser("revise", help="revisedフラグ設定")
@@ -320,7 +355,7 @@ def main():
         "enable": cmd_enable, "disable": cmd_disable,
         "triage": cmd_triage, "transition": cmd_transition,
         "review": cmd_review, "commit": cmd_commit,
-        "revise": cmd_revise,
+        "plan-done": cmd_plan_done, "revise": cmd_revise,
     }
     cmds[args.command](args)
 

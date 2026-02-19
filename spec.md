@@ -11,7 +11,7 @@
 2026-02-19のImageRestorationNN開発（Issue #30-#32）で以下の問題が顕在化した：
 
 1. **状態がエージェントの頭の中にしかない** — セッション障害（OAuth 401）やcompactionで文脈が消えると、作業状態が不明になる
-2. **直列実行のボトルネック** — 金子（reviewer00）が1 Issueずつ直列処理。3 Issueで数時間
+2. **直列実行のボトルネック** — 金子（kaneko）が1 Issueずつ直列処理。3 Issueで数時間
 3. **レビュー工程のスキップ** — 自動化の速度にプロセスが追いつかず、品質ゲートが飛ばされた
 4. **障害復旧に人手が必要** — OAuth失効で1時間以上停止。Mの介入なしに復旧できなかった
 
@@ -154,7 +154,7 @@ PJごとに1ファイル。
   "project": "ImageRestorationNN",
   "gitlab": "atakalive/ImageRestorationNN",
   "state": "CODE_REVIEW",
-  "implementer": "reviewer00",
+  "implementer": "kaneko",
   "updated_at": "2026-02-19T19:15:00+09:00",
   "batch": [
     {
@@ -163,12 +163,12 @@ PJごとに1ファイル。
       "commit": "1dbbade",
       "cc_session_id": "050b780f-...",
       "design_reviews": {
-        "g-reviewer": {"verdict": "APPROVE", "at": "2026-02-19T18:30:00+09:00"},
-        "c-reviewer": {"verdict": "APPROVE", "at": "2026-02-19T18:32:00+09:00"}
+        "pascal": {"verdict": "APPROVE", "at": "2026-02-19T18:30:00+09:00"},
+        "leibniz": {"verdict": "APPROVE", "at": "2026-02-19T18:32:00+09:00"}
       },
       "code_reviews": {
-        "g-reviewer": {"verdict": "APPROVE", "at": "2026-02-19T19:31:00+09:00"},
-        "c-reviewer": {"verdict": "PASS_P1", "summary": "stale overlay提案", "at": "2026-02-19T19:31:00+09:00"}
+        "pascal": {"verdict": "APPROVE", "at": "2026-02-19T19:31:00+09:00"},
+        "leibniz": {"verdict": "PASS_P1", "summary": "stale overlay提案", "at": "2026-02-19T19:31:00+09:00"}
       }
     },
     {
@@ -180,8 +180,8 @@ PJごとに1ファイル。
     }
   ],
   "history": [
-    {"from": "IDLE", "to": "DESIGN_PLAN", "at": "2026-02-19T18:00:00+09:00", "actor": "reviewer00"},
-    {"from": "DESIGN_PLAN", "to": "DESIGN_REVIEW", "at": "2026-02-19T18:20:00+09:00", "actor": "reviewer00"}
+    {"from": "IDLE", "to": "DESIGN_PLAN", "at": "2026-02-19T18:00:00+09:00", "actor": "kaneko"},
+    {"from": "DESIGN_PLAN", "to": "DESIGN_REVIEW", "at": "2026-02-19T18:20:00+09:00", "actor": "kaneko"}
   ]
 }
 ```
@@ -220,7 +220,7 @@ shared/ 以下で全エージェントからアクセス可能。
 | CODE_REVISE → CODE_REVIEW | 全Issue revised フラグ | 全レビュアーに再レビュー依頼 |
 | DONE → IDLE | — | バッチクリア |
 
-### 6.2 Implementer（金子 / reviewer00）
+### 6.2 Implementer（金子 / kaneko）
 
 watchdogから通知を受けて作業する。能動的なポーリングは不要。
 pipeline JSONの操作は **devbar CLI** 経由で行う（直接JSON編集禁止）。
@@ -284,7 +284,7 @@ cron自体は常時動くが、PJごとに `enabled` フラグで制御する。
 
 ## 9. Discord通知
 
-状態遷移時に専用チャンネル（例: `#dev-pipeline`）に通知：
+状態遷移時に `#dev-bar` チャンネル（金子botアカウントで投稿）に通知：
 
 ```
 [ImageRestorationNN] DESIGN_REVIEW → DESIGN_APPROVED
@@ -301,16 +301,21 @@ cron自体は常時動くが、PJごとに `enabled` フラグで制御する。
 
 ### 10.1 Phase 1（MVP）
 
-- **devbar CLI**（Python）: pipeline JSON操作の唯一のインターフェース
+- **config.py**: 全定数の一元管理（パス、チャンネルID、状態遷移ルール、エージェント定義）
+- **devbar CLI**（devbar.py）: pipeline JSON操作の唯一のインターフェース
   - `devbar status` — 全PJ状態表示
-  - `devbar triage --project PJ --issue N` — Issueをバッチに投入
+  - `devbar init --project PJ` — 新PJのpipeline JSON初期化
+  - `devbar enable/disable --project PJ` — watchdog有効/無効化
+  - `devbar triage --project PJ --issue N [--title T]` — Issueをバッチに投入（IDLE/TRIAGE状態のみ）
   - `devbar transition --project PJ --to STATE` — 状態遷移（バリデーション付き）
-  - `devbar review --project PJ --issue N --reviewer ID --verdict APPROVE` — レビュー結果記録
-  - `devbar commit --project PJ --issue N --hash HASH` — commit記録
+  - `devbar plan-done --project PJ --issue N [N2 N3...]` — 設計完了フラグ（複数指定可）
+  - `devbar commit --project PJ --issue N [N2...] --hash H` — commit記録（複数指定可）
+  - `devbar review --project PJ --issue N --reviewer ID --verdict V --summary S` — レビュー結果記録 + GitLab Issue note自動投稿
   - `devbar revise --project PJ --issue N` — revised フラグ設定
+- **notify.py**: エージェント通知（sessions_send）+ Discord投稿。レビュー依頼はレビュアーごとにコピペ用コマンドを埋め込んで送信
+- **watchdog.py**（cron 1分間隔）: 状態遷移の自動検知・実行
 - 状態遷移バリデーション（不正な遷移を拒否）
 - flock排他制御
-- watchdog.py（cron 1分間隔）
 
 ### 10.2 Phase 2
 
@@ -329,7 +334,7 @@ cron自体は常時動くが、PJごとに `enabled` フラグで制御する。
 
 - **flock必須**: pipeline JSONへの書き込みは `fcntl.flock(LOCK_EX)` で排他
 - **GitLab Issueが正**: pipeline JSONはワークフロー状態。Issue本体はGitLabに残る
-- **glab issue note 必須**: レビュー結果はpipeline JSONとGitLab Issue両方に記録
+- **devbar review 一本化**: `devbar review` がpipeline JSON書き込み + `glab issue note` 自動投稿を一括実行。レビュアーはdevbar reviewだけ叩けばよい
 - **Mの承認なしにマージしない**: MERGE_SUMMARY_SENT → DONE はM専用
 - **CC Plan必須**: DESIGN_PLANをスキップしない
 - **PJごとに1状態**: 同一PJ内のIssueは同じフェーズを一緒に進む
@@ -347,13 +352,28 @@ cron自体は常時動くが、PJごとに `enabled` フラグで制御する。
 - **テスト失敗: CODE_REVISEで対応** — 独立した状態は持たない
 - **pipeline JSON操作: devbar CLI経由** — 直接編集禁止
 - **軽微Issue簡略化: 後日検討**
-- **BLOCKED: 後日検討**
+- **BLOCKED → IDLE で復帰**
 - **devbar自体の開発: 現状の枠組み（金子 + CC + レビュアー）で進める**
+- **devbar review一本化**: pipeline JSON + glab issue noteを一括実行。レビュアーは1コマンドで完結
+- **定数はconfig.pyに一元管理**: パス、チャンネルID、状態遷移ルール、エージェント定義
+- **Discord通知は金子botアカウント** (#dev-bar)
+- **plan-done/commitは複数Issue指定可**: CCでまとめて回した場合に一括マーク
+- **triageはIDLE/TRIAGE状態でのみ可能**: 進行中のバッチにIssueを追加できない
 
-## 13. 未決事項
+## 13. 決定・解決済み（2026-02-20追記）
 
-- [ ] pipeline JSONのバージョニング（Git管理? shared/直置き?）
-- [ ] Implementer不在時のフォールバック
-- [ ] レビュー応答のタイムアウト
-- [ ] BLOCKED → 復帰の遷移条件
-- [ ] 軽微Issue（1行修正等）の簡略パイプライン
+- [x] **pipeline JSON**: shared/直置き。ワークフロー状態であり成果物ではないためGit管理不要
+- [x] **BLOCKED → 復帰**: `BLOCKED → IDLE` で実装済み
+- [x] **devbar review一本化**: pipeline JSON + glab issue noteを一括実行。二重作業排除
+- [x] **設計完了検知**: `devbar plan-done` で design_ready フラグ → watchdogが全Issue完了でDESIGN_REVIEWに自動遷移
+- [x] **定数管理**: config.py に一元化
+- [x] **Discord投稿**: 金子botアカウントで #dev-bar に投稿
+- [x] **レビュー依頼フォーマット**: レビュアーごとにコピペ用devbar reviewコマンドを埋め込んで送信
+- [x] **複数Issue一括操作**: plan-done, commit で `--issue N1 N2 N3` 複数指定可
+
+## 14. 未決事項
+
+- [ ] Implementer不在検知: 一定時間状態滞留 → リトライ通知 → 3連続失敗 → BLOCKED + Discord通知
+- [ ] レビュー応答タイムアウト: 3分×NumIssues超過で催促通知
+- [ ] 軽微Issue簡略パイプライン: 後日検討
+- [ ] バッチからのIssue除外コマンド: 後日検討

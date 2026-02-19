@@ -9,19 +9,11 @@ import json
 import fcntl
 import sys
 from pathlib import Path
-from datetime import datetime, timezone, timedelta
+from datetime import datetime
 
 sys.path.insert(0, str(Path(__file__).parent))
-from notify import (
-    notify_implementer, notify_reviewers, notify_discord,
-    format_review_request,
-)
-
-JST = timezone(timedelta(hours=9))
-PIPELINES_DIR = Path.home() / ".openclaw/shared/pipelines"
-LOG_FILE = Path("/tmp/devbar-watchdog.log")
-
-MIN_REVIEWS = 3
+from config import PIPELINES_DIR, JST, LOG_FILE, MIN_REVIEWS
+from notify import notify_implementer, notify_reviewers, notify_discord
 
 
 def log(msg: str):
@@ -76,7 +68,7 @@ def transition(path, data, old, new, impl_msg=None, send_review=False):
     """状態遷移 + 通知"""
     pj = data.get("project", path.stem)
     gitlab = data.get("gitlab", f"atakalive/{pj}")
-    implementer = data.get("implementer", "reviewer00")
+    implementer = data.get("implementer", "kaneko")
 
     log(f"[{pj}] {old} → {new}")
     add_history(data, old, new)
@@ -90,10 +82,9 @@ def transition(path, data, old, new, impl_msg=None, send_review=False):
     if impl_msg:
         notify_implementer(implementer, f"[devbar] {pj}: {impl_msg}")
 
-    # レビュアーへの依頼
+    # レビュアーへの依頼（レビュアーごとに個別コマンド付き）
     if send_review:
-        msg = format_review_request(pj, new, data.get("batch", []), gitlab)
-        notify_reviewers(msg)
+        notify_reviewers(pj, new, data.get("batch", []), gitlab)
 
 
 def process(path: Path):
@@ -105,8 +96,17 @@ def process(path: Path):
     batch = data.get("batch", [])
     pj = data.get("project", path.stem)
 
-    if state in ("IDLE", "MERGE_SUMMARY_SENT", "DESIGN_PLAN",
+    if state in ("IDLE", "TRIAGE", "MERGE_SUMMARY_SENT",
                  "DESIGN_APPROVED", "BLOCKED"):
+        return
+
+    if not batch:
+        log(f"[{pj}] WARNING: state={state} but batch is empty")
+        return
+
+    if state == "DESIGN_PLAN":
+        if all(i.get("design_ready") for i in batch):
+            transition(path, data, state, "DESIGN_REVIEW", send_review=True)
         return
 
     if state in ("DESIGN_REVIEW", "CODE_REVIEW"):

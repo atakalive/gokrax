@@ -1,6 +1,6 @@
 # DevBar: マルチエージェント開発パイプライン仕様書
 
-**Version:** 0.6
+**Version:** 0.8
 **Author:** Asuka (second)
 **Date:** 2026-02-19
 

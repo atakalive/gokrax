@@ -6,7 +6,6 @@ pipeline JSONの唯一の操作インターフェース。直接JSON編集禁止
 
 import argparse
 import json
-import fcntl
 import sys
 from pathlib import Path
 from datetime import datetime
@@ -23,20 +22,26 @@ def now_iso():
 
 
 def load(path: Path) -> dict:
+    """atomic write方式ならread側のflockは不要（renameがatomic）。"""
     with open(path) as f:
-        fcntl.flock(f, fcntl.LOCK_SH)
         data = json.load(f)
-        fcntl.flock(f, fcntl.LOCK_UN)
     return data
 
 
 def save(path: Path, data: dict):
+    """atomic write: tmpfile + rename で競合を回避。"""
+    import tempfile, os
     data["updated_at"] = now_iso()
-    with open(path, "w") as f:
-        fcntl.flock(f, fcntl.LOCK_EX)
-        json.dump(data, f, ensure_ascii=False, indent=2)
-        f.flush()
-        fcntl.flock(f, fcntl.LOCK_UN)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.rename(tmp, str(path))
+    except BaseException:
+        os.unlink(tmp)
+        raise
 
 
 def add_history(data: dict, from_s: str, to_s: str, actor: str = "cli"):
@@ -271,9 +276,9 @@ def cmd_revise(args):
     data = load(path)
     state = data.get("state", "IDLE")
 
-    if "DESIGN_REVISE" in state:
+    if state == "DESIGN_REVISE":
         flag = "design_revised"
-    elif "CODE_REVISE" in state:
+    elif state == "CODE_REVISE":
         flag = "code_revised"
     else:
         print(f"Not in revise state: {state}", file=sys.stderr)

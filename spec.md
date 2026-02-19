@@ -179,28 +179,44 @@ shared/ 以下で全エージェントからアクセス可能。
 
 ## 6. アクターの役割
 
-### 6.1 Implementer（金子 / reviewer00）
+### 6.1 Watchdog（Pythonスクリプト、LLM不要）
+
+パイプラインオーケストレーター。cronで1分間隔実行。`watchdog.py` 参照。
+
+- pipeline JSONを巡回し、条件を満たした状態遷移を自動実行
+- 遷移時にアクター（金子等）を `openclaw session send` で通知
+- 冪等。何回実行しても同じ結果。LLMトークン消費ゼロ
+
+| 検知する遷移 | 条件 |
+|-------------|------|
+| DESIGN_REVIEW → DESIGN_APPROVED | 全Issue 3件以上レビュー、P0なし |
+| DESIGN_REVIEW → DESIGN_REVISE | 3件以上レビュー、P0あり |
+| DESIGN_REVISE → DESIGN_REVIEW | 全Issue revised フラグ |
+| IMPLEMENTATION → CODE_REVIEW | 全Issue commit あり |
+| CODE_REVIEW → CODE_APPROVED | 全Issue 3件以上レビュー、P0なし |
+| CODE_REVIEW → CODE_REVISE | 3件以上レビュー、P0あり |
+| CODE_REVISE → CODE_REVIEW | 全Issue revised フラグ |
+| DONE → IDLE | バッチクリア |
+
+### 6.2 Implementer（金子 / reviewer00）
+
+watchdogから通知を受けて作業する。能動的なポーリングは不要。
 
 | PJ状態 | アクション |
 |--------|-----------|
 | IDLE | バッチにIssueを積み、DESIGN_PLANに遷移 |
-| DESIGN_PLAN | 各IssueをCC Planモードで設計。全Issue完了 → DESIGN_REVIEW |
-| DESIGN_REVISE | P0指摘を反映。完了 → DESIGN_REVIEW |
+| DESIGN_PLAN | 各IssueをCC Planモードで設計。全Issue完了 → DESIGN_REVIEW に遷移 |
+| DESIGN_REVISE | P0指摘を反映。revised フラグを立てる |
 | DESIGN_APPROVED | IMPLEMENTATION に遷移 |
-| IMPLEMENTATION | 各IssueをCC bypassPermissionsで実装+テスト。全Issue完了 → CODE_REVIEW |
-| CODE_REVISE | P0指摘を反映。完了 → CODE_REVIEW |
+| IMPLEMENTATION | 各IssueをCC bypassPermissionsで実装+テスト。commit を記録 |
+| CODE_REVISE | P0指摘を反映。revised フラグを立てる |
 | CODE_APPROVED | Mにサマリー送信 → MERGE_SUMMARY_SENT |
 
-### 6.2 Reviewers（Pascal / Leibniz / 韓非）
+### 6.3 Reviewers（Pascal / Leibniz / Dijkstra / 韓非）
 
 - DESIGN_REVIEW / CODE_REVIEW 中にsessions_sendで依頼を受け取る
 - verdict（APPROVE / P0 / P1）をpipeline JSONに書き込み
 - glab issue note でIssueコメントにも記録
-
-### 6.3 System（自動判定）
-
-Implementerのポーリング時に判定：
-- 全Issueのレビューが揃った → P0有無で REVISE or APPROVED に遷移
 
 ### 6.4 M（人間）
 
@@ -208,27 +224,20 @@ Implementerのポーリング時に判定：
 - バッチに積むIssueの指定
 - 任意の介入（BLOCKED設定、優先度変更）
 
-## 7. ポーリングモデル
+## 7. watchdog運用
 
-### 7.1 Implementerのポーリング
-
-金子のwatchdog cron（1分間隔）で各PJのpipeline JSONを巡回：
+### 7.1 実行方法
 
 ```
-for each PJ in pipelines/:
-    state = PJ.state
-    if state is my turn:
-        process(PJ)
-        break  ← 1ポーリングで1PJだけ処理
-    if state is waiting (REVIEW):
-        check if reviews complete → auto-transition
+* * * * * python3 /mnt/s/wsl/work/project/devbar/watchdog.py
 ```
 
-1回のポーリングで1 PJだけ処理。複数PJはラウンドロビン。
+### 7.2 特性
 
-### 7.2 レビュアー
-
-現状はsessions_sendで受動的。将来的にcronで巡回可能。
+- **LLM不要**: if文のみ。トークン消費ゼロ
+- **冪等**: 条件満たさなければ何もしない
+- **flock排他**: pipeline JSONの読み書きは排他ロック
+- **ログ**: `/tmp/devbar-watchdog.log` に遷移記録
 
 ## 8. 障害耐性
 

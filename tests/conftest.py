@@ -10,6 +10,12 @@ def tmp_pipelines(tmp_path, monkeypatch):
     """PIPELINES_DIR を tmp_path に差し替え、テスト用パイプラインを返すヘルパー。"""
     import config
     monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+    # pipeline_io が from config import で取り込んだローカル参照も差し替え
+    try:
+        import pipeline_io
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+    except ImportError:
+        pass
     return tmp_path
 
 

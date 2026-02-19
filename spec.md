@@ -1,6 +1,6 @@
 # DevBar: マルチエージェント開発パイプライン仕様書
 
-**Version:** 0.2
+**Version:** 0.6
 **Author:** Asuka (second)
 **Date:** 2026-02-19
 
@@ -53,7 +53,7 @@ ImageRestorationNN:
 | State | PJの現在の開発フェーズ |
 | Actor | 状態遷移を実行するエージェント（金子、Pascal等） |
 | Implementer | 設計・実装を担当するエージェント（現状は金子） |
-| Reviewer | レビューを担当するエージェント（Pascal、Leibniz、韓非） |
+| Reviewer | レビューを担当するエージェント（Pascal、Leibniz、Dijkstra、韓非） |
 
 ## 4. 状態遷移モデル
 
@@ -64,7 +64,7 @@ Issueの発生源は3種類あるが、パイプライン上は全て **TRIAGE**
 | 入口 | 内容 | 備考 |
 |------|------|------|
 | **M Issue** | Mが自然言語で希望を書く | Implementerがリライトしてからバッチへ |
-| **コードレビュー指摘** | 全体レビューで発見された問題 | Issue化 + リライトしてバッチへ |
+| **コードレビュー指摘** | 全体レビューで発見された問題 | MがImplementerにIssue起票を直接依頼 |
 | **新機能** | 大きめの機能追加 | Mが設計会議でspecを固めてからIssue化。パイプライン外で完了済み |
 
 Implementer自身がIssue起票する場合は、既に整理済みなのでTRIAGEを素通りしてバッチに入る。
@@ -207,23 +207,27 @@ shared/ 以下で全エージェントからアクセス可能。
 - 遷移時にアクター（金子等）を `openclaw session send` で通知
 - 冪等。何回実行しても同じ結果。LLMトークン消費ゼロ
 
-| 検知する遷移 | 条件 |
-|-------------|------|
-| DESIGN_REVIEW → DESIGN_APPROVED | 全Issue 3件以上レビュー、P0なし |
-| DESIGN_REVIEW → DESIGN_REVISE | 3件以上レビュー、P0あり |
-| DESIGN_REVISE → DESIGN_REVIEW | 全Issue revised フラグ |
-| IMPLEMENTATION → CODE_REVIEW | 全Issue commit あり |
-| CODE_REVIEW → CODE_APPROVED | 全Issue 3件以上レビュー、P0なし |
-| CODE_REVIEW → CODE_REVISE | 3件以上レビュー、P0あり |
-| CODE_REVISE → CODE_REVIEW | 全Issue revised フラグ |
-| DONE → IDLE | バッチクリア |
+| 検知する遷移 | 条件 | アクション |
+|-------------|------|-----------|
+| TRIAGE: 未処理Issueあり | GitLabにopen Issue & バッチ未投入 | Implementerに通知 |
+| DESIGN_REVIEW 開始時 | 状態遷移直後 | 全レビュアーにsessions_sendで設計レビュー依頼 |
+| DESIGN_REVIEW → DESIGN_APPROVED | 全Issue 3件以上レビュー、P0なし | Implementerに通知 |
+| DESIGN_REVIEW → DESIGN_REVISE | 3件以上レビュー、P0あり | Implementerに通知 |
+| DESIGN_REVISE → DESIGN_REVIEW | 全Issue revised フラグ | 全レビュアーに再レビュー依頼 |
+| IMPLEMENTATION → CODE_REVIEW | 全Issue commit あり | 全レビュアーにコードレビュー依頼 |
+| CODE_REVIEW → CODE_APPROVED | 全Issue 3件以上レビュー、P0なし | Implementerに通知 |
+| CODE_REVIEW → CODE_REVISE | 3件以上レビュー、P0あり | Implementerに通知 |
+| CODE_REVISE → CODE_REVIEW | 全Issue revised フラグ | 全レビュアーに再レビュー依頼 |
+| DONE → IDLE | — | バッチクリア |
 
 ### 6.2 Implementer（金子 / reviewer00）
 
 watchdogから通知を受けて作業する。能動的なポーリングは不要。
+pipeline JSONの操作は **devbar CLI** 経由で行う（直接JSON編集禁止）。
 
 | PJ状態 | アクション |
 |--------|-----------|
+| TRIAGE | 未整理Issueをリライト。バッチに投入 |
 | IDLE | バッチにIssueを積み、DESIGN_PLANに遷移 |
 | DESIGN_PLAN | 各IssueをCC Planモードで設計。全Issue完了 → DESIGN_REVIEW に遷移 |
 | DESIGN_REVISE | P0指摘を反映。revised フラグを立てる |
@@ -234,8 +238,8 @@ watchdogから通知を受けて作業する。能動的なポーリングは不
 
 ### 6.3 Reviewers（Pascal / Leibniz / Dijkstra / 韓非）
 
-- DESIGN_REVIEW / CODE_REVIEW 中にsessions_sendで依頼を受け取る
-- verdict（APPROVE / P0 / P1）をpipeline JSONに書き込み
+- DESIGN_REVIEW / CODE_REVIEW 中にwatchdog経由でsessions_sendの依頼を受け取る
+- verdict（APPROVE / P0 / P1）を **devbar CLI** 経由でpipeline JSONに書き込み
 - glab issue note でIssueコメントにも記録
 
 ### 6.4 M（人間）
@@ -287,11 +291,16 @@ watchdogから通知を受けて作業する。能動的なポーリングは不
 
 ### 10.1 Phase 1（MVP）
 
-- pipeline JSONの読み書きライブラリ（Python）
+- **devbar CLI**（Python）: pipeline JSON操作の唯一のインターフェース
+  - `devbar status` — 全PJ状態表示
+  - `devbar triage --project PJ --issue N` — Issueをバッチに投入
+  - `devbar transition --project PJ --to STATE` — 状態遷移（バリデーション付き）
+  - `devbar review --project PJ --issue N --reviewer ID --verdict APPROVE` — レビュー結果記録
+  - `devbar commit --project PJ --issue N --hash HASH` — commit記録
+  - `devbar revise --project PJ --issue N` — revised フラグ設定
 - 状態遷移バリデーション（不正な遷移を拒否）
 - flock排他制御
-- 金子のwatchdog cronからの呼び出し
-- CLIコマンド: `status`（全PJ状態表示）、`transition`（状態遷移）
+- watchdog.py（cron 1分間隔）
 
 ### 10.2 Phase 2
 
@@ -314,12 +323,21 @@ watchdogから通知を受けて作業する。能動的なポーリングは不
 - **Mの承認なしにマージしない**: MERGE_SUMMARY_SENT → DONE はM専用
 - **CC Plan必須**: DESIGN_PLANをスキップしない
 - **PJごとに1状態**: 同一PJ内のIssueは同じフェーズを一緒に進む
+- **テスト失敗はレビューで検知**: テストはIMPLEMENTATIONでCCが書く+通す。レビューで不足指摘 → CODE_REVISE で修正
+- **pipeline JSON直接編集禁止**: 全操作はdevbar CLI経由
 
 ## 12. 決定事項（2026-02-19）
 
 - **バッチサイズ上限: 5** — CC CLIで同時に扱える現実的な上限
 - **レビュアー選出: しない** — 全レビュアーに投げる。最低コメント数（現状3）で遷移判定
+- **レビュー依頼: watchdogが自動送信** — 状態がREVIEWに遷移したら全レビュアーにsessions_send
+- **TRIAGE発火: watchdogが金子を起こす** — 未処理Issueを検知したらImplementerに通知
+- **コードレビュー起点のIssue**: Mが金子に直接依頼してIssue起票させる（パイプライン外）
+- **Mへのサマリー: フォーマット自由** — 金子がまとめてDiscordに送る
+- **テスト失敗: CODE_REVISEで対応** — 独立した状態は持たない
+- **pipeline JSON操作: devbar CLI経由** — 直接編集禁止
 - **軽微Issue簡略化: 後日検討**
+- **BLOCKED: 後日検討**
 - **devbar自体の開発: 現状の枠組み（金子 + CC + レビュアー）で進める**
 
 ## 13. 未決事項

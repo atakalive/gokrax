@@ -83,9 +83,13 @@ def update_pipeline(path: Path, callback) -> dict:
     ロックファイル: path.with_suffix('.lock')
     """
     lock_path = path.with_suffix(".lock")
-    # ロックファイルが存在しなければ1バイト書き込んで作成
-    if not lock_path.exists():
-        lock_path.write_bytes(b"\0")
+    # ロックファイルをアトミックに初期化（競合を回避）
+    try:
+        fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.write(fd, b"\0")
+        os.close(fd)
+    except FileExistsError:
+        pass
     with open(lock_path, "r+b") as lock_f:
         _lock(lock_f)
         try:

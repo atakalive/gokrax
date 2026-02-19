@@ -21,6 +21,12 @@ JST = timezone(timedelta(hours=9))
 # パイプライン
 MAX_BATCH = 5
 MIN_REVIEWS = 3
+VALID_VERDICTS = ["APPROVE", "P0", "P1", "REJECT"]
+
+# タイムアウト (seconds)
+AGENT_SEND_TIMEOUT = 30
+DISCORD_POST_TIMEOUT = 10
+GLAB_TIMEOUT = 15
 
 VALID_STATES = [
     "IDLE", "TRIAGE",

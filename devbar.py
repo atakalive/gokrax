@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from config import (
     PIPELINES_DIR, GLAB_BIN,
     VALID_STATES, VALID_TRANSITIONS, MAX_BATCH, TRIAGE_ALLOWED_STATES,
+    VALID_VERDICTS, GLAB_TIMEOUT,
 )
 from pipeline_io import (
     load_pipeline, save_pipeline, update_pipeline,
@@ -165,7 +166,7 @@ def cmd_review(args):
         result = subprocess.run(
             [GLAB_BIN, "issue", "note", str(args.issue), "-m", note_body,
              "-R", gitlab],
-            capture_output=True, text=True, timeout=15,
+            capture_output=True, text=True, timeout=GLAB_TIMEOUT,
         )
         if result.returncode == 0:
             print(f"  → GitLab issue note posted")
@@ -271,7 +272,7 @@ def main():
     p.add_argument("--project", required=True)
     p.add_argument("--issue", type=int, required=True)
     p.add_argument("--reviewer", required=True)
-    p.add_argument("--verdict", required=True, choices=["APPROVE", "P0", "P1", "REJECT"])
+    p.add_argument("--verdict", required=True, choices=VALID_VERDICTS)
     p.add_argument("--summary", default="")
 
     # commit

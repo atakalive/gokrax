@@ -14,12 +14,13 @@ import requests
 from config import (
     DEVBAR_CLI, DISCORD_CHANNEL, DISCORD_BOT_ACCOUNT, GATEWAY_TOKEN_PATH,
     AGENTS, REVIEWERS,
+    AGENT_SEND_TIMEOUT, DISCORD_POST_TIMEOUT,
 )
 
 logger = logging.getLogger("devbar.notify")
 
 
-def send_to_agent(agent_id: str, message: str, timeout: int = 30) -> bool:
+def send_to_agent(agent_id: str, message: str, timeout: int = AGENT_SEND_TIMEOUT) -> bool:
     """openclaw agent CLIでメッセージ送信。"""
     try:
         result = subprocess.run(
@@ -77,7 +78,7 @@ def post_discord(channel_id: str, content: str) -> bool:
             f"https://discord.com/api/v10/channels/{channel_id}/messages",
             headers={"Authorization": f"Bot {token}", "Content-Type": "application/json"},
             json={"content": content},
-            timeout=10,
+            timeout=DISCORD_POST_TIMEOUT,
         )
         if resp.status_code not in (200, 201):
             logger.warning("Discord post failed (status=%d): %s", resp.status_code, resp.text[:200])

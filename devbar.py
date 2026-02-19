@@ -84,31 +84,36 @@ def cmd_disable(args):
 
 
 def cmd_triage(args):
-    """Issueをバッチに投入"""
+    """Issueをバッチに投入（複数指定可）"""
     path = get_path(args.project)
+    titles = args.title + [""] * (len(args.issue) - len(args.title))
 
     def do_triage(data):
         state = data.get("state", "IDLE")
         if state not in TRIAGE_ALLOWED_STATES:
             raise SystemExit(f"Cannot add issues in state {state} (allowed: {TRIAGE_ALLOWED_STATES})")
         batch = data.get("batch", [])
-        if len(batch) >= MAX_BATCH:
-            raise SystemExit(f"Batch full ({MAX_BATCH})")
-        if find_issue(batch, args.issue):
-            raise SystemExit(f"Issue #{args.issue} already in batch")
-        batch.append({
-            "issue": args.issue,
-            "title": args.title or "",
-            "commit": None,
-            "cc_session_id": None,
-            "design_reviews": {},
-            "code_reviews": {},
-            "added_at": now_iso(),
-        })
+        if len(batch) + len(args.issue) > MAX_BATCH:
+            raise SystemExit(
+                f"Batch overflow: {len(batch)} existing + {len(args.issue)} new > {MAX_BATCH}"
+            )
+        for num, title in zip(args.issue, titles):
+            if find_issue(batch, num):
+                raise SystemExit(f"Issue #{num} already in batch")
+            batch.append({
+                "issue": num,
+                "title": title,
+                "commit": None,
+                "cc_session_id": None,
+                "design_reviews": {},
+                "code_reviews": {},
+                "added_at": now_iso(),
+            })
         data["batch"] = batch
 
     update_pipeline(path, do_triage)
-    print(f"{args.project}: #{args.issue} added to batch")
+    nums = ", ".join(f"#{n}" for n in args.issue)
+    print(f"{args.project}: {nums} added to batch")
 
 
 def cmd_transition(args):
@@ -258,8 +263,8 @@ def main():
     # triage
     p = sub.add_parser("triage", help="Issueをバッチに投入")
     p.add_argument("--project", required=True)
-    p.add_argument("--issue", type=int, required=True)
-    p.add_argument("--title", default="")
+    p.add_argument("--issue", type=int, nargs="+", required=True, help="Issue番号（複数指定可）")
+    p.add_argument("--title", action="append", default=[], help="タイトル（--issue と同数、省略時は空文字）")
 
     # transition
     p = sub.add_parser("transition", help="状態遷移")

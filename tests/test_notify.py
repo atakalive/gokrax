@@ -102,3 +102,46 @@ class TestPostDiscord:
                     result = notify.post_discord("123456", "test message")
         assert result is False
         assert "Discord post error" in caplog.text
+
+
+class TestFormatReviewRequest:
+
+    def _make_batch_item(self, issue_num, title="t", commit=None):
+        return {
+            "issue": issue_num, "title": title, "commit": commit,
+            "design_reviews": {}, "code_reviews": {},
+            "cc_session_id": None, "added_at": "",
+        }
+
+    def test_command_uses_devbar_cli_path(self):
+        """format_review_request() のコマンドが DEVBAR_CLI パスを使うこと。"""
+        import notify
+        import config
+        batch = [self._make_batch_item(42, "Test Issue", "abc123")]
+        result = notify.format_review_request(
+            project="test-pj", state="DESIGN_REVIEW",
+            batch=batch, gitlab="atakalive/test-pj", reviewer="pascal",
+        )
+        assert str(config.DEVBAR_CLI) in result
+        assert "/home/ataka/.openclaw/shared/bin/devbar" in result
+
+    def test_command_contains_reviewer_name(self):
+        """format_review_request() のコマンドに reviewer 名が含まれること。"""
+        import notify
+        batch = [self._make_batch_item(10)]
+        result = notify.format_review_request(
+            project="test-pj", state="CODE_REVIEW",
+            batch=batch, gitlab="atakalive/test-pj", reviewer="leibniz",
+        )
+        assert "--reviewer leibniz" in result
+
+    def test_command_structure(self):
+        """生成コマンドが python3 <DEVBAR_CLI> review ... 形式であること。"""
+        import notify
+        import config
+        batch = [self._make_batch_item(5)]
+        result = notify.format_review_request(
+            project="proj", state="DESIGN_REVIEW",
+            batch=batch, gitlab="atakalive/proj", reviewer="hanfei",
+        )
+        assert f"python3 {config.DEVBAR_CLI} review" in result

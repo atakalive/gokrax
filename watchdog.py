@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 from datetime import datetime
 
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config import PIPELINES_DIR, JST, LOG_FILE, MIN_REVIEWS
 from pipeline_io import (
     load_pipeline, save_pipeline, update_pipeline,

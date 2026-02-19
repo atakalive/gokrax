@@ -51,3 +51,29 @@ class TestTimeoutConstants:
         sig = inspect.signature(notify.send_to_agent)
         default = sig.parameters["timeout"].default
         assert default == config.AGENT_SEND_TIMEOUT
+
+
+class TestDevbarCliPath:
+
+    def test_devbar_cli_is_shared_bin_path(self):
+        """DEVBAR_CLI が shared/bin/devbar を指すこと。"""
+        import config
+        assert str(config.DEVBAR_CLI) == "/home/ataka/.openclaw/shared/bin/devbar"
+
+    def test_devbar_cli_is_absolute(self):
+        """DEVBAR_CLI が絶対パスであること。"""
+        import config
+        assert config.DEVBAR_CLI.is_absolute()
+
+
+class TestSysPathResolve:
+
+    def test_devbar_uses_resolve_in_sys_path(self):
+        """devbar.py の sys.path.insert が .resolve() を使っていること。"""
+        source = (ROOT / "devbar.py").read_text(encoding="utf-8")
+        assert "Path(__file__).resolve().parent" in source
+
+    def test_watchdog_uses_resolve_in_sys_path(self):
+        """watchdog.py の sys.path.insert が .resolve() を使っていること。"""
+        source = (ROOT / "watchdog.py").read_text(encoding="utf-8")
+        assert "Path(__file__).resolve().parent" in source

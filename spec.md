@@ -57,9 +57,32 @@ ImageRestorationNN:
 
 ## 4. 状態遷移モデル
 
-### 4.1 状態一覧
+### 4.1 開発の入口（3種類）
+
+パイプライン本体（DESIGN_PLAN以降）に合流する前段階が、開発の種類によって異なる。
+
+| 入口 | 内容 | バッチ投入条件 |
+|------|------|--------------|
+| **M Issue** | Mが自然言語で希望を書く | Implementerがリライト済み |
+| **コードレビュー指摘** | 全体レビューで発見された問題 | Issue化 + Implementerがリライト済み |
+| **新機能（仕様書ベース）** | 大きめの機能追加 | 仕様書がSPEC_REVIEW通過済み |
+
+入口1・2は **TRIAGE** を経てバッチに投入される。
+入口3は **SPEC_DRAFT → SPEC_REVIEW → SPEC_APPROVED** を経てバッチに投入される。
+
+### 4.2 状態一覧
 
 ```
+--- 前段階（入口1・2）---
+TRIAGE                  Implementerが未整理Issueをリライト・バッチ投入判断
+
+--- 前段階（入口3: 新機能）---
+SPEC_DRAFT              仕様書/設計書を作成中
+SPEC_REVIEW             仕様書をレビュアーに送付、レビュー待ち
+SPEC_REVISE             仕様書のレビュー指摘を反映中
+SPEC_APPROVED           仕様書レビュー通過
+
+--- パイプライン本体（全入口共通）---
 IDLE                    アクティブIssueなし
 DESIGN_PLAN             バッチ内全Issueの設計をCC Planモードで作成中
 DESIGN_REVIEW           レビュアーに設計を送付、レビュー待ち
@@ -74,9 +97,39 @@ DONE                    MがOK → マージ完了 → IDLEに戻る
 BLOCKED                 外部要因で進行不可
 ```
 
-### 4.2 状態遷移図
+### 4.3 状態遷移図
 
 ```
+=== 入口1・2（M Issue / コードレビュー指摘）===
+
+  [M / reviewer] Issue起票
+  │
+  ▼
+TRIAGE
+  │ [implementer] リライト完了、バッチに投入
+  ▼
+  ──→ DESIGN_PLAN（本体に合流）
+
+
+=== 入口3（新機能）===
+
+SPEC_DRAFT
+  │ [implementer] 仕様書作成完了
+  ▼
+SPEC_REVIEW
+  │ [reviewers] レビュー返却
+  ├─ P0あり → SPEC_REVISE → SPEC_REVIEW（ループ）
+  │
+  │ P0なし
+  ▼
+SPEC_APPROVED
+  │ [implementer] Issueに分割、バッチに投入
+  ▼
+  ──→ DESIGN_PLAN（本体に合流）
+
+
+=== パイプライン本体（全入口共通）===
+
 IDLE
   │ [implementer] バッチにIssueを積む
   ▼
@@ -87,7 +140,7 @@ DESIGN_REVIEW
   │ [reviewers] 全Issueのレビュー返却
   ├─ P0あり → DESIGN_REVISE → DESIGN_REVIEW（ループ）
   │
-  │ [reviewers] 全Issue P0なし
+  │ P0なし
   ▼
 DESIGN_APPROVED
   │ [implementer] 実装開始
@@ -99,7 +152,7 @@ CODE_REVIEW
   │ [reviewers] 全Issueのレビュー返却
   ├─ P0あり → CODE_REVISE → CODE_REVIEW（ループ）
   │
-  │ [reviewers] 全Issue P0なし
+  │ P0なし
   ▼
 CODE_APPROVED
   │ [implementer] Mにサマリー送信

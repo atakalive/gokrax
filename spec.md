@@ -1,6 +1,6 @@
-# DevPilot: マルチエージェント開発パイプライン仕様書
+# DevBar: マルチエージェント開発パイプライン仕様書
 
-**Version:** 0.1 (draft)
+**Version:** 0.2
 **Author:** Asuka (second)
 **Date:** 2026-02-19
 
@@ -11,104 +11,136 @@
 2026-02-19のImageRestorationNN開発（Issue #30-#32）で以下の問題が顕在化した：
 
 1. **状態がエージェントの頭の中にしかない** — セッション障害（OAuth 401）やcompactionで文脈が消えると、作業状態が不明になる
-2. **直列実行のボトルネック** — 金子（reviewer00）が1 Issueずつ CC CLI → レビュー依頼 → レビュー待ち → Issueコメント → サマリーを直列処理。3 Issue で数時間
+2. **直列実行のボトルネック** — 金子（reviewer00）が1 Issueずつ直列処理。3 Issueで数時間
 3. **レビュー工程のスキップ** — 自動化の速度にプロセスが追いつかず、品質ゲートが飛ばされた
 4. **障害復旧に人手が必要** — OAuth失効で1時間以上停止。Mの介入なしに復旧できなかった
-5. **並列化不可** — 1エージェント＝1セッションのため、プロジェクト横断の並列作業ができない
 
 ### 1.2 目標
 
-- Issue単位の開発状態を永続ファイルで管理し、セッション障害に耐える
-- 状態遷移ルールにより品質ゲート（レビュー必須等）を強制する
-- 複数プロジェクト・複数Issueの並列処理を可能にする
-- Mへの可視性を確保する（Discord通知、状態確認コマンド）
+- PJ単位の開発状態を永続ファイルで管理し、セッション障害に耐える
+- 状態遷移ルールにより品質ゲート（レビュー必須）を強制する
+- 複数PJの並列処理を可能にする
+- Mへの可視性を確保する（Discord通知、状態確認）
 
-## 2. 用語
+## 2. 基本モデル
+
+### 2.1 PJごとに1つの状態
+
+DevBarの核心は **PJ（プロジェクト）ごとに1つの状態** を持つこと。
+
+1つのPJには複数のアクティブIssueが乗る。PJの状態遷移はバッチ単位で行われ、全Issueが現フェーズを完了してから次のフェーズに進む。
+
+```
+ImageRestorationNN:
+  state: DESIGN_REVIEW
+  active_issues: [#32, #33, #34]
+  ← 全Issueのレビューが完了するまでこの状態に留まる
+```
+
+### 2.2 なぜIssueごとではないか
+
+- PJ単位なら状態管理がシンプル（1 PJ = 1状態）
+- 金子のポーリングは「各PJの状態を見る」だけ
+- 同一PJ内でIssueが異なるフェーズにいると、コンフリクトや管理の複雑さが爆発する
+- バッチ処理のほうがレビュー効率も良い（まとめて出す → まとめて返る）
+
+## 3. 用語
 
 | 用語 | 定義 |
 |------|------|
-| Pipeline | 1つのIssueが OPEN → DONE に至るまでの状態遷移の流れ |
-| State | Issueの現在の開発段階 |
+| PJ (Project) | GitLabリポジトリに対応する開発対象。状態を1つ持つ |
+| Batch | PJの現フェーズで処理対象となるIssueの集合 |
+| State | PJの現在の開発フェーズ |
 | Actor | 状態遷移を実行するエージェント（金子、Pascal等） |
-| Transition | ある状態から次の状態への遷移。条件と実行者を持つ |
-| Project | GitLabリポジトリに対応する開発対象 |
+| Implementer | 設計・実装を担当するエージェント（現状は金子） |
+| Reviewer | レビューを担当するエージェント（Pascal、Leibniz、韓非） |
 
-## 3. 状態遷移モデル
+## 4. 状態遷移モデル
 
-### 3.1 状態一覧
+### 4.1 状態一覧
 
 ```
-OPEN                    Issueが作成された初期状態
-DESIGN_PLAN             CC CLI Planモードで設計中
+IDLE                    アクティブIssueなし
+DESIGN_PLAN             バッチ内全Issueの設計をCC Planモードで作成中
 DESIGN_REVIEW           レビュアーに設計を送付、レビュー待ち
-DESIGN_APPROVED         設計レビュー通過
+DESIGN_REVISE           レビュー指摘（P0）を反映中
+DESIGN_APPROVED         設計レビュー通過（全Issue）
 IMPLEMENTATION          CC CLI bypassPermissionsで実装中
 CODE_REVIEW             レビュアーにコードを送付、レビュー待ち
-MERGE_READY             レビュー全員完了
+CODE_REVISE             コードレビュー指摘（P0）を反映中
+CODE_APPROVED           コードレビュー通過（全Issue）
 MERGE_SUMMARY_SENT      Mにマージサマリー送信済み
-DONE                    MがOK → マージ完了
+DONE                    MがOK → マージ完了 → IDLEに戻る
 BLOCKED                 外部要因で進行不可
 ```
 
-### 3.2 状態遷移図
+### 4.2 状態遷移図
 
 ```
-OPEN
-  │ [implementer] CC Plan開始
+IDLE
+  │ [implementer] バッチにIssueを積む
   ▼
 DESIGN_PLAN
-  │ [implementer] Plan完了、レビュアーに送付
+  │ [implementer] 全Issueの設計完了
   ▼
 DESIGN_REVIEW
-  │ [reviewers] 必要数のAPPROVE取得
+  │ [reviewers] 全Issueのレビュー返却
+  ├─ P0あり → DESIGN_REVISE → DESIGN_REVIEW（ループ）
+  │
+  │ [reviewers] 全Issue P0なし
   ▼
 DESIGN_APPROVED
-  │ [implementer] CC実装開始
+  │ [implementer] 実装開始
   ▼
 IMPLEMENTATION
-  │ [implementer] 実装+テスト完了、レビュアーに送付
+  │ [implementer] 全Issueの実装+テスト完了
   ▼
 CODE_REVIEW
-  │ [reviewers] 必要数のAPPROVE取得
+  │ [reviewers] 全Issueのレビュー返却
+  ├─ P0あり → CODE_REVISE → CODE_REVIEW（ループ）
+  │
+  │ [reviewers] 全Issue P0なし
   ▼
-MERGE_READY
+CODE_APPROVED
   │ [implementer] Mにサマリー送信
   ▼
 MERGE_SUMMARY_SENT
   │ [M] OK指示
   ▼
-DONE
+DONE → IDLE
 ```
 
-任意の状態から `BLOCKED` に遷移可能（理由を記録）。
-`CODE_REVIEW` で REJECT が出た場合は `IMPLEMENTATION` に差し戻し。
-`DESIGN_REVIEW` で REJECT が出た場合は `DESIGN_PLAN` に差し戻し。
+### 4.3 REVIEW → REVISE ループ
 
-### 3.3 レビュー完了条件
+- REVIEW中にP0（必須修正）が1つでもあれば → REVISE
+- REVISEで修正完了 → 再度REVIEW
+- P0がなくなるまでループ
+- P1（改善提案）はAPPROVEと共存可。ループには入らない
 
-- **設計レビュー**: 2名以上のAPPROVE（REJECT 0）
-- **コードレビュー**: 2名以上のAPPROVE（REJECT 0）
-- P1（改善提案）はAPPROVEと共存可。P0（必須修正）はREJECT扱い
+### 4.4 レビュー完了条件
 
-## 4. データモデル
+- **設計レビュー**: バッチ内全Issueについて2名以上のAPPROVE、P0なし
+- **コードレビュー**: 同上
 
-### 4.1 パイプライン状態ファイル
+## 5. データモデル
 
-各プロジェクトに `dev-pipeline.json` を配置。
+### 5.1 パイプライン状態ファイル
+
+PJごとに1ファイル。
 
 ```json
 {
   "project": "ImageRestorationNN",
   "gitlab": "atakalive/ImageRestorationNN",
-  "issues": {
-    "32": {
+  "state": "CODE_REVIEW",
+  "implementer": "reviewer00",
+  "updated_at": "2026-02-19T19:15:00+09:00",
+  "batch": [
+    {
+      "issue": 32,
       "title": "チェックポイント選択時の自動描画廃止",
-      "state": "CODE_REVIEW",
-      "implementer": "reviewer00",
-      "created_at": "2026-02-19T18:00:00+09:00",
-      "updated_at": "2026-02-19T19:15:00+09:00",
-      "cc_session_id": "050b780f-4a4d-4876-a8a8-a3d59941b91e",
       "commit": "1dbbade",
+      "cc_session_id": "050b780f-...",
       "design_reviews": {
         "g-reviewer": {"verdict": "APPROVE", "at": "2026-02-19T18:30:00+09:00"},
         "c-reviewer": {"verdict": "APPROVE", "at": "2026-02-19T18:32:00+09:00"}
@@ -116,20 +148,24 @@ DONE
       "code_reviews": {
         "g-reviewer": {"verdict": "APPROVE", "at": "2026-02-19T19:31:00+09:00"},
         "c-reviewer": {"verdict": "PASS_P1", "summary": "stale overlay提案", "at": "2026-02-19T19:31:00+09:00"}
-      },
-      "history": [
-        {"from": "OPEN", "to": "DESIGN_PLAN", "at": "2026-02-19T18:00:00+09:00", "actor": "reviewer00"},
-        {"from": "DESIGN_PLAN", "to": "DESIGN_REVIEW", "at": "2026-02-19T18:20:00+09:00", "actor": "reviewer00"},
-        {"from": "DESIGN_REVIEW", "to": "DESIGN_APPROVED", "at": "2026-02-19T18:35:00+09:00", "actor": "system"},
-        {"from": "DESIGN_APPROVED", "to": "IMPLEMENTATION", "at": "2026-02-19T18:36:00+09:00", "actor": "reviewer00"},
-        {"from": "IMPLEMENTATION", "to": "CODE_REVIEW", "at": "2026-02-19T19:15:00+09:00", "actor": "reviewer00"}
-      ]
+      }
+    },
+    {
+      "issue": 33,
+      "title": "...",
+      "commit": null,
+      "design_reviews": {},
+      "code_reviews": {}
     }
-  }
+  ],
+  "history": [
+    {"from": "IDLE", "to": "DESIGN_PLAN", "at": "2026-02-19T18:00:00+09:00", "actor": "reviewer00"},
+    {"from": "DESIGN_PLAN", "to": "DESIGN_REVIEW", "at": "2026-02-19T18:20:00+09:00", "actor": "reviewer00"}
+  ]
 }
 ```
 
-### 4.2 ファイル配置
+### 5.2 ファイル配置
 
 ```
 /home/ataka/.openclaw/shared/pipelines/
@@ -138,132 +174,123 @@ DONE
   TrajOpt.json
 ```
 
-shared/ 以下に置くことで全エージェントから memory_search / 直接読み書き可能。
+shared/ 以下で全エージェントからアクセス可能。
 
-## 5. アクターの役割
+## 6. アクターの役割
 
-### 5.1 Implementer（金子 / reviewer00）
+### 6.1 Implementer（金子 / reviewer00）
 
-- OPEN → DESIGN_PLAN: CC CLI Planモードで設計
-- DESIGN_PLAN → DESIGN_REVIEW: 設計をレビュアーにsessions_send
-- DESIGN_APPROVED → IMPLEMENTATION: CC CLI bypassPermissionsで実装
-- IMPLEMENTATION → CODE_REVIEW: コードをレビュアーにsessions_send
-- MERGE_READY → MERGE_SUMMARY_SENT: MにDiscordでサマリー送信
+| PJ状態 | アクション |
+|--------|-----------|
+| IDLE | バッチにIssueを積み、DESIGN_PLANに遷移 |
+| DESIGN_PLAN | 各IssueをCC Planモードで設計。全Issue完了 → DESIGN_REVIEW |
+| DESIGN_REVISE | P0指摘を反映。完了 → DESIGN_REVIEW |
+| DESIGN_APPROVED | IMPLEMENTATION に遷移 |
+| IMPLEMENTATION | 各IssueをCC bypassPermissionsで実装+テスト。全Issue完了 → CODE_REVIEW |
+| CODE_REVISE | P0指摘を反映。完了 → CODE_REVIEW |
+| CODE_APPROVED | Mにサマリー送信 → MERGE_SUMMARY_SENT |
 
-### 5.2 Reviewers（Pascal / Leibniz / Han Fei）
+### 6.2 Reviewers（Pascal / Leibniz / 韓非）
 
-- DESIGN_REVIEW中: 設計を受け取り、verdict（APPROVE/REJECT）をpipeline JSONに書き込み
-- CODE_REVIEW中: コードを受け取り、verdictをpipeline JSONに書き込み
-- glab issue note でIssueコメントも記録
+- DESIGN_REVIEW / CODE_REVIEW 中にsessions_sendで依頼を受け取る
+- verdict（APPROVE / P0 / P1）をpipeline JSONに書き込み
+- glab issue note でIssueコメントにも記録
 
-### 5.3 System（自動遷移）
+### 6.3 System（自動判定）
 
-- DESIGN_REVIEW → DESIGN_APPROVED: レビュー完了条件を満たしたら自動遷移
-- CODE_REVIEW → MERGE_READY: 同上
-- CODE_REVIEW → IMPLEMENTATION（差し戻し）: P0/REJECTがあれば
+Implementerのポーリング時に判定：
+- 全Issueのレビューが揃った → P0有無で REVISE or APPROVED に遷移
 
-### 5.4 M（人間）
+### 6.4 M（人間）
 
-- MERGE_SUMMARY_SENT → DONE: OKを出す
-- 任意の状態介入（BLOCKED設定、Issue追加、優先度変更）
+- MERGE_SUMMARY_SENT → DONE: OK指示
+- バッチに積むIssueの指定
+- 任意の介入（BLOCKED設定、優先度変更）
 
-## 6. ポーリングモデル
+## 7. ポーリングモデル
 
-### 6.1 基本方針
+### 7.1 Implementerのポーリング
 
-イベント駆動ではなくポーリング方式を採用する。理由：
-- sessions_sendはセッションが寝ていると届かない
-- cronベースのwatchdogが既に実証済み
-- ファイルベースの状態なら障害復旧が容易
-
-### 6.2 Implementerのポーリング
-
-金子のwatchdog cron（1分間隔）で `dev-pipeline.json` を読み、以下を判断：
-
-1. 自分がアサインされたIssueで、自分の番の状態があるか？
-2. あればそのIssueの作業を開始/継続
-3. なければ次のプロジェクトのpipeline JSONを確認
-4. 全プロジェクトで作業なし → NO_REPLY
-
-### 6.3 Reviewerのポーリング
-
-レビュアーは現状sessions_sendで受動的に受け取る方式。
-将来的にはcronでpipeline JSONを巡回し、自分がレビューすべきIssueを自発的に取る方式に移行可能。
-
-### 6.4 System遷移の実行タイミング
-
-Implementerのポーリング時に判定する。
-- pipeline JSONを読む → レビュー結果が揃っているか確認 → 揃っていれば自動遷移
-
-## 7. 障害耐性
-
-### 7.1 セッション障害
-
-- 状態がファイルに永続化されているため、セッション再起動後にpipeline JSONを読めば復旧可能
-- CC CLIのsession_idもpipeline JSONに記録されているため、`--resume`で継続可能
-
-### 7.2 Compaction
-
-- pipeline JSONが外部ファイルのため、compactionの影響を受けない
-- エージェントはcompaction後もpipeline JSONを読み直すだけで文脈復元
-
-### 7.3 OAuth失効
-
-- 復旧後、pipeline JSONの状態を読んで作業を再開するだけ
-- 「何をやっていたか」を思い出す必要がない
-
-## 8. Discord通知
-
-状態遷移時にDiscordの専用チャンネル（例: `#dev-pipeline`）に通知する。
+金子のwatchdog cron（1分間隔）で各PJのpipeline JSONを巡回：
 
 ```
-[ImageRestorationNN #32] IMPLEMENTATION → CODE_REVIEW
-  commit: 1dbbade
-  reviewers: Pascal, Leibniz
+for each PJ in pipelines/:
+    state = PJ.state
+    if state is my turn:
+        process(PJ)
+        break  ← 1ポーリングで1PJだけ処理
+    if state is waiting (REVIEW):
+        check if reviews complete → auto-transition
+```
+
+1回のポーリングで1 PJだけ処理。複数PJはラウンドロビン。
+
+### 7.2 レビュアー
+
+現状はsessions_sendで受動的。将来的にcronで巡回可能。
+
+## 8. 障害耐性
+
+| 障害 | 復旧 |
+|------|------|
+| セッション切れ | pipeline JSON読み直しで即復旧 |
+| Compaction | 外部ファイルなので影響なし |
+| OAuth失効 | 復旧後にpipeline JSON読むだけ |
+| CC CLI中断 | cc_session_idで `--resume` 可能 |
+
+## 9. Discord通知
+
+状態遷移時に専用チャンネル（例: `#dev-pipeline`）に通知：
+
+```
+[ImageRestorationNN] DESIGN_REVIEW → DESIGN_APPROVED
+  Issues: #32, #33, #34
+  Reviews: Pascal ✅, Leibniz ✅ (P1: 2件)
 ```
 
 ```
-[ImageRestorationNN #32] CODE_REVIEW → MERGE_READY
-  Pascal: APPROVE
-  Leibniz: PASS (P1: stale overlay)
+[ImageRestorationNN] CODE_REVIEW → CODE_REVISE
+  Issues: #32 (P0: Leibniz — 非原子的書込)
 ```
 
-## 9. 実装方針
+## 10. 実装方針
 
-### 9.1 Phase 1（MVP）
+### 10.1 Phase 1（MVP）
 
-- `dev-pipeline.json` の読み書きライブラリ（Python）
+- pipeline JSONの読み書きライブラリ（Python）
 - 状態遷移バリデーション（不正な遷移を拒否）
-- flock による排他制御（複数エージェントの同時書き込み防止）
+- flock排他制御
 - 金子のwatchdog cronからの呼び出し
-- CLIコマンド: `status`（現在状態表示）、`transition`（状態遷移実行）
+- CLIコマンド: `status`（全PJ状態表示）、`transition`（状態遷移）
 
-### 9.2 Phase 2
+### 10.2 Phase 2
 
-- レビュアーの自発的ポーリング（cron巡回）
+- レビュアーの自発的ポーリング
 - Discord通知チャンネル
-- 複数Implementer対応（プロジェクトごとに異なるImplementer）
-- ダッシュボード（簡易Webビュー）
+- 複数Implementer対応
+- 簡易Webダッシュボード
 
-### 9.3 Phase 3
+### 10.3 Phase 3
 
-- 自動Issue取得（GitLab APIからopen Issueを読んでpipelineに追加）
+- GitLab API連携（Issue自動取得）
 - 優先度キュー
-- SLA監視（特定状態に長時間滞留したらアラート）
+- SLA監視（滞留アラート）
 
-## 10. 制約と前提
+## 11. 制約と前提
 
 - **flock必須**: pipeline JSONへの書き込みは `fcntl.flock(LOCK_EX)` で排他
-- **GitLab Issueが正**: pipeline JSONはキャッシュ/ワークフロー状態。Issue本体はGitLabに残る
-- **glab issue note 必須**: レビュー結果はpipeline JSONだけでなくGitLab Issueにも記録
+- **GitLab Issueが正**: pipeline JSONはワークフロー状態。Issue本体はGitLabに残る
+- **glab issue note 必須**: レビュー結果はpipeline JSONとGitLab Issue両方に記録
 - **Mの承認なしにマージしない**: MERGE_SUMMARY_SENT → DONE はM専用
-- **CC Plan必須**: DESIGN_PLAN をスキップして直接 IMPLEMENTATION に行くことは禁止
+- **CC Plan必須**: DESIGN_PLANをスキップしない
+- **PJごとに1状態**: 同一PJ内のIssueは同じフェーズを一緒に進む
 
-## 11. 未決事項
+## 12. 未決事項
 
-- [ ] プロジェクト名（DevPilot? Kōjō? 別案?）
-- [ ] レビュアーの選出ルール（全員? ランダム2名? プロジェクトごとに固定?）
-- [ ] 軽微なIssue（1行修正等）の簡略パイプライン
+- [ ] レビュアーの選出ルール（全員? 2名固定? PJごと?）
+- [ ] 軽微Issue（1行修正等）の簡略パイプライン
 - [ ] pipeline JSONのバージョニング（Git管理? shared/直置き?）
-- [ ] Implementer不在時のフォールバック（別エージェントが代行?）
-- [ ] レビュー応答のタイムアウト（何分待ってリマインド?）
+- [ ] バッチサイズの上限（1バッチ何Issueまで?）
+- [ ] Implementer不在時のフォールバック
+- [ ] レビュー応答のタイムアウト
+- [ ] BLOCKED → 復帰の遷移条件

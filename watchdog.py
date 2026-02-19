@@ -91,6 +91,9 @@ def clear_reviews(batch: list, key: str, revised_key: str):
 
 def process(path: Path):
     data = load_pipeline(path)
+    if not data.get("enabled", False):
+        return
+
     state = data.get("state", "IDLE")
     batch = data.get("batch", [])
     pj = data.get("project", path.stem)
@@ -126,8 +129,9 @@ def process(path: Path):
         add_history(data, "DONE", "IDLE")
         data["state"] = "IDLE"
         data["batch"] = []
+        data["enabled"] = False
         save_pipeline(path, data)
-        log(f"[{pj}] DONE → IDLE")
+        log(f"[{pj}] DONE → IDLE (watchdog disabled)")
 
 
 def main():

@@ -89,14 +89,22 @@ def post_discord(channel_id: str, content: str) -> bool:
 
 
 def notify_implementer(agent_id: str, message: str):
-    send_to_agent(agent_id, message)
+    session_key = AGENTS.get(agent_id)
+    if not session_key:
+        logger.error("Unknown agent: %s", agent_id)
+        return
+    send_to_agent(session_key, message)
 
 
 def notify_reviewers(project: str, state: str, batch: list, gitlab: str):
     """各レビュアーに個別のコマンド入りメッセージを送信。"""
     for r in REVIEWERS:
+        session_key = AGENTS.get(r)
+        if not session_key:
+            logger.error("Unknown reviewer: %s", r)
+            continue
         msg = format_review_request(project, state, batch, gitlab, reviewer=r)
-        send_to_agent(r, msg)
+        send_to_agent(session_key, msg)
 
 
 def notify_discord(message: str):

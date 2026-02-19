@@ -145,3 +145,70 @@ class TestFormatReviewRequest:
             batch=batch, gitlab="atakalive/proj", reviewer="hanfei",
         )
         assert f"python3 {config.DEVBAR_CLI} review" in result
+
+
+class TestNotifyImplementer:
+
+    def test_known_agent_sends_with_session_key(self):
+        """notify_implementer('kaneko', ...) → send_to_agent が 'agent:kaneko:main' で呼ばれること。"""
+        import notify
+        with patch("notify.send_to_agent") as mock_send:
+            notify.notify_implementer("kaneko", "test message")
+        mock_send.assert_called_once_with("agent:kaneko:main", "test message")
+
+    def test_unknown_agent_logs_error_no_send(self, caplog):
+        """未知のキー → logger.error が呼ばれ、send_to_agent は呼ばれないこと。"""
+        import notify
+        import logging
+        with patch("notify.send_to_agent") as mock_send:
+            with caplog.at_level(logging.ERROR, logger="devbar.notify"):
+                notify.notify_implementer("unknown_agent", "test message")
+        mock_send.assert_not_called()
+        assert "Unknown agent" in caplog.text
+
+
+class TestNotifyReviewers:
+
+    def _make_batch_item(self, issue_num):
+        return {
+            "issue": issue_num, "title": "t", "commit": None,
+            "design_reviews": {}, "code_reviews": {},
+            "cc_session_id": None, "added_at": "",
+        }
+
+    def test_each_reviewer_uses_session_key(self):
+        """notify_reviewers → 各レビュアーの session key で send_to_agent が呼ばれること。"""
+        import notify
+        import config
+        batch = [self._make_batch_item(1)]
+        with patch("notify.send_to_agent") as mock_send:
+            notify.notify_reviewers("proj", "DESIGN_REVIEW", batch, "atakalive/proj")
+
+        called_agents = [c.args[0] for c in mock_send.call_args_list]
+        for r in config.REVIEWERS:
+            expected_key = config.AGENTS[r]
+            assert expected_key in called_agents, \
+                f"{r} の session key {expected_key} が send_to_agent に渡されていない"
+
+    def test_unknown_reviewer_logs_error_and_continues(self, caplog, monkeypatch):
+        """未知のレビュアーはスキップされ、既知のレビュアーには送信が継続されること。"""
+        import notify
+        import config
+        import logging
+
+        # REVIEWERS に未知のキーを混入
+        monkeypatch.setattr(config, "REVIEWERS", ["pascal", "unknown_reviewer"])
+        monkeypatch.setattr(notify, "REVIEWERS", ["pascal", "unknown_reviewer"])
+
+        batch = [self._make_batch_item(1)]
+        with patch("notify.send_to_agent") as mock_send:
+            with caplog.at_level(logging.ERROR, logger="devbar.notify"):
+                notify.notify_reviewers("proj", "CODE_REVIEW", batch, "atakalive/proj")
+
+        # 未知レビュアーのエラーログ
+        assert "Unknown reviewer" in caplog.text
+        # 既知の pascal には送信される
+        called_agents = [c.args[0] for c in mock_send.call_args_list]
+        assert "agent:pascal:main" in called_agents
+        # unknown_reviewer には送信されない
+        assert len(called_agents) == 1

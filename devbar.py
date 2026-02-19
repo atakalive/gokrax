@@ -5,60 +5,18 @@ pipeline JSONの唯一の操作インターフェース。直接JSON編集禁止
 """
 
 import argparse
-import json
 import sys
 from pathlib import Path
-from datetime import datetime
 
 sys.path.insert(0, str(Path(__file__).parent))
 from config import (
-    PIPELINES_DIR, GLAB_BIN, JST,
+    PIPELINES_DIR, GLAB_BIN,
     VALID_STATES, VALID_TRANSITIONS, MAX_BATCH, TRIAGE_ALLOWED_STATES,
 )
-
-
-def now_iso():
-    return datetime.now(JST).isoformat()
-
-
-def load(path: Path) -> dict:
-    """atomic write方式ならread側のflockは不要（renameがatomic）。"""
-    with open(path) as f:
-        data = json.load(f)
-    return data
-
-
-def save(path: Path, data: dict):
-    """atomic write: tmpfile + rename で競合を回避。"""
-    import tempfile, os
-    data["updated_at"] = now_iso()
-    fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-            f.flush()
-            os.fsync(f.fileno())
-        os.rename(tmp, str(path))
-    except BaseException:
-        os.unlink(tmp)
-        raise
-
-
-def add_history(data: dict, from_s: str, to_s: str, actor: str = "cli"):
-    data.setdefault("history", []).append({
-        "from": from_s, "to": to_s, "at": now_iso(), "actor": actor,
-    })
-
-
-def get_path(project: str) -> Path:
-    return PIPELINES_DIR / f"{project}.json"
-
-
-def find_issue(batch: list, issue_num: int) -> dict | None:
-    for i in batch:
-        if i.get("issue") == issue_num:
-            return i
-    return None
+from pipeline_io import (
+    load_pipeline, save_pipeline, update_pipeline,
+    add_history, now_iso, get_path, find_issue,
+)
 
 
 # === Commands ===
@@ -72,7 +30,7 @@ def cmd_status(args):
         return
 
     for path in files:
-        data = load(path)
+        data = load_pipeline(path)
         pj = data.get("project", path.stem)
         state = data.get("state", "IDLE")
         enabled = "ON" if data.get("enabled") else "OFF"
@@ -100,111 +58,102 @@ def cmd_init(args):
         "created_at": now_iso(),
         "updated_at": now_iso(),
     }
-    save(path, data)
+    save_pipeline(path, data)
     print(f"Created: {path}")
 
 
 def cmd_enable(args):
     path = get_path(args.project)
-    data = load(path)
-    data["enabled"] = True
-    save(path, data)
+
+    def do_enable(data):
+        data["enabled"] = True
+
+    update_pipeline(path, do_enable)
     print(f"{args.project}: watchdog enabled")
 
 
 def cmd_disable(args):
     path = get_path(args.project)
-    data = load(path)
-    data["enabled"] = False
-    save(path, data)
+
+    def do_disable(data):
+        data["enabled"] = False
+
+    update_pipeline(path, do_disable)
     print(f"{args.project}: watchdog disabled")
 
 
 def cmd_triage(args):
     """Issueをバッチに投入"""
     path = get_path(args.project)
-    data = load(path)
-    state = data.get("state", "IDLE")
 
-    if state not in TRIAGE_ALLOWED_STATES:
-        print(f"Cannot add issues in state {state} (allowed: {TRIAGE_ALLOWED_STATES})", file=sys.stderr)
-        sys.exit(1)
+    def do_triage(data):
+        state = data.get("state", "IDLE")
+        if state not in TRIAGE_ALLOWED_STATES:
+            raise SystemExit(f"Cannot add issues in state {state} (allowed: {TRIAGE_ALLOWED_STATES})")
+        batch = data.get("batch", [])
+        if len(batch) >= MAX_BATCH:
+            raise SystemExit(f"Batch full ({MAX_BATCH})")
+        if find_issue(batch, args.issue):
+            raise SystemExit(f"Issue #{args.issue} already in batch")
+        batch.append({
+            "issue": args.issue,
+            "title": args.title or "",
+            "commit": None,
+            "cc_session_id": None,
+            "design_reviews": {},
+            "code_reviews": {},
+            "added_at": now_iso(),
+        })
+        data["batch"] = batch
 
-    batch = data.get("batch", [])
-
-    if len(batch) >= MAX_BATCH:
-        print(f"Batch full ({MAX_BATCH})", file=sys.stderr)
-        sys.exit(1)
-
-    if find_issue(batch, args.issue):
-        print(f"Issue #{args.issue} already in batch", file=sys.stderr)
-        sys.exit(1)
-
-    entry = {
-        "issue": args.issue,
-        "title": args.title or "",
-        "commit": None,
-        "cc_session_id": None,
-        "design_reviews": {},
-        "code_reviews": {},
-        "added_at": now_iso(),
-    }
-    batch.append(entry)
-    data["batch"] = batch
-    save(path, data)
-    print(f"{args.project}: #{args.issue} added to batch ({len(batch)}/{MAX_BATCH})")
+    update_pipeline(path, do_triage)
+    print(f"{args.project}: #{args.issue} added to batch")
 
 
 def cmd_transition(args):
     """状態遷移（バリデーション付き）"""
     path = get_path(args.project)
-    data = load(path)
-    current = data.get("state", "IDLE")
-    target = args.to
 
-    if target not in VALID_STATES:
-        print(f"Invalid state: {target}", file=sys.stderr)
-        sys.exit(1)
+    def do_transition(data):
+        current = data.get("state", "IDLE")
+        target = args.to
+        if target not in VALID_STATES:
+            raise SystemExit(f"Invalid state: {target}")
+        allowed = VALID_TRANSITIONS.get(current, [])
+        if target not in allowed:
+            raise SystemExit(f"Invalid transition: {current} → {target} (allowed: {allowed})")
+        add_history(data, current, target, args.actor or "cli")
+        data["state"] = target
+        if target == "IDLE":
+            data["batch"] = []
+            data["enabled"] = False
 
-    allowed = VALID_TRANSITIONS.get(current, [])
-    if target not in allowed:
-        print(f"Invalid transition: {current} → {target} (allowed: {allowed})", file=sys.stderr)
-        sys.exit(1)
-
-    add_history(data, current, target, args.actor or "cli")
-    data["state"] = target
-    if target == "IDLE":
-        data["batch"] = []
-        data["enabled"] = False
-    save(path, data)
-    print(f"{args.project}: {current} → {target}")
+    update_pipeline(path, do_transition)
+    print(f"{args.project}: {args.to}")
 
 
 def cmd_review(args):
     """レビュー結果を記録（pipeline JSON + GitLab Issue note）"""
     path = get_path(args.project)
-    data = load(path)
+
+    def do_review(data):
+        state = data.get("state", "IDLE")
+        if state == "DESIGN_REVIEW":
+            key = "design_reviews"
+        elif state == "CODE_REVIEW":
+            key = "code_reviews"
+        else:
+            raise SystemExit(f"Not in review state: {state}")
+        issue = find_issue(data.get("batch", []), args.issue)
+        if not issue:
+            raise SystemExit(f"Issue #{args.issue} not in batch")
+        review_entry = {"verdict": args.verdict, "at": now_iso()}
+        if args.summary:
+            review_entry["summary"] = args.summary
+        issue[key][args.reviewer] = review_entry
+
+    data = update_pipeline(path, do_review)
     state = data.get("state", "IDLE")
-
-    if state == "DESIGN_REVIEW":
-        key = "design_reviews"
-    elif state == "CODE_REVIEW":
-        key = "code_reviews"
-    else:
-        print(f"Not in review state: {state}", file=sys.stderr)
-        sys.exit(1)
-
-    issue = find_issue(data.get("batch", []), args.issue)
-    if not issue:
-        print(f"Issue #{args.issue} not in batch", file=sys.stderr)
-        sys.exit(1)
-
-    review_entry = {"verdict": args.verdict, "at": now_iso()}
-    if args.summary:
-        review_entry["summary"] = args.summary
-
-    issue[key][args.reviewer] = review_entry
-    save(path, data)
     print(f"{args.project}: #{args.issue} review by {args.reviewer} = {args.verdict}")
 
     # GitLab Issue note に自動投稿
@@ -229,68 +178,60 @@ def cmd_review(args):
 def cmd_commit(args):
     """commit hash を記録"""
     path = get_path(args.project)
-    data = load(path)
-    batch = data.get("batch", [])
-    done = []
-    for num in args.issue:
-        issue = find_issue(batch, num)
-        if not issue:
-            print(f"Issue #{num} not in batch", file=sys.stderr)
-            sys.exit(1)
-        issue["commit"] = args.hash
-        if args.session_id:
-            issue["cc_session_id"] = args.session_id
-        done.append(f"#{num}")
 
-    save(path, data)
-    print(f"{args.project}: commit={args.hash} ({', '.join(done)})")
+    def do_commit(data):
+        batch = data.get("batch", [])
+        for num in args.issue:
+            issue = find_issue(batch, num)
+            if not issue:
+                raise SystemExit(f"Issue #{num} not in batch")
+            issue["commit"] = args.hash
+            if args.session_id:
+                issue["cc_session_id"] = args.session_id
+
+    update_pipeline(path, do_commit)
+    done = ", ".join(f"#{n}" for n in args.issue)
+    print(f"{args.project}: commit={args.hash} ({done})")
 
 
 def cmd_plan_done(args):
     """設計完了フラグを設定"""
     path = get_path(args.project)
-    data = load(path)
-    state = data.get("state", "IDLE")
 
-    if state != "DESIGN_PLAN":
-        print(f"Not in DESIGN_PLAN state: {state}", file=sys.stderr)
-        sys.exit(1)
+    def do_plan_done(data):
+        state = data.get("state", "IDLE")
+        if state != "DESIGN_PLAN":
+            raise SystemExit(f"Not in DESIGN_PLAN state: {state}")
+        batch = data.get("batch", [])
+        for num in args.issue:
+            issue = find_issue(batch, num)
+            if not issue:
+                raise SystemExit(f"Issue #{num} not in batch")
+            issue["design_ready"] = True
 
-    batch = data.get("batch", [])
-    done = []
-    for num in args.issue:
-        issue = find_issue(batch, num)
-        if not issue:
-            print(f"Issue #{num} not in batch", file=sys.stderr)
-            sys.exit(1)
-        issue["design_ready"] = True
-        done.append(f"#{num}")
-
-    save(path, data)
-    print(f"{args.project}: design plan done ({', '.join(done)})")
+    update_pipeline(path, do_plan_done)
+    done = ", ".join(f"#{n}" for n in args.issue)
+    print(f"{args.project}: design plan done ({done})")
 
 
 def cmd_revise(args):
     """revised フラグを設定"""
     path = get_path(args.project)
-    data = load(path)
-    state = data.get("state", "IDLE")
 
-    if state == "DESIGN_REVISE":
-        flag = "design_revised"
-    elif state == "CODE_REVISE":
-        flag = "code_revised"
-    else:
-        print(f"Not in revise state: {state}", file=sys.stderr)
-        sys.exit(1)
+    def do_revise(data):
+        state = data.get("state", "IDLE")
+        if state == "DESIGN_REVISE":
+            flag = "design_revised"
+        elif state == "CODE_REVISE":
+            flag = "code_revised"
+        else:
+            raise SystemExit(f"Not in revise state: {state}")
+        issue = find_issue(data.get("batch", []), args.issue)
+        if not issue:
+            raise SystemExit(f"Issue #{args.issue} not in batch")
+        issue[flag] = True
 
-    issue = find_issue(data.get("batch", []), args.issue)
-    if not issue:
-        print(f"Issue #{args.issue} not in batch", file=sys.stderr)
-        sys.exit(1)
-
-    issue[flag] = True
-    save(path, data)
+    update_pipeline(path, do_revise)
     print(f"{args.project}: #{args.issue} marked as revised")
 
 

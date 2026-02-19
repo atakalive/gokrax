@@ -1,10 +1,11 @@
 """devbar config — 定数の一元管理"""
 
+import os
 from pathlib import Path
 from datetime import timezone, timedelta
 
-# パス
-PIPELINES_DIR = Path.home() / ".openclaw/shared/pipelines"
+# パス（テスト時は環境変数で上書き可能）
+PIPELINES_DIR = Path(os.environ["DEVBAR_PIPELINES_DIR"]) if "DEVBAR_PIPELINES_DIR" in os.environ else Path.home() / ".openclaw/shared/pipelines"
 DEVBAR_CLI = Path(__file__).parent / "devbar.py"
 GLAB_BIN = "/home/ataka/bin/glab"
 GATEWAY_TOKEN_PATH = Path.home() / ".openclaw/openclaw.json"

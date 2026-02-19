@@ -4,14 +4,19 @@
 watchdog.pyから呼ばれる。LLM不要。
 """
 
+import logging
 import subprocess
 import json
 from pathlib import Path
+
+import requests
 
 from config import (
     DEVBAR_CLI, DISCORD_CHANNEL, DISCORD_BOT_ACCOUNT, GATEWAY_TOKEN_PATH,
     AGENTS, REVIEWERS,
 )
+
+logger = logging.getLogger("devbar.notify")
 
 
 def send_to_agent(agent_id: str, message: str, timeout: int = 30) -> bool:
@@ -22,26 +27,48 @@ def send_to_agent(agent_id: str, message: str, timeout: int = 30) -> bool:
              "--timeout", str(timeout), "--json"],
             capture_output=True, text=True, timeout=timeout + 10,
         )
+        if result.returncode != 0:
+            logger.warning("agent send failed (rc=%d, agent=%s): %s",
+                          result.returncode, agent_id, result.stderr.strip())
         return result.returncode == 0
-    except Exception:
+    except subprocess.TimeoutExpired:
+        logger.warning("agent send timed out (agent=%s, timeout=%ds)", agent_id, timeout)
+        return False
+    except FileNotFoundError:
+        logger.error("openclaw CLI not found in PATH")
         return False
 
 
 def get_bot_token() -> str | None:
-    """Discord bot token取得（config.DISCORD_BOT_ACCOUNT）。"""
+    """Discord bot token取得。失敗時はログ出力してNone返却。"""
     import re
     try:
         text = GATEWAY_TOKEN_PATH.read_text()
-        text = re.sub(r',\s*([}\]])', r'\1', text)  # trailing comma対策
+    except FileNotFoundError:
+        logger.error("Gateway config not found: %s", GATEWAY_TOKEN_PATH)
+        return None
+    except OSError as e:
+        logger.error("Cannot read gateway config: %s", e)
+        return None
+
+    # trailing comma 除去
+    text = re.sub(r',\s*([}\]])', r'\1', text)
+
+    try:
         data = json.loads(text)
+    except json.JSONDecodeError as e:
+        logger.error("Invalid JSON in gateway config: %s", e)
+        return None
+
+    try:
         return data["channels"]["discord"]["accounts"][DISCORD_BOT_ACCOUNT]["token"]
-    except Exception:
+    except KeyError as e:
+        logger.error("Discord bot token key not found: %s (account=%s)", e, DISCORD_BOT_ACCOUNT)
         return None
 
 
 def post_discord(channel_id: str, content: str) -> bool:
     """Discord APIでメッセージ投稿。"""
-    import requests
     token = get_bot_token()
     if not token:
         return False
@@ -52,8 +79,11 @@ def post_discord(channel_id: str, content: str) -> bool:
             json={"content": content},
             timeout=10,
         )
+        if resp.status_code not in (200, 201):
+            logger.warning("Discord post failed (status=%d): %s", resp.status_code, resp.text[:200])
         return resp.status_code in (200, 201)
-    except Exception:
+    except requests.RequestException as e:
+        logger.warning("Discord post error: %s", e)
         return False
 
 

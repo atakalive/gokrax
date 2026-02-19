@@ -38,8 +38,18 @@ def count_reviews(batch: list, key: str) -> tuple:
 
 
 def clear_reviews(batch: list, key: str, revised_key: str):
+    """P0/REJECTが付いたIssueのレビューのみクリアする。
+    APPROVE/P1のIssueはレビュー結果を保持。
+    revised_key は全Issueから削除（次のREVISEサイクル用）。
+    """
     for issue in batch:
-        issue[key] = {}
+        reviews = issue.get(key, {})
+        has_p0 = any(
+            r.get("verdict", "").upper() in ("REJECT", "P0")
+            for r in reviews.values()
+        )
+        if has_p0:
+            issue[key] = {}
         issue.pop(revised_key, None)
 
 

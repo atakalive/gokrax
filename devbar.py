@@ -125,9 +125,13 @@ def cmd_transition(args):
         target = args.to
         if target not in VALID_STATES:
             raise SystemExit(f"Invalid state: {target}")
-        allowed = VALID_TRANSITIONS.get(current, [])
-        if target not in allowed:
-            raise SystemExit(f"Invalid transition: {current} → {target} (allowed: {allowed})")
+        if not args.force:
+            allowed = VALID_TRANSITIONS.get(current, [])
+            if target not in allowed:
+                raise SystemExit(
+                    f"Invalid transition: {current} → {target} (allowed: {allowed}). "
+                    f"Use --force to override."
+                )
         add_history(data, current, target, args.actor or "cli")
         data["state"] = target
         if target == "IDLE":
@@ -135,7 +139,8 @@ def cmd_transition(args):
             data["enabled"] = False
 
     update_pipeline(path, do_transition)
-    print(f"{args.project}: {args.to}")
+    suffix = " [FORCED]" if args.force else ""
+    print(f"{args.project}: {args.to}{suffix}")
 
 
 def cmd_review(args):
@@ -271,6 +276,7 @@ def main():
     p.add_argument("--project", required=True)
     p.add_argument("--to", required=True)
     p.add_argument("--actor", default="cli")
+    p.add_argument("--force", action="store_true", default=False, help="遷移バリデーションをスキップ（BLOCKED遷移等）")
 
     # review
     p = sub.add_parser("review", help="レビュー結果記録")

@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config import (
     PIPELINES_DIR, GLAB_BIN,
     VALID_STATES, VALID_TRANSITIONS, MAX_BATCH, TRIAGE_ALLOWED_STATES,
-    VALID_VERDICTS, GLAB_TIMEOUT,
+    VALID_VERDICTS, GLAB_TIMEOUT, ALLOWED_REVIEWERS,
 )
 from pipeline_io import (
     load_pipeline, save_pipeline, update_pipeline,
@@ -282,7 +282,7 @@ def main():
     p = sub.add_parser("review", help="レビュー結果記録")
     p.add_argument("--project", required=True)
     p.add_argument("--issue", type=int, required=True)
-    p.add_argument("--reviewer", required=True)
+    p.add_argument("--reviewer", required=True, choices=ALLOWED_REVIEWERS)
     p.add_argument("--verdict", required=True, choices=VALID_VERDICTS)
     p.add_argument("--summary", default="")
 

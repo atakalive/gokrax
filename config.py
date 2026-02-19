@@ -66,3 +66,5 @@ AGENTS = {
 }
 
 REVIEWERS = ["pascal", "leibniz", "hanfei", "dijkstra"]
+
+ALLOWED_REVIEWERS = list(AGENTS.keys())

@@ -150,12 +150,12 @@ class TestFormatReviewRequest:
 
 class TestNotifyImplementer:
 
-    def test_known_agent_sends_with_session_key(self):
-        """notify_implementer('kaneko', ...) → send_to_agent が 'agent:kaneko:main' で呼ばれること。"""
+    def test_known_agent_sends_with_agent_id(self):
+        """notify_implementer('kaneko', ...) → send_to_agent が agentId 'kaneko' で呼ばれること。"""
         import notify
         with patch("notify.send_to_agent") as mock_send:
             notify.notify_implementer("kaneko", "test message")
-        mock_send.assert_called_once_with("agent:kaneko:main", "test message")
+        mock_send.assert_called_once_with("kaneko", "test message")
 
     def test_unknown_agent_logs_error_no_send(self, caplog):
         """未知のキー → logger.error が呼ばれ、send_to_agent は呼ばれないこと。"""
@@ -177,8 +177,8 @@ class TestNotifyReviewers:
             "cc_session_id": None, "added_at": "",
         }
 
-    def test_each_reviewer_uses_session_key(self):
-        """notify_reviewers → 各レビュアーの session key で send_to_agent が呼ばれること。"""
+    def test_each_reviewer_uses_agent_id(self):
+        """notify_reviewers → 各レビュアーの agentId で send_to_agent が呼ばれること。"""
         import notify
         import config
         batch = [self._make_batch_item(1)]
@@ -187,9 +187,8 @@ class TestNotifyReviewers:
 
         called_agents = [c.args[0] for c in mock_send.call_args_list]
         for r in config.REVIEWERS:
-            expected_key = config.AGENTS[r]
-            assert expected_key in called_agents, \
-                f"{r} の session key {expected_key} が send_to_agent に渡されていない"
+            assert r in called_agents, \
+                f"{r} が send_to_agent に渡されていない"
 
     def test_unknown_reviewer_logs_error_and_continues(self, caplog, monkeypatch):
         """未知のレビュアーはスキップされ、既知のレビュアーには送信が継続されること。"""
@@ -210,6 +209,6 @@ class TestNotifyReviewers:
         assert "Unknown reviewer" in caplog.text
         # 既知の pascal には送信される
         called_agents = [c.args[0] for c in mock_send.call_args_list]
-        assert "agent:pascal:main" in called_agents
+        assert "pascal" in called_agents
         # unknown_reviewer には送信されない
         assert len(called_agents) == 1

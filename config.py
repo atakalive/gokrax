@@ -13,7 +13,11 @@ LOG_FILE = Path("/tmp/devbar-watchdog.log")
 
 # Discord
 DISCORD_CHANNEL = "1474050582049329213"  # #dev-bar
-DISCORD_BOT_ACCOUNT = "kaneko-bot"  # 金子さんの発言として投稿
+DISCORD_BOT_ACCOUNT = "kaneko-discord"  # 金子さんの発言として投稿
+
+# CC model
+CC_MODEL_PLAN = "opus"     # DESIGN_PLAN フェーズ
+CC_MODEL_IMPL = "sonnet"   # IMPLEMENTATION フェーズ
 
 # タイムゾーン
 JST = timezone(timedelta(hours=9))
@@ -68,3 +72,9 @@ AGENTS = {
 REVIEWERS = ["pascal", "leibniz", "hanfei", "dijkstra"]
 
 ALLOWED_REVIEWERS = list(AGENTS.keys())
+
+# 非アクティブ判定 (秒)
+INACTIVE_THRESHOLD_SEC = 81
+
+# エージェントセッションストアのベースパス
+SESSIONS_BASE = Path.home() / ".openclaw/agents"

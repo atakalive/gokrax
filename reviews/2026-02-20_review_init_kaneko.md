@@ -3,7 +3,7 @@
 **日付:** 2026-02-20
 **レビュアー:** Kaneko AI (kaneko)
 **対象:** spec.md (v0.6), config.py, devbar.py, watchdog.py, notify.py
-**Verdict: P0**（致命的バグ2件。修正後に再レビューしたい）
+**Verdict: P0 → APPROVE** (再レビュー: P0-1, P0-2 修正確認済み `7e836c5`、Y1/Y4/Y7も対応済み)
 
 ---
 

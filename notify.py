@@ -12,7 +12,7 @@ from pathlib import Path
 import requests
 
 from config import (
-    DEVBAR_CLI, DISCORD_CHANNEL, DISCORD_BOT_ACCOUNT, GATEWAY_TOKEN_PATH,
+    DEVBAR_CLI, GLAB_BIN, DISCORD_CHANNEL, DISCORD_BOT_ACCOUNT, GATEWAY_TOKEN_PATH,
     AGENTS, REVIEWERS,
     AGENT_SEND_TIMEOUT, DISCORD_POST_TIMEOUT,
 )
@@ -89,22 +89,20 @@ def post_discord(channel_id: str, content: str) -> bool:
 
 
 def notify_implementer(agent_id: str, message: str):
-    session_key = AGENTS.get(agent_id)
-    if not session_key:
+    if agent_id not in AGENTS:
         logger.error("Unknown agent: %s", agent_id)
         return
-    send_to_agent(session_key, message)
+    send_to_agent(agent_id, message)
 
 
 def notify_reviewers(project: str, state: str, batch: list, gitlab: str):
     """各レビュアーに個別のコマンド入りメッセージを送信。"""
     for r in REVIEWERS:
-        session_key = AGENTS.get(r)
-        if not session_key:
+        if r not in AGENTS:
             logger.error("Unknown reviewer: %s", r)
             continue
         msg = format_review_request(project, state, batch, gitlab, reviewer=r)
-        send_to_agent(session_key, msg)
+        send_to_agent(r, msg)
 
 
 def notify_discord(message: str):
@@ -121,7 +119,7 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
         title = i.get("title", "")
         commit = i.get("commit")
         commit_str = f"  commit: {commit}" if commit else ""
-        url = f"https://gitlab.com/{gitlab}/-/issues/{num}"
+        glab_show = f"{GLAB_BIN} issue show {num} -R {gitlab}"
         cmd = (
             f"python3 {DEVBAR_CLI} review \\\n"
             f"  --project {project} \\\n"
@@ -132,7 +130,7 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
         )
         sections.append(
             f"### #{num}: {title}\n"
-            f"{url}\n"
+            f"Issue取得: `{glab_show}`\n"
             f"{commit_str}\n\n"
             f"```\n{cmd}\n```"
         )
@@ -142,4 +140,16 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
         f"[devbar] {project}: {phase}レビュー依頼\n\n"
         f"{body}\n\n"
         f"verdict: APPROVE / P0 / P1 から選択。summaryにレビュー本文を書いてください。"
+    )
+
+def format_impl_instruction(project: str, batch: list, gitlab: str) -> str:
+    """実装指示メッセージを生成（CC モデル指定付き）。"""
+    from config import CC_MODEL_PLAN, CC_MODEL_IMPL
+    issues = ", ".join(f"#{i['issue']}" for i in batch)
+    return (
+        f"[devbar] {project}: 実装フェーズ開始\n\n"
+        f"対象Issue: {issues}\n"
+        f"GitLab: https://gitlab.com/{gitlab}\n\n"
+        f"CC Plan: `claude --model {CC_MODEL_PLAN}` (設計確認)\n"
+        f"CC Impl: `claude --model {CC_MODEL_IMPL}` (実装)\n"
     )

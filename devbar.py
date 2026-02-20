@@ -5,12 +5,14 @@ pipeline JSONの唯一の操作インターフェース。直接JSON編集禁止
 """
 
 import argparse
+import subprocess
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config import (
-    PIPELINES_DIR, GLAB_BIN,
+    PIPELINES_DIR, GLAB_BIN, LOG_FILE,
     VALID_STATES, VALID_TRANSITIONS, MAX_BATCH, TRIAGE_ALLOWED_STATES,
     VALID_VERDICTS, GLAB_TIMEOUT, ALLOWED_REVIEWERS,
 )
@@ -143,6 +145,34 @@ def cmd_transition(args):
     print(f"{args.project}: {args.to}{suffix}")
 
 
+def _log(msg: str) -> None:
+    """LOG_FILE にメッセージを追記。失敗は無視。"""
+    try:
+        with open(LOG_FILE, "a") as f:
+            f.write(f"{now_iso()} {msg}\n")
+    except Exception:
+        pass
+
+
+def _post_gitlab_note(gitlab: str, issue_num: int, body: str) -> bool:
+    """glab issue note を投稿。失敗時は2回リトライ（間隔2秒）。"""
+    for attempt in range(3):
+        try:
+            result = subprocess.run(
+                [GLAB_BIN, "issue", "note", str(issue_num), "-m", body, "-R", gitlab],
+                capture_output=True, text=True, timeout=GLAB_TIMEOUT,
+            )
+            if result.returncode == 0:
+                return True
+            _log(f"glab note failed (attempt {attempt+1}/3): {result.stderr.strip()}")
+        except Exception as e:
+            _log(f"glab note error (attempt {attempt+1}/3): {e}")
+        if attempt < 2:
+            time.sleep(2)
+    print("  ⚠ GitLab note failed after 3 attempts", file=sys.stderr)
+    return False
+
+
 def cmd_review(args):
     """レビュー結果を記録（pipeline JSON + GitLab Issue note）"""
     path = get_path(args.project)
@@ -171,19 +201,8 @@ def cmd_review(args):
     gitlab = data.get("gitlab", f"atakalive/{args.project}")
     phase = "設計" if "DESIGN" in state else "コード"
     note_body = f"[{args.reviewer}] {args.verdict} ({phase}レビュー)\n\n{args.summary or ''}"
-    try:
-        import subprocess
-        result = subprocess.run(
-            [GLAB_BIN, "issue", "note", str(args.issue), "-m", note_body,
-             "-R", gitlab],
-            capture_output=True, text=True, timeout=GLAB_TIMEOUT,
-        )
-        if result.returncode == 0:
-            print(f"  → GitLab issue note posted")
-        else:
-            print(f"  ⚠ GitLab note failed: {result.stderr.strip()}", file=sys.stderr)
-    except Exception as e:
-        print(f"  ⚠ GitLab note error: {e}", file=sys.stderr)
+    if _post_gitlab_note(gitlab, args.issue, note_body):
+        print("  → GitLab issue note posted")
 
 
 def cmd_commit(args):

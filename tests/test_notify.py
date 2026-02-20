@@ -65,8 +65,9 @@ class TestSendToAgent:
 
     def test_openclaw_not_found(self, caplog):
         import notify
-        with caplog.at_level(logging.ERROR, logger="devbar.notify"):
-            result = notify.send_to_agent("test-agent", "hello")
+        with patch("notify.subprocess.run", side_effect=FileNotFoundError("openclaw")):
+            with caplog.at_level(logging.ERROR, logger="devbar.notify"):
+                result = notify.send_to_agent("test-agent", "hello")
         assert result is False
         assert "openclaw CLI not found" in caplog.text
 

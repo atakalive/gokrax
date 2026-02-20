@@ -248,6 +248,12 @@ def cmd_revise(args):
     """revised フラグを設定"""
     path = get_path(args.project)
 
+    if args.comment:
+        data = load_pipeline(path)
+        gitlab = data.get("gitlab", f"atakalive/{args.project}")
+        if not _post_gitlab_note(gitlab, args.issue, args.comment):
+            sys.exit(1)
+
     def do_revise(data):
         state = data.get("state", "IDLE")
         if state == "DESIGN_REVISE":
@@ -321,6 +327,7 @@ def main():
     p = sub.add_parser("revise", help="revisedフラグ設定")
     p.add_argument("--project", required=True)
     p.add_argument("--issue", type=int, required=True)
+    p.add_argument("--comment", default=None, help="GitLab issue note（省略可）")
 
     args = parser.parse_args()
     if not args.command:

@@ -22,7 +22,7 @@ from pipeline_io import (
     add_history, now_iso, get_path, find_issue,
 )
 from watchdog import get_notification_for_state
-from notify import notify_implementer, notify_reviewers
+from notify import notify_implementer, notify_reviewers, notify_discord
 
 
 # === Commands ===
@@ -178,6 +178,12 @@ def cmd_transition(args):
         notify_implementer(implementer, f"[devbar] {pj}: {prefix}{notif.impl_msg}")
     if notif.send_review:
         notify_reviewers(pj, args.to, batch, gitlab, repo_path=repo_path)
+
+    # Discord 通知
+    history = data.get("history", [])
+    current = history[-1].get("from", "?") if history else "?"
+    actor = args.actor or "cli"
+    notify_discord(f"[{pj}] {prefix}{current} → {args.to} (by {actor})")
 
 
 def _log(msg: str) -> None:

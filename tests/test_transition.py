@@ -177,7 +177,62 @@ class TestTransitionNotifications:
             project="test-pj", to="DESIGN_PLAN", actor="cli", force=False, resume=False,
         )
         with patch("devbar.notify_implementer") as mock_impl, \
-             patch("devbar.notify_reviewers") as mock_rev:
+             patch("devbar.notify_reviewers") as mock_rev, \
+             patch("devbar.notify_discord"):
             cmd_transition(args)
         mock_impl.assert_not_called()
         mock_rev.assert_not_called()
+
+    def test_transition_notifies_discord(self, tmp_pipelines, sample_pipeline):
+        """通常遷移で notify_discord が [pj] current → target (by actor) 形式で呼ばれること"""
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, sample_pipeline)
+        from devbar import cmd_transition
+        args = argparse.Namespace(
+            project="test-pj", to="DESIGN_PLAN", actor="cli", force=False, resume=False,
+        )
+        with patch("devbar.notify_implementer"), \
+             patch("devbar.notify_reviewers"), \
+             patch("devbar.notify_discord") as mock_discord:
+            cmd_transition(args)
+        mock_discord.assert_called_once()
+        msg = mock_discord.call_args[0][0]
+        assert "[test-pj]" in msg
+        assert "IDLE" in msg
+        assert "DESIGN_PLAN" in msg
+        assert "by cli" in msg
+        assert "（再開）" not in msg
+
+    def test_force_notifies_discord(self, tmp_pipelines, sample_pipeline):
+        """--force 遷移でも notify_discord が呼ばれること"""
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, sample_pipeline)
+        from devbar import cmd_transition
+        args = argparse.Namespace(
+            project="test-pj", to="CODE_REVIEW", actor="M", force=True, resume=False,
+        )
+        with patch("devbar.notify_implementer"), \
+             patch("devbar.notify_reviewers"), \
+             patch("devbar.notify_discord") as mock_discord:
+            cmd_transition(args)
+        mock_discord.assert_called_once()
+        msg = mock_discord.call_args[0][0]
+        assert "CODE_REVIEW" in msg
+        assert "by M" in msg
+
+    def test_resume_notifies_discord_with_prefix(self, tmp_pipelines, sample_pipeline):
+        """--resume 遷移で通知文に「（再開）」が含まれること"""
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, sample_pipeline)
+        from devbar import cmd_transition
+        args = argparse.Namespace(
+            project="test-pj", to="DESIGN_PLAN", actor="cli", force=False, resume=True,
+        )
+        with patch("devbar.notify_implementer"), \
+             patch("devbar.notify_reviewers"), \
+             patch("devbar.notify_discord") as mock_discord:
+            cmd_transition(args)
+        mock_discord.assert_called_once()
+        msg = mock_discord.call_args[0][0]
+        assert "（再開）" in msg
+        assert "DESIGN_PLAN" in msg

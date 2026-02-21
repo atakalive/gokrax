@@ -12,7 +12,7 @@ GATEWAY_TOKEN_PATH = Path.home() / ".openclaw/openclaw.json"
 LOG_FILE = Path("/tmp/devbar-watchdog.log")
 
 # Discord
-DISCORD_CHANNEL = "1474050582049329213"  # #dev-bar
+DISCORD_CHANNEL = "1474050582049329213"  # #dev-bar channel ID
 DISCORD_BOT_ACCOUNT = "kaneko-discord"  # 金子さんの発言として投稿
 
 # CC model
@@ -70,6 +70,13 @@ AGENTS = {
 }
 
 REVIEWERS = ["pascal", "leibniz", "hanfei", "dijkstra"]
+
+# 段階別レビュアー設定
+DESIGN_REVIEWERS = ["pascal", "leibniz", "hanfei", "dijkstra"]
+CODE_REVIEWERS = ["pascal", "leibniz", "hanfei"]
+
+DESIGN_MIN_REVIEWS = 3
+CODE_MIN_REVIEWS = 2
 
 ALLOWED_REVIEWERS = list(AGENTS.keys())
 

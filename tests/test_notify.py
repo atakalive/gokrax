@@ -196,9 +196,9 @@ class TestNotifyReviewers:
         import config
         import logging
 
-        # REVIEWERS に未知のキーを混入
-        monkeypatch.setattr(config, "REVIEWERS", ["pascal", "unknown_reviewer"])
-        monkeypatch.setattr(notify, "REVIEWERS", ["pascal", "unknown_reviewer"])
+        # CODE_REVIEWERS に未知のキーを混入（CODE_REVIEW状態で使われる）
+        monkeypatch.setattr(config, "CODE_REVIEWERS", ["pascal", "unknown_reviewer"])
+        monkeypatch.setattr(notify, "CODE_REVIEWERS", ["pascal", "unknown_reviewer"])
 
         batch = [self._make_batch_item(1)]
         with patch("notify.send_to_agent") as mock_send:

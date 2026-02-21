@@ -13,7 +13,7 @@ import requests
 
 from config import (
     DEVBAR_CLI, GLAB_BIN, DISCORD_CHANNEL, DISCORD_BOT_ACCOUNT, GATEWAY_TOKEN_PATH,
-    AGENTS, REVIEWERS,
+    AGENTS, REVIEWERS, DESIGN_REVIEWERS, CODE_REVIEWERS,
     AGENT_SEND_TIMEOUT, DISCORD_POST_TIMEOUT,
 )
 
@@ -98,7 +98,8 @@ def notify_implementer(agent_id: str, message: str):
 def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
                      repo_path: str = ""):
     """各レビュアーに個別のコマンド入りメッセージを送信。"""
-    for r in REVIEWERS:
+    reviewers = DESIGN_REVIEWERS if "DESIGN" in state else CODE_REVIEWERS
+    for r in reviewers:
         if r not in AGENTS:
             logger.error("Unknown reviewer: %s", r)
             continue

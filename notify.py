@@ -11,6 +11,7 @@ from pathlib import Path
 
 import requests
 
+import config
 from config import (
     DEVBAR_CLI, GLAB_BIN, DISCORD_CHANNEL, DISCORD_BOT_ACCOUNT, GATEWAY_TOKEN_PATH,
     AGENTS, REVIEWERS, DESIGN_REVIEWERS, CODE_REVIEWERS,
@@ -22,6 +23,9 @@ logger = logging.getLogger("devbar.notify")
 
 def send_to_agent(agent_id: str, message: str, timeout: int = AGENT_SEND_TIMEOUT) -> bool:
     """openclaw agent CLIでメッセージ送信。"""
+    if config.DRY_RUN:
+        logger.info("[dry-run] send_to_agent skipped (agent=%s)", agent_id)
+        return True
     try:
         result = subprocess.run(
             ["openclaw", "agent", "--agent", agent_id, "--message", message,
@@ -70,6 +74,9 @@ def get_bot_token() -> str | None:
 
 def post_discord(channel_id: str, content: str) -> str | None:
     """Discord APIでメッセージ投稿。成功時はmessage_id、失敗時はNone。"""
+    if config.DRY_RUN:
+        logger.info("[dry-run] post_discord skipped (channel=%s)", channel_id)
+        return None
     token = get_bot_token()
     if not token:
         return None
@@ -180,10 +187,10 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
             "- 設計レビューで承認された仕様通りに実装されているか\n"
             "- バグ、エッジケース、型ヒントの欠落\n"
             "- テストがあれば妥当性を確認\n\n"
-            "verdict: APPROVE / P0 / P1 から選択。summaryにレビュー本文を書いてください。"
+            "verdict: APPROVE / P0 / P1 から選択。summaryにレビュー本文を書き、devbarに送信してください。"
         )
     else:
-        guidance = "verdict: APPROVE / P0 / P1 から選択。summaryにレビュー本文を書いてください。"
+        guidance = "verdict: APPROVE / P0 / P1 から選択。summaryにレビュー本文を書き、devbarに送信してください。"
 
     return f"[devbar] {project}: {phase}レビュー依頼\n\n{body}\n\n{guidance}"
 

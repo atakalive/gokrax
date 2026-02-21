@@ -4,6 +4,8 @@ import os
 from pathlib import Path, PurePosixPath
 from datetime import timezone, timedelta
 
+DRY_RUN: bool = os.environ.get("DEVBAR_DRY_RUN", "").strip() not in ("", "0", "false")
+
 # パス（テスト時は環境変数で上書き可能）
 PIPELINES_DIR = Path(os.environ["DEVBAR_PIPELINES_DIR"]) if "DEVBAR_PIPELINES_DIR" in os.environ else Path.home() / ".openclaw/shared/pipelines"
 DEVBAR_CLI = PurePosixPath("/home/ataka/.openclaw/shared/bin/devbar")

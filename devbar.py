@@ -141,6 +141,9 @@ def cmd_triage(args):
 
 def cmd_transition(args):
     """状態遷移（バリデーション付き）"""
+    import config as _cfg
+    if getattr(args, "dry_run", False):
+        _cfg.DRY_RUN = True
     path = get_path(args.project)
     resume = getattr(args, "resume", False)
 
@@ -380,6 +383,8 @@ def main():
     p.add_argument("--actor", default="cli")
     p.add_argument("--force", action="store_true", default=False, help="遷移バリデーションをスキップ（BLOCKED遷移等）")
     p.add_argument("--resume", action="store_true", default=False, help="バリデーションスキップ + 「（再開）」プレフィックス付き通知")
+    p.add_argument("--dry-run", action="store_true", default=False, dest="dry_run",
+                   help="通知をスキップ（テスト用）")
 
     # review
     p = sub.add_parser("review", help="レビュー結果記録")

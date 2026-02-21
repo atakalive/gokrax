@@ -104,6 +104,45 @@ class TestCmdMergeSummary:
         assert "abc123" in content
 
 
+    def test_merge_summary_content_contains_footer(self, tmp_pipelines):
+        """投稿内容に MERGE_SUMMARY_FOOTER が含まれること"""
+        from config import MERGE_SUMMARY_FOOTER
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, _make_pipeline())
+        from devbar import cmd_merge_summary
+        args = argparse.Namespace(project="test-pj")
+        posted_content = []
+        def mock_post(channel_id, content):
+            posted_content.append(content)
+            return "msg-id-999"
+        with patch("notify.post_discord", side_effect=mock_post):
+            cmd_merge_summary(args)
+        assert MERGE_SUMMARY_FOOTER.strip() in posted_content[0]
+
+    def test_merge_summary_multi_issue_batch(self, tmp_pipelines):
+        """複数Issue batch でそれぞれのIssue番号が含まれること"""
+        data = _make_pipeline()
+        data["batch"].append({
+            "issue": 2, "title": "Add feature", "commit": "def456",
+            "cc_session_id": None, "design_reviews": {}, "code_reviews": {},
+            "added_at": "2025-01-01T00:00:00+09:00",
+        })
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, data)
+        from devbar import cmd_merge_summary
+        args = argparse.Namespace(project="test-pj")
+        posted_content = []
+        def mock_post(channel_id, content):
+            posted_content.append(content)
+            return "msg-id-999"
+        with patch("notify.post_discord", side_effect=mock_post):
+            cmd_merge_summary(args)
+        content = posted_content[0]
+        assert "#1" in content
+        assert "#2" in content
+        assert "def456" in content
+
+
 class TestWatchdogMergeSummary:
 
     M_ID = "1469758184456589550"

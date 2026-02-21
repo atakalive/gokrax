@@ -228,3 +228,72 @@ class TestNotifyReviewers:
         assert "pascal" in called_agents
         # unknown_reviewer には送信されない
         assert len(called_agents) == 1
+
+
+class TestFetchDiscordReplies:
+    """fetch_discord_replies のテスト（#18）"""
+
+    def test_no_token_returns_empty(self):
+        import notify
+        with patch.object(notify, "get_bot_token", return_value=None):
+            result = notify.fetch_discord_replies("123456", "999")
+        assert result == []
+
+    def test_success_returns_messages(self):
+        import notify
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = [
+            {"id": "1001", "content": "ok", "author": {"id": "user1"}},
+            {"id": "1002", "content": "lgtm", "author": {"id": "user2"}},
+        ]
+        with patch.object(notify, "get_bot_token", return_value="fake-token"):
+            with patch("notify.requests.get", return_value=mock_resp):
+                result = notify.fetch_discord_replies("123456", "999")
+        assert len(result) == 2
+        assert result[0]["id"] == "1001"
+
+    def test_4xx_returns_empty(self, caplog):
+        import notify
+        mock_resp = MagicMock()
+        mock_resp.status_code = 404
+        with patch.object(notify, "get_bot_token", return_value="fake-token"):
+            with patch("notify.requests.get", return_value=mock_resp):
+                with caplog.at_level(logging.WARNING, logger="devbar.notify"):
+                    result = notify.fetch_discord_replies("123456", "999")
+        assert result == []
+        assert "Discord fetch failed" in caplog.text
+
+    def test_request_exception_returns_empty(self, caplog):
+        import notify
+        import requests
+        with patch.object(notify, "get_bot_token", return_value="fake-token"):
+            with patch("notify.requests.get", side_effect=requests.ConnectionError("refused")):
+                with caplog.at_level(logging.WARNING, logger="devbar.notify"):
+                    result = notify.fetch_discord_replies("123456", "999")
+        assert result == []
+        assert "Discord fetch error" in caplog.text
+
+    def test_passes_after_param(self):
+        """after パラメータが正しく渡されること"""
+        import notify
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = []
+        with patch.object(notify, "get_bot_token", return_value="fake-token"):
+            with patch("notify.requests.get", return_value=mock_resp) as mock_get:
+                notify.fetch_discord_replies("ch123", "msg456")
+        _, kwargs = mock_get.call_args
+        assert kwargs["params"]["after"] == "msg456"
+        assert kwargs["params"]["limit"] == 50
+
+
+class TestNotifyDiscord:
+    """notify_discord のテスト（#19）"""
+
+    def test_calls_post_discord_with_channel(self):
+        import notify
+        import config
+        with patch.object(notify, "post_discord", return_value="msg-id") as mock_post:
+            notify.notify_discord("test message")
+        mock_post.assert_called_once_with(config.DISCORD_CHANNEL, "test message")

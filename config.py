@@ -93,3 +93,6 @@ M_DISCORD_USER_ID = "1469758184456589550"
 
 # マージサマリーのフッター
 MERGE_SUMMARY_FOOTER = "\n---\n✅ このメッセージに「OK」とリプライすると、マージが実行されます。"
+
+# グローバル状態ファイル（PJ 間セッション管理用）
+DEVBAR_STATE_PATH = PIPELINES_DIR / "devbar-state.json"

@@ -23,7 +23,7 @@ from pipeline_io import (
     add_history, now_iso, get_path, find_issue,
 )
 from watchdog import get_notification_for_state
-from notify import notify_implementer, notify_reviewers, notify_discord
+from notify import notify_implementer, notify_reviewers, notify_discord, send_to_agent
 
 
 # === Commands ===
@@ -94,6 +94,7 @@ def cmd_enable(args):
         data["enabled"] = True
 
     update_pipeline(path, do_enable)
+    _maybe_reset_reviewers(args.project)
     print(f"{args.project}: watchdog enabled")
 
 
@@ -167,6 +168,8 @@ def cmd_transition(args):
             data["enabled"] = False
 
     data = update_pipeline(path, do_transition)
+    if args.force or getattr(args, "resume", False):
+        _maybe_reset_reviewers(args.project)
     suffix = " [RESUME]" if resume else (" [FORCED]" if args.force else "")
     print(f"{args.project}: {args.to}{suffix}")
 
@@ -197,6 +200,35 @@ def _log(msg: str) -> None:
             f.write(f"{now_iso()} {msg}\n")
     except Exception:
         pass
+
+
+def _maybe_reset_reviewers(project: str) -> None:
+    """PJ 変更時にレビュアー全員へ /new を送信してセッションリセット。"""
+    import config as _cfg
+    import json as _json
+
+    state_path = _cfg.DEVBAR_STATE_PATH
+    try:
+        saved = _json.loads(state_path.read_text())
+    except FileNotFoundError:
+        saved = {}
+    except Exception as e:
+        print(f"WARNING: devbar-state.json read error: {e}", file=sys.stderr)
+        saved = {}
+
+    last_project = saved.get("last_project")
+    if last_project is not None and last_project != project:
+        reviewers = list(dict.fromkeys(_cfg.DESIGN_REVIEWERS + _cfg.CODE_REVIEWERS))
+        for r in reviewers:
+            if not send_to_agent(r, "/new"):
+                print(f"WARNING: reviewer session reset failed: {r}", file=sys.stderr)
+
+    saved["last_project"] = project
+    try:
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        state_path.write_text(_json.dumps(saved))
+    except Exception as e:
+        print(f"WARNING: devbar-state.json write error: {e}", file=sys.stderr)
 
 
 def _post_gitlab_note(gitlab: str, issue_num: int, body: str) -> bool:

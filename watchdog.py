@@ -17,7 +17,7 @@ from pathlib import Path
 from datetime import datetime
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from config import PIPELINES_DIR, JST, LOG_FILE, MIN_REVIEWS, CC_MODEL_PLAN, CC_MODEL_IMPL, DEVBAR_CLI, INACTIVE_THRESHOLD_SEC, SESSIONS_BASE, REVIEWERS
+from config import PIPELINES_DIR, JST, LOG_FILE, MIN_REVIEWS, DESIGN_MIN_REVIEWS, CODE_MIN_REVIEWS, CC_MODEL_PLAN, CC_MODEL_IMPL, DEVBAR_CLI, INACTIVE_THRESHOLD_SEC, SESSIONS_BASE, REVIEWERS, DESIGN_REVIEWERS, CODE_REVIEWERS
 from datetime import datetime as _datetime
 import json as _json
 from pipeline_io import (
@@ -115,6 +115,37 @@ def _check_nudge(state: str, data: dict) -> TransitionAction | None:
     return TransitionAction(nudge=state)
 
 
+def get_notification_for_state(
+    state: str,
+    project: str = "",
+    batch: list | None = None,
+    gitlab: str = "",
+    implementer: str = "",
+) -> TransitionAction:
+    """遷移先状態に対応する通知内容を返す (impl_msg / send_review のみ設定)。
+
+    check_transition() と cmd_transition() の両方から呼ばれる共通ロジック。
+    通知不要な状態は TransitionAction() を返す。
+    """
+    if state in ("DESIGN_REVIEW", "CODE_REVIEW"):
+        return TransitionAction(send_review=True)
+    if state in ("DESIGN_REVISE", "CODE_REVISE"):
+        return TransitionAction(impl_msg="レビューにP0あり。修正してください。")
+    if state == "DESIGN_APPROVED":
+        msg = (
+            f"設計レビュー通過。あなた（実装担当）がClaude Codeで実装してください。\n"
+            f"CC Plan: `claude --model {CC_MODEL_PLAN}` で設計確認\n"
+            f"CC Impl: `claude --model {CC_MODEL_IMPL}` で実装\n"
+            f"実装完了後: `python3 {DEVBAR_CLI} commit --project <project> --issue N --hash <commit>`"
+        )
+        return TransitionAction(impl_msg=msg)
+    if state == "CODE_APPROVED":
+        return TransitionAction(impl_msg="コードレビュー通過。Mにサマリーを送ってください。")
+    if state == "IDLE":
+        return TransitionAction(impl_msg="バッチ完了。watchdog無効化しました。")
+    return TransitionAction()
+
+
 def check_transition(state: str, batch: list, data: dict | None = None) -> TransitionAction:
     """現在の状態とバッチから次の遷移アクションを決定する純粋関数。副作用なし。"""
     if state in ("IDLE", "TRIAGE", "MERGE_SUMMARY_SENT", "DESIGN_APPROVED", "BLOCKED"):
@@ -123,7 +154,7 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
     if state == "DONE":
         return TransitionAction(
             new_state="IDLE",
-            impl_msg="バッチ完了。watchdog無効化しました。",
+            impl_msg=get_notification_for_state("IDLE").impl_msg,
         )
 
     if not batch:
@@ -138,24 +169,20 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
     if state in ("DESIGN_REVIEW", "CODE_REVIEW"):
         key = "design_reviews" if "DESIGN" in state else "code_reviews"
         count, has_p0 = count_reviews(batch, key)
-        if count >= MIN_REVIEWS:
+        min_rev = DESIGN_MIN_REVIEWS if "DESIGN" in state else CODE_MIN_REVIEWS
+        if count >= min_rev:
             if has_p0:
                 rev = "DESIGN_REVISE" if "DESIGN" in state else "CODE_REVISE"
                 return TransitionAction(
                     new_state=rev,
-                    impl_msg="レビューにP0あり。修正してください。",
+                    impl_msg=get_notification_for_state(rev).impl_msg,
                 )
             else:
                 appr = "DESIGN_APPROVED" if "DESIGN" in state else "CODE_APPROVED"
-                msg = (
-                    f"設計レビュー通過。あなた（実装担当）がClaude Codeで実装してください。\n"
-                    f"CC Plan: `claude --model {CC_MODEL_PLAN}` で設計確認\n"
-                    f"CC Impl: `claude --model {CC_MODEL_IMPL}` で実装\n"
-                    f"実装完了後: `python3 {DEVBAR_CLI} commit --project <project> --issue N --hash <commit>`"
-                    if "DESIGN" in state
-                    else "コードレビュー通過。Mにサマリーを送ってください。"
+                return TransitionAction(
+                    new_state=appr,
+                    impl_msg=get_notification_for_state(appr).impl_msg,
                 )
-                return TransitionAction(new_state=appr, impl_msg=msg)
         # 未完了レビュアーの催促
         pending = _get_pending_reviewers(batch, key)
         if pending:
@@ -196,8 +223,9 @@ def _is_agent_inactive(agent_id: str) -> bool:
 
 def _get_pending_reviewers(batch: list, review_key: str) -> list:
     """全Issueのレビューを完了していないレビュアーのリストを返す。"""
+    reviewers = DESIGN_REVIEWERS if review_key == "design_reviews" else CODE_REVIEWERS
     pending = []
-    for reviewer in REVIEWERS:
+    for reviewer in reviewers:
         # 全Issueにこのレビュアーのレビューがあるか
         if not all(reviewer in i.get(review_key, {}) for i in batch):
             pending.append(reviewer)

@@ -14,12 +14,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config import (
     PIPELINES_DIR, GLAB_BIN, LOG_FILE,
     VALID_STATES, VALID_TRANSITIONS, MAX_BATCH, TRIAGE_ALLOWED_STATES,
-    VALID_VERDICTS, GLAB_TIMEOUT, ALLOWED_REVIEWERS,
+    VALID_VERDICTS, GLAB_TIMEOUT, ALLOWED_REVIEWERS, REVIEWERS,
+    DESIGN_REVIEWERS, CODE_REVIEWERS, DESIGN_MIN_REVIEWS, CODE_MIN_REVIEWS,
 )
 from pipeline_io import (
     load_pipeline, save_pipeline, update_pipeline,
     add_history, now_iso, get_path, find_issue,
 )
+from watchdog import get_notification_for_state
+from notify import notify_implementer, notify_reviewers
 
 
 # === Commands ===
@@ -39,7 +42,24 @@ def cmd_status(args):
         enabled = "ON" if data.get("enabled") else "OFF"
         batch = data.get("batch", [])
         issues = ", ".join(f"#{i['issue']}" for i in batch) if batch else "none"
-        print(f"[{enabled}] {pj}: {state}  issues=[{issues}]")
+        reviewers = DESIGN_REVIEWERS if "DESIGN" in state else CODE_REVIEWERS
+        reviewers_str = ", ".join(f'"{r}"' for r in reviewers)
+        print(f"[{enabled}] {pj}: {state}  issues=[{issues}]  Reviewers=[{reviewers_str}]")
+
+        # Show per-issue review progress for review states
+        if state in ("DESIGN_REVIEW", "CODE_REVIEW") and batch:
+            review_key = "design_reviews" if state == "DESIGN_REVIEW" else "code_reviews"
+            min_rev = DESIGN_MIN_REVIEWS if state == "DESIGN_REVIEW" else CODE_MIN_REVIEWS
+            for item in batch:
+                reviews = item.get(review_key, {})
+                done = len(reviews)
+                verdicts = {}
+                for rev in reviews.values():
+                    v = rev.get("verdict", "?")
+                    verdicts[v] = verdicts.get(v, 0) + 1
+                verdict_parts = ", ".join(f"{c} {v}" for v, c in sorted(verdicts.items()))
+                verdict_str = f" ({verdict_parts})" if verdict_parts else ""
+                print(f"  #{item['issue']}: {done}/{min_rev} reviews{verdict_str}")
 
 
 def cmd_init(args):
@@ -122,13 +142,14 @@ def cmd_triage(args):
 def cmd_transition(args):
     """状態遷移（バリデーション付き）"""
     path = get_path(args.project)
+    resume = getattr(args, "resume", False)
 
     def do_transition(data):
         current = data.get("state", "IDLE")
         target = args.to
         if target not in VALID_STATES:
             raise SystemExit(f"Invalid state: {target}")
-        if not args.force:
+        if not args.force and not resume:
             allowed = VALID_TRANSITIONS.get(current, [])
             if target not in allowed:
                 raise SystemExit(
@@ -141,9 +162,22 @@ def cmd_transition(args):
             data["batch"] = []
             data["enabled"] = False
 
-    update_pipeline(path, do_transition)
-    suffix = " [FORCED]" if args.force else ""
+    data = update_pipeline(path, do_transition)
+    suffix = " [RESUME]" if resume else (" [FORCED]" if args.force else "")
     print(f"{args.project}: {args.to}{suffix}")
+
+    pj = data.get("project", args.project)
+    batch = data.get("batch", [])
+    gitlab = data.get("gitlab", f"atakalive/{pj}")
+    implementer = data.get("implementer", "kaneko")
+    repo_path = data.get("repo_path", "")
+
+    notif = get_notification_for_state(args.to, pj, batch, gitlab, implementer)
+    prefix = "（再開）" if resume else ""
+    if notif.impl_msg:
+        notify_implementer(implementer, f"[devbar] {pj}: {prefix}{notif.impl_msg}")
+    if notif.send_review:
+        notify_reviewers(pj, args.to, batch, gitlab, repo_path=repo_path)
 
 
 def _log(msg: str) -> None:
@@ -304,6 +338,7 @@ def main():
     p.add_argument("--to", required=True)
     p.add_argument("--actor", default="cli")
     p.add_argument("--force", action="store_true", default=False, help="遷移バリデーションをスキップ（BLOCKED遷移等）")
+    p.add_argument("--resume", action="store_true", default=False, help="バリデーションスキップ + 「（再開）」プレフィックス付き通知")
 
     # review
     p = sub.add_parser("review", help="レビュー結果記録")

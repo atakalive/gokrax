@@ -1,8 +1,10 @@
 """tests/test_transition.py — cmd_transition --force フラグテスト"""
 
+import argparse
 import json
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -44,9 +46,9 @@ class TestTransitionForce:
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
         from devbar import cmd_transition
-        import argparse
         args = argparse.Namespace(project="test-pj", to="CODE_REVIEW", actor="cli", force=True)
-        cmd_transition(args)
+        with patch("devbar.notify_implementer"), patch("devbar.notify_reviewers"):
+            cmd_transition(args)
         with open(path) as f:
             assert json.load(f)["state"] == "CODE_REVIEW"
 
@@ -82,11 +84,100 @@ class TestTransitionForce:
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
         from devbar import cmd_transition
-        import argparse
         args = argparse.Namespace(project="test-pj", to="IDLE", actor="cli", force=False)
-        cmd_transition(args)
+        with patch("devbar.notify_implementer"), patch("devbar.notify_reviewers"):
+            cmd_transition(args)
         with open(path) as f:
             data = json.load(f)
         assert data["state"] == "IDLE"
         assert data["batch"] == []
         assert data["enabled"] is False
+
+
+class TestTransitionNotifications:
+    """cmd_transition の通知ロジックのテスト（Issue #16）"""
+
+    _BATCH_ITEM = {
+        "issue": 1, "title": "T", "commit": None, "cc_session_id": None,
+        "design_reviews": {}, "code_reviews": {},
+        "added_at": "2025-01-01T00:00:00+09:00",
+    }
+
+    def test_normal_transition_sends_notification(self, tmp_pipelines, sample_pipeline):
+        """通常遷移（DESIGN_REVIEW→DESIGN_APPROVED）でも notify_implementer が呼ばれる（回帰テスト）"""
+        sample_pipeline["state"] = "DESIGN_REVIEW"
+        sample_pipeline["batch"] = [dict(self._BATCH_ITEM)]
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, sample_pipeline)
+        from devbar import cmd_transition
+        args = argparse.Namespace(
+            project="test-pj", to="DESIGN_APPROVED", actor="cli", force=False, resume=False,
+        )
+        with patch("devbar.notify_implementer") as mock_impl, \
+             patch("devbar.notify_reviewers") as mock_rev:
+            cmd_transition(args)
+        mock_impl.assert_called_once()
+        call_msg = mock_impl.call_args[0][1]
+        assert "設計レビュー通過" in call_msg
+        assert "（再開）" not in call_msg
+        mock_rev.assert_not_called()
+
+    def test_force_transition_sends_notification(self, tmp_pipelines, sample_pipeline):
+        """--force 遷移（IDLE→DESIGN_APPROVED）で notify_implementer が呼ばれる"""
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, sample_pipeline)
+        from devbar import cmd_transition
+        args = argparse.Namespace(
+            project="test-pj", to="DESIGN_APPROVED", actor="cli", force=True, resume=False,
+        )
+        with patch("devbar.notify_implementer") as mock_impl, \
+             patch("devbar.notify_reviewers") as mock_rev:
+            cmd_transition(args)
+        mock_impl.assert_called_once()
+        call_msg = mock_impl.call_args[0][1]
+        assert "（再開）" not in call_msg
+        mock_rev.assert_not_called()
+
+    def test_resume_transition_sends_notification_with_prefix(self, tmp_pipelines, sample_pipeline):
+        """--resume 遷移で「（再開）」プレフィックスが通知文に含まれる"""
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, sample_pipeline)
+        from devbar import cmd_transition
+        args = argparse.Namespace(
+            project="test-pj", to="DESIGN_APPROVED", actor="cli", force=False, resume=True,
+        )
+        with patch("devbar.notify_implementer") as mock_impl, \
+             patch("devbar.notify_reviewers"):
+            cmd_transition(args)
+        mock_impl.assert_called_once()
+        call_msg = mock_impl.call_args[0][1]
+        assert "（再開）" in call_msg
+        assert "設計レビュー通過" in call_msg
+
+    def test_resume_skips_validation(self, tmp_pipelines, sample_pipeline):
+        """--resume は --force と同様にバリデーションをスキップする"""
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, sample_pipeline)
+        from devbar import cmd_transition
+        # IDLE → CODE_REVIEW は通常遷移では不正
+        args = argparse.Namespace(
+            project="test-pj", to="CODE_REVIEW", actor="cli", force=False, resume=True,
+        )
+        with patch("devbar.notify_implementer"), patch("devbar.notify_reviewers"):
+            cmd_transition(args)
+        with open(path) as f:
+            assert json.load(f)["state"] == "CODE_REVIEW"
+
+    def test_no_notification_for_states_without_message(self, tmp_pipelines, sample_pipeline):
+        """DESIGN_PLAN など通知不要な状態遷移では notify 関数が呼ばれない"""
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, sample_pipeline)
+        from devbar import cmd_transition
+        args = argparse.Namespace(
+            project="test-pj", to="DESIGN_PLAN", actor="cli", force=False, resume=False,
+        )
+        with patch("devbar.notify_implementer") as mock_impl, \
+             patch("devbar.notify_reviewers") as mock_rev:
+            cmd_transition(args)
+        mock_impl.assert_not_called()
+        mock_rev.assert_not_called()

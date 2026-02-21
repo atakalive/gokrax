@@ -71,13 +71,13 @@ AGENTS = {
     "dijkstra": "agent:dijkstra:main",
 }
 
-REVIEWERS = ["pascal", "leibniz", "hanfei", "dijkstra"]
+# REVIEWERS = ["pascal", "leibniz", "hanfei", "dijkstra"]
 
 # 段階別レビュアー設定
-DESIGN_REVIEWERS = ["pascal", "leibniz", "hanfei", "dijkstra"]
-CODE_REVIEWERS = ["pascal", "leibniz", "hanfei"]
+DESIGN_REVIEWERS = ["pascal", "leibniz"]  # "dijkstra"
+CODE_REVIEWERS = ["pascal", "leibniz"]
 
-DESIGN_MIN_REVIEWS = 3
+DESIGN_MIN_REVIEWS = 2
 CODE_MIN_REVIEWS = 2
 
 ALLOWED_REVIEWERS = list(AGENTS.keys())

@@ -5,6 +5,7 @@ pipeline JSONの唯一の操作インターフェース。直接JSON編集禁止
 """
 
 import argparse
+import signal
 import subprocess
 import sys
 import time
@@ -237,7 +238,22 @@ def cmd_review(args):
             review_entry["summary"] = args.summary
         issue[key][args.reviewer] = review_entry
 
-    data = update_pipeline(path, do_review)
+    # SIGTERM を遅延させ、JSON 書き込み（update_pipeline）の完了を保証する
+    _deferred = False
+    _orig = signal.getsignal(signal.SIGTERM)
+
+    def _defer_sigterm(signum, frame):
+        nonlocal _deferred
+        _deferred = True
+
+    signal.signal(signal.SIGTERM, _defer_sigterm)
+    try:
+        data = update_pipeline(path, do_review)
+    finally:
+        signal.signal(signal.SIGTERM, _orig)
+        if _deferred:
+            signal.raise_signal(signal.SIGTERM)
+
     state = data.get("state", "IDLE")
     print(f"{args.project}: #{args.issue} review by {args.reviewer} = {args.verdict}")
 

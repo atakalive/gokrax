@@ -17,7 +17,7 @@ from pathlib import Path
 from datetime import datetime
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from config import PIPELINES_DIR, JST, LOG_FILE, MIN_REVIEWS, CC_MODEL_PLAN, CC_MODEL_IMPL, DEVBAR_CLI, INACTIVE_THRESHOLD_SEC, SESSIONS_BASE
+from config import PIPELINES_DIR, JST, LOG_FILE, MIN_REVIEWS, CC_MODEL_PLAN, CC_MODEL_IMPL, DEVBAR_CLI, INACTIVE_THRESHOLD_SEC, SESSIONS_BASE, REVIEWERS
 from datetime import datetime as _datetime
 import json as _json
 from pipeline_io import (
@@ -77,6 +77,7 @@ class TransitionAction:
     impl_msg: str | None = None
     send_review: bool = False
     nudge: str | None = None   # 催促通知が必要な状態名
+    nudge_reviewers: list | None = None  # 催促が必要なレビュアーのリスト
 
 
 def _get_state_entered_at(data: dict, state: str) -> _datetime | None:
@@ -147,13 +148,18 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
             else:
                 appr = "DESIGN_APPROVED" if "DESIGN" in state else "CODE_APPROVED"
                 msg = (
-                    f"設計レビュー通過。実装に進んでください。\n"
-                    f"CC Plan: `--model {CC_MODEL_PLAN}`\n"
-                    f"CC Impl: `--model {CC_MODEL_IMPL}`"
+                    f"設計レビュー通過。あなた（実装担当）がClaude Codeで実装してください。\n"
+                    f"CC Plan: `claude --model {CC_MODEL_PLAN}` で設計確認\n"
+                    f"CC Impl: `claude --model {CC_MODEL_IMPL}` で実装\n"
+                    f"実装完了後: `python3 {DEVBAR_CLI} commit --project <project> --issue N --hash <commit>`"
                     if "DESIGN" in state
                     else "コードレビュー通過。Mにサマリーを送ってください。"
                 )
                 return TransitionAction(new_state=appr, impl_msg=msg)
+        # 未完了レビュアーの催促
+        pending = _get_pending_reviewers(batch, key)
+        if pending:
+            return TransitionAction(nudge_reviewers=pending)
         return TransitionAction()
 
     if state in ("DESIGN_REVISE", "CODE_REVISE"):
@@ -188,6 +194,16 @@ def _is_agent_inactive(agent_id: str) -> bool:
         return True  # 読めない = 非アクティブ扱い
 
 
+def _get_pending_reviewers(batch: list, review_key: str) -> list:
+    """全Issueのレビューを完了していないレビュアーのリストを返す。"""
+    pending = []
+    for reviewer in REVIEWERS:
+        # 全Issueにこのレビュアーのレビューがあるか
+        if not all(reviewer in i.get(review_key, {}) for i in batch):
+            pending.append(reviewer)
+    return pending
+
+
 def _format_nudge_message(state: str, project: str, batch: list) -> str:
     """状態ごとの催促メッセージを生成。"""
     if state == "DESIGN_PLAN":
@@ -218,12 +234,12 @@ def _format_nudge_message(state: str, project: str, batch: list) -> str:
             f"#{i['issue']}" for i in batch if not i.get("commit")
         )
         return (
-            f"[devbar] {project}: 実装フェーズ\n"
+            f"[devbar] {project}: 実装フェーズ — あなた（実装担当）がClaude Codeで実装してください\n"
             f"対象Issue: {issues_str}\n"
-            f"CC Plan: `--model {CC_MODEL_PLAN}`\n"
-            f"CC Impl: `--model {CC_MODEL_IMPL}`\n"
-            f"実装完了後、commit コマンドで記録してください。\n"
-            f"python3 {DEVBAR_CLI} commit --project {project} --issue N --hash <commit>"
+            f"手順:\n"
+            f"1. `claude --model {CC_MODEL_PLAN}` でIssueの設計を確認（Plan）\n"
+            f"2. `claude --model {CC_MODEL_IMPL}` で実装（Impl）\n"
+            f"3. 完了後: `python3 {DEVBAR_CLI} commit --project {project} --issue N --hash <commit>`"
         )
     return f"[devbar] {project}: {state} — 対応してください。"
 
@@ -243,7 +259,7 @@ def process(path: Path):
         return
 
     pre_action = check_transition(state, batch, data)
-    if pre_action.new_state is None and not pre_action.nudge:
+    if pre_action.new_state is None and not pre_action.nudge and not pre_action.nudge_reviewers:
         return
 
     # === ロック内で第2チェック + 遷移 (Double-Checked Locking) ===
@@ -254,7 +270,17 @@ def process(path: Path):
         batch = data.get("batch", [])
         action = check_transition(state, batch, data)
 
-        # 催促通知（遷移なし、カウンタ書き込みのみ）
+        # レビュアー催促（書き込み不要、情報保存のみ）
+        if action.nudge_reviewers:
+            pj = data.get("project", path.stem)
+            notification.update({
+                "pj": pj,
+                "action": action,
+                "nudge_reviewers": list(action.nudge_reviewers),
+            })
+            return
+
+        # 実装担当催促（遷移なし、カウンタ書き込みのみ）
         if action.nudge:
             implementer = data.get("implementer", "kaneko")
             if not _is_agent_inactive(implementer):
@@ -307,6 +333,7 @@ def process(path: Path):
             "gitlab": data.get("gitlab", f"atakalive/{pj}"),
             "implementer": data.get("implementer", "kaneko"),
             "batch": list(data.get("batch", [])),
+            "repo_path": data.get("repo_path", ""),
         })
 
     update_pipeline(path, do_transition)
@@ -315,6 +342,18 @@ def process(path: Path):
     if notification:
         action = notification["action"]
         pj = notification["pj"]
+
+        if action.nudge_reviewers:
+            # 非アクティブなレビュアーにのみ「continue」送信
+            woken = []
+            for reviewer in notification["nudge_reviewers"]:
+                if _is_agent_inactive(reviewer):
+                    notify_implementer(reviewer, "continue")
+                    woken.append(reviewer)
+            if woken:
+                ts = _datetime.now(JST).strftime("%m/%d %H:%M")
+                log(f"[{pj}] レビュアー催促: {', '.join(woken)} ({ts})")
+            return
 
         if action.nudge:
             # 初回(count=1)は詳細メッセージ、2回目以降は起床用"continue"
@@ -325,7 +364,7 @@ def process(path: Path):
                 nudge_msg = "continue"
             notify_implementer(notification["implementer"], nudge_msg)
             ts = _datetime.now(JST).strftime("%m/%d %H:%M")
-            notify_discord(f"[{pj}] {action.nudge}: 実装担当に催促通知送信 ({ts})")
+            notify_discord(f"[{pj}] {action.nudge}: 実装担当に通知送信 ({ts})")
             return
 
         ts = _datetime.now(JST).strftime("%m/%d %H:%M")
@@ -337,7 +376,8 @@ def process(path: Path):
             )
         if action.send_review:
             notify_reviewers(
-                pj, action.new_state, notification["batch"], notification["gitlab"]
+                pj, action.new_state, notification["batch"], notification["gitlab"],
+                repo_path=notification.get("repo_path", ""),
             )
 
 

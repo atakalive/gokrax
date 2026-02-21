@@ -304,7 +304,7 @@ class TestDoubleCheckedLocking:
 
         with patch("watchdog.update_pipeline", side_effect=fake_update), \
              patch("watchdog.notify_discord", side_effect=lambda *a: call_order.append("notify_discord")), \
-             patch("watchdog.notify_reviewers", side_effect=lambda *a: call_order.append("notify_reviewers")):
+             patch("watchdog.notify_reviewers", side_effect=lambda *a, **kw: call_order.append("notify_reviewers")):
             process(path)
 
         assert call_order[0] == "update_pipeline"

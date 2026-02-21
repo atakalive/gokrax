@@ -95,13 +95,15 @@ def notify_implementer(agent_id: str, message: str):
     send_to_agent(agent_id, message)
 
 
-def notify_reviewers(project: str, state: str, batch: list, gitlab: str):
+def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
+                     repo_path: str = ""):
     """各レビュアーに個別のコマンド入りメッセージを送信。"""
     for r in REVIEWERS:
         if r not in AGENTS:
             logger.error("Unknown reviewer: %s", r)
             continue
-        msg = format_review_request(project, state, batch, gitlab, reviewer=r)
+        msg = format_review_request(project, state, batch, gitlab, reviewer=r,
+                                    repo_path=repo_path)
         send_to_agent(r, msg)
 
 
@@ -110,15 +112,15 @@ def notify_discord(message: str):
 
 
 def format_review_request(project: str, state: str, batch: list, gitlab: str,
-                          reviewer: str) -> str:
+                          reviewer: str, repo_path: str = "") -> str:
     """レビュー依頼メッセージを生成（レビュアーごとにコマンド埋め込み済み）。"""
-    phase = "設計" if "DESIGN" in state else "コード"
+    is_code = "CODE" in state
+    phase = "コード" if is_code else "設計"
     sections = []
     for i in batch:
         num = i["issue"]
         title = i.get("title", "")
         commit = i.get("commit")
-        commit_str = f"  commit: {commit}" if commit else ""
         glab_show = f"{GLAB_BIN} issue show {num} -R {gitlab}"
         cmd = (
             f"python3 {DEVBAR_CLI} review \\\n"
@@ -126,21 +128,41 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
             f"  --issue {num} \\\n"
             f"  --reviewer {reviewer} \\\n"
             f"  --verdict APPROVE \\\n"
-            f'  --summary "ここにレビュー本文"'
-        )
-        sections.append(
-            f"### #{num}: {title}\n"
-            f"Issue取得: `{glab_show}`\n"
-            f"{commit_str}\n\n"
-            f"```\n{cmd}\n```"
+            f"  --summary $'ここにレビュー本文\\n本文2行目\\n本文3行目...'"
         )
 
+        if is_code and commit and repo_path:
+            # コードレビュー: git diff情報付き
+            sections.append(
+                f"### #{num}: {title}\n"
+                f"Issue詳細: `{glab_show}`\n"
+                f"変更確認:\n"
+                f"  `git -C {repo_path} show --stat {commit}`  # 変更ファイル一覧\n"
+                f"  `git -C {repo_path} show {commit}`  # diff全文\n\n"
+                f"```\n{cmd}\n```"
+            )
+        else:
+            # 設計レビュー: Issue本文のみ
+            sections.append(
+                f"### #{num}: {title}\n"
+                f"Issue取得: `{glab_show}`\n\n"
+                f"```\n{cmd}\n```"
+            )
+
     body = "\n\n".join(sections)
-    return (
-        f"[devbar] {project}: {phase}レビュー依頼\n\n"
-        f"{body}\n\n"
-        f"verdict: APPROVE / P0 / P1 から選択。summaryにレビュー本文を書いてください。"
-    )
+
+    if is_code:
+        guidance = (
+            "レビュー観点:\n"
+            "- 設計レビューで承認された仕様通りに実装されているか\n"
+            "- バグ、エッジケース、型ヒントの欠落\n"
+            "- テストがあれば妥当性を確認\n\n"
+            "verdict: APPROVE / P0 / P1 から選択。summaryにレビュー本文を書いてください。"
+        )
+    else:
+        guidance = "verdict: APPROVE / P0 / P1 から選択。summaryにレビュー本文を書いてください。"
+
+    return f"[devbar] {project}: {phase}レビュー依頼\n\n{body}\n\n{guidance}"
 
 def format_impl_instruction(project: str, batch: list, gitlab: str) -> str:
     """実装指示メッセージを生成（CC モデル指定付き）。"""

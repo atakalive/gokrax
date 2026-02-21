@@ -53,6 +53,7 @@ def cmd_init(args):
     data = {
         "project": args.project,
         "gitlab": args.gitlab or f"atakalive/{args.project}",
+        "repo_path": args.repo_path or "",
         "state": "IDLE",
         "enabled": False,
         "implementer": args.implementer or "kaneko",
@@ -282,6 +283,7 @@ def main():
     p = sub.add_parser("init", help="新PJ初期化")
     p.add_argument("--project", required=True)
     p.add_argument("--gitlab", help="GitLab path (default: atakalive/<project>)")
+    p.add_argument("--repo-path", dest="repo_path", help="ローカルリポジトリパス")
     p.add_argument("--implementer", default="kaneko")
 
     # enable / disable

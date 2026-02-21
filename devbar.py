@@ -312,6 +312,41 @@ def cmd_revise(args):
     print(f"{args.project}: #{args.issue} marked as revised")
 
 
+def cmd_merge_summary(args):
+    """マージサマリーを #dev-bar に投稿し、MERGE_SUMMARY_SENT に遷移"""
+    from config import MERGE_SUMMARY_FOOTER, DISCORD_CHANNEL
+    from notify import post_discord
+
+    path = get_path(args.project)
+    data = load_pipeline(path)
+    state = data.get("state", "IDLE")
+    if state != "CODE_APPROVED":
+        raise SystemExit(f"Cannot send merge summary in state {state} (expected CODE_APPROVED)")
+
+    batch = data.get("batch", [])
+    project = data.get("project", args.project)
+    lines = [f"**[{project}] マージサマリー**\n"]
+    for item in batch:
+        num = item["issue"]
+        title = item.get("title", "")
+        commit = item.get("commit", "?")
+        lines.append(f"- #{num}: {title} (`{commit}`)")
+    lines.append(MERGE_SUMMARY_FOOTER)
+    content = "\n".join(lines)
+
+    message_id = post_discord(DISCORD_CHANNEL, content)
+    if not message_id:
+        raise SystemExit("Discord 投稿に失敗しました")
+
+    def do_update(data):
+        data["summary_message_id"] = message_id
+        add_history(data, data["state"], "MERGE_SUMMARY_SENT", "cli")
+        data["state"] = "MERGE_SUMMARY_SENT"
+
+    update_pipeline(path, do_update)
+    print(f"{args.project}: merge summary sent (message_id={message_id})")
+
+
 def main():
     parser = argparse.ArgumentParser(prog="devbar", description="開発パイプラインCLI")
     sub = parser.add_subparsers(dest="command")
@@ -372,6 +407,10 @@ def main():
     p.add_argument("--issue", type=int, required=True)
     p.add_argument("--comment", default=None, help="GitLab issue note（省略可）")
 
+    # merge-summary
+    p = sub.add_parser("merge-summary", help="マージサマリーを #dev-bar に投稿")
+    p.add_argument("--project", required=True)
+
     args = parser.parse_args()
     if not args.command:
         parser.print_help()
@@ -383,6 +422,7 @@ def main():
         "triage": cmd_triage, "transition": cmd_transition,
         "review": cmd_review, "commit": cmd_commit,
         "plan-done": cmd_plan_done, "revise": cmd_revise,
+        "merge-summary": cmd_merge_summary,
     }
     cmds[args.command](args)
 

@@ -148,7 +148,27 @@ def get_notification_for_state(
 
 def check_transition(state: str, batch: list, data: dict | None = None) -> TransitionAction:
     """現在の状態とバッチから次の遷移アクションを決定する純粋関数。副作用なし。"""
-    if state in ("IDLE", "TRIAGE", "MERGE_SUMMARY_SENT", "DESIGN_APPROVED", "BLOCKED"):
+    if state in ("IDLE", "TRIAGE", "DESIGN_APPROVED", "BLOCKED"):
+        return TransitionAction()
+
+    if state == "MERGE_SUMMARY_SENT":
+        if data is None:
+            return TransitionAction()
+        from notify import fetch_discord_replies
+        from config import M_DISCORD_USER_ID, DISCORD_CHANNEL
+        summary_id = data.get("summary_message_id")
+        if not summary_id:
+            return TransitionAction()
+        messages = fetch_discord_replies(DISCORD_CHANNEL, summary_id)
+        for msg in messages:
+            ref = msg.get("message_reference", {})
+            if (ref.get("message_id") == summary_id
+                    and msg.get("author", {}).get("id") == M_DISCORD_USER_ID
+                    and msg.get("content", "").strip().lower().startswith("ok")):
+                return TransitionAction(
+                    new_state="DONE",
+                    impl_msg="Mが承認しました。push + issue close してください。",
+                )
         return TransitionAction()
 
     if state == "DONE":

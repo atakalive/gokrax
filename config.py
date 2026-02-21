@@ -16,7 +16,7 @@ DISCORD_CHANNEL = "1474050582049329213"  # #dev-bar channel ID
 DISCORD_BOT_ACCOUNT = "kaneko-discord"  # 金子さんの発言として投稿
 
 # CC model
-CC_MODEL_PLAN = "opus"     # DESIGN_PLAN フェーズ
+CC_MODEL_PLAN = "sonnet"     # DESIGN_PLAN フェーズ
 CC_MODEL_IMPL = "sonnet"   # IMPLEMENTATION フェーズ
 
 # タイムゾーン
@@ -85,3 +85,9 @@ INACTIVE_THRESHOLD_SEC = 81
 
 # エージェントセッションストアのベースパス
 SESSIONS_BASE = Path.home() / ".openclaw/agents"
+
+# Discord: MのユーザーID（マージサマリー承認者）
+M_DISCORD_USER_ID = "1469758184456589550"
+
+# マージサマリーのフッター
+MERGE_SUMMARY_FOOTER = "\n---\n✅ このメッセージに「OK」とリプライすると、マージが実行されます。"

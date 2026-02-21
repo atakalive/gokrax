@@ -1,0 +1,181 @@
+"""tests/test_merge_summary.py — #18 マージサマリー承認フローのテスト"""
+
+import argparse
+import json
+import sys
+from pathlib import Path
+from unittest.mock import patch, MagicMock
+
+import pytest
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+
+def write_pipeline(path: Path, data: dict):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def _make_pipeline(state="CODE_APPROVED", **kwargs):
+    data = {
+        "project": "test-pj",
+        "gitlab": "atakalive/test-pj",
+        "state": state,
+        "enabled": True,
+        "implementer": "kaneko",
+        "batch": [
+            {
+                "issue": 1, "title": "Fix bug", "commit": "abc123",
+                "cc_session_id": None, "design_reviews": {}, "code_reviews": {},
+                "added_at": "2025-01-01T00:00:00+09:00",
+            }
+        ],
+        "history": [],
+        "created_at": "2025-01-01T00:00:00+09:00",
+        "updated_at": "2025-01-01T00:00:00+09:00",
+    }
+    data.update(kwargs)
+    return data
+
+
+def _make_discord_msg(message_id, ref_id, author_id, content):
+    """Discord メッセージ辞書を生成。"""
+    return {
+        "id": message_id,
+        "content": content,
+        "author": {"id": author_id},
+        "message_reference": {"message_id": ref_id},
+    }
+
+
+class TestCmdMergeSummary:
+
+    def test_merge_summary_posts_and_saves_id(self, tmp_pipelines):
+        """post_discord をモックして message_id が pipeline JSON に保存されること"""
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, _make_pipeline())
+        from devbar import cmd_merge_summary
+        args = argparse.Namespace(project="test-pj")
+        with patch("notify.post_discord", return_value="1234567890") as mock_post:
+            cmd_merge_summary(args)
+        with open(path) as f:
+            data = json.load(f)
+        assert data["state"] == "MERGE_SUMMARY_SENT"
+        assert data["summary_message_id"] == "1234567890"
+        mock_post.assert_called_once()
+
+    def test_merge_summary_wrong_state(self, tmp_pipelines):
+        """CODE_APPROVED 以外の状態では SystemExit が発生すること"""
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, _make_pipeline(state="IMPLEMENTATION"))
+        from devbar import cmd_merge_summary
+        args = argparse.Namespace(project="test-pj")
+        with pytest.raises(SystemExit, match="Cannot send merge summary"):
+            cmd_merge_summary(args)
+
+    def test_merge_summary_discord_post_fails(self, tmp_pipelines):
+        """post_discord が None を返したとき SystemExit が発生すること"""
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, _make_pipeline())
+        from devbar import cmd_merge_summary
+        args = argparse.Namespace(project="test-pj")
+        with patch("notify.post_discord", return_value=None):
+            with pytest.raises(SystemExit, match="Discord 投稿に失敗"):
+                cmd_merge_summary(args)
+
+    def test_merge_summary_content_contains_project_and_issues(self, tmp_pipelines):
+        """投稿内容にプロジェクト名・Issue番号・commit が含まれること"""
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, _make_pipeline())
+        from devbar import cmd_merge_summary
+        args = argparse.Namespace(project="test-pj")
+        posted_content = []
+        def mock_post(channel_id, content):
+            posted_content.append(content)
+            return "msg-id-999"
+        with patch("notify.post_discord", side_effect=mock_post):
+            cmd_merge_summary(args)
+        assert posted_content
+        content = posted_content[0]
+        assert "test-pj" in content
+        assert "#1" in content
+        assert "abc123" in content
+
+
+class TestWatchdogMergeSummary:
+
+    M_ID = "1469758184456589550"
+    SUMMARY_ID = "111222333444555666"
+
+    def _make_data(self, **kwargs):
+        data = _make_pipeline(state="MERGE_SUMMARY_SENT")
+        data["summary_message_id"] = self.SUMMARY_ID
+        data.update(kwargs)
+        return data
+
+    def test_watchdog_detects_ok_reply(self):
+        """3条件（message_reference + author.id + 'ok'で始まる）一致で DONE 遷移"""
+        from watchdog import check_transition
+        msg = _make_discord_msg("reply-1", self.SUMMARY_ID, self.M_ID, "ok")
+        data = self._make_data()
+        with patch("notify.fetch_discord_replies", return_value=[msg]):
+            action = check_transition("MERGE_SUMMARY_SENT", data["batch"], data)
+        assert action.new_state == "DONE"
+        assert action.impl_msg is not None
+
+    def test_watchdog_ignores_wrong_author(self):
+        """author.id が M でなければ遷移しない"""
+        from watchdog import check_transition
+        msg = _make_discord_msg("reply-1", self.SUMMARY_ID, "9999999999", "ok")
+        data = self._make_data()
+        with patch("notify.fetch_discord_replies", return_value=[msg]):
+            action = check_transition("MERGE_SUMMARY_SENT", data["batch"], data)
+        assert action.new_state is None
+
+    def test_watchdog_ignores_non_reply(self):
+        """message_reference なしのメッセージは無視"""
+        from watchdog import check_transition
+        msg = {
+            "id": "reply-1", "content": "ok",
+            "author": {"id": self.M_ID},
+            "message_reference": {},
+        }
+        data = self._make_data()
+        with patch("notify.fetch_discord_replies", return_value=[msg]):
+            action = check_transition("MERGE_SUMMARY_SENT", data["batch"], data)
+        assert action.new_state is None
+
+    def test_watchdog_ignores_wrong_content(self):
+        """「NG」等は承認とみなさない"""
+        from watchdog import check_transition
+        msg = _make_discord_msg("reply-1", self.SUMMARY_ID, self.M_ID, "NG")
+        data = self._make_data()
+        with patch("notify.fetch_discord_replies", return_value=[msg]):
+            action = check_transition("MERGE_SUMMARY_SENT", data["batch"], data)
+        assert action.new_state is None
+
+    def test_watchdog_accepts_variants(self):
+        """「ok」「OK」「ok.」「ok、マージして」がすべて承認"""
+        from watchdog import check_transition
+        for content in ["ok", "OK", "ok.", "ok、マージして"]:
+            msg = _make_discord_msg("reply-1", self.SUMMARY_ID, self.M_ID, content)
+            data = self._make_data()
+            with patch("notify.fetch_discord_replies", return_value=[msg]):
+                action = check_transition("MERGE_SUMMARY_SENT", data["batch"], data)
+            assert action.new_state == "DONE", f"'{content}' should be accepted"
+
+    def test_watchdog_no_summary_id_returns_no_action(self):
+        """summary_message_id がなければ遷移しない"""
+        from watchdog import check_transition
+        data = _make_pipeline(state="MERGE_SUMMARY_SENT")
+        # summary_message_id なし
+        action = check_transition("MERGE_SUMMARY_SENT", data["batch"], data)
+        assert action.new_state is None
+
+    def test_watchdog_data_none_returns_no_action(self):
+        """data=None のとき遷移しない（既存テストとの互換）"""
+        from watchdog import check_transition
+        action = check_transition("MERGE_SUMMARY_SENT", [], None)
+        assert action.new_state is None

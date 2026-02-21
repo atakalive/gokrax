@@ -82,6 +82,12 @@ class TestSendToAgent:
 
 class TestPostDiscord:
 
+    def test_no_token_returns_none(self):
+        import notify
+        with patch.object(notify, "get_bot_token", return_value=None):
+            result = notify.post_discord("123456", "test message")
+        assert result is None
+
     def test_4xx_response(self, caplog):
         import notify
         mock_resp = MagicMock()
@@ -91,7 +97,7 @@ class TestPostDiscord:
             with patch("notify.requests.post", return_value=mock_resp):
                 with caplog.at_level(logging.WARNING, logger="devbar.notify"):
                     result = notify.post_discord("123456", "test message")
-        assert result is False
+        assert result is None
         assert "Discord post failed" in caplog.text
 
     def test_request_exception(self, caplog):
@@ -101,8 +107,18 @@ class TestPostDiscord:
             with patch("notify.requests.post", side_effect=requests.ConnectionError("refused")):
                 with caplog.at_level(logging.WARNING, logger="devbar.notify"):
                     result = notify.post_discord("123456", "test message")
-        assert result is False
+        assert result is None
         assert "Discord post error" in caplog.text
+
+    def test_success_returns_message_id(self):
+        import notify
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"id": "9999000111222333"}
+        with patch.object(notify, "get_bot_token", return_value="fake-token"):
+            with patch("notify.requests.post", return_value=mock_resp):
+                result = notify.post_discord("123456", "test message")
+        assert result == "9999000111222333"
 
 
 class TestFormatReviewRequest:

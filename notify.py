@@ -68,11 +68,11 @@ def get_bot_token() -> str | None:
         return None
 
 
-def post_discord(channel_id: str, content: str) -> bool:
-    """Discord APIでメッセージ投稿。"""
+def post_discord(channel_id: str, content: str) -> str | None:
+    """Discord APIでメッセージ投稿。成功時はmessage_id、失敗時はNone。"""
     token = get_bot_token()
     if not token:
-        return False
+        return None
     try:
         resp = requests.post(
             f"https://discord.com/api/v10/channels/{channel_id}/messages",
@@ -80,12 +80,13 @@ def post_discord(channel_id: str, content: str) -> bool:
             json={"content": content},
             timeout=DISCORD_POST_TIMEOUT,
         )
-        if resp.status_code not in (200, 201):
-            logger.warning("Discord post failed (status=%d): %s", resp.status_code, resp.text[:200])
-        return resp.status_code in (200, 201)
+        if resp.status_code in (200, 201):
+            return resp.json().get("id")
+        logger.warning("Discord post failed (status=%d): %s", resp.status_code, resp.text[:200])
+        return None
     except requests.RequestException as e:
         logger.warning("Discord post error: %s", e)
-        return False
+        return None
 
 
 def notify_implementer(agent_id: str, message: str):
@@ -110,6 +111,27 @@ def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
 
 def notify_discord(message: str):
     post_discord(DISCORD_CHANNEL, message)
+
+
+def fetch_discord_replies(channel_id: str, after_message_id: str) -> list[dict]:
+    """指定メッセージ以降の全メッセージを取得。"""
+    token = get_bot_token()
+    if not token:
+        return []
+    try:
+        resp = requests.get(
+            f"https://discord.com/api/v10/channels/{channel_id}/messages",
+            headers={"Authorization": f"Bot {token}"},
+            params={"after": after_message_id, "limit": 50},
+            timeout=DISCORD_POST_TIMEOUT,
+        )
+        if resp.status_code == 200:
+            return resp.json()
+        logger.warning("Discord fetch failed (status=%d)", resp.status_code)
+        return []
+    except requests.RequestException as e:
+        logger.warning("Discord fetch error: %s", e)
+        return []
 
 
 def format_review_request(project: str, state: str, batch: list, gitlab: str,

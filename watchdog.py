@@ -17,7 +17,7 @@ from pathlib import Path
 from datetime import datetime
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from config import PIPELINES_DIR, JST, LOG_FILE, MIN_REVIEWS, DESIGN_MIN_REVIEWS, CODE_MIN_REVIEWS, CC_MODEL_PLAN, CC_MODEL_IMPL, DEVBAR_CLI, INACTIVE_THRESHOLD_SEC, SESSIONS_BASE, DESIGN_REVIEWERS, CODE_REVIEWERS
+from config import PIPELINES_DIR, JST, LOG_FILE, REVIEW_MODES, CC_MODEL_PLAN, CC_MODEL_IMPL, DEVBAR_CLI, INACTIVE_THRESHOLD_SEC, SESSIONS_BASE
 from datetime import datetime as _datetime
 import json as _json
 from pipeline_io import (
@@ -234,8 +234,20 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
 
     if state in ("DESIGN_REVIEW", "CODE_REVIEW"):
         key = "design_reviews" if "DESIGN" in state else "code_reviews"
+        review_mode = data.get("review_mode", "standard") if data else "standard"
+
+        # "skip" mode: 即座に承認状態へ遷移
+        if review_mode == "skip":
+            appr = "DESIGN_APPROVED" if "DESIGN" in state else "CODE_APPROVED"
+            return TransitionAction(
+                new_state=appr,
+                impl_msg=f"[review_mode=skip] 自動承認: {appr}",
+            )
+
+        mode_config = REVIEW_MODES.get(review_mode, REVIEW_MODES["standard"])
+        min_rev = mode_config["min_reviews"]
         count, has_p0 = count_reviews(batch, key)
-        min_rev = DESIGN_MIN_REVIEWS if "DESIGN" in state else CODE_MIN_REVIEWS
+
         if count >= min_rev:
             if has_p0:
                 rev = "DESIGN_REVISE" if "DESIGN" in state else "CODE_REVISE"
@@ -255,7 +267,7 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
             elapsed = (_datetime.now(JST) - entered_at).total_seconds()
             if elapsed < NUDGE_GRACE_SEC:
                 return TransitionAction()
-        pending = _get_pending_reviewers(batch, key)
+        pending = _get_pending_reviewers(batch, key, mode_config["members"])
         if pending:
             return TransitionAction(nudge_reviewers=pending)
         return TransitionAction()
@@ -304,9 +316,8 @@ def _is_agent_inactive(agent_id: str) -> bool:
         return True  # 読めない = 非アクティブ扱い
 
 
-def _get_pending_reviewers(batch: list, review_key: str) -> list:
+def _get_pending_reviewers(batch: list, review_key: str, reviewers: list) -> list:
     """全Issueのレビューを完了していないレビュアーのリストを返す。"""
-    reviewers = DESIGN_REVIEWERS if review_key == "design_reviews" else CODE_REVIEWERS
     pending = []
     for reviewer in reviewers:
         # 全Issueにこのレビュアーのレビューがあるか
@@ -448,6 +459,7 @@ def process(path: Path):
             "implementer": data.get("implementer", "kaneko"),
             "batch": list(data.get("batch", [])),
             "repo_path": data.get("repo_path", ""),
+            "review_mode": data.get("review_mode", "standard"),
         })
 
     update_pipeline(path, do_transition)
@@ -499,9 +511,11 @@ def process(path: Path):
                 f"[devbar] {pj}: {action.impl_msg}",
             )
         if action.send_review:
+            review_mode = notification.get("review_mode", "standard")
             notify_reviewers(
                 pj, action.new_state, notification["batch"], notification["gitlab"],
                 repo_path=notification.get("repo_path", ""),
+                review_mode=review_mode,
             )
 
 

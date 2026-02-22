@@ -74,11 +74,35 @@ AGENTS = {
 # REVIEWERS = ["pascal", "leibniz", "hanfei", "dijkstra"]
 
 # 段階別レビュアー設定
+# DEPRECATED: Use REVIEW_MODES instead (kept for backward compat)
 DESIGN_REVIEWERS = ["pascal", "leibniz"]  # "dijkstra"
 CODE_REVIEWERS = ["pascal", "leibniz"]
 
 DESIGN_MIN_REVIEWS = 2
 CODE_MIN_REVIEWS = 2
+
+# Review modes: project-level reviewer assignment
+REVIEW_MODES = {
+    "full": {
+        "members": ["pascal", "leibniz", "hanfei", "dijkstra"],
+        "min_reviews": 3,
+    },
+    "standard": {
+        "members": ["pascal", "leibniz"],
+        "min_reviews": 2,
+    },
+    "lite": {
+        "members": ["pascal"],
+        "min_reviews": 1,
+    },
+    "skip": {
+        "members": [],
+        "min_reviews": 0,
+    },
+}
+
+# Maximum characters for embedded review data (issue body + diff)
+MAX_EMBED_CHARS = 20000
 
 ALLOWED_REVIEWERS = list(AGENTS.keys())
 

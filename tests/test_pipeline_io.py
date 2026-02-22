@@ -157,6 +157,8 @@ class TestDevbarCLIIntegration:
         env = os.environ.copy()
         if pipelines_dir:
             env["DEVBAR_PIPELINES_DIR"] = str(pipelines_dir)
+        # DRY_RUN mode to avoid actual glab/git commands
+        env["DEVBAR_DRY_RUN"] = "1"
         result = subprocess.run(
             [sys.executable, cli] + list(cmd_args),
             capture_output=True, text=True, timeout=10, env=env,

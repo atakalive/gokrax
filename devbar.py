@@ -15,8 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config import (
     PIPELINES_DIR, GLAB_BIN, LOG_FILE,
     VALID_STATES, VALID_TRANSITIONS, MAX_BATCH, TRIAGE_ALLOWED_STATES,
-    VALID_VERDICTS, GLAB_TIMEOUT, ALLOWED_REVIEWERS,
-    DESIGN_REVIEWERS, CODE_REVIEWERS, DESIGN_MIN_REVIEWS, CODE_MIN_REVIEWS,
+    VALID_VERDICTS, GLAB_TIMEOUT, ALLOWED_REVIEWERS, REVIEW_MODES,
 )
 from pipeline_io import (
     load_pipeline, save_pipeline, update_pipeline,
@@ -42,15 +41,16 @@ def cmd_status(args):
         state = data.get("state", "IDLE")
         enabled = "ON" if data.get("enabled") else "OFF"
         batch = data.get("batch", [])
+        review_mode = data.get("review_mode", "standard")
         issues = ", ".join(f"#{i['issue']}" for i in batch) if batch else "none"
-        reviewers = DESIGN_REVIEWERS if "DESIGN" in state else CODE_REVIEWERS
-        reviewers_str = ", ".join(f'"{r}"' for r in reviewers)
-        print(f"[{enabled}] {pj}: {state}  issues=[{issues}]  Reviewers=[{reviewers_str}]")
+        mode_config = REVIEW_MODES.get(review_mode, REVIEW_MODES["standard"])
+        reviewers_str = ", ".join(f'"{r}"' for r in mode_config["members"])
+        print(f"[{enabled}] {pj}: {state}  mode={review_mode}  issues=[{issues}]  Reviewers=[{reviewers_str}]")
 
         # Show per-issue review progress for review states
         if state in ("DESIGN_REVIEW", "CODE_REVIEW") and batch:
             review_key = "design_reviews" if state == "DESIGN_REVIEW" else "code_reviews"
-            min_rev = DESIGN_MIN_REVIEWS if state == "DESIGN_REVIEW" else CODE_MIN_REVIEWS
+            min_rev = mode_config["min_reviews"]
             for item in batch:
                 reviews = item.get(review_key, {})
                 done = len(reviews)
@@ -94,7 +94,6 @@ def cmd_enable(args):
         data["enabled"] = True
 
     update_pipeline(path, do_enable)
-    _maybe_reset_reviewers(args.project)
     print(f"{args.project}: watchdog enabled")
 
 
@@ -168,8 +167,6 @@ def cmd_transition(args):
             data["enabled"] = False
 
     data = update_pipeline(path, do_transition)
-    if args.force or getattr(args, "resume", False):
-        _maybe_reset_reviewers(args.project)
     suffix = " [RESUME]" if resume else (" [FORCED]" if args.force else "")
     print(f"{args.project}: {args.to}{suffix}")
 
@@ -178,13 +175,15 @@ def cmd_transition(args):
     gitlab = data.get("gitlab", f"atakalive/{pj}")
     implementer = data.get("implementer", "kaneko")
     repo_path = data.get("repo_path", "")
+    review_mode = data.get("review_mode", "standard")
 
     notif = get_notification_for_state(args.to, pj, batch, gitlab, implementer)
     prefix = "（再開）" if resume else ""
     if notif.impl_msg:
         notify_implementer(implementer, f"[devbar] {pj}: {prefix}{notif.impl_msg}")
     if notif.send_review:
-        notify_reviewers(pj, args.to, batch, gitlab, repo_path=repo_path)
+        notify_reviewers(pj, args.to, batch, gitlab, repo_path=repo_path,
+                        review_mode=review_mode)
 
     # Discord 通知
     history = data.get("history", [])
@@ -200,35 +199,6 @@ def _log(msg: str) -> None:
             f.write(f"{now_iso()} {msg}\n")
     except Exception:
         pass
-
-
-def _maybe_reset_reviewers(project: str) -> None:
-    """PJ 変更時にレビュアー全員へ /new を送信してセッションリセット。"""
-    import config as _cfg
-    import json as _json
-
-    state_path = _cfg.DEVBAR_STATE_PATH
-    try:
-        saved = _json.loads(state_path.read_text())
-    except FileNotFoundError:
-        saved = {}
-    except Exception as e:
-        print(f"WARNING: devbar-state.json read error: {e}", file=sys.stderr)
-        saved = {}
-
-    last_project = saved.get("last_project")
-    if last_project is not None and last_project != project:
-        reviewers = list(dict.fromkeys(_cfg.DESIGN_REVIEWERS + _cfg.CODE_REVIEWERS))
-        for r in reviewers:
-            if not send_to_agent(r, "/new"):
-                print(f"WARNING: reviewer session reset failed: {r}", file=sys.stderr)
-
-    saved["last_project"] = project
-    try:
-        state_path.parent.mkdir(parents=True, exist_ok=True)
-        state_path.write_text(_json.dumps(saved))
-    except Exception as e:
-        print(f"WARNING: devbar-state.json write error: {e}", file=sys.stderr)
 
 
 def _post_gitlab_note(gitlab: str, issue_num: int, body: str) -> bool:

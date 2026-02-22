@@ -199,12 +199,14 @@ class TestNotifyReviewers:
         import config
         batch = [self._make_batch_item(1)]
         with patch("notify.send_to_agent") as mock_send:
-            notify.notify_reviewers("proj", "DESIGN_REVIEW", batch, "atakalive/proj")
+            with patch("notify._fetch_issue_body", return_value="body"):
+                notify.notify_reviewers("proj", "DESIGN_REVIEW", batch, "atakalive/proj")
 
+        # /new calls + message calls
         called_agents = [c.args[0] for c in mock_send.call_args_list]
-        for r in config.DESIGN_REVIEWERS:
-            assert r in called_agents, \
-                f"{r} が send_to_agent に渡されていない"
+        for r in config.REVIEW_MODES["standard"]["members"]:
+            assert called_agents.count(r) == 2, \
+                f"{r} should be called twice (/new + message)"
 
     def test_unknown_reviewer_logs_error_and_continues(self, caplog, monkeypatch):
         """未知のレビュアーはスキップされ、既知のレビュアーには送信が継続されること。"""
@@ -212,22 +214,25 @@ class TestNotifyReviewers:
         import config
         import logging
 
-        # CODE_REVIEWERS に未知のキーを混入（CODE_REVIEW状態で使われる）
-        monkeypatch.setattr(config, "CODE_REVIEWERS", ["pascal", "unknown_reviewer"])
-        monkeypatch.setattr(notify, "CODE_REVIEWERS", ["pascal", "unknown_reviewer"])
+        # REVIEW_MODES に未知のキーを混入
+        test_mode = {"members": ["pascal", "unknown_reviewer"], "min_reviews": 1}
+        monkeypatch.setitem(config.REVIEW_MODES, "test_mode", test_mode)
+        monkeypatch.setattr(notify, "REVIEW_MODES", config.REVIEW_MODES)
 
         batch = [self._make_batch_item(1)]
         with patch("notify.send_to_agent") as mock_send:
-            with caplog.at_level(logging.ERROR, logger="devbar.notify"):
-                notify.notify_reviewers("proj", "CODE_REVIEW", batch, "atakalive/proj")
+            with patch("notify._fetch_issue_body", return_value="body"):
+                with caplog.at_level(logging.ERROR, logger="devbar.notify"):
+                    notify.notify_reviewers("proj", "CODE_REVIEW", batch, "atakalive/proj",
+                                          review_mode="test_mode")
 
         # 未知レビュアーのエラーログ
         assert "Unknown reviewer" in caplog.text
-        # 既知の pascal には送信される
+        # 既知の pascal には送信される (/new + message = 2 calls)
         called_agents = [c.args[0] for c in mock_send.call_args_list]
         assert "pascal" in called_agents
-        # unknown_reviewer には送信されない
-        assert len(called_agents) == 1
+        # unknown_reviewer には送信されない (エラーログのみ)
+        assert called_agents.count("pascal") == 2
 
 
 class TestFetchDiscordReplies:
@@ -297,3 +302,160 @@ class TestNotifyDiscord:
         with patch.object(notify, "post_discord", return_value="msg-id") as mock_post:
             notify.notify_discord("test message")
         mock_post.assert_called_once_with(config.DISCORD_CHANNEL, "test message")
+
+
+class TestFetchIssueBody:
+    """_fetch_issue_body のテスト（Issue #23）"""
+
+    def test_success_returns_description(self):
+        import notify
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = json.dumps({"description": "Issue body text"})
+        with patch("notify.subprocess.run", return_value=mock_result):
+            result = notify._fetch_issue_body(42, "atakalive/proj")
+        assert result == "Issue body text"
+
+    def test_glab_failure_returns_none(self, caplog):
+        import notify
+        mock_result = MagicMock()
+        mock_result.returncode = 1
+        mock_result.stderr = "issue not found"
+        with patch("notify.subprocess.run", return_value=mock_result):
+            with caplog.at_level(logging.WARNING, logger="devbar.notify"):
+                result = notify._fetch_issue_body(999, "atakalive/proj")
+        assert result is None
+        assert "glab issue show failed" in caplog.text
+
+    def test_empty_description_returns_empty_string(self):
+        import notify
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = json.dumps({"description": ""})
+        with patch("notify.subprocess.run", return_value=mock_result):
+            result = notify._fetch_issue_body(10, "atakalive/proj")
+        assert result == ""
+
+    def test_timeout_returns_none(self, caplog):
+        import notify
+        with patch("notify.subprocess.run", side_effect=subprocess.TimeoutExpired("cmd", 15)):
+            with caplog.at_level(logging.WARNING, logger="devbar.notify"):
+                result = notify._fetch_issue_body(5, "atakalive/proj")
+        assert result is None
+        assert "timed out" in caplog.text
+
+
+class TestFetchCommitDiff:
+    """_fetch_commit_diff のテスト（Issue #23）"""
+
+    def test_success_returns_diff(self):
+        import notify
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "diff --git a/file.py b/file.py\n+new line"
+        with patch("notify.subprocess.run", return_value=mock_result):
+            result = notify._fetch_commit_diff("abc123", "/repo")
+        assert "diff --git" in result
+        assert "+new line" in result
+
+    def test_git_failure_returns_none(self, caplog):
+        import notify
+        mock_result = MagicMock()
+        mock_result.returncode = 128
+        mock_result.stderr = "bad object abc123"
+        with patch("notify.subprocess.run", return_value=mock_result):
+            with caplog.at_level(logging.WARNING, logger="devbar.notify"):
+                result = notify._fetch_commit_diff("abc123", "/repo")
+        assert result is None
+        assert "git show failed" in caplog.text
+
+
+class TestFormatReviewRequestEmbedded:
+    """format_review_request の埋め込みデータテスト（Issue #23）"""
+
+    def _make_batch_item(self, issue_num, title="t", commit=None):
+        return {
+            "issue": issue_num, "title": title, "commit": commit,
+            "design_reviews": {}, "code_reviews": {},
+        }
+
+    def test_embeds_issue_body(self):
+        import notify
+        batch = [self._make_batch_item(10, "Test")]
+        with patch("notify._fetch_issue_body", return_value="Issue body content"):
+            result = notify.format_review_request(
+                "proj", "DESIGN_REVIEW", batch, "atakalive/proj", "pascal"
+            )
+        assert "Issue body content" in result
+        assert "**Issue本文:**" in result
+
+    def test_embeds_commit_diff(self):
+        import notify
+        batch = [self._make_batch_item(20, "Fix", "abc123")]
+        with patch("notify._fetch_issue_body", return_value="body"):
+            with patch("notify._fetch_commit_diff", return_value="diff content"):
+                result = notify.format_review_request(
+                    "proj", "CODE_REVIEW", batch, "atakalive/proj", "pascal",
+                    repo_path="/repo"
+                )
+        assert "diff content" in result
+        assert "**変更内容:**" in result
+
+    def test_fallback_on_fetch_failure(self):
+        import notify
+        batch = [self._make_batch_item(30, "Broken")]
+        with patch("notify._fetch_issue_body", return_value=None):
+            result = notify.format_review_request(
+                "proj", "DESIGN_REVIEW", batch, "atakalive/proj", "pascal"
+            )
+        assert "glab issue show 30" in result
+        assert "Issue詳細:" in result
+
+    def test_truncation_with_marker(self, monkeypatch):
+        import notify
+        import config
+        monkeypatch.setattr(config, "MAX_EMBED_CHARS", 100)
+        monkeypatch.setattr(notify, "MAX_EMBED_CHARS", 100)
+
+        batch = [self._make_batch_item(i, "Long") for i in range(1, 6)]
+        with patch("notify._fetch_issue_body", return_value="A" * 50):
+            result = notify.format_review_request(
+                "proj", "DESIGN_REVIEW", batch, "atakalive/proj", "pascal"
+            )
+        assert "(truncated)" in result
+        assert "文字数制限のため省略" in result
+
+
+class TestNotifyReviewersWithMode:
+    """notify_reviewers の review_mode 連携テスト（Issue #24）"""
+
+    def test_sends_new_to_all_reviewers(self):
+        import notify
+        batch = [{"issue": 1, "title": "t", "commit": None, "design_reviews": {}, "code_reviews": {}}]
+        with patch("notify.send_to_agent") as mock_send:
+            with patch("notify._fetch_issue_body", return_value="body"):
+                notify.notify_reviewers("proj", "DESIGN_REVIEW", batch, "atakalive/proj",
+                                       review_mode="standard")
+
+        # /new が送信されたか確認
+        new_calls = [c for c in mock_send.call_args_list if c.args[1] == "/new"]
+        assert len(new_calls) == 2  # standard mode has 2 reviewers
+
+    def test_skip_mode_sends_no_notifications(self):
+        import notify
+        batch = [{"issue": 1, "title": "t", "commit": None, "design_reviews": {}, "code_reviews": {}}]
+        with patch("notify.send_to_agent") as mock_send:
+            notify.notify_reviewers("proj", "DESIGN_REVIEW", batch, "atakalive/proj",
+                                   review_mode="skip")
+        mock_send.assert_not_called()
+
+    def test_full_mode_sends_to_four_reviewers(self):
+        import notify
+        batch = [{"issue": 1, "title": "t", "commit": None, "design_reviews": {}, "code_reviews": {}}]
+        with patch("notify.send_to_agent") as mock_send:
+            with patch("notify._fetch_issue_body", return_value="body"):
+                notify.notify_reviewers("proj", "DESIGN_REVIEW", batch, "atakalive/proj",
+                                       review_mode="full")
+
+        # 4 reviewers × 2 calls (/new + message) = 8 calls
+        assert mock_send.call_count == 8

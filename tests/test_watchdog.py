@@ -60,7 +60,6 @@ class TestCheckTransition:
         from watchdog import check_transition
         action = check_transition("DESIGN_APPROVED", _make_batch())
         assert action.new_state == "IMPLEMENTATION"
-        assert action.impl_msg is not None
 
     def test_blocked_returns_no_action(self):
         from watchdog import check_transition
@@ -114,7 +113,6 @@ class TestCheckTransition:
         batch = [{"issue": 1, "design_reviews": reviews, "code_reviews": {}}]
         action = check_transition("DESIGN_REVIEW", batch)
         assert action.new_state == "DESIGN_APPROVED"
-        assert action.impl_msg is not None
 
     def test_design_review_not_enough_reviews(self):
         from watchdog import check_transition

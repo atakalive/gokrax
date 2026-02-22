@@ -104,7 +104,7 @@ class TestTransitionNotifications:
     }
 
     def test_normal_transition_sends_notification(self, tmp_pipelines, sample_pipeline):
-        """通常遷移（DESIGN_REVIEW→DESIGN_APPROVED）でも notify_implementer が呼ばれる（回帰テスト）"""
+        """DESIGN_APPROVEDは自動遷移のみ（impl_msgなし）で通知は飛ばない"""
         sample_pipeline["state"] = "DESIGN_REVIEW"
         sample_pipeline["batch"] = [dict(self._BATCH_ITEM)]
         path = tmp_pipelines / "test-pj.json"
@@ -116,19 +116,17 @@ class TestTransitionNotifications:
         with patch("devbar.notify_implementer") as mock_impl, \
              patch("devbar.notify_reviewers") as mock_rev:
             cmd_transition(args)
-        mock_impl.assert_called_once()
-        call_msg = mock_impl.call_args[0][1]
-        assert "設計レビュー通過" in call_msg
-        assert "（再開）" not in call_msg
+        mock_impl.assert_not_called()
         mock_rev.assert_not_called()
 
     def test_force_transition_sends_notification(self, tmp_pipelines, sample_pipeline):
-        """--force 遷移（IDLE→DESIGN_APPROVED）で notify_implementer が呼ばれる"""
+        """--force 遷移（IDLE→IMPLEMENTATION）で notify_implementer が呼ばれる"""
         path = tmp_pipelines / "test-pj.json"
+        sample_pipeline["batch"] = [dict(self._BATCH_ITEM)]
         write_pipeline(path, sample_pipeline)
         from devbar import cmd_transition
         args = argparse.Namespace(
-            project="test-pj", to="DESIGN_APPROVED", actor="cli", force=True, resume=False,
+            project="test-pj", to="IMPLEMENTATION", actor="cli", force=True, resume=False,
         )
         with patch("devbar.notify_implementer") as mock_impl, \
              patch("devbar.notify_reviewers") as mock_rev:
@@ -141,10 +139,11 @@ class TestTransitionNotifications:
     def test_resume_transition_sends_notification_with_prefix(self, tmp_pipelines, sample_pipeline):
         """--resume 遷移で「（再開）」プレフィックスが通知文に含まれる"""
         path = tmp_pipelines / "test-pj.json"
+        sample_pipeline["batch"] = [dict(self._BATCH_ITEM)]
         write_pipeline(path, sample_pipeline)
         from devbar import cmd_transition
         args = argparse.Namespace(
-            project="test-pj", to="DESIGN_APPROVED", actor="cli", force=False, resume=True,
+            project="test-pj", to="IMPLEMENTATION", actor="cli", force=False, resume=True,
         )
         with patch("devbar.notify_implementer") as mock_impl, \
              patch("devbar.notify_reviewers"):
@@ -152,7 +151,7 @@ class TestTransitionNotifications:
         mock_impl.assert_called_once()
         call_msg = mock_impl.call_args[0][1]
         assert "（再開）" in call_msg
-        assert "設計レビュー通過" in call_msg
+        assert "実装フェーズ" in call_msg
 
     def test_resume_skips_validation(self, tmp_pipelines, sample_pipeline):
         """--resume は --force と同様にバリデーションをスキップする"""

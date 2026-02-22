@@ -128,27 +128,73 @@ def get_notification_for_state(
     gitlab: str = "",
     implementer: str = "",
 ) -> TransitionAction:
-    """遷移先状態に対応する通知内容を返す (impl_msg / send_review のみ設定)。
+    """全状態の通知メッセージを一元管理。
 
-    check_transition() と cmd_transition() の両方から呼ばれる共通ロジック。
+    遷移通知（初回）にも催促（nudge）にも使う。
+    check_transition(), cmd_transition(), 催促処理 から呼ばれる共通ロジック。
     通知不要な状態は TransitionAction() を返す。
     """
+    batch = batch or []
+
     if state in ("DESIGN_REVIEW", "CODE_REVIEW"):
         return TransitionAction(send_review=True)
+
+    if state == "DESIGN_PLAN":
+        issues_str = ", ".join(
+            f"#{i['issue']}" for i in batch if not i.get("design_ready")
+        ) or "（全Issue）"
+        msg = (
+            f"[devbar] {project}: 設計確認フェーズ\n"
+            f"対象Issue: {issues_str}\n"
+            f"対象Issueを確認して、Claude Codeが楽に実装できるように内容確認/修正してください。"
+            f"その後、問題がなければ plan-done してください。\n"
+            f"python3 {DEVBAR_CLI} plan-done --project {project} --issue N"
+        )
+        return TransitionAction(impl_msg=msg)
+
     if state in ("DESIGN_REVISE", "CODE_REVISE"):
-        return TransitionAction(impl_msg="レビューにP0あり。修正してください。")
+        phase = "設計" if "DESIGN" in state else "コード"
+        revised_key = "design_revised" if "DESIGN" in state else "code_revised"
+        issues_str = ", ".join(
+            f"#{i['issue']}" for i in batch if not i.get(revised_key)
+        ) or "（全Issue）"
+        msg = (
+            f"[devbar] {project}: {phase}修正フェーズ\n"
+            f"対象Issue: {issues_str}\n"
+            f"P0の指摘を修正して、revise コマンドで完了報告してください。\n"
+            f"python3 {DEVBAR_CLI} revise --project {project} --issue N"
+        )
+        return TransitionAction(impl_msg=msg)
+
     if state == "DESIGN_APPROVED":
         msg = (
             f"設計レビュー通過。あなた（実装担当）がClaude Codeを使用して、バッチ単位で Plan => Impl してください。\n"
             f"CC Plan: `claude --model {CC_MODEL_PLAN}` でまとめて設計確認\n"
             f"CC Impl: `claude --model {CC_MODEL_IMPL}` でまとめて実装\n"
-            f"実装完了後: `python3 {DEVBAR_CLI} commit --project <project> --issue N [N...] --hash <commit>`"
+            f"実装完了後: `python3 {DEVBAR_CLI} commit --project {project} --issue N [N...] --hash <commit>`"
         )
         return TransitionAction(impl_msg=msg)
+
+    if state == "IMPLEMENTATION":
+        issues_str = ", ".join(
+            f"#{i['issue']}" for i in batch if not i.get("commit")
+        ) or "（全Issue）"
+        msg = (
+            f"[devbar] {project}: 実装フェーズ — あなた（実装担当）がClaude Codeで実装してください\n"
+            f"対象Issue: {issues_str}\n"
+            f"手順:\n"
+            f"1. `claude --model {CC_MODEL_PLAN}` でIssueの設計を確認（Plan）\n"
+            f"2. `claude --model {CC_MODEL_IMPL}` で実装（Impl）\n"
+            f"3. 完了後: `python3 {DEVBAR_CLI} commit --project {project} --issue N [N...] --hash <commit>`"
+        )
+        return TransitionAction(impl_msg=msg)
+
     if state == "CODE_APPROVED":
         return TransitionAction(impl_msg="コードレビュー通過。Mにサマリーを送ってください。")
+
     if state == "IDLE":
         return TransitionAction(impl_msg="バッチ完了。watchdog無効化しました。")
+
     return TransitionAction()
 
 
@@ -276,43 +322,9 @@ def _get_pending_reviewers(batch: list, review_key: str) -> list:
 
 
 def _format_nudge_message(state: str, project: str, batch: list) -> str:
-    """状態ごとの催促メッセージを生成。"""
-    if state == "DESIGN_PLAN":
-        issues_str = ", ".join(
-            f"#{i['issue']}" for i in batch if not i.get("design_ready")
-        )
-        return (
-            f"[devbar] {project}: 設計確認フェーズ\n"
-            f"対象Issue: {issues_str}\n"
-            f"対象Issueを確認して、Claude Codeが楽に実装できるように内容確認/修正してください。"
-            f"その後、問題がなければ plan-done してください。\n"
-            f"python3 {DEVBAR_CLI} plan-done --project {project} --issue N"
-        )
-    if state in ("DESIGN_REVISE", "CODE_REVISE"):
-        phase = "設計" if "DESIGN" in state else "コード"
-        revised_key = "design_revised" if "DESIGN" in state else "code_revised"
-        issues_str = ", ".join(
-            f"#{i['issue']}" for i in batch if not i.get(revised_key)
-        )
-        return (
-            f"[devbar] {project}: {phase}修正フェーズ\n"
-            f"対象Issue: {issues_str}\n"
-            f"P0の指摘を修正して、revise コマンドで完了報告してください。\n"
-            f"python3 {DEVBAR_CLI} revise --project {project} --issue N"
-        )
-    if state == "IMPLEMENTATION":
-        issues_str = ", ".join(
-            f"#{i['issue']}" for i in batch if not i.get("commit")
-        )
-        return (
-            f"[devbar] {project}: 実装フェーズ — あなた（実装担当）がClaude Codeで実装してください\n"
-            f"対象Issue: {issues_str}\n"
-            f"手順:\n"
-            f"1. `claude --model {CC_MODEL_PLAN}` でIssueの設計を確認（Plan）\n"
-            f"2. `claude --model {CC_MODEL_IMPL}` で実装（Impl）\n"
-            f"3. 完了後: `python3 {DEVBAR_CLI} commit --project {project} --issue N --hash <commit>`"
-        )
-    return f"[devbar] {project}: {state} — 対応してください。"
+    """催促メッセージ生成。get_notification_for_state() に委譲。"""
+    notif = get_notification_for_state(state, project=project, batch=batch)
+    return notif.impl_msg or f"[devbar] {project}: {state} — 対応してください。"
 
 
 def process(path: Path):

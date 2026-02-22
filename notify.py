@@ -193,15 +193,3 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
         guidance = "verdict: APPROVE / P0 / P1 から選択。summaryにレビュー本文を書き、devbarに送信してください。"
 
     return f"[devbar] {project}: {phase}レビュー依頼\n\n{body}\n\n{guidance}"
-
-def format_impl_instruction(project: str, batch: list, gitlab: str) -> str:
-    """実装指示メッセージを生成（CC モデル指定付き）。"""
-    from config import CC_MODEL_PLAN, CC_MODEL_IMPL
-    issues = ", ".join(f"#{i['issue']}" for i in batch)
-    return (
-        f"[devbar] {project}: 実装フェーズ開始\n\n"
-        f"対象Issue: {issues}\n"
-        f"GitLab: https://gitlab.com/{gitlab}\n\n"
-        f"CC Plan: `claude --model {CC_MODEL_PLAN}` (設計確認)\n"
-        f"CC Impl: `claude --model {CC_MODEL_IMPL}` (実装)\n"
-    )

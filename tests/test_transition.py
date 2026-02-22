@@ -168,8 +168,8 @@ class TestTransitionNotifications:
         with open(path) as f:
             assert json.load(f)["state"] == "CODE_REVIEW"
 
-    def test_no_notification_for_states_without_message(self, tmp_pipelines, sample_pipeline):
-        """DESIGN_PLAN など通知不要な状態遷移では notify 関数が呼ばれない"""
+    def test_design_plan_notifies_implementer(self, tmp_pipelines, sample_pipeline):
+        """DESIGN_PLAN 遷移では実装担当に通知が送られる"""
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
         from devbar import cmd_transition
@@ -180,7 +180,7 @@ class TestTransitionNotifications:
              patch("devbar.notify_reviewers") as mock_rev, \
              patch("devbar.notify_discord"):
             cmd_transition(args)
-        mock_impl.assert_not_called()
+        mock_impl.assert_called_once()
         mock_rev.assert_not_called()
 
     def test_transition_notifies_discord(self, tmp_pipelines, sample_pipeline):

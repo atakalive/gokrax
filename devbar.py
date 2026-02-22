@@ -232,7 +232,7 @@ def _maybe_reset_reviewers(project: str) -> None:
 
 
 def _post_gitlab_note(gitlab: str, issue_num: int, body: str) -> bool:
-    """glab issue note を投稿。失敗時は2回リトライ（間隔2秒）。"""
+    """glab issue note を投稿。失敗時は2回リトライ（間隔3秒）。"""
     for attempt in range(3):
         try:
             result = subprocess.run(
@@ -245,7 +245,7 @@ def _post_gitlab_note(gitlab: str, issue_num: int, body: str) -> bool:
         except Exception as e:
             _log(f"glab note error (attempt {attempt+1}/3): {e}")
         if attempt < 2:
-            time.sleep(2)
+            time.sleep(3)
     print("  ⚠ GitLab note failed after 3 attempts", file=sys.stderr)
     return False
 

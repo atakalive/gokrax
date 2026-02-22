@@ -3,6 +3,21 @@
 import json
 import pytest
 from pathlib import Path
+from unittest.mock import patch
+
+
+@pytest.fixture(autouse=True)
+def _block_external_calls(request):
+    """全テストで外部通知（Discord投稿・エージェント送信）をブロック。
+    test_notify.py と test_config.py では適用しない（自前でmockするため）。
+    """
+    module = Path(request.node.fspath).stem
+    if module in ("test_notify", "test_config"):
+        yield
+        return
+    with patch("notify.post_discord", return_value="mock-msg-id"), \
+         patch("notify.send_to_agent", return_value=True):
+        yield
 
 
 @pytest.fixture

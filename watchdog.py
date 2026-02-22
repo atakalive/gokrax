@@ -130,7 +130,7 @@ def get_notification_for_state(
 ) -> TransitionAction:
     """全状態の通知メッセージを一元管理。
 
-    遷移通知（初回）にも催促（nudge）にも使う。
+    遷移通知（初回）にも催促（nudge）にも使う。ただし現状の催促は "continue" のみ。
     check_transition(), cmd_transition(), 催促処理 から呼ばれる共通ロジック。
     通知不要な状態は TransitionAction() を返す。
     """
@@ -161,17 +161,10 @@ def get_notification_for_state(
         msg = (
             f"[devbar] {project}: {phase}修正フェーズ\n"
             f"対象Issue: {issues_str}\n"
-            f"P0の指摘を修正して、revise コマンドで完了報告してください。\n"
+            f"P0の指摘を修正して、Issue本文に反映してください。\n"
+            f"glab issue update コマンドを使用。\n"
+            f"その後、revise コマンドで完了報告してください。\n"
             f"python3 {DEVBAR_CLI} revise --project {project} --issue N"
-        )
-        return TransitionAction(impl_msg=msg)
-
-    if state == "DESIGN_APPROVED":
-        msg = (
-            f"設計レビュー通過。あなた（実装担当）がClaude Codeを使用して、バッチ単位で Plan => Impl してください。\n"
-            f"CC Plan: `claude --model {CC_MODEL_PLAN}` でまとめて設計確認\n"
-            f"CC Impl: `claude --model {CC_MODEL_IMPL}` でまとめて実装\n"
-            f"実装完了後: `python3 {DEVBAR_CLI} commit --project {project} --issue N [N...] --hash <commit>`"
         )
         return TransitionAction(impl_msg=msg)
 
@@ -180,17 +173,18 @@ def get_notification_for_state(
             f"#{i['issue']}" for i in batch if not i.get("commit")
         ) or "（全Issue）"
         msg = (
-            f"[devbar] {project}: 実装フェーズ — あなた（実装担当）がClaude Codeで実装してください\n"
+            f"[devbar] {project}: 実装フェーズ\n"
+            f"— あなた（実装担当）がClaude Codeを使用してバッチ単位で Plan => Impl して、devbarに完了報告してください。\n"
             f"対象Issue: {issues_str}\n"
             f"手順:\n"
-            f"1. `claude --model {CC_MODEL_PLAN}` でIssueの設計を確認（Plan）\n"
-            f"2. `claude --model {CC_MODEL_IMPL}` で実装（Impl）\n"
+            f"1. `claude --model {CC_MODEL_PLAN}` で、まとめてIssue設計確認（Plan）\n"
+            f"2. `claude --model {CC_MODEL_IMPL}` で、まとめて実装（Impl）\n"
             f"3. 完了後: `python3 {DEVBAR_CLI} commit --project {project} --issue N [N...] --hash <commit>`"
         )
         return TransitionAction(impl_msg=msg)
 
-    if state == "CODE_APPROVED":
-        return TransitionAction(impl_msg="コードレビュー通過。Mにサマリーを送ってください。")
+    if state == "MERGE_SUMMARY_SENT":
+        return TransitionAction(impl_msg="コードレビュー通過。Mにマージサマリーを送ってください。")
 
     if state == "IDLE":
         return TransitionAction(impl_msg="バッチ完了。watchdog無効化しました。")
@@ -319,6 +313,43 @@ def _get_pending_reviewers(batch: list, review_key: str) -> list:
         if not all(reviewer in i.get(review_key, {}) for i in batch):
             pending.append(reviewer)
     return pending
+
+
+def _auto_push_and_close(repo_path: str, gitlab: str, batch: list, project: str) -> None:
+    """DONE遷移時に git push + issue close を自動実行。"""
+    import subprocess as _sp
+    from config import GLAB_BIN
+
+    # git push
+    if repo_path:
+        try:
+            result = _sp.run(
+                ["git", "-C", repo_path, "push"],
+                capture_output=True, text=True, timeout=60,
+            )
+            if result.returncode == 0:
+                log(f"[{project}] git push 成功")
+            else:
+                log(f"[{project}] git push 失敗: {result.stderr.strip()}")
+        except Exception as e:
+            log(f"[{project}] git push エラー: {e}")
+
+    # issue close
+    for item in batch:
+        issue_num = item.get("issue")
+        if not issue_num:
+            continue
+        try:
+            result = _sp.run(
+                [GLAB_BIN, "issue", "close", str(issue_num), "-R", gitlab],
+                capture_output=True, text=True, timeout=30,
+            )
+            if result.returncode == 0:
+                log(f"[{project}] Issue #{issue_num} closed")
+            else:
+                log(f"[{project}] Issue #{issue_num} close失敗: {result.stderr.strip()}")
+        except Exception as e:
+            log(f"[{project}] Issue #{issue_num} closeエラー: {e}")
 
 
 def _format_nudge_message(state: str, project: str, batch: list) -> str:
@@ -452,6 +483,16 @@ def process(path: Path):
 
         ts = _datetime.now(JST).strftime("%m/%d %H:%M")
         notify_discord(f"[{pj}] {notification['old_state']} → {action.new_state} ({ts})")
+
+        # DONE遷移時: git push + issue close を自動実行
+        if action.new_state == "DONE":
+            _auto_push_and_close(
+                notification.get("repo_path", ""),
+                notification["gitlab"],
+                notification["batch"],
+                pj,
+            )
+
         if action.impl_msg:
             notify_implementer(
                 notification["implementer"],

@@ -56,9 +56,11 @@ class TestCheckTransition:
         from watchdog import check_transition
         assert check_transition("MERGE_SUMMARY_SENT", _make_batch()).new_state is None
 
-    def test_design_approved_returns_no_action(self):
+    def test_design_approved_auto_transitions_to_implementation(self):
         from watchdog import check_transition
-        assert check_transition("DESIGN_APPROVED", _make_batch()).new_state is None
+        action = check_transition("DESIGN_APPROVED", _make_batch())
+        assert action.new_state == "IMPLEMENTATION"
+        assert action.impl_msg is not None
 
     def test_blocked_returns_no_action(self):
         from watchdog import check_transition

@@ -69,6 +69,9 @@ BLOCK_TIMERS = {
     "IMPLEMENTATION": 1200,  # 20分
 }
 
+# 状態遷移直後の催促猶予期間（秒）。遷移からこの時間が経つまで催促しない
+NUDGE_GRACE_SEC = 180  # 3分
+
 
 @dataclass
 class TransitionAction:
@@ -111,6 +114,9 @@ def _check_nudge(state: str, data: dict) -> TransitionAction | None:
             new_state="BLOCKED",
             impl_msg=f"{state} タイムアウト。応答がありませんでした。",
         )
+    # 猶予期間内は催促しない
+    if elapsed < NUDGE_GRACE_SEC:
+        return None
     # 催促（非アクティブチェックはロック内で行う）
     return TransitionAction(nudge=state)
 
@@ -133,10 +139,10 @@ def get_notification_for_state(
         return TransitionAction(impl_msg="レビューにP0あり。修正してください。")
     if state == "DESIGN_APPROVED":
         msg = (
-            f"設計レビュー通過。あなた（実装担当）がClaude Codeで実装してください。\n"
-            f"CC Plan: `claude --model {CC_MODEL_PLAN}` で設計確認\n"
-            f"CC Impl: `claude --model {CC_MODEL_IMPL}` で実装\n"
-            f"実装完了後: `python3 {DEVBAR_CLI} commit --project <project> --issue N --hash <commit>`"
+            f"設計レビュー通過。あなた（実装担当）がClaude Codeを使用して、バッチ単位で Plan => Impl してください。\n"
+            f"CC Plan: `claude --model {CC_MODEL_PLAN}` でまとめて設計確認\n"
+            f"CC Impl: `claude --model {CC_MODEL_IMPL}` でまとめて実装\n"
+            f"実装完了後: `python3 {DEVBAR_CLI} commit --project <project> --issue N [N...] --hash <commit>`"
         )
         return TransitionAction(impl_msg=msg)
     if state == "CODE_APPROVED":
@@ -148,7 +154,7 @@ def get_notification_for_state(
 
 def check_transition(state: str, batch: list, data: dict | None = None) -> TransitionAction:
     """現在の状態とバッチから次の遷移アクションを決定する純粋関数。副作用なし。"""
-    if state in ("IDLE", "TRIAGE", "DESIGN_APPROVED", "BLOCKED"):
+    if state in ("IDLE", "TRIAGE", "BLOCKED"):
         return TransitionAction()
 
     if state == "MERGE_SUMMARY_SENT":
@@ -203,11 +209,28 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
                     new_state=appr,
                     impl_msg=get_notification_for_state(appr).impl_msg,
                 )
-        # 未完了レビュアーの催促
+        # 未完了レビュアーの催促（猶予期間内はスキップ）
+        entered_at = _get_state_entered_at(data, state) if data is not None else None
+        if entered_at is not None:
+            elapsed = (_datetime.now(JST) - entered_at).total_seconds()
+            if elapsed < NUDGE_GRACE_SEC:
+                return TransitionAction()
         pending = _get_pending_reviewers(batch, key)
         if pending:
             return TransitionAction(nudge_reviewers=pending)
         return TransitionAction()
+
+    if state == "DESIGN_APPROVED":
+        return TransitionAction(
+            new_state="IMPLEMENTATION",
+            impl_msg=get_notification_for_state("DESIGN_APPROVED").impl_msg,
+        )
+
+    if state == "CODE_APPROVED":
+        return TransitionAction(
+            new_state="MERGE_SUMMARY_SENT",
+            impl_msg=get_notification_for_state("CODE_APPROVED").impl_msg,
+        )
 
     if state in ("DESIGN_REVISE", "CODE_REVISE"):
         revised_key = "design_revised" if "DESIGN" in state else "code_revised"

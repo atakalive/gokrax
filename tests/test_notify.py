@@ -202,7 +202,7 @@ class TestNotifyReviewers:
             notify.notify_reviewers("proj", "DESIGN_REVIEW", batch, "atakalive/proj")
 
         called_agents = [c.args[0] for c in mock_send.call_args_list]
-        for r in config.REVIEWERS:
+        for r in config.DESIGN_REVIEWERS:
             assert r in called_agents, \
                 f"{r} が send_to_agent に渡されていない"
 

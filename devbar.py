@@ -341,6 +341,10 @@ def cmd_review(args):
         issue = find_issue(data.get("batch", []), args.issue)
         if not issue:
             raise SystemExit(f"Issue #{args.issue} not in batch")
+        # 冪等性: 同じレビュアーが既にレビュー済みならスキップ
+        if args.reviewer in issue.get(key, {}):
+            print(f"#{args.issue}: already reviewed by {args.reviewer}, skipping")
+            return
         review_entry = {"verdict": args.verdict, "at": now_iso()}
         if args.summary:
             review_entry["summary"] = args.summary

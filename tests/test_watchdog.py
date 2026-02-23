@@ -347,3 +347,121 @@ class TestNoDirectSavePipeline:
             process(path)
 
         mock_save.assert_not_called()
+
+
+# ── TestIsAgentInactive ───────────────────────────────────────────────────────
+
+class TestIsAgentInactive:
+    """_is_agent_inactive() の新機能テスト (Issue #25)"""
+
+    def test_active_when_cc_pid_exists_and_alive(self):
+        """cc_pidが存在し、プロセスが生存していればアクティブ"""
+        from watchdog import _is_agent_inactive
+
+        data = {"cc_pid": 12345}
+
+        # /proc/12345 が存在する（プロセス生存）
+        with patch.object(Path, "exists", return_value=True):
+            assert not _is_agent_inactive("kaneko", data)
+
+    def test_inactive_when_cc_pid_exists_but_dead(self):
+        """cc_pidが存在するがプロセス消滅時、セッション判定へ"""
+        from watchdog import _is_agent_inactive
+
+        data = {"cc_pid": 99999}
+
+        # /proc/99999 が存在しない（プロセス消滅）
+        with patch.object(Path, "exists", return_value=False):
+            # セッションJSONも存在しない
+            with patch("pathlib.Path.read_text", side_effect=FileNotFoundError):
+                assert _is_agent_inactive("kaneko", data) is True
+
+    def test_inactive_when_no_cc_pid(self):
+        """cc_pidがない場合、セッション判定へ"""
+        from watchdog import _is_agent_inactive
+
+        data = {}
+
+        # セッションJSONが存在しない
+        with patch("pathlib.Path.read_text", side_effect=FileNotFoundError):
+            assert _is_agent_inactive("kaneko", data) is True
+
+    def test_inactive_when_cc_pid_is_none(self):
+        """cc_pidがNoneの場合、セッション判定へ"""
+        from watchdog import _is_agent_inactive
+
+        data = {"cc_pid": None}
+
+        # セッションJSONが存在しない
+        with patch("pathlib.Path.read_text", side_effect=FileNotFoundError):
+            assert _is_agent_inactive("kaneko", data) is True
+
+    def test_active_with_valid_session_when_no_cc_pid(self):
+        """cc_pidなし、セッションが最近更新されていればアクティブ"""
+        from watchdog import _is_agent_inactive
+        from datetime import datetime
+        from config import JST
+        import json
+
+        data = {}
+
+        # 10秒前に更新されたセッション
+        now_ts = int(datetime.now(JST).timestamp() * 1000)
+        recent_ts = now_ts - 10000  # 10秒前
+
+        session_data = {
+            "agent:kaneko:main": {
+                "updatedAt": recent_ts
+            }
+        }
+
+        with patch("pathlib.Path.read_text", return_value=json.dumps(session_data)):
+            assert not _is_agent_inactive("kaneko", data)
+
+    def test_inactive_with_old_session_when_no_cc_pid(self):
+        """cc_pidなし、セッションが古ければ非アクティブ"""
+        from watchdog import _is_agent_inactive
+        from datetime import datetime
+        from config import JST
+        import json
+
+        data = {}
+
+        # 90秒前に更新されたセッション（閾値81秒超過）
+        now_ts = int(datetime.now(JST).timestamp() * 1000)
+        old_ts = now_ts - 90000  # 90秒前
+
+        session_data = {
+            "agent:kaneko:main": {
+                "updatedAt": old_ts
+            }
+        }
+
+        with patch("pathlib.Path.read_text", return_value=json.dumps(session_data)):
+            assert _is_agent_inactive("kaneko", data) is True
+
+    def test_pipeline_data_none_uses_session_fallback(self):
+        """pipeline_data=None の場合、セッション判定のみ使用"""
+        from watchdog import _is_agent_inactive
+
+        # セッションJSONが存在しない
+        with patch("pathlib.Path.read_text", side_effect=FileNotFoundError):
+            assert _is_agent_inactive("kaneko", None) is True
+
+    def test_is_cc_running_helper(self):
+        """_is_cc_running() ヘルパー関数のテスト"""
+        from watchdog import _is_cc_running
+
+        # cc_pid が存在し、プロセス生存
+        with patch.object(Path, "exists", return_value=True):
+            assert _is_cc_running({"cc_pid": 123}) is True
+
+        # cc_pid が存在し、プロセス消滅
+        with patch.object(Path, "exists", return_value=False):
+            assert _is_cc_running({"cc_pid": 456}) is False
+
+        # cc_pid がない
+        assert _is_cc_running({}) is False
+
+        # cc_pid が None
+        assert _is_cc_running({"cc_pid": None}) is False

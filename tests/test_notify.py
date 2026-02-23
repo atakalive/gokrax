@@ -9,6 +9,8 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
+from config import REVIEW_MODES
+
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
@@ -439,7 +441,7 @@ class TestNotifyReviewersWithMode:
 
         # /new が送信されたか確認
         new_calls = [c for c in mock_send.call_args_list if c.args[1] == "/new"]
-        assert len(new_calls) == 2  # standard mode has 2 reviewers
+        assert len(new_calls) == len(REVIEW_MODES["standard"]["members"])
 
     def test_skip_mode_sends_no_notifications(self):
         import notify

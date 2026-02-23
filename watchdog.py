@@ -208,7 +208,7 @@ def get_notification_for_state(
             f"— あなた（実装担当）がClaude Codeを使用して全ての対象Issueを一括で Plan => Impl して、devbarに完了報告してください。\n"
             f"対象Issue: {issues_str}\n"
             f"手順:\n"
-            f"1. `claude --model {CC_MODEL_PLAN}` で、全対象IssueをまとめてIssue設計確認（Plan）\n"
+            f"1. `claude --model {CC_MODEL_PLAN}` で、全対象Issueをまとめて設計確認（Plan）\n"
             f"2. `claude --model {CC_MODEL_IMPL}` で、全対象Issueをまとめて実装（Impl）\n"
             f"3. 完了後: `python3 {DEVBAR_CLI} commit --project {project} --issue N [N...] --hash <commit>`"
         )
@@ -332,8 +332,22 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
     return TransitionAction()
 
 
-def _is_agent_inactive(agent_id: str) -> bool:
-    """エージェントが非アクティブ(81秒以上更新なし)かどうか判定。"""
+def _is_cc_running(data: dict) -> bool:
+    """パイプラインに記録されたCC PIDが生存中か判定。"""
+    pid = data.get("cc_pid")
+    if not pid:
+        return False
+    return Path(f"/proc/{pid}").exists()
+
+
+def _is_agent_inactive(agent_id: str, pipeline_data: dict | None = None) -> bool:
+    """エージェントが非アクティブ(81秒以上更新なし)かどうか判定。
+
+    CC実行中（cc_pid が /proc に存在）はアクティブと判定する。
+    """
+    # CC実行中ならアクティブ
+    if pipeline_data is not None and _is_cc_running(pipeline_data):
+        return False
     try:
         path = SESSIONS_BASE / agent_id / "sessions" / "sessions.json"
         data = _json.loads(path.read_text())
@@ -439,7 +453,7 @@ def process(path: Path):
         # 実装担当催促（遷移なし、カウンタ書き込みのみ）
         if action.nudge:
             implementer = data.get("implementer", "kaneko")
-            if not _is_agent_inactive(implementer):
+            if not _is_agent_inactive(implementer, data):
                 # アクティブなら催促しない（カウンタも上げない）
                 return
             key = _nudge_key(action.nudge)

@@ -286,6 +286,17 @@ def cmd_commit(args):
     print(f"{args.project}: commit={args.hash} ({done})")
 
 
+def cmd_cc_start(args):
+    """CC実行開始時にPIDを記録"""
+    path = get_path(args.project)
+
+    def do_cc_start(data):
+        data["cc_pid"] = args.pid
+
+    update_pipeline(path, do_cc_start)
+    print(f"{args.project}: cc_pid={args.pid} recorded")
+
+
 def cmd_plan_done(args):
     """設計完了フラグを設定"""
     path = get_path(args.project)
@@ -413,6 +424,11 @@ def main():
     p.add_argument("--hash", required=True)
     p.add_argument("--session-id", default=None)
 
+    # cc-start
+    p = sub.add_parser("cc-start", help="CC実行開始時にPIDを記録")
+    p.add_argument("--project", required=True)
+    p.add_argument("--pid", type=int, required=True, help="CCプロセスのPID")
+
     # plan-done
     p = sub.add_parser("plan-done", help="設計完了フラグ設定")
     p.add_argument("--project", required=True)
@@ -438,8 +454,8 @@ def main():
         "enable": cmd_enable, "disable": cmd_disable,
         "triage": cmd_triage, "transition": cmd_transition,
         "review": cmd_review, "commit": cmd_commit,
-        "plan-done": cmd_plan_done, "revise": cmd_revise,
-        "merge-summary": cmd_merge_summary,
+        "cc-start": cmd_cc_start, "plan-done": cmd_plan_done,
+        "revise": cmd_revise, "merge-summary": cmd_merge_summary,
     }
     cmds[args.command](args)
 

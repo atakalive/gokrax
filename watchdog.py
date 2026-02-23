@@ -752,7 +752,8 @@ def process(path: Path):
                           notification.get("repo_path", ""), path)
             except Exception as e:
                 log(f"[{pj}] _start_cc failed: {e}")
-                notify_discord(f"[{pj}] ⚠️ CC起動失敗: {e}")
+                ts = _datetime.now(JST).strftime("%m/%d %H:%M")
+                notify_discord(f"[{pj}] ⚠️ CC起動失敗: {e} ({ts})")
 
 
 def main():

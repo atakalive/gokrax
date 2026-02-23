@@ -343,7 +343,8 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
     if state == "DESIGN_APPROVED":
         return TransitionAction(
             new_state="IMPLEMENTATION",
-            impl_msg=get_notification_for_state("DESIGN_APPROVED").impl_msg,
+            run_cc=True,
+            reset_reviewers=True,
         )
 
     if state == "CODE_APPROVED":

@@ -120,7 +120,7 @@ class TestTransitionNotifications:
         mock_rev.assert_not_called()
 
     def test_force_transition_sends_notification(self, tmp_pipelines, sample_pipeline):
-        """--force 遷移（IDLE→IMPLEMENTATION）で notify_implementer が呼ばれる"""
+        """--force 遷移（IDLE→IMPLEMENTATION）: run_cc=True なので impl_msg なし（CC直接実行）"""
         path = tmp_pipelines / "test-pj.json"
         sample_pipeline["batch"] = [dict(self._BATCH_ITEM)]
         write_pipeline(path, sample_pipeline)
@@ -131,19 +131,18 @@ class TestTransitionNotifications:
         with patch("devbar.notify_implementer") as mock_impl, \
              patch("devbar.notify_reviewers") as mock_rev:
             cmd_transition(args)
-        mock_impl.assert_called_once()
-        call_msg = mock_impl.call_args[0][1]
-        assert "（再開）" not in call_msg
+        # IMPLEMENTATION は run_cc=True で impl_msg なし → notify_implementer は呼ばれない
+        mock_impl.assert_not_called()
         mock_rev.assert_not_called()
 
-    def test_resume_transition_sends_notification_with_prefix(self, tmp_pipelines, sample_pipeline):
-        """--resume 遷移で「（再開）」プレフィックスが通知文に含まれる"""
+    def test_resume_transition_to_design_plan_sends_notification(self, tmp_pipelines, sample_pipeline):
+        """--resume 遷移（→DESIGN_PLAN）で notify_implementer が呼ばれ「（再開）」プレフィックスが含まれる"""
         path = tmp_pipelines / "test-pj.json"
         sample_pipeline["batch"] = [dict(self._BATCH_ITEM)]
         write_pipeline(path, sample_pipeline)
         from devbar import cmd_transition
         args = argparse.Namespace(
-            project="test-pj", to="IMPLEMENTATION", actor="cli", force=False, resume=True,
+            project="test-pj", to="DESIGN_PLAN", actor="cli", force=False, resume=True,
         )
         with patch("devbar.notify_implementer") as mock_impl, \
              patch("devbar.notify_reviewers"):
@@ -151,7 +150,7 @@ class TestTransitionNotifications:
         mock_impl.assert_called_once()
         call_msg = mock_impl.call_args[0][1]
         assert "（再開）" in call_msg
-        assert "実装フェーズ" in call_msg
+        assert "設計確認フェーズ" in call_msg
 
     def test_resume_skips_validation(self, tmp_pipelines, sample_pipeline):
         """--resume は --force と同様にバリデーションをスキップする"""

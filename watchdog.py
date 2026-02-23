@@ -228,7 +228,7 @@ def get_notification_for_state(
             f"2. `claude --model {CC_MODEL_IMPL}` で、全対象Issueをまとめて実装（Impl）\n"
             f"3. 完了後: `python3 {DEVBAR_CLI} commit --project {project} --issue N [N...] --hash <commit>`"
         )
-        return TransitionAction(impl_msg=msg, reset_reviewers=True)
+        return TransitionAction(run_cc=True, reset_reviewers=True)
 
     return TransitionAction()
 

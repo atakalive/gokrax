@@ -27,14 +27,16 @@ from pipeline_io import (
 from notify import notify_implementer, notify_reviewers, notify_discord, send_to_agent
 
 
-def _reset_reviewers(review_mode: str = "standard"):
-    """レビュアーに /new を先行送信（DESIGN_PLAN/IMPLEMENTATION開始時）。"""
+def _reset_reviewers(review_mode: str = "standard", implementer: str = ""):
+    """レビュアー（+実装担当）に /new を先行送信。"""
     from config import DESIGN_REVIEWERS, CODE_REVIEWERS, AGENTS, REVIEW_MODE_TIERS
     tiers = REVIEW_MODE_TIERS.get(review_mode, REVIEW_MODE_TIERS.get("standard", {}))
     design_n = tiers.get("design", 3)
     code_n = tiers.get("code", 3)
-    reviewers = set(DESIGN_REVIEWERS[:design_n] + CODE_REVIEWERS[:code_n])
-    for r in reviewers:
+    targets = set(DESIGN_REVIEWERS[:design_n] + CODE_REVIEWERS[:code_n])
+    if implementer:
+        targets.add(implementer)
+    for r in targets:
         if r in AGENTS:
             if not send_to_agent(r, "/new"):
                 log(f"WARNING: failed to send /new to {r}")
@@ -719,7 +721,9 @@ def process(path: Path):
             )
 
         if action.reset_reviewers:
-            _reset_reviewers(notification.get("review_mode", "standard"))
+            # DESIGN_PLAN開始時は実装担当もリセット（新バッチ開始）
+            impl = notification["implementer"] if action.new_state == "DESIGN_PLAN" else ""
+            _reset_reviewers(notification.get("review_mode", "standard"), implementer=impl)
 
         if action.impl_msg:
             notify_implementer(

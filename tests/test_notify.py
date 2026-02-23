@@ -204,11 +204,11 @@ class TestNotifyReviewers:
             with patch("notify.fetch_issue_body", return_value="body"):
                 notify.notify_reviewers("proj", "DESIGN_REVIEW", batch, "atakalive/proj")
 
-        # /new calls + message calls
+        # レビュー依頼メッセージのみ（/new はwatchdog側で先行送信）
         called_agents = [c.args[0] for c in mock_send.call_args_list]
         for r in config.REVIEW_MODES["standard"]["members"]:
-            assert called_agents.count(r) == 2, \
-                f"{r} should be called twice (/new + message)"
+            assert called_agents.count(r) == 1, \
+                f"{r} should be called once (review message only)"
 
     def test_unknown_reviewer_logs_error_and_continues(self, caplog, monkeypatch):
         """未知のレビュアーはスキップされ、既知のレビュアーには送信が継続されること。"""
@@ -228,13 +228,10 @@ class TestNotifyReviewers:
                     notify.notify_reviewers("proj", "CODE_REVIEW", batch, "atakalive/proj",
                                           review_mode="test_mode")
 
-        # 未知レビュアーのエラーログ
-        assert "Unknown reviewer" in caplog.text
-        # 既知の pascal には送信される (/new + message = 2 calls)
+        # 既知の pascal にはレビュー依頼が送信される
         called_agents = [c.args[0] for c in mock_send.call_args_list]
         assert "pascal" in called_agents
-        # unknown_reviewer には送信されない (エラーログのみ)
-        assert called_agents.count("pascal") == 2
+        assert called_agents.count("pascal") == 1
 
 
 class TestFetchDiscordReplies:
@@ -431,7 +428,8 @@ class TestFormatReviewRequestEmbedded:
 class TestNotifyReviewersWithMode:
     """notify_reviewers の review_mode 連携テスト（Issue #24）"""
 
-    def test_sends_new_to_all_reviewers(self):
+    def test_sends_review_to_all_reviewers(self):
+        """notify_reviewers はレビュー依頼メッセージのみ送信（/new は watchdog 側）"""
         import notify
         batch = [{"issue": 1, "title": "t", "commit": None, "design_reviews": {}, "code_reviews": {}}]
         with patch("notify.send_to_agent") as mock_send:
@@ -439,9 +437,11 @@ class TestNotifyReviewersWithMode:
                 notify.notify_reviewers("proj", "DESIGN_REVIEW", batch, "atakalive/proj",
                                        review_mode="standard")
 
-        # /new が送信されたか確認
+        # /new は送信されない（watchdog 側で先行送信済み）
         new_calls = [c for c in mock_send.call_args_list if c.args[1] == "/new"]
-        assert len(new_calls) == len(REVIEW_MODES["standard"]["members"])
+        assert len(new_calls) == 0
+        # レビュー依頼のみ
+        assert mock_send.call_count == len(REVIEW_MODES["standard"]["members"])
 
     def test_skip_mode_sends_no_notifications(self):
         import notify
@@ -459,5 +459,5 @@ class TestNotifyReviewersWithMode:
                 notify.notify_reviewers("proj", "DESIGN_REVIEW", batch, "atakalive/proj",
                                        review_mode="full")
 
-        # 4 reviewers × 2 calls (/new + message) = 8 calls
-        assert mock_send.call_count == 8
+        # 4 reviewers × 1 call (review message only) = 4 calls
+        assert mock_send.call_count == 4

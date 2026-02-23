@@ -24,7 +24,20 @@ from pipeline_io import (
     load_pipeline, update_pipeline, get_path,
     add_history, now_iso, find_issue,
 )
-from notify import notify_implementer, notify_reviewers, notify_discord
+from notify import notify_implementer, notify_reviewers, notify_discord, send_to_agent
+
+
+def _reset_reviewers(review_mode: str = "standard"):
+    """レビュアーに /new を先行送信（DESIGN_PLAN/IMPLEMENTATION開始時）。"""
+    from config import DESIGN_REVIEWERS, CODE_REVIEWERS, AGENTS, REVIEW_MODE_TIERS
+    tiers = REVIEW_MODE_TIERS.get(review_mode, REVIEW_MODE_TIERS.get("standard", {}))
+    design_n = tiers.get("design", 3)
+    code_n = tiers.get("code", 3)
+    reviewers = set(DESIGN_REVIEWERS[:design_n] + CODE_REVIEWERS[:code_n])
+    for r in reviewers:
+        if r in AGENTS:
+            if not send_to_agent(r, "/new"):
+                log(f"WARNING: failed to send /new to {r}")
 
 
 def log(msg: str):
@@ -80,6 +93,7 @@ class TransitionAction:
     new_state: str | None = None
     impl_msg: str | None = None
     send_review: bool = False
+    reset_reviewers: bool = False  # レビュアーに /new を先行送信
     send_merge_summary: bool = False  # #dev-bar にマージサマリーを投稿
     run_cc: bool = False  # CC CLI を直接起動
     nudge: str | None = None   # 催促通知が必要な状態名
@@ -178,12 +192,12 @@ def get_notification_for_state(
         msg = (
             f"[devbar] {project}: 設計確認フェーズ\n"
             f"対象Issue: {issues_str}\n"
-            f"対象Issueを確認して、Claude Codeが楽に実装できるように内容確認/修正して、\n"
-            f"glab issue update コマンドを使用して、Issue本文を更新してください。\n"
+            f"Claude Codeが楽に実装できるように、対象Issueの内容確認/修正をして、\n"
+            f"glab issue update コマンドで **Issue本文を更新** してください。コメントは不要。\n"
             f"その後、問題がなければ plan-done してください。\n"
             f"python3 {DEVBAR_CLI} plan-done --project {project} --issue N"
         )
-        return TransitionAction(impl_msg=msg)
+        return TransitionAction(impl_msg=msg, reset_reviewers=True)
 
     if state in ("DESIGN_REVISE", "CODE_REVISE"):
         phase = "設計" if "DESIGN" in state else "コード"
@@ -214,7 +228,7 @@ def get_notification_for_state(
             f"2. `claude --model {CC_MODEL_IMPL}` で、全対象Issueをまとめて実装（Impl）\n"
             f"3. 完了後: `python3 {DEVBAR_CLI} commit --project {project} --issue N [N...] --hash <commit>`"
         )
-        return TransitionAction(impl_msg=msg)
+        return TransitionAction(impl_msg=msg, reset_reviewers=True)
 
     return TransitionAction()
 
@@ -651,6 +665,9 @@ def process(path: Path):
                 pj,
             )
 
+        if action.reset_reviewers:
+            _reset_reviewers(notification.get("review_mode", "standard"))
+
         if action.impl_msg:
             notify_implementer(
                 notification["implementer"],
@@ -658,14 +675,10 @@ def process(path: Path):
             )
         if action.send_review:
             review_mode = notification.get("review_mode", "standard")
-            # REVISE→REVIEW の再レビューではレビュアーの /new 不要（コンテキスト維持）
-            old_state = notification.get("old_state", "")
-            skip_new = old_state in ("DESIGN_REVISE", "CODE_REVISE")
             notify_reviewers(
                 pj, action.new_state, notification["batch"], notification["gitlab"],
                 repo_path=notification.get("repo_path", ""),
                 review_mode=review_mode,
-                skip_new=skip_new,
             )
         if action.run_cc:
             try:

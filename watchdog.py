@@ -517,12 +517,8 @@ def process(path: Path):
             return
 
         if action.nudge:
-            # 初回(count=1)は詳細メッセージ、2回目以降は起床用"continue"
-            nudge_count = notification.get("nudge_count", 1)
-            if nudge_count <= 1:
-                nudge_msg = _format_nudge_message(action.nudge, pj, notification["batch"])
-            else:
-                nudge_msg = "continue"
+            # 遷移時に既に詳細メッセージを送っているので、催促は常に "continue"
+            nudge_msg = "continue"
             notify_implementer(notification["implementer"], nudge_msg)
             ts = _datetime.now(JST).strftime("%m/%d %H:%M")
             notify_discord(f"[{pj}] {action.nudge}: 実装担当に通知送信 ({ts})")

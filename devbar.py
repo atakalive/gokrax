@@ -266,7 +266,16 @@ def cmd_start(args):
     )
     cmd_transition(transition_args)
 
-    # 5. watchdog有効化
+    # 5. review_mode設定（--mode指定時のみ）
+    if getattr(args, "mode", None):
+        from watchdog import REVIEW_MODES
+        if args.mode not in REVIEW_MODES:
+            raise SystemExit(f"Invalid mode: {args.mode} (valid: {list(REVIEW_MODES)})")
+        def do_mode(data):
+            data["review_mode"] = args.mode
+        update_pipeline(path, do_mode)
+
+    # 6. watchdog有効化
     def do_enable(data):
         data["enabled"] = True
     update_pipeline(path, do_enable)
@@ -575,6 +584,8 @@ def main():
     p.add_argument("--project", required=True)
     p.add_argument("--issue", type=int, nargs="+",
                    help="Issue番号（省略時はGitLabのopen issue全件を自動取得）")
+    p.add_argument("--mode", choices=["full", "standard", "lite", "skip"],
+                   help="レビューモード（省略時は既存設定を維持）")
 
     # triage
     p = sub.add_parser("triage", help="指定Issueをバッチに投入")

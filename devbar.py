@@ -287,6 +287,18 @@ def cmd_transition(args):
 
     notif = get_notification_for_state(args.to, pj, batch, gitlab, implementer)
     prefix = "（再開）" if resume else ""
+    if notif.reset_reviewers:
+        from watchdog import _reset_reviewers
+        impl = ""
+        if args.to == "DESIGN_PLAN":
+            last_pj = data.get("_last_impl_project", "")
+            if last_pj and last_pj != pj:
+                impl = implementer
+            # 記録更新
+            def _save_pj(d, p=pj):
+                d["_last_impl_project"] = p
+            update_pipeline(path, _save_pj)
+        _reset_reviewers(review_mode, implementer=impl)
     if notif.impl_msg:
         notify_implementer(implementer, f"[devbar] {pj}: {prefix}{notif.impl_msg}")
     if notif.send_review:

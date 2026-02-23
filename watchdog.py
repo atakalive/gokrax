@@ -29,11 +29,9 @@ from notify import notify_implementer, notify_reviewers, notify_discord, send_to
 
 def _reset_reviewers(review_mode: str = "standard", implementer: str = ""):
     """レビュアー（+実装担当）に /new を先行送信。"""
-    from config import DESIGN_REVIEWERS, CODE_REVIEWERS, AGENTS, REVIEW_MODE_TIERS
-    tiers = REVIEW_MODE_TIERS.get(review_mode, REVIEW_MODE_TIERS.get("standard", {}))
-    design_n = tiers.get("design", 3)
-    code_n = tiers.get("code", 3)
-    targets = set(DESIGN_REVIEWERS[:design_n] + CODE_REVIEWERS[:code_n])
+    from config import AGENTS, REVIEW_MODES
+    mode_config = REVIEW_MODES.get(review_mode, REVIEW_MODES["standard"])
+    targets = set(mode_config["members"])
     if implementer:
         targets.add(implementer)
     for r in targets:
@@ -220,8 +218,8 @@ def get_notification_for_state(
             f"[devbar] {project}: 設計確認フェーズ\n"
             f"対象Issue: {issues_str}\n"
             f"Claude Codeが楽に実装できるように、対象Issueの内容確認/修正をして、\n"
-            f"glab issue update コマンドで **Issue本文を更新** してください。コメントは不要。\n"
-            f"その後、問題がなければ plan-done してください。\n"
+            f"glab issue update コマンドで **Issue本文に反映せよ**。コメントによる補足は禁止する。\n"
+            f"その後、問題がなければ plan-done せよ。\n"
             f"python3 {DEVBAR_CLI} plan-done --project {project} --issue N"
         )
         return TransitionAction(impl_msg=msg, reset_reviewers=True)

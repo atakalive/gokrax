@@ -185,13 +185,32 @@ def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
             import time
             time.sleep(POST_NEW_COMMAND_WAIT_SEC)
 
-    # 各レビュアーにレビュー依頼メッセージ送信
+    # 各レビュアーにレビュー依頼メッセージ送信（失敗時リトライ）
+    max_retries = 3
+    failed = {}  # reviewer -> msg
     for r in reviewers:
         if r not in AGENTS:
             continue  # 既にログ出力済み
         msg = format_review_request(project, state, batch, gitlab, reviewer=r,
                                     repo_path=repo_path)
-        send_to_agent(r, msg)
+        if not send_to_agent(r, msg):
+            failed[r] = msg
+
+    for attempt in range(max_retries):
+        if not failed:
+            break
+        logger.info("Retrying review request for %s (attempt %d/%d)",
+                    list(failed.keys()), attempt + 1, max_retries)
+        import time
+        time.sleep(POST_NEW_COMMAND_WAIT_SEC)
+        still_failed = {}
+        for r, msg in failed.items():
+            if not send_to_agent(r, msg):
+                still_failed[r] = msg
+        failed = still_failed
+
+    for r in failed:
+        logger.error("Failed to send review request after retries: %s", r)
 
 
 def notify_discord(message: str):

@@ -427,9 +427,10 @@ class TestIsAgentInactive:
 
         data = {}
 
-        # 90秒前に更新されたセッション（閾値81秒超過）
+        # INACTIVE_THRESHOLD_SEC + 10秒前に更新されたセッション（閾値超過）
+        from config import INACTIVE_THRESHOLD_SEC
         now_ts = int(datetime.now(JST).timestamp() * 1000)
-        old_ts = now_ts - 90000  # 90秒前
+        old_ts = now_ts - (INACTIVE_THRESHOLD_SEC + 10) * 1000
 
         session_data = {
             "agent:kaneko:main": {

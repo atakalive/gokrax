@@ -13,8 +13,8 @@ from watchdog import clear_reviews
 
 class TestClearReviews:
 
-    def test_p0_issue_cleared_approve_issue_kept(self):
-        """P0 Issue と APPROVE Issue → P0のみクリア"""
+    def test_p0_reviewer_cleared_approve_reviewer_kept(self):
+        """P0を出したレビュアーだけクリア、APPROVEレビュアーは保持"""
         batch = [
             {
                 "issue": 1,
@@ -35,9 +35,10 @@ class TestClearReviews:
         ]
         clear_reviews(batch, "code_reviews", "code_revised")
 
-        # P0 Issue のレビューがクリアされている
-        assert batch[0]["code_reviews"] == {}
-        # APPROVE Issue のレビューは残っている
+        # P0を出したpascalだけクリア、leibnizのAPPROVEは残る
+        assert "pascal" not in batch[0]["code_reviews"]
+        assert "leibniz" in batch[0]["code_reviews"]
+        # 全APPROVE Issueはそのまま
         assert "pascal" in batch[1]["code_reviews"]
         assert "leibniz" in batch[1]["code_reviews"]
         # revised_key は両方から削除

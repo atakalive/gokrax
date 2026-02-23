@@ -219,10 +219,10 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
         title = i.get("title", "")
         commit = i.get("commit")
 
-        # APPROVE済みIssueはスキップ（再レビュー不要）
+        # APPROVE/P1済みIssueはスキップ（再レビュー不要）
         review_key = "code_reviews" if is_code else "design_reviews"
         existing = i.get(review_key, {}).get(reviewer, {})
-        if existing.get("verdict", "").upper() == "APPROVE":
+        if existing.get("verdict", "").upper() in ("APPROVE", "P1"):
             continue
 
         # devbar review コマンド生成

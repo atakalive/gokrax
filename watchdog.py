@@ -205,11 +205,11 @@ def get_notification_for_state(
         ) or "（全Issue）"
         msg = (
             f"[devbar] {project}: 実装フェーズ\n"
-            f"— あなた（実装担当）がClaude Codeを使用してバッチ単位で Plan => Impl して、devbarに完了報告してください。\n"
+            f"— あなた（実装担当）がClaude Codeを使用して全ての対象Issueを一括で Plan => Impl して、devbarに完了報告してください。\n"
             f"対象Issue: {issues_str}\n"
             f"手順:\n"
-            f"1. `claude --model {CC_MODEL_PLAN}` で、まとめてIssue設計確認（Plan）\n"
-            f"2. `claude --model {CC_MODEL_IMPL}` で、まとめて実装（Impl）\n"
+            f"1. `claude --model {CC_MODEL_PLAN}` で、全対象IssueをまとめてIssue設計確認（Plan）\n"
+            f"2. `claude --model {CC_MODEL_IMPL}` で、全対象Issueをまとめて実装（Impl）\n"
             f"3. 完了後: `python3 {DEVBAR_CLI} commit --project {project} --issue N [N...] --hash <commit>`"
         )
         return TransitionAction(impl_msg=msg)

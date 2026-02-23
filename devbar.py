@@ -563,25 +563,25 @@ def main():
 
     # init
     p = sub.add_parser("init", help="新プロジェクトのパイプラインを初期化")
-    p.add_argument("--project", required=True, help="プロジェクト名")
+    p.add_argument("--pj", "--project", dest="project", required=True, help="プロジェクト名")
     p.add_argument("--gitlab", help="GitLabパス (default: atakalive/<project>)")
     p.add_argument("--repo-path", dest="repo_path", help="ローカルリポジトリのパス")
     p.add_argument("--implementer", default="kaneko", help="実装担当エージェント (default: kaneko)")
 
     # enable / disable
     p = sub.add_parser("enable", help="watchdogによる自動遷移・催促を有効化")
-    p.add_argument("--project", required=True)
+    p.add_argument("--pj", "--project", dest="project", required=True)
     p = sub.add_parser("disable", help="watchdogを無効化（手動操作のみ）")
-    p.add_argument("--project", required=True)
+    p.add_argument("--pj", "--project", dest="project", required=True)
 
     # extend
     p = sub.add_parser("extend", help="DESIGN_PLAN/IMPL等のタイムアウトを延長")
-    p.add_argument("--project", required=True)
+    p.add_argument("--pj", "--project", dest="project", required=True)
     p.add_argument("--by", type=int, default=600, help="延長秒数 (default: 600)")
 
     # start
     p = sub.add_parser("start", help="バッチ開始: triage→DESIGN_PLAN遷移→watchdog有効化を一括実行")
-    p.add_argument("--project", required=True)
+    p.add_argument("--pj", "--project", dest="project", required=True)
     p.add_argument("--issue", type=int, nargs="+",
                    help="Issue番号（省略時はGitLabのopen issue全件を自動取得）")
     p.add_argument("--mode", choices=["full", "standard", "lite", "skip"],
@@ -589,13 +589,13 @@ def main():
 
     # triage
     p = sub.add_parser("triage", help="指定Issueをバッチに投入")
-    p.add_argument("--project", required=True)
+    p.add_argument("--pj", "--project", dest="project", required=True)
     p.add_argument("--issue", type=int, nargs="+", required=True, help="Issue番号（複数指定可）")
     p.add_argument("--title", action="append", default=[], help="タイトル（--issue と同数、省略時は空文字）")
 
     # transition
     p = sub.add_parser("transition", help="手動で状態遷移（通常はwatchdogが自動実行）")
-    p.add_argument("--project", required=True)
+    p.add_argument("--pj", "--project", dest="project", required=True)
     p.add_argument("--to", required=True, help="遷移先の状態")
     p.add_argument("--actor", default="cli", help="遷移実行者 (default: cli)")
     p.add_argument("--force", action="store_true", default=False,
@@ -607,7 +607,7 @@ def main():
 
     # review
     p = sub.add_parser("review", help="レビュー結果を記録（冪等: 同一レビュアーの二重投稿はスキップ）")
-    p.add_argument("--project", required=True)
+    p.add_argument("--pj", "--project", dest="project", required=True)
     p.add_argument("--issue", type=int, required=True)
     p.add_argument("--reviewer", required=True, choices=ALLOWED_REVIEWERS)
     p.add_argument("--verdict", required=True, choices=VALID_VERDICTS,
@@ -616,36 +616,36 @@ def main():
 
     # commit
     p = sub.add_parser("commit", help="実装完了: commitハッシュをバッチに記録")
-    p.add_argument("--project", required=True)
+    p.add_argument("--pj", "--project", dest="project", required=True)
     p.add_argument("--issue", type=int, nargs="+", required=True, help="Issue番号（複数指定可）")
     p.add_argument("--hash", required=True, help="gitコミットハッシュ")
     p.add_argument("--session-id", default=None, help="CC セッションID")
 
     # cc-start
     p = sub.add_parser("cc-start", help="CC (Claude Code) 実行開始時にPIDを記録")
-    p.add_argument("--project", required=True)
+    p.add_argument("--pj", "--project", dest="project", required=True)
     p.add_argument("--pid", type=int, required=True, help="CCプロセスのPID")
 
     # plan-done
     p = sub.add_parser("plan-done", help="設計確認完了: 対象Issueにdesign_readyフラグを設定")
-    p.add_argument("--project", required=True)
+    p.add_argument("--pj", "--project", dest="project", required=True)
     p.add_argument("--issue", type=int, nargs="+", required=True, help="Issue番号（複数指定可）")
 
     # revise
     p = sub.add_parser("revise", help="修正完了: レビュー指摘への修正が終わったことを記録")
-    p.add_argument("--project", required=True)
+    p.add_argument("--pj", "--project", dest="project", required=True)
     p.add_argument("--issue", type=int, required=True)
     p.add_argument("--comment", default=None, help="GitLab issue noteに投稿するコメント（省略可）")
 
     # review-mode
     p = sub.add_parser("review-mode", help="レビューモード変更 (full=4人/standard=3人/lite=2人/skip=なし)")
-    p.add_argument("--project", required=True)
+    p.add_argument("--pj", "--project", dest="project", required=True)
     p.add_argument("--mode", required=True, choices=list(REVIEW_MODES.keys()),
                    help="full/standard/lite/skip")
 
     # merge-summary
     p = sub.add_parser("merge-summary", help="マージサマリーを #dev-bar に投稿してMの承認待ちへ")
-    p.add_argument("--project", required=True)
+    p.add_argument("--pj", "--project", dest="project", required=True)
 
     args = parser.parse_args()
     if not args.command:

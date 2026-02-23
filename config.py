@@ -107,7 +107,7 @@ MAX_EMBED_CHARS = 64 * 1024  # 64KB (?) charsのバイト数による
 ALLOWED_REVIEWERS = list(AGENTS.keys())
 
 # 非アクティブ判定 (秒)
-INACTIVE_THRESHOLD_SEC = 151
+INACTIVE_THRESHOLD_SEC = 181
 
 # /new コマンド後の待ち時間（秒）
 POST_NEW_COMMAND_WAIT_SEC = 30

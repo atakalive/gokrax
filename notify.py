@@ -173,6 +173,9 @@ def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
             continue  # 既にログ出力済み
         msg = format_review_request(project, state, batch, gitlab, reviewer=r,
                                     repo_path=repo_path)
+        if not msg:
+            logger.info("No pending issues for %s — skipping review request", r)
+            continue
         if not send_to_agent(r, msg):
             logger.warning("Failed to send review request to %s", r)
 
@@ -215,6 +218,12 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
         num = i["issue"]
         title = i.get("title", "")
         commit = i.get("commit")
+
+        # APPROVE済みIssueはスキップ（再レビュー不要）
+        review_key = "code_reviews" if is_code else "design_reviews"
+        existing = i.get(review_key, {}).get(reviewer, {})
+        if existing.get("verdict", "").upper() == "APPROVE":
+            continue
 
         # devbar review コマンド生成
         cmd = (
@@ -265,6 +274,10 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
         else:
             sections.append(section_text)
             total_chars += len(section_text)
+
+    # 全IssueがAPPROVE済みなら空レビュー依頼を返さない
+    if not sections:
+        return ""
 
     body = "\n\n".join(sections)
 

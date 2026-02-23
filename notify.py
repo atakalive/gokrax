@@ -15,7 +15,7 @@ import config
 from config import (
     DEVBAR_CLI, GLAB_BIN, DISCORD_CHANNEL, DISCORD_BOT_ACCOUNT, GATEWAY_TOKEN_PATH,
     AGENTS, REVIEW_MODES, MAX_EMBED_CHARS, GLAB_TIMEOUT,
-    AGENT_SEND_TIMEOUT, DISCORD_POST_TIMEOUT,
+    AGENT_SEND_TIMEOUT, DISCORD_POST_TIMEOUT, POST_NEW_COMMAND_WAIT_SEC
 )
 
 logger = logging.getLogger("devbar.notify")
@@ -181,7 +181,7 @@ def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
     # /new 後にセッションリセット完了を待つ
     if sent_new:
         import time
-        time.sleep(10)
+        time.sleep(POST_NEW_COMMAND_WAIT_SEC)
 
     # 各レビュアーにレビュー依頼メッセージ送信
     for r in reviewers:

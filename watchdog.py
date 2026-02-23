@@ -66,6 +66,22 @@ def count_reviews(batch: list, key: str) -> tuple:
     return min_n, has_p0
 
 
+def _revise_target_issues(batch: list, review_key: str, revised_key: str) -> str:
+    """REVISE対象Issueを文字列化。P0/REJECTが付いた未修正Issueを明示。"""
+    targets = []
+    for i in batch:
+        if i.get(revised_key):
+            continue
+        reviews = i.get(review_key, {})
+        has_p0 = any(
+            r.get("verdict", "").upper() in ("REJECT", "P0")
+            for r in reviews.values()
+        )
+        if has_p0:
+            targets.append(f"#{i['issue']}")
+    return ", ".join(targets) if targets else ", ".join(f"#{i['issue']}" for i in batch)
+
+
 def clear_reviews(batch: list, key: str, revised_key: str):
     """P0/REJECTを出したレビュアーのレビューのみクリアする。
     APPROVE/P1のレビューは保持。
@@ -232,9 +248,7 @@ def get_notification_for_state(
         return TransitionAction(impl_msg=msg, reset_reviewers=True)
 
     if state == "DESIGN_REVISE":
-        issues_str = ", ".join(
-            f"#{i['issue']}" for i in batch if not i.get("design_revised")
-        ) or "（全Issue）"
+        issues_str = _revise_target_issues(batch, "design_reviews", "design_revised")
         msg = (
             f"[devbar] {project}: 設計修正フェーズ\n"
             f"対象Issue: {issues_str}\n"
@@ -246,9 +260,7 @@ def get_notification_for_state(
         return TransitionAction(impl_msg=msg)
 
     if state == "CODE_REVISE":
-        issues_str = ", ".join(
-            f"#{i['issue']}" for i in batch if not i.get("code_revised")
-        ) or "（全Issue）"
+        issues_str = _revise_target_issues(batch, "code_reviews", "code_revised")
         msg = (
             f"[devbar] {project}: コード修正フェーズ\n"
             f"対象Issue: {issues_str}\n"

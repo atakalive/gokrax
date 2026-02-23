@@ -428,7 +428,7 @@ trap cleanup EXIT
 
 cd "{repo_path}"
 
-_notify() {{ local ts=$(date +"%m/%d %H:%M"); python3 -c "import sys; sys.path.insert(0,'{DEVBAR_CLI.parent}'); from notify import notify_discord; notify_discord(sys.argv[1])" "$1 ($ts)" 2>/dev/null || true; }}
+_notify() {{ local ts=$(date +"%m/%d %H:%M"); python3 -c "import sys; sys.path.insert(0,'{Path(DEVBAR_CLI).resolve().parent}'); from notify import notify_discord; notify_discord(sys.argv[1])" "$1 ($ts)" 2>/dev/null || true; }}
 
 # Phase 1: Plan
 _notify "[{project}] 📋 CC Plan 開始"

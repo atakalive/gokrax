@@ -64,7 +64,7 @@ def clear_reviews(batch: list, key: str, revised_key: str):
 
 # BLOCKEDまでの時間 (秒)
 BLOCK_TIMERS = {
-    "DESIGN_PLAN":    360,   # 6分
+    "DESIGN_PLAN":    600,   # 10分
     "DESIGN_REVISE":  600,   # 10分
     "CODE_REVISE":    600,   # 10分
     "IMPLEMENTATION": 1200,  # 20分

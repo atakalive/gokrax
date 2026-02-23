@@ -385,6 +385,9 @@ def _start_cc(project: str, batch: list, gitlab: str, repo_path: str, pipeline_p
         os.write(fd_impl, impl_prompt.encode())
         os.close(fd_impl)
 
+        # Discord通知用のヘルパー（CC進捗4段階通知）
+        notify_cmd = f'python3 -c "from notify import notify_discord; notify_discord(\\\"$1\\\")" 2>/dev/null'
+
         script_content = f'''#!/bin/bash
 set -e
 cleanup() {{ rm -f "{script_path}" "{plan_path}" "{impl_path}"; }}
@@ -392,13 +395,19 @@ trap cleanup EXIT
 
 cd "{repo_path}"
 
+_notify() {{ python3 -c "import sys; sys.path.insert(0,'{DEVBAR_CLI.parent}'); from notify import notify_discord; notify_discord(sys.argv[1])" "$1" 2>/dev/null || true; }}
+
 # Phase 1: Plan
+_notify "[{project}] 📋 CC Plan 開始"
 claude -p --model "{CC_MODEL_PLAN}" --session-id "{session_id}" \
   --permission-mode plan --output-format json < "{plan_path}"
+_notify "[{project}] ✅ CC Plan 完了"
 
 # Phase 2: Impl
+_notify "[{project}] 🔨 CC Impl 開始"
 claude -p --model "{CC_MODEL_IMPL}" --resume "{session_id}" \
   --permission-mode bypassPermissions --output-format json < "{impl_path}"
+_notify "[{project}] ✅ CC Impl 完了"
 
 # コミットハッシュ取得
 HASH=$(git log --oneline -1 --format=%h)
@@ -431,7 +440,6 @@ python3 "{DEVBAR_CLI}" commit --project "{project}" --issue {issue_args} --hash 
         data["cc_session_id"] = session_id
     update_pipeline(pipeline_path, _save_cc_info)
     log(f"[{project}] CC started (pid={proc.pid}, session={session_id})")
-    notify_discord(f"[{project}] 🚀 CC実装開始 (session={session_id})")
 
 
 def _is_cc_running(data: dict) -> bool:

@@ -231,18 +231,31 @@ def get_notification_for_state(
         )
         return TransitionAction(impl_msg=msg, reset_reviewers=True)
 
-    if state in ("DESIGN_REVISE", "CODE_REVISE"):
-        phase = "設計" if "DESIGN" in state else "コード"
-        revised_key = "design_revised" if "DESIGN" in state else "code_revised"
+    if state == "DESIGN_REVISE":
         issues_str = ", ".join(
-            f"#{i['issue']}" for i in batch if not i.get(revised_key)
+            f"#{i['issue']}" for i in batch if not i.get("design_revised")
         ) or "（全Issue）"
         msg = (
-            f"[devbar] {project}: {phase}修正フェーズ\n"
+            f"[devbar] {project}: 設計修正フェーズ\n"
             f"対象Issue: {issues_str}\n"
             f"P0の指摘を修正して、Issue本文に反映してください。\n"
             f"glab issue update コマンドを使用。\n"
             f"その後、revise コマンドで完了報告してください。\n"
+            f"python3 {DEVBAR_CLI} revise --project {project} --issue N"
+        )
+        return TransitionAction(impl_msg=msg)
+
+    if state == "CODE_REVISE":
+        issues_str = ", ".join(
+            f"#{i['issue']}" for i in batch if not i.get("code_revised")
+        ) or "（全Issue）"
+        msg = (
+            f"[devbar] {project}: コード修正フェーズ\n"
+            f"対象Issue: {issues_str}\n"
+            f"コードレビューのP0指摘に基づいてコードを修正してください。\n"
+            f"修正後、コミットして記録:\n"
+            f"python3 {DEVBAR_CLI} commit --project {project} --issue N --hash <commit>\n"
+            f"全Issue修正完了後、revise コマンドで完了報告:\n"
             f"python3 {DEVBAR_CLI} revise --project {project} --issue N"
         )
         return TransitionAction(impl_msg=msg)

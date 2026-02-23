@@ -141,8 +141,8 @@ def cmd_extend(args):
     print(f"{args.project}: タイムアウト延長 +{args.by}秒 (累計+{result['total']}秒)")
 
 
-def _fetch_open_issues(gitlab: str) -> list[int]:
-    """glab issue list でopen issue番号のリストを取得。"""
+def _fetch_open_issues(gitlab: str) -> list[tuple[int, str]]:
+    """glab issue list でopen issueの (番号, タイトル) リストを取得。"""
     try:
         result = subprocess.run(
             [GLAB_BIN, "issue", "list", "-R", gitlab,
@@ -155,16 +155,41 @@ def _fetch_open_issues(gitlab: str) -> list[int]:
 
         import json
         issues = json.loads(result.stdout)
-        return [issue["iid"] for issue in issues if issue.get("state") == "opened"]
+        return [
+            (issue["iid"], issue.get("title", ""))
+            for issue in issues if issue.get("state") == "opened"
+        ]
     except (subprocess.TimeoutExpired, json.JSONDecodeError, KeyError) as e:
         print(f"Failed to fetch open issues: {e}", file=sys.stderr)
         return []
 
 
+def _fetch_issue_title(issue_num: int, gitlab: str) -> str:
+    """GitLab APIでIssueタイトルを取得。失敗時は空文字列。"""
+    try:
+        result = subprocess.run(
+            [GLAB_BIN, "issue", "show", str(issue_num), "--output", "json", "-R", gitlab],
+            capture_output=True, text=True, timeout=GLAB_TIMEOUT, check=False,
+        )
+        if result.returncode == 0:
+            import json
+            data = json.loads(result.stdout)
+            return data.get("title", "")
+    except Exception:
+        pass
+    return ""
+
+
 def cmd_triage(args):
     """Issueをバッチに投入（複数指定可）"""
     path = get_path(args.project)
-    titles = args.title + [""] * (len(args.issue) - len(args.title))
+    data = load_pipeline(get_path(args.project))
+    gitlab = data.get("gitlab", f"atakalive/{args.project}")
+    titles = list(args.title) + [""] * (len(args.issue) - len(args.title))
+    # タイトルが空のIssueはGitLab APIで取得
+    for idx, (num, title) in enumerate(zip(args.issue, titles)):
+        if not title:
+            titles[idx] = _fetch_issue_title(num, gitlab)
 
     def do_triage(data):
         state = data.get("state", "IDLE")
@@ -212,19 +237,22 @@ def cmd_start(args):
     # 2. Issue番号取得（--issue指定 or GitLab API）
     if args.issue:
         issue_nums = args.issue
+        titles = []
     else:
-        # GitLab APIでopen issue全件取得
+        # GitLab APIでopen issue全件取得（タイトル付き）
         gitlab = data.get("gitlab", f"atakalive/{args.project}")
-        issue_nums = _fetch_open_issues(gitlab)
-        if not issue_nums:
+        results = _fetch_open_issues(gitlab)
+        if not results:
             raise SystemExit(f"No open issues found in {gitlab}")
+        issue_nums = [r[0] for r in results]
+        titles = [r[1] for r in results]
 
     # 3. triage実行（既存のcmd_triageロジック流用）
     import argparse
     triage_args = argparse.Namespace(
         project=args.project,
         issue=issue_nums,
-        title=[]  # タイトルは空（GitLab APIからは取得しない）
+        title=titles,
     )
     cmd_triage(triage_args)
 

@@ -344,6 +344,23 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
         if count >= min_rev:
             pj = data.get("project", "") if data else ""
             if has_p0:
+                # Check REVISE cycle limit (Issue #29)
+                from config import MAX_REVISE_CYCLES
+                counter_key = "design_revise_count" if "DESIGN" in state else "code_revise_count"
+                current_count = data.get(counter_key, 0) if data else 0
+
+                if current_count >= MAX_REVISE_CYCLES:
+                    # Reached maximum cycles, transition to BLOCKED
+                    phase = "設計" if "DESIGN" in state else "コード"
+                    return TransitionAction(
+                        new_state="BLOCKED",
+                        impl_msg=(
+                            f"{phase}レビューサイクルが上限（{MAX_REVISE_CYCLES}回）に達しました。\n"
+                            f"P0の指摘が解消されていません。手動で対応してください。"
+                        ),
+                    )
+
+                # Under limit, proceed with REVISE transition
                 rev = "DESIGN_REVISE" if "DESIGN" in state else "CODE_REVISE"
                 return TransitionAction(
                     new_state=rev,
@@ -645,17 +662,36 @@ def process(path: Path):
 
         pj = data.get("project", path.stem)
 
-        # DONE状態: バッチクリア + watchdog無効化 + タイムアウト延長リセット
+        # DONE状態: バッチクリア + watchdog無効化 + タイムアウト延長リセット + REVISE counters reset
         if state == "DONE":
             data["batch"] = []
             data["enabled"] = False
             data.pop("timeout_extension", None)
+            # Reset REVISE cycle counters (Issue #29)
+            data.pop("design_revise_count", None)
+            data.pop("code_revise_count", None)
+
+        # IDLE→DESIGN_PLAN: Reset REVISE cycle counters (Issue #29)
+        if state == "IDLE" and action.new_state == "DESIGN_PLAN":
+            data.pop("design_revise_count", None)
+            data.pop("code_revise_count", None)
+
+        # REVIEW→REVISE: Increment cycle counter (Issue #29)
+        if state in ("DESIGN_REVIEW", "CODE_REVIEW") and action.new_state in ("DESIGN_REVISE", "CODE_REVISE"):
+            counter_key = "design_revise_count" if "DESIGN" in state else "code_revise_count"
+            data[counter_key] = data.get(counter_key, 0) + 1
+            log(f"[{pj}] {counter_key} incremented to {data[counter_key]}")
 
         # REVISE → REVIEW: ロック内でレビュークリア
         if state in ("DESIGN_REVISE", "CODE_REVISE"):
             revised_key = "design_revised" if "DESIGN" in state else "code_revised"
             key = "design_reviews" if "DESIGN" in state else "code_reviews"
             clear_reviews(batch, key, revised_key)
+
+        # BLOCKED: Disable watchdog (Issue #29)
+        if action.new_state == "BLOCKED":
+            data["enabled"] = False
+            log(f"[{pj}] Watchdog disabled due to BLOCKED transition")
 
         # 催促カウンタ・失敗フラグリセット（状態から出るとき）
         if state in BLOCK_TIMERS:

@@ -310,6 +310,16 @@ def cmd_transition(args):
         if target == "IDLE":
             data["batch"] = []
             data["enabled"] = False
+            # Reset REVISE cycle counters when returning to IDLE (Issue #29)
+            data.pop("design_revise_count", None)
+            data.pop("code_revise_count", None)
+        elif target == "DESIGN_PLAN":
+            # Reset REVISE cycle counters when starting new batch (Issue #29)
+            data.pop("design_revise_count", None)
+            data.pop("code_revise_count", None)
+        elif target == "BLOCKED":
+            # Disable watchdog when manually transitioning to BLOCKED (Issue #29)
+            data["enabled"] = False
 
     data = update_pipeline(path, do_transition)
     suffix = " [RESUME]" if resume else (" [FORCED]" if args.force else "")

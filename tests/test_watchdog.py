@@ -729,3 +729,182 @@ class TestTimeoutExtension:
         assert "timeout_extension" not in data
         assert data["batch"] == []
         assert data["enabled"] is False
+
+
+class TestReviseLoopLimit:
+    """REVISE→REVIEW loop limit tests (Issue #29)"""
+
+    def test_design_revise_increments_counter(self, tmp_path, monkeypatch):
+        """DESIGN_REVIEW→DESIGN_REVISE遷移でdesign_revise_countがインクリメントされること"""
+        import config, pipeline_io
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        path = tmp_path / "test-pj.json"
+        # Min reviews = 2 for this test
+        reviews = _make_reviews(["APPROVE", "P0"])
+        data = {
+            "project": "test-pj",
+            "state": "DESIGN_REVIEW",
+            "enabled": True,
+            "batch": [{"issue": 1, "design_reviews": reviews, "code_reviews": {}}],
+            "history": [],
+            "created_at": "",
+            "updated_at": "",
+        }
+        _write_pipeline(path, data)
+
+        from watchdog import process
+
+        def fake_update(p, cb):
+            cb(data)
+            return data
+
+        with patch("watchdog.update_pipeline", side_effect=fake_update), \
+             patch("watchdog.notify_discord"), \
+             patch("watchdog.notify_implementer"):
+            process(path)
+
+        # Counter should be incremented to 1
+        assert data["design_revise_count"] == 1
+        assert data["state"] == "DESIGN_REVISE"
+
+    def test_design_revise_second_cycle_increments_counter(self, tmp_path, monkeypatch):
+        """2回目のDESIGN_REVIEW→DESIGN_REVISE遷移でカウンタが2になること"""
+        import config, pipeline_io
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        path = tmp_path / "test-pj.json"
+        reviews = _make_reviews(["APPROVE", "P0"])
+        data = {
+            "project": "test-pj",
+            "state": "DESIGN_REVIEW",
+            "enabled": True,
+            "design_revise_count": 1,  # Already 1 cycle
+            "batch": [{"issue": 1, "design_reviews": reviews, "code_reviews": {}}],
+            "history": [],
+            "created_at": "",
+            "updated_at": "",
+        }
+        _write_pipeline(path, data)
+
+        from watchdog import process
+
+        def fake_update(p, cb):
+            cb(data)
+            return data
+
+        with patch("watchdog.update_pipeline", side_effect=fake_update), \
+             patch("watchdog.notify_discord"), \
+             patch("watchdog.notify_implementer"):
+            process(path)
+
+        # Counter should be incremented to 2
+        assert data["design_revise_count"] == 2
+        assert data["state"] == "DESIGN_REVISE"
+
+    def test_design_revise_max_cycles_transitions_to_blocked(self, tmp_path, monkeypatch):
+        """MAX_REVISE_CYCLES到達でBLOCKED遷移すること"""
+        import config, pipeline_io
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        path = tmp_path / "test-pj.json"
+        reviews = _make_reviews(["APPROVE", "P0"])
+        data = {
+            "project": "test-pj",
+            "state": "DESIGN_REVIEW",
+            "enabled": True,
+            "design_revise_count": 2,  # Already at max (MAX_REVISE_CYCLES = 2)
+            "batch": [{"issue": 1, "design_reviews": reviews, "code_reviews": {}}],
+            "history": [],
+            "created_at": "",
+            "updated_at": "",
+        }
+        _write_pipeline(path, data)
+
+        from watchdog import process
+
+        def fake_update(p, cb):
+            cb(data)
+            return data
+
+        with patch("watchdog.update_pipeline", side_effect=fake_update), \
+             patch("watchdog.notify_discord"), \
+             patch("watchdog.notify_implementer"):
+            process(path)
+
+        # Should transition to BLOCKED and disable watchdog
+        assert data["state"] == "BLOCKED"
+        assert data["enabled"] is False
+
+    def test_code_revise_max_cycles_transitions_to_blocked(self, tmp_path, monkeypatch):
+        """CODE_REVISEでもMAX_REVISE_CYCLES到達でBLOCKED遷移すること"""
+        import config, pipeline_io
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        path = tmp_path / "test-pj.json"
+        reviews = _make_reviews(["APPROVE", "P0"])
+        data = {
+            "project": "test-pj",
+            "state": "CODE_REVIEW",
+            "enabled": True,
+            "code_revise_count": 2,  # Already at max
+            "batch": [{"issue": 1, "code_reviews": reviews, "design_reviews": {}}],
+            "history": [],
+            "created_at": "",
+            "updated_at": "",
+        }
+        _write_pipeline(path, data)
+
+        from watchdog import process
+
+        def fake_update(p, cb):
+            cb(data)
+            return data
+
+        with patch("watchdog.update_pipeline", side_effect=fake_update), \
+             patch("watchdog.notify_discord"), \
+             patch("watchdog.notify_implementer"):
+            process(path)
+
+        assert data["state"] == "BLOCKED"
+        assert data["enabled"] is False
+
+    def test_counters_reset_on_done_to_idle(self, tmp_path, monkeypatch):
+        """DONE→IDLE遷移でカウンタがリセットされること"""
+        import config, pipeline_io
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        path = tmp_path / "test-pj.json"
+        data = {
+            "project": "test-pj",
+            "state": "DONE",
+            "enabled": True,
+            "design_revise_count": 2,
+            "code_revise_count": 1,
+            "batch": _make_batch(1),
+            "history": [],
+            "created_at": "",
+            "updated_at": "",
+        }
+        _write_pipeline(path, data)
+
+        from watchdog import process
+
+        def fake_update(p, cb):
+            cb(data)
+            return data
+
+        with patch("watchdog.update_pipeline", side_effect=fake_update), \
+             patch("watchdog.notify_discord"), \
+             patch("watchdog._auto_push_and_close"):
+            process(path)
+
+        # Counters should be cleared
+        assert "design_revise_count" not in data
+        assert "code_revise_count" not in data
+        assert data["state"] == "IDLE"

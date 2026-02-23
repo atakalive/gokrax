@@ -454,6 +454,21 @@ def cmd_revise(args):
     print(f"{args.project}: #{args.issue} marked as revised")
 
 
+def cmd_review_mode(args):
+    """レビューモードを変更"""
+    path = get_path(args.project)
+
+    def do_update(data):
+        old = data.get("review_mode", "standard")
+        data["review_mode"] = args.mode
+        return old
+
+    data = update_pipeline(path, do_update)
+    old = data.get("_prev_review_mode", data.get("review_mode", "standard"))
+    members = REVIEW_MODES[args.mode]["members"]
+    print(f"{args.project}: review_mode → {args.mode} (reviewers: {members})")
+
+
 def cmd_merge_summary(args):
     """マージサマリーを #dev-bar に投稿し、MERGE_SUMMARY_SENT に遷移"""
     from config import DISCORD_CHANNEL
@@ -560,6 +575,12 @@ def main():
     p.add_argument("--issue", type=int, required=True)
     p.add_argument("--comment", default=None, help="GitLab issue note（省略可）")
 
+    # review-mode
+    p = sub.add_parser("review-mode", help="レビューモード変更")
+    p.add_argument("--project", required=True)
+    p.add_argument("--mode", required=True, choices=list(REVIEW_MODES.keys()),
+                   help="レビューモード (full/standard/lite/skip)")
+
     # merge-summary
     p = sub.add_parser("merge-summary", help="マージサマリーを #dev-bar に投稿")
     p.add_argument("--project", required=True)
@@ -576,7 +597,8 @@ def main():
         "triage": cmd_triage, "transition": cmd_transition,
         "review": cmd_review, "commit": cmd_commit,
         "cc-start": cmd_cc_start, "plan-done": cmd_plan_done,
-        "revise": cmd_revise, "merge-summary": cmd_merge_summary,
+        "revise": cmd_revise, "review-mode": cmd_review_mode,
+        "merge-summary": cmd_merge_summary,
     }
     cmds[args.command](args)
 

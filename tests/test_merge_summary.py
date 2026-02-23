@@ -143,6 +143,49 @@ class TestCmdMergeSummary:
         assert "def456" in content
 
 
+class TestWatchdogCodeApprovedPostsSummary:
+    """CODE_APPROVED → MERGE_SUMMARY_SENT 遷移時に watchdog がサマリーを投稿すること"""
+
+    def test_check_transition_sets_send_merge_summary(self):
+        """check_transition が send_merge_summary=True を返すこと"""
+        from watchdog import check_transition
+        batch = [{"issue": 1, "title": "Fix", "commit": "abc123",
+                  "design_reviews": {"pascal": {"verdict": "APPROVE"}},
+                  "code_reviews": {"pascal": {"verdict": "APPROVE"}}}]
+        action = check_transition("CODE_APPROVED", batch)
+        assert action.new_state == "MERGE_SUMMARY_SENT"
+        assert action.send_merge_summary is True
+
+    def test_process_posts_merge_summary(self, tmp_pipelines, monkeypatch):
+        """process() が CODE_APPROVED 時に post_discord を呼んで summary_message_id を保存すること"""
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, _make_pipeline(state="CODE_APPROVED"))
+
+        monkeypatch.setattr("watchdog.PIPELINES_DIR", tmp_pipelines)
+
+        posted = []
+        def mock_post(channel_id, content):
+            posted.append(content)
+            return "summary-msg-42"
+
+        with patch("watchdog.notify_discord"), \
+             patch("watchdog.notify_implementer"), \
+             patch("notify.post_discord", side_effect=mock_post):
+            from watchdog import process
+            process(path)
+
+        # Discord に投稿されたか
+        assert len(posted) == 1
+        assert "test-pj" in posted[0]
+        assert "#1" in posted[0]
+
+        # summary_message_id が保存されたか
+        with open(path) as f:
+            data = json.load(f)
+        assert data["state"] == "MERGE_SUMMARY_SENT"
+        assert data["summary_message_id"] == "summary-msg-42"
+
+
 class TestWatchdogMergeSummary:
 
     M_ID = "1469758184456589550"

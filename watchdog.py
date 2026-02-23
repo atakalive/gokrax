@@ -21,7 +21,7 @@ from config import PIPELINES_DIR, JST, LOG_FILE, REVIEW_MODES, CC_MODEL_PLAN, CC
 from datetime import datetime as _datetime
 import json as _json
 from pipeline_io import (
-    load_pipeline, update_pipeline,
+    load_pipeline, update_pipeline, get_path,
     add_history, now_iso, find_issue,
 )
 from notify import notify_implementer, notify_reviewers, notify_discord
@@ -79,6 +79,7 @@ class TransitionAction:
     new_state: str | None = None
     impl_msg: str | None = None
     send_review: bool = False
+    send_merge_summary: bool = False  # #dev-bar にマージサマリーを投稿
     nudge: str | None = None   # 催促通知が必要な状態名
     nudge_reviewers: list | None = None  # 催促が必要なレビュアーのリスト
 
@@ -281,7 +282,7 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
     if state == "CODE_APPROVED":
         return TransitionAction(
             new_state="MERGE_SUMMARY_SENT",
-            impl_msg=get_notification_for_state("CODE_APPROVED").impl_msg,
+            send_merge_summary=True,
         )
 
     if state in ("DESIGN_REVISE", "CODE_REVISE"):
@@ -495,6 +496,30 @@ def process(path: Path):
 
         ts = _datetime.now(JST).strftime("%m/%d %H:%M")
         notify_discord(f"[{pj}] {notification['old_state']} → {action.new_state} ({ts})")
+
+        # MERGE_SUMMARY_SENT遷移時: #dev-bar にサマリーを投稿
+        if action.send_merge_summary:
+            from config import MERGE_SUMMARY_FOOTER, DISCORD_CHANNEL
+            from notify import post_discord
+            batch = notification["batch"]
+            lines = [f"**[{pj}] マージサマリー**\n"]
+            for item in batch:
+                num = item["issue"]
+                title = item.get("title", "")
+                commit = item.get("commit", "?")
+                lines.append(f"- #{num}: {title} (`{commit}`)")
+            lines.append(MERGE_SUMMARY_FOOTER)
+            content = "\n".join(lines)
+            message_id = post_discord(DISCORD_CHANNEL, content)
+            if message_id:
+                # summary_message_id をパイプラインに保存
+                path = get_path(pj)
+                def _save_summary_id(data):
+                    data["summary_message_id"] = message_id
+                update_pipeline(path, _save_summary_id)
+                log(f"[{pj}] merge summary posted (message_id={message_id})")
+            else:
+                log(f"[{pj}] WARNING: merge summary post failed")
 
         # DONE遷移時: git push + issue close を自動実行
         if action.new_state == "DONE":

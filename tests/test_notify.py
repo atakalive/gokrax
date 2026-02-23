@@ -201,7 +201,7 @@ class TestNotifyReviewers:
         import config
         batch = [self._make_batch_item(1)]
         with patch("notify.send_to_agent") as mock_send:
-            with patch("notify._fetch_issue_body", return_value="body"):
+            with patch("notify.fetch_issue_body", return_value="body"):
                 notify.notify_reviewers("proj", "DESIGN_REVIEW", batch, "atakalive/proj")
 
         # /new calls + message calls
@@ -223,7 +223,7 @@ class TestNotifyReviewers:
 
         batch = [self._make_batch_item(1)]
         with patch("notify.send_to_agent") as mock_send:
-            with patch("notify._fetch_issue_body", return_value="body"):
+            with patch("notify.fetch_issue_body", return_value="body"):
                 with caplog.at_level(logging.ERROR, logger="devbar.notify"):
                     notify.notify_reviewers("proj", "CODE_REVIEW", batch, "atakalive/proj",
                                           review_mode="test_mode")
@@ -315,7 +315,7 @@ class TestFetchIssueBody:
         mock_result.returncode = 0
         mock_result.stdout = json.dumps({"description": "Issue body text"})
         with patch("notify.subprocess.run", return_value=mock_result):
-            result = notify._fetch_issue_body(42, "atakalive/proj")
+            result = notify.fetch_issue_body(42, "atakalive/proj")
         assert result == "Issue body text"
 
     def test_glab_failure_returns_none(self, caplog):
@@ -325,7 +325,7 @@ class TestFetchIssueBody:
         mock_result.stderr = "issue not found"
         with patch("notify.subprocess.run", return_value=mock_result):
             with caplog.at_level(logging.WARNING, logger="devbar.notify"):
-                result = notify._fetch_issue_body(999, "atakalive/proj")
+                result = notify.fetch_issue_body(999, "atakalive/proj")
         assert result is None
         assert "glab issue show failed" in caplog.text
 
@@ -335,14 +335,14 @@ class TestFetchIssueBody:
         mock_result.returncode = 0
         mock_result.stdout = json.dumps({"description": ""})
         with patch("notify.subprocess.run", return_value=mock_result):
-            result = notify._fetch_issue_body(10, "atakalive/proj")
+            result = notify.fetch_issue_body(10, "atakalive/proj")
         assert result == ""
 
     def test_timeout_returns_none(self, caplog):
         import notify
         with patch("notify.subprocess.run", side_effect=subprocess.TimeoutExpired("cmd", 15)):
             with caplog.at_level(logging.WARNING, logger="devbar.notify"):
-                result = notify._fetch_issue_body(5, "atakalive/proj")
+                result = notify.fetch_issue_body(5, "atakalive/proj")
         assert result is None
         assert "timed out" in caplog.text
 
@@ -384,7 +384,7 @@ class TestFormatReviewRequestEmbedded:
     def test_embeds_issue_body(self):
         import notify
         batch = [self._make_batch_item(10, "Test")]
-        with patch("notify._fetch_issue_body", return_value="Issue body content"):
+        with patch("notify.fetch_issue_body", return_value="Issue body content"):
             result = notify.format_review_request(
                 "proj", "DESIGN_REVIEW", batch, "atakalive/proj", "pascal"
             )
@@ -394,7 +394,7 @@ class TestFormatReviewRequestEmbedded:
     def test_embeds_commit_diff(self):
         import notify
         batch = [self._make_batch_item(20, "Fix", "abc123")]
-        with patch("notify._fetch_issue_body", return_value="body"):
+        with patch("notify.fetch_issue_body", return_value="body"):
             with patch("notify._fetch_commit_diff", return_value="diff content"):
                 result = notify.format_review_request(
                     "proj", "CODE_REVIEW", batch, "atakalive/proj", "pascal",
@@ -406,7 +406,7 @@ class TestFormatReviewRequestEmbedded:
     def test_fallback_on_fetch_failure(self):
         import notify
         batch = [self._make_batch_item(30, "Broken")]
-        with patch("notify._fetch_issue_body", return_value=None):
+        with patch("notify.fetch_issue_body", return_value=None):
             result = notify.format_review_request(
                 "proj", "DESIGN_REVIEW", batch, "atakalive/proj", "pascal"
             )
@@ -420,7 +420,7 @@ class TestFormatReviewRequestEmbedded:
         monkeypatch.setattr(notify, "MAX_EMBED_CHARS", 100)
 
         batch = [self._make_batch_item(i, "Long") for i in range(1, 6)]
-        with patch("notify._fetch_issue_body", return_value="A" * 50):
+        with patch("notify.fetch_issue_body", return_value="A" * 50):
             result = notify.format_review_request(
                 "proj", "DESIGN_REVIEW", batch, "atakalive/proj", "pascal"
             )
@@ -435,7 +435,7 @@ class TestNotifyReviewersWithMode:
         import notify
         batch = [{"issue": 1, "title": "t", "commit": None, "design_reviews": {}, "code_reviews": {}}]
         with patch("notify.send_to_agent") as mock_send:
-            with patch("notify._fetch_issue_body", return_value="body"):
+            with patch("notify.fetch_issue_body", return_value="body"):
                 notify.notify_reviewers("proj", "DESIGN_REVIEW", batch, "atakalive/proj",
                                        review_mode="standard")
 
@@ -455,7 +455,7 @@ class TestNotifyReviewersWithMode:
         import notify
         batch = [{"issue": 1, "title": "t", "commit": None, "design_reviews": {}, "code_reviews": {}}]
         with patch("notify.send_to_agent") as mock_send:
-            with patch("notify._fetch_issue_body", return_value="body"):
+            with patch("notify.fetch_issue_body", return_value="body"):
                 notify.notify_reviewers("proj", "DESIGN_REVIEW", batch, "atakalive/proj",
                                        review_mode="full")
 

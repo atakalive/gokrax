@@ -326,6 +326,100 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
     return TransitionAction()
 
 
+def _start_cc(project: str, batch: list, gitlab: str, repo_path: str, pipeline_path: Path) -> None:
+    """CC を非同期起動し、PID を記録。"""
+    import subprocess as _sub
+    import uuid as _uuid
+    import os
+    import tempfile
+    from notify import fetch_issue_body
+
+    session_id = str(_uuid.uuid4())
+
+    # Issue本文を収集
+    issue_nums: list[int] = []
+    issue_texts: list[str] = []
+    for item in batch:
+        if item.get("commit"):
+            continue
+        num = item["issue"]
+        issue_nums.append(num)
+        body = fetch_issue_body(num, gitlab) or f"(Issue #{num} の本文取得失敗)"
+        issue_texts.append(f"### Issue #{num}: {item.get('title', '')}\n{body}")
+
+    if not issue_nums:
+        return
+
+    issues_block = "\n\n".join(issue_texts)
+    closes = " ".join(f"Closes #{n}" for n in issue_nums)
+    issue_args = " ".join(str(n) for n in issue_nums)
+
+    plan_prompt = (
+        f"以下のIssueを実装する計画を立ててください。\n\n{issues_block}\n\n"
+        f"コミットメッセージに {closes} を必ず含めること。"
+    )
+    impl_prompt = f"計画OK。実装して commit して。コミットメッセージに {closes} を必ず含めること。"
+
+    # mkstemp で安全に一時ファイル作成
+    fd_plan, plan_path = tempfile.mkstemp(suffix=".txt", prefix="devbar-plan-")
+    fd_impl, impl_path = tempfile.mkstemp(suffix=".txt", prefix="devbar-impl-")
+    fd_script, script_path = tempfile.mkstemp(suffix=".sh", prefix="devbar-cc-")
+
+    try:
+        os.write(fd_plan, plan_prompt.encode())
+        os.close(fd_plan)
+        os.write(fd_impl, impl_prompt.encode())
+        os.close(fd_impl)
+
+        script_content = f'''#!/bin/bash
+set -e
+cleanup() {{ rm -f "{script_path}" "{plan_path}" "{impl_path}"; }}
+trap cleanup EXIT
+
+cd "{repo_path}"
+
+# Phase 1: Plan
+claude -p --model "{CC_MODEL_PLAN}" --session-id "{session_id}" \
+  --permission-mode plan --output-format json < "{plan_path}"
+
+# Phase 2: Impl
+claude -p --model "{CC_MODEL_IMPL}" --resume "{session_id}" \
+  --permission-mode bypassPermissions --output-format json < "{impl_path}"
+
+# コミットハッシュ取得
+HASH=$(git log --oneline -1 --format=%h)
+
+# devbar commit
+python3 "{DEVBAR_CLI}" commit --project "{project}" --issue {issue_args} --hash "$HASH" --session-id "{session_id}"
+'''
+        os.write(fd_script, script_content.encode())
+        os.close(fd_script)
+        os.chmod(script_path, 0o700)
+
+        proc = _sub.Popen(
+            ["bash", script_path],
+            stdout=open(os.devnull, "w"),
+            stderr=_sub.STDOUT,
+            start_new_session=True,
+        )
+
+    except Exception:
+        for p in (plan_path, impl_path, script_path):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+        raise
+
+    # cc_pid + cc_session_id を記録
+    def _save_cc_info(data):
+        data["cc_pid"] = proc.pid
+        data["cc_session_id"] = session_id
+    update_pipeline(pipeline_path, _save_cc_info)
+    log(f"[{project}] CC started (pid={proc.pid}, session={session_id})")
+    notify_discord(f"[{project}] 🚀 CC実装開始 (session={session_id})")
+
+
 def _is_cc_running(data: dict) -> bool:
     """パイプラインに記録されたCC PIDが生存中か判定。"""
     pid = data.get("cc_pid")
@@ -573,6 +667,13 @@ def process(path: Path):
                 review_mode=review_mode,
                 skip_new=skip_new,
             )
+        if action.run_cc:
+            try:
+                _start_cc(pj, notification["batch"], notification["gitlab"],
+                          notification.get("repo_path", ""), path)
+            except Exception as e:
+                log(f"[{pj}] _start_cc failed: {e}")
+                notify_discord(f"[{pj}] ⚠️ CC起動失敗: {e}")
 
 
 def main():

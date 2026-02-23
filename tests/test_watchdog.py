@@ -466,3 +466,120 @@ class TestIsAgentInactive:
 
         # cc_pid が None
         assert _is_cc_running({"cc_pid": None}) is False
+
+
+class TestStartCc:
+    """_start_cc() と run_cc フラグのテスト"""
+
+    def test_check_transition_run_cc(self):
+        """IMPLEMENTATION + commit未記録 + CC未実行 → run_cc=True"""
+        from watchdog import check_transition
+        batch = [{"issue": 1, "title": "T", "commit": None,
+                  "design_reviews": {}, "code_reviews": {}}]
+        data = {"state": "IMPLEMENTATION", "batch": batch, "enabled": True}
+        with patch("watchdog._is_cc_running", return_value=False):
+            action = check_transition("IMPLEMENTATION", batch, data)
+        assert action.run_cc is True
+        assert action.new_state is None
+
+    def test_check_transition_cc_running(self):
+        """CC実行中 → 何もしない"""
+        from watchdog import check_transition
+        batch = [{"issue": 1, "title": "T", "commit": None,
+                  "design_reviews": {}, "code_reviews": {}}]
+        data = {"state": "IMPLEMENTATION", "batch": batch, "enabled": True, "cc_pid": 12345}
+        with patch("watchdog._is_cc_running", return_value=True):
+            action = check_transition("IMPLEMENTATION", batch, data)
+        assert action.run_cc is False
+        assert action.new_state is None
+
+    def test_check_transition_all_committed(self):
+        """全commit済み → CODE_REVIEW"""
+        from watchdog import check_transition
+        batch = [{"issue": 1, "title": "T", "commit": "abc123",
+                  "design_reviews": {}, "code_reviews": {}}]
+        action = check_transition("IMPLEMENTATION", batch)
+        assert action.new_state == "CODE_REVIEW"
+
+    def test_start_cc_launches_popen(self, tmp_pipelines, monkeypatch):
+        """Popen で起動し cc_pid/cc_session_id を記録"""
+        from watchdog import _start_cc
+        path = tmp_pipelines / "test-pj.json"
+        data = {
+            "project": "test-pj", "gitlab": "atakalive/test-pj",
+            "state": "IMPLEMENTATION", "enabled": True,
+            "batch": [{"issue": 1, "title": "T", "commit": None,
+                       "design_reviews": {}, "code_reviews": {}}],
+            "history": [],
+        }
+        path.parent.mkdir(parents=True, exist_ok=True)
+        import json
+        path.write_text(json.dumps(data))
+        monkeypatch.setattr("watchdog.PIPELINES_DIR", tmp_pipelines)
+
+        mock_proc = MagicMock()
+        mock_proc.pid = 99999
+
+        with patch("watchdog.notify_discord"), \
+             patch("notify.fetch_issue_body", return_value="test body"), \
+             patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
+            _start_cc("test-pj", data["batch"], "atakalive/test-pj", "/tmp", path)
+
+        mock_popen.assert_called_once()
+        saved = json.loads(path.read_text())
+        assert saved["cc_pid"] == 99999
+        assert "cc_session_id" in saved
+
+    def test_start_cc_skips_committed(self, tmp_pipelines, monkeypatch):
+        """commit済みIssueはスキップ"""
+        from watchdog import _start_cc
+        path = tmp_pipelines / "test-pj.json"
+        data = {
+            "project": "test-pj", "gitlab": "atakalive/test-pj",
+            "state": "IMPLEMENTATION", "enabled": True,
+            "batch": [{"issue": 1, "title": "T", "commit": "abc123",
+                       "design_reviews": {}, "code_reviews": {}}],
+            "history": [],
+        }
+        path.parent.mkdir(parents=True, exist_ok=True)
+        import json
+        path.write_text(json.dumps(data))
+        monkeypatch.setattr("watchdog.PIPELINES_DIR", tmp_pipelines)
+
+        with patch("subprocess.Popen") as mock_popen:
+            _start_cc("test-pj", data["batch"], "atakalive/test-pj", "/tmp", path)
+
+        mock_popen.assert_not_called()
+
+    def test_start_cc_cleans_up_on_failure(self, tmp_pipelines, monkeypatch):
+        """Popen失敗時に一時ファイル削除"""
+        from watchdog import _start_cc
+        import os
+        path = tmp_pipelines / "test-pj.json"
+        data = {
+            "project": "test-pj", "gitlab": "atakalive/test-pj",
+            "state": "IMPLEMENTATION", "enabled": True,
+            "batch": [{"issue": 1, "title": "T", "commit": None,
+                       "design_reviews": {}, "code_reviews": {}}],
+            "history": [],
+        }
+        path.parent.mkdir(parents=True, exist_ok=True)
+        import json
+        path.write_text(json.dumps(data))
+        monkeypatch.setattr("watchdog.PIPELINES_DIR", tmp_pipelines)
+
+        created_files = []
+        orig_mkstemp = __import__("tempfile").mkstemp
+        def track_mkstemp(**kwargs):
+            fd, p = orig_mkstemp(**kwargs)
+            created_files.append(p)
+            return fd, p
+
+        with patch("notify.fetch_issue_body", return_value="test body"), \
+             patch("subprocess.Popen", side_effect=OSError("fail")), \
+             patch("tempfile.mkstemp", side_effect=track_mkstemp):
+            with pytest.raises(OSError):
+                _start_cc("test-pj", data["batch"], "atakalive/test-pj", "/tmp", path)
+
+        for f in created_files:
+            assert not os.path.exists(f), f"一時ファイルが残っている: {f}"

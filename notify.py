@@ -96,7 +96,7 @@ def post_discord(channel_id: str, content: str) -> str | None:
         return None
 
 
-def _fetch_issue_body(issue_num: int, gitlab: str) -> str | None:
+def fetch_issue_body(issue_num: int, gitlab: str) -> str | None:
     """GitLab Issue本文を取得（glab issue show --output json）。"""
     try:
         result = subprocess.run(
@@ -247,7 +247,7 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
         section_parts = [f"### #{num}: {title}\n"]
 
         # Issue本文を取得して埋め込み
-        issue_body = _fetch_issue_body(num, gitlab)
+        issue_body = fetch_issue_body(num, gitlab)
         if issue_body:
             section_parts.append(f"**Issue本文:**\n```\n{issue_body}\n```\n")
         else:

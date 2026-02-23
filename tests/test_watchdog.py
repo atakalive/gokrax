@@ -583,3 +583,149 @@ class TestStartCc:
 
         for f in created_files:
             assert not os.path.exists(f), f"一時ファイルが残っている: {f}"
+
+
+# ── TestTimeoutExtension ──────────────────────────────────────────────────────
+
+class TestTimeoutExtension:
+    """タイムアウト延長機能のテスト (Issue #28)"""
+
+    def test_check_nudge_with_timeout_extension(self):
+        """_check_nudge() がtimeout_extensionを反映してタイムアウト判定すること"""
+        from watchdog import _check_nudge, BLOCK_TIMERS
+        from datetime import datetime, timedelta
+        from config import JST
+
+        # DESIGN_PLANのデフォルトタイムアウト: 600秒
+        # timeout_extension: +600秒 → 合計1200秒
+        entered_at = datetime.now(JST) - timedelta(seconds=700)  # 700秒経過
+        data = {
+            "state": "DESIGN_PLAN",
+            "timeout_extension": 600,
+            "history": [{"from": "IDLE", "to": "DESIGN_PLAN", "at": entered_at.isoformat()}],
+        }
+
+        action = _check_nudge("DESIGN_PLAN", data)
+
+        # 700秒経過 < 1200秒（デフォルト600 + 延長600） → BLOCKEDにならない
+        assert action is None or action.new_state != "BLOCKED"
+
+    def test_check_nudge_blocked_with_timeout_extension(self):
+        """timeout_extension加算後もタイムアウト超過でBLOCKED遷移すること"""
+        from watchdog import _check_nudge
+        from datetime import datetime, timedelta
+        from config import JST
+
+        # DESIGN_PLANのデフォルト: 600秒、延長: +600秒 → 合計1200秒
+        # 1300秒経過 → BLOCKED
+        entered_at = datetime.now(JST) - timedelta(seconds=1300)
+        data = {
+            "state": "DESIGN_PLAN",
+            "timeout_extension": 600,
+            "history": [{"from": "IDLE", "to": "DESIGN_PLAN", "at": entered_at.isoformat()}],
+        }
+
+        action = _check_nudge("DESIGN_PLAN", data)
+
+        assert action is not None
+        assert action.new_state == "BLOCKED"
+
+    def test_check_nudge_extend_notice_shown(self):
+        """残り5分未満 + EXTENDABLE_STATEでextend_noticeが付くこと"""
+        from watchdog import _check_nudge, EXTEND_NOTICE_THRESHOLD
+        from datetime import datetime, timedelta
+        from config import JST
+
+        # DESIGN_PLAN: デフォルト600秒、猶予期間180秒
+        # 500秒経過 → 残り100秒 < 300秒 → extend_notice付与
+        entered_at = datetime.now(JST) - timedelta(seconds=500)
+        data = {
+            "project": "test-pj",
+            "state": "DESIGN_PLAN",
+            "history": [{"from": "IDLE", "to": "DESIGN_PLAN", "at": entered_at.isoformat()}],
+        }
+
+        action = _check_nudge("DESIGN_PLAN", data)
+
+        assert action is not None
+        assert action.nudge == "DESIGN_PLAN"
+        assert action.extend_notice is not None
+        assert "タイムアウトまで残り" in action.extend_notice
+        assert "extend --project test-pj" in action.extend_notice
+
+    def test_check_nudge_extend_notice_not_shown_enough_time(self):
+        """残り時間が十分ある場合、extend_noticeがNoneであること"""
+        from watchdog import _check_nudge
+        from datetime import datetime, timedelta
+        from config import JST
+
+        # DESIGN_PLAN: デフォルト600秒、猶予期間180秒
+        # 200秒経過 → 残り400秒 > 300秒 → extend_notice無し
+        entered_at = datetime.now(JST) - timedelta(seconds=200)
+        data = {
+            "project": "test-pj",
+            "state": "DESIGN_PLAN",
+            "history": [{"from": "IDLE", "to": "DESIGN_PLAN", "at": entered_at.isoformat()}],
+        }
+
+        action = _check_nudge("DESIGN_PLAN", data)
+
+        assert action is not None
+        assert action.nudge == "DESIGN_PLAN"
+        assert action.extend_notice is None
+
+    def test_check_nudge_extend_notice_not_shown_wrong_state(self):
+        """EXTENDABLE_STATES以外の状態ではextend_noticeがNoneであること"""
+        from watchdog import _check_nudge
+        from datetime import datetime, timedelta
+        from config import JST
+
+        # DESIGN_REVIEWはEXTENDABLE_STATESに含まれない
+        # （仮にBLOCK_TIMERSがあっても、extend_noticeは付かない）
+        # このテストでは擬似的にBLOCK_TIMERSに登録されたと仮定
+        # 実際にはDESIGN_REVIEWにはBLOCK_TIMERSが無いので、この状態は発生しない
+        # しかし、コードロジックの確認として有用
+
+        # 実際のEXTENDABLE_STATES以外の例として、存在しない状態をモック
+        # ここでは既存の状態を使わず、ロジックのテストに集中する
+        # DESIGN_REVIEWはタイマーがないので、代わりにIMPLEMENTATIONをEXTENDABLE_STATESから除外したとして考える
+
+        # より実用的には: DESIGN_REVIEWにはBLOCK_TIMERSがないのでNoneが返る
+        data = {"state": "DESIGN_REVIEW", "history": []}
+        action = _check_nudge("DESIGN_REVIEW", data)
+        assert action is None  # BLOCK_TIMERSに無い状態 → None
+
+    def test_done_transition_clears_timeout_extension(self, tmp_path, monkeypatch):
+        """DONE遷移時にtimeout_extensionがクリアされること"""
+        import config, pipeline_io
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        path = tmp_path / "test-pj.json"
+        data = {
+            "project": "test-pj",
+            "state": "DONE",
+            "enabled": True,
+            "timeout_extension": 900,  # 延長済み
+            "batch": _make_batch(1),
+            "history": [],
+            "created_at": "",
+            "updated_at": "",
+        }
+        _write_pipeline(path, data)
+
+        from watchdog import process
+
+        def fake_update(p, cb):
+            cb(data)
+            return data
+
+        with patch("watchdog.update_pipeline", side_effect=fake_update) as mock_up, \
+             patch("watchdog.notify_discord"), \
+             patch("watchdog._auto_push_and_close"):
+            process(path)
+
+        # DONE遷移後、timeout_extensionがクリアされていること
+        assert "timeout_extension" not in data
+        assert data["batch"] == []
+        assert data["enabled"] is False

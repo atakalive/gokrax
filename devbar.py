@@ -107,6 +107,58 @@ def cmd_disable(args):
     print(f"{args.project}: watchdog disabled")
 
 
+def cmd_extend(args):
+    """タイムアウト延長申請。
+
+    対象状態: DESIGN_PLAN, DESIGN_REVISE, IMPLEMENTATION, CODE_REVISE
+    """
+    from watchdog import EXTENDABLE_STATES
+
+    path = get_path(args.project)
+
+    result = {}
+    def do_extend(data):
+        state = data.get("state", "IDLE")
+        if state not in EXTENDABLE_STATES:
+            raise SystemExit(
+                f"延長不可: 現在の状態 {state} は対象外です "
+                f"(対象: {', '.join(sorted(EXTENDABLE_STATES))})"
+            )
+        data["timeout_extension"] = data.get("timeout_extension", 0) + args.by
+        result["state"] = state
+        result["implementer"] = data.get("implementer", "kaneko")
+        result["total"] = data["timeout_extension"]
+
+    update_pipeline(path, do_extend)
+
+    notify_discord(
+        f"[{args.project}] {result['implementer']} がタイムアウトを{args.by}秒延長 "
+        f"({result['state']}, 累計+{result['total']}秒)"
+    )
+
+    print(f"{args.project}: タイムアウト延長 +{args.by}秒 (累計+{result['total']}秒)")
+
+
+def _fetch_open_issues(gitlab: str) -> list[int]:
+    """glab issue list でopen issue番号のリストを取得。"""
+    try:
+        result = subprocess.run(
+            [GLAB_BIN, "issue", "list", "--state", "opened", "-R", gitlab,
+             "--json", "number"],
+            capture_output=True, text=True, timeout=GLAB_TIMEOUT,
+        )
+        if result.returncode != 0:
+            print(f"glab issue list failed: {result.stderr.strip()}", file=sys.stderr)
+            return []
+
+        import json
+        issues = json.loads(result.stdout)
+        return [issue["number"] for issue in issues]
+    except (subprocess.TimeoutExpired, json.JSONDecodeError, KeyError) as e:
+        print(f"Failed to fetch open issues: {e}", file=sys.stderr)
+        return []
+
+
 def cmd_triage(args):
     """Issueをバッチに投入（複数指定可）"""
     path = get_path(args.project)
@@ -138,6 +190,60 @@ def cmd_triage(args):
     update_pipeline(path, do_triage)
     nums = ", ".join(f"#{n}" for n in args.issue)
     print(f"{args.project}: {nums} added to batch")
+
+
+def cmd_start(args):
+    """devbar start --project X [--issue N [N...]]
+
+    triage + DESIGN_PLAN遷移 + watchdog有効化を一括実行。
+    --issue省略時はGitLab APIでopen issue全件取得。
+    """
+    path = get_path(args.project)
+
+    # 1. 前提条件チェック: IDLE状態でなければエラー
+    data = load_pipeline(path)
+    if data.get("state", "IDLE") != "IDLE":
+        raise SystemExit(
+            f"Cannot start: current state is {data['state']} (expected IDLE)"
+        )
+
+    # 2. Issue番号取得（--issue指定 or GitLab API）
+    if args.issue:
+        issue_nums = args.issue
+    else:
+        # GitLab APIでopen issue全件取得
+        gitlab = data.get("gitlab", f"atakalive/{args.project}")
+        issue_nums = _fetch_open_issues(gitlab)
+        if not issue_nums:
+            raise SystemExit(f"No open issues found in {gitlab}")
+
+    # 3. triage実行（既存のcmd_triageロジック流用）
+    import argparse
+    triage_args = argparse.Namespace(
+        project=args.project,
+        issue=issue_nums,
+        title=[]  # タイトルは空（GitLab APIからは取得しない）
+    )
+    cmd_triage(triage_args)
+
+    # 4. DESIGN_PLANに遷移
+    transition_args = argparse.Namespace(
+        project=args.project,
+        to="DESIGN_PLAN",
+        actor="cli",
+        force=False,
+        resume=False,
+    )
+    cmd_transition(transition_args)
+
+    # 5. watchdog有効化
+    def do_enable(data):
+        data["enabled"] = True
+    update_pipeline(path, do_enable)
+
+    # 6. 完了メッセージ
+    issues_str = ", ".join(f"#{n}" for n in issue_nums)
+    print(f"{args.project}: started with issues [{issues_str}] → DESIGN_PLAN (watchdog enabled)")
 
 
 def cmd_transition(args):
@@ -393,6 +499,16 @@ def main():
     p = sub.add_parser("disable", help="watchdog無効化")
     p.add_argument("--project", required=True)
 
+    # extend
+    p = sub.add_parser("extend", help="タイムアウト延長申請")
+    p.add_argument("--project", required=True)
+    p.add_argument("--by", type=int, default=600, help="延長秒数 (default: 600)")
+
+    # start
+    p = sub.add_parser("start", help="triage + DESIGN_PLAN遷移 + watchdog有効化を一括実行")
+    p.add_argument("--project", required=True)
+    p.add_argument("--issue", type=int, nargs="+", help="Issue番号（省略時はGitLab APIでopen issue全件取得）")
+
     # triage
     p = sub.add_parser("triage", help="Issueをバッチに投入")
     p.add_argument("--project", required=True)
@@ -452,6 +568,7 @@ def main():
     cmds = {
         "status": cmd_status, "init": cmd_init,
         "enable": cmd_enable, "disable": cmd_disable,
+        "extend": cmd_extend, "start": cmd_start,
         "triage": cmd_triage, "transition": cmd_transition,
         "review": cmd_review, "commit": cmd_commit,
         "cc-start": cmd_cc_start, "plan-done": cmd_plan_done,

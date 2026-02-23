@@ -86,6 +86,12 @@ BLOCK_TIMERS = {
 # 状態遷移直後の催促猶予期間（秒）。遷移からこの時間が経つまで催促しない
 NUDGE_GRACE_SEC = 180  # 3分
 
+# タイムアウト延長可能な状態
+EXTENDABLE_STATES = {"DESIGN_PLAN", "DESIGN_REVISE", "IMPLEMENTATION", "CODE_REVISE"}
+
+# 残り時間が閾値未満で延長案内を表示（秒）
+EXTEND_NOTICE_THRESHOLD = 300  # 5分
+
 
 @dataclass
 class TransitionAction:
@@ -98,6 +104,7 @@ class TransitionAction:
     run_cc: bool = False  # CC CLI を直接起動
     nudge: str | None = None   # 催促通知が必要な状態名
     nudge_reviewers: list | None = None  # 催促が必要なレビュアーのリスト
+    extend_notice: str | None = None  # タイムアウト延長案内メッセージ
 
 
 def _get_state_entered_at(data: dict, state: str) -> _datetime | None:
@@ -121,21 +128,39 @@ def _check_nudge(state: str, data: dict) -> TransitionAction | None:
     block_sec = BLOCK_TIMERS.get(state)
     if block_sec is None or data is None:
         return None
+
+    # 延長分を加算
+    block_sec += data.get("timeout_extension", 0)
+
     entered_at = _get_state_entered_at(data, state)
     elapsed = 0.0
     if entered_at is not None:
         elapsed = (_datetime.now(JST) - entered_at).total_seconds()
+
     # BLOCKED判定（時間超過）
     if elapsed >= block_sec:
         return TransitionAction(
             new_state="BLOCKED",
             impl_msg=f"{state} タイムアウト。応答がありませんでした。",
         )
+
     # 猶予期間内は催促しない
     if elapsed < NUDGE_GRACE_SEC:
         return None
-    # 催促（非アクティブチェックはロック内で行う）
-    return TransitionAction(nudge=state)
+
+    # 催促メッセージ作成
+    nudge = TransitionAction(nudge=state)
+
+    # 延長案内を付加（残り5分未満 + 対象フェーズ）
+    remaining = block_sec - elapsed
+    if remaining < EXTEND_NOTICE_THRESHOLD and state in EXTENDABLE_STATES:
+        project = data.get("project", "")
+        nudge.extend_notice = (
+            f"\n\n⏰ タイムアウトまで残り{int(remaining)}秒。延長が必要なら:\n"
+            f"python3 {DEVBAR_CLI} extend --project {project} --by 600"
+        )
+
+    return nudge
 
 
 _VERDICT_EMOJI = {"APPROVE": "🟢", "P0": "🔴", "P1": "🟡"}
@@ -586,10 +611,11 @@ def process(path: Path):
 
         pj = data.get("project", path.stem)
 
-        # DONE状態: バッチクリア + watchdog無効化
+        # DONE状態: バッチクリア + watchdog無効化 + タイムアウト延長リセット
         if state == "DONE":
             data["batch"] = []
             data["enabled"] = False
+            data.pop("timeout_extension", None)
 
         # REVISE → REVIEW: ロック内でレビュークリア
         if state in ("DESIGN_REVISE", "CODE_REVISE"):
@@ -639,6 +665,8 @@ def process(path: Path):
         if action.nudge:
             # 遷移時に既に詳細メッセージを送っているので、催促は常に "continue"
             nudge_msg = "continue"
+            if action.extend_notice:
+                nudge_msg += action.extend_notice
             notify_implementer(notification["implementer"], nudge_msg)
             ts = _datetime.now(JST).strftime("%m/%d %H:%M")
             notify_discord(f"[{pj}] {action.nudge}: 実装担当に通知送信 ({ts})")

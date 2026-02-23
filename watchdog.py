@@ -342,17 +342,18 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
         count, has_p0 = count_reviews(batch, key)
 
         if count >= min_rev:
+            pj = data.get("project", "") if data else ""
             if has_p0:
                 rev = "DESIGN_REVISE" if "DESIGN" in state else "CODE_REVISE"
                 return TransitionAction(
                     new_state=rev,
-                    impl_msg=get_notification_for_state(rev).impl_msg,
+                    impl_msg=get_notification_for_state(rev, project=pj, batch=batch).impl_msg,
                 )
             else:
                 appr = "DESIGN_APPROVED" if "DESIGN" in state else "CODE_APPROVED"
                 return TransitionAction(
                     new_state=appr,
-                    impl_msg=get_notification_for_state(appr).impl_msg,
+                    impl_msg=get_notification_for_state(appr, project=pj, batch=batch).impl_msg,
                 )
         # 未完了レビュアーの催促（猶予期間内はスキップ）
         entered_at = _get_state_entered_at(data, state) if data is not None else None

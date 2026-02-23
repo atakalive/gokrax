@@ -457,13 +457,13 @@ cd "{repo_path}"
 _notify() {{ local ts=$(date +"%m/%d %H:%M"); python3 -c "import sys; sys.path.insert(0,'{Path(DEVBAR_CLI).resolve().parent}'); from notify import notify_discord; notify_discord(sys.argv[1])" "$1 ($ts)" 2>/dev/null || true; }}
 
 # Phase 1: Plan
-_notify "[{project}] 📋 CC Plan 開始"
+_notify "[{project}] 📋 CC Plan 開始 (model: {CC_MODEL_PLAN})"
 claude -p --model "{CC_MODEL_PLAN}" --session-id "{session_id}" \
   --permission-mode plan --output-format json < "{plan_path}"
 _notify "[{project}] ✅ CC Plan 完了"
 
 # Phase 2: Impl
-_notify "[{project}] 🔨 CC Impl 開始"
+_notify "[{project}] 🔨 CC Impl 開始 (model: {CC_MODEL_IMPL})"
 claude -p --model "{CC_MODEL_IMPL}" --resume "{session_id}" \
   --permission-mode bypassPermissions --output-format json < "{impl_path}"
 _notify "[{project}] ✅ CC Impl 完了"

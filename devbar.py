@@ -143,8 +143,8 @@ def _fetch_open_issues(gitlab: str) -> list[int]:
     """glab issue list でopen issue番号のリストを取得。"""
     try:
         result = subprocess.run(
-            [GLAB_BIN, "issue", "list", "--state", "opened", "-R", gitlab,
-             "--json", "number"],
+            [GLAB_BIN, "issue", "list", "-R", gitlab,
+             "-O", "json", "-P", "100"],
             capture_output=True, text=True, timeout=GLAB_TIMEOUT,
         )
         if result.returncode != 0:
@@ -153,7 +153,7 @@ def _fetch_open_issues(gitlab: str) -> list[int]:
 
         import json
         issues = json.loads(result.stdout)
-        return [issue["number"] for issue in issues]
+        return [issue["iid"] for issue in issues if issue.get("state") == "opened"]
     except (subprocess.TimeoutExpired, json.JSONDecodeError, KeyError) as e:
         print(f"Failed to fetch open issues: {e}", file=sys.stderr)
         return []

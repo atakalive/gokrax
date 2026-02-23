@@ -110,7 +110,7 @@ ALLOWED_REVIEWERS = list(AGENTS.keys())
 INACTIVE_THRESHOLD_SEC = 151
 
 # /new コマンド後の待ち時間（秒）
-POST_NEW_COMMAND_WAIT_SEC = 10
+POST_NEW_COMMAND_WAIT_SEC = 30
 
 # エージェントセッションストアのベースパス
 SESSIONS_BASE = Path.home() / ".openclaw/agents"

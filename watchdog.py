@@ -81,6 +81,7 @@ class TransitionAction:
     impl_msg: str | None = None
     send_review: bool = False
     send_merge_summary: bool = False  # #dev-bar にマージサマリーを投稿
+    run_cc: bool = False  # CC CLI を直接起動
     nudge: str | None = None   # 催促通知が必要な状態名
     nudge_reviewers: list | None = None  # 催促が必要なレビュアーのリスト
 
@@ -316,8 +317,11 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
     if state == "IMPLEMENTATION":
         if all(i.get("commit") for i in batch):
             return TransitionAction(new_state="CODE_REVIEW", send_review=True)
-        nudge = _check_nudge(state, data) if data is not None else None
-        return nudge or TransitionAction()
+        # CC未実行 → 起動指示
+        if data is not None and not _is_cc_running(data):
+            return TransitionAction(run_cc=True)
+        # CC実行中 → 何もしない
+        return TransitionAction()
 
     return TransitionAction()
 

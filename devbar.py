@@ -28,15 +28,13 @@ from notify import notify_implementer, notify_reviewers, notify_discord, send_to
 # === Commands ===
 
 def cmd_status(args):
-    """PJの状態を表示（デフォルト: アクティブPJのみ、--allで全件）"""
+    """全PJの状態を表示"""
     PIPELINES_DIR.mkdir(parents=True, exist_ok=True)
     files = sorted(PIPELINES_DIR.glob("*.json"))
     if not files:
         print("No pipelines found.")
         return
 
-    show_all = getattr(args, "all", False)
-    hidden = 0
     for path in files:
         data = load_pipeline(path)
         pj = data.get("project", path.stem)
@@ -44,11 +42,6 @@ def cmd_status(args):
         enabled = "ON" if data.get("enabled") else "OFF"
         batch = data.get("batch", [])
         review_mode = data.get("review_mode", "standard")
-
-        # デフォルト: IDLEかつバッチ空のPJは非表示
-        if not show_all and state == "IDLE" and not batch:
-            hidden += 1
-            continue
         issues = ", ".join(f"#{i['issue']}" for i in batch) if batch else "none"
         mode_config = REVIEW_MODES.get(review_mode, REVIEW_MODES["standard"])
         reviewers_str = ", ".join(f'"{r}"' for r in mode_config["members"])
@@ -68,9 +61,6 @@ def cmd_status(args):
                 verdict_parts = ", ".join(f"{c} {v}" for v, c in sorted(verdicts.items()))
                 verdict_str = f" ({verdict_parts})" if verdict_parts else ""
                 print(f"  #{item['issue']}: {done}/{min_rev} reviews{verdict_str}")
-
-    if hidden:
-        print(f"({hidden} idle projects hidden — use --all to show)")
 
 
 def cmd_init(args):
@@ -569,8 +559,7 @@ def main():
     sub = parser.add_subparsers(dest="command")
 
     # status
-    p = sub.add_parser("status", help="アクティブPJの状態・バッチ・レビュー進捗を一覧表示")
-    p.add_argument("--all", action="store_true", help="IDLEのPJも含めて全件表示")
+    sub.add_parser("status", help="全プロジェクトの状態・バッチ・レビュー進捗を一覧表示")
 
     # init
     p = sub.add_parser("init", help="新プロジェクトのパイプラインを初期化")

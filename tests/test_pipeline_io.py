@@ -173,13 +173,7 @@ class TestDevbarCLIIntegration:
         path = tmp_pipelines / "integ-test.json"
         assert path.exists()
 
-        # デフォルトではIDLE PJは非表示
         r = self._run("status", pipelines_dir=tmp_pipelines)
-        assert r.returncode == 0
-        assert "idle projects hidden" in r.stdout
-
-        # --all で全件表示
-        r = self._run("status", "--all", pipelines_dir=tmp_pipelines)
         assert r.returncode == 0
         assert "integ-test" in r.stdout
 

@@ -148,7 +148,8 @@ def notify_implementer(agent_id: str, message: str):
 
 
 def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
-                     repo_path: str = "", review_mode: str = "standard"):
+                     repo_path: str = "", review_mode: str = "standard",
+                     skip_new: bool = False):
     """各レビュアーに個別のメッセージを送信。
 
     review_mode が "skip" の場合は通知をスキップ（自動承認用）。
@@ -167,21 +168,22 @@ def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
         logger.info("[review_mode=skip] Skipping reviewer notifications for %s", project)
         return
 
-    # バッチ単位で全レビュアーに /new 送信（Issue #23）
-    sent_new = False
-    for r in reviewers:
-        if r not in AGENTS:
-            logger.error("Unknown reviewer: %s", r)
-            continue
-        if send_to_agent(r, "/new"):
-            sent_new = True
-        else:
-            logger.warning("Failed to send /new to reviewer: %s", r)
+    # バッチ単位で全レビュアーに /new 送信（REVISE後の再レビューではスキップ）
+    if not skip_new:
+        sent_new = False
+        for r in reviewers:
+            if r not in AGENTS:
+                logger.error("Unknown reviewer: %s", r)
+                continue
+            if send_to_agent(r, "/new"):
+                sent_new = True
+            else:
+                logger.warning("Failed to send /new to reviewer: %s", r)
 
-    # /new 後にセッションリセット完了を待つ
-    if sent_new:
-        import time
-        time.sleep(POST_NEW_COMMAND_WAIT_SEC)
+        # /new 後にセッションリセット完了を待つ
+        if sent_new:
+            import time
+            time.sleep(POST_NEW_COMMAND_WAIT_SEC)
 
     # 各レビュアーにレビュー依頼メッセージ送信
     for r in reviewers:

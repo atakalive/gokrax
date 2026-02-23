@@ -560,10 +560,14 @@ def process(path: Path):
             )
         if action.send_review:
             review_mode = notification.get("review_mode", "standard")
+            # REVISE→REVIEW の再レビューではレビュアーの /new 不要（コンテキスト維持）
+            old_state = notification.get("old_state", "")
+            skip_new = old_state in ("DESIGN_REVISE", "CODE_REVISE")
             notify_reviewers(
                 pj, action.new_state, notification["batch"], notification["gitlab"],
                 repo_path=notification.get("repo_path", ""),
                 review_mode=review_mode,
+                skip_new=skip_new,
             )
 
 

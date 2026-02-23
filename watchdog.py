@@ -29,15 +29,22 @@ from notify import notify_implementer, notify_reviewers, notify_discord, send_to
 
 def _reset_reviewers(review_mode: str = "standard", implementer: str = ""):
     """レビュアー（+実装担当）に /new を先行送信。"""
-    from config import AGENTS, REVIEW_MODES
+    from config import AGENTS, REVIEW_MODES, POST_NEW_COMMAND_WAIT_SEC
+    import time
     mode_config = REVIEW_MODES.get(review_mode, REVIEW_MODES["standard"])
     targets = set(mode_config["members"])
     if implementer:
         targets.add(implementer)
+    sent_impl = False
     for r in targets:
         if r in AGENTS:
             if not send_to_agent(r, "/new"):
                 log(f"WARNING: failed to send /new to {r}")
+            elif r == implementer:
+                sent_impl = True
+    # 実装担当に/new送信後、セッションリセット完了を待つ
+    if sent_impl:
+        time.sleep(POST_NEW_COMMAND_WAIT_SEC)
 
 
 def log(msg: str):

@@ -623,9 +623,11 @@ def process(path: Path):
             key = "design_reviews" if "DESIGN" in state else "code_reviews"
             clear_reviews(batch, key, revised_key)
 
-        # 催促カウンタリセット（状態から出るとき）
+        # 催促カウンタ・失敗フラグリセット（状態から出るとき）
         if state in BLOCK_TIMERS:
             data.pop(_nudge_key(state), None)
+        for k in [k for k in data if k.startswith("_nudge_failed_")]:
+            del data[k]
 
         log(f"[{pj}] {state} → {action.new_state}")
         add_history(data, state, action.new_state, actor="watchdog")
@@ -651,12 +653,27 @@ def process(path: Path):
         pj = notification["pj"]
 
         if action.nudge_reviewers:
-            # 非アクティブなレビュアーにのみ「continue」送信
+            # 非アクティブなレビュアーにのみ「continue」送信（送信失敗時は次回スキップ）
+            path = get_path(pj)
+            pipeline_data = load_pipeline(path)
             woken = []
+            failed = []
             for reviewer in notification["nudge_reviewers"]:
                 if _is_agent_inactive(reviewer):
-                    notify_implementer(reviewer, "continue")
-                    woken.append(reviewer)
+                    fail_key = f"_nudge_failed_{reviewer}"
+                    if pipeline_data.get(fail_key):
+                        continue
+                    if notify_implementer(reviewer, "continue"):
+                        woken.append(reviewer)
+                    else:
+                        failed.append(reviewer)
+                        log(f"[{pj}] {reviewer}: 催促送信失敗、次回スキップ")
+            # 失敗フラグを一括更新
+            if failed:
+                def _set_fails(data, reviewers=failed):
+                    for r in reviewers:
+                        data[f"_nudge_failed_{r}"] = True
+                update_pipeline(path, _set_fails)
             if woken:
                 ts = _datetime.now(JST).strftime("%m/%d %H:%M")
                 log(f"[{pj}] レビュアー催促: {', '.join(woken)} ({ts})")

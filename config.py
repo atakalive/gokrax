@@ -88,12 +88,12 @@ REVIEW_MODES = {
         "min_reviews": 3,
     },
     "standard": {
-        "members": ["pascal", "leibniz"],
+        "members": ["pascal", "leibniz", "hanfei"],
         "min_reviews": 2,
     },
     "lite": {
-        "members": ["pascal"],
-        "min_reviews": 1,
+        "members": ["pascal", "leibniz"],
+        "min_reviews": 2,
     },
     "skip": {
         "members": [],
@@ -102,7 +102,7 @@ REVIEW_MODES = {
 }
 
 # Maximum characters for embedded review data (issue body + diff)
-MAX_EMBED_CHARS = 20000
+MAX_EMBED_CHARS = 64 * 1024  # 64KB (?) charsのバイト数による
 
 ALLOWED_REVIEWERS = list(AGENTS.keys())
 

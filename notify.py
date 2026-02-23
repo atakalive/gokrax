@@ -168,12 +168,20 @@ def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
         return
 
     # バッチ単位で全レビュアーに /new 送信（Issue #23）
+    sent_new = False
     for r in reviewers:
         if r not in AGENTS:
             logger.error("Unknown reviewer: %s", r)
             continue
-        if not send_to_agent(r, "/new"):
+        if send_to_agent(r, "/new"):
+            sent_new = True
+        else:
             logger.warning("Failed to send /new to reviewer: %s", r)
+
+    # /new 後にセッションリセット完了を待つ
+    if sent_new:
+        import time
+        time.sleep(10)
 
     # 各レビュアーにレビュー依頼メッセージ送信
     for r in reviewers:

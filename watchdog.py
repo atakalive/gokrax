@@ -214,12 +214,6 @@ def get_notification_for_state(
         )
         return TransitionAction(impl_msg=msg)
 
-    if state == "MERGE_SUMMARY_SENT":
-        return TransitionAction(impl_msg="コードレビュー通過。Mにマージサマリーを送ってください。")
-
-    if state == "IDLE":
-        return TransitionAction(impl_msg="バッチ完了。watchdog無効化しました。")
-
     return TransitionAction()
 
 
@@ -242,10 +236,7 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
             if (ref.get("message_id") == summary_id
                     and msg.get("author", {}).get("id") == M_DISCORD_USER_ID
                     and msg.get("content", "").strip().lower().startswith("ok")):
-                return TransitionAction(
-                    new_state="DONE",
-                    impl_msg="Mが承認しました。push + issue close してください。",
-                )
+                return TransitionAction(new_state="DONE")
         return TransitionAction()
 
     if state == "DONE":

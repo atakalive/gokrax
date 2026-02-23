@@ -30,7 +30,8 @@ from notify import notify_implementer, notify_reviewers, notify_discord
 def log(msg: str):
     ts = datetime.now(JST).strftime("%Y-%m-%d %H:%M:%S")
     line = f"[{ts}] {msg}"
-    print(line)
+    # crontabの >> リダイレクトと直接書き込みの二重出力を防止
+    # ファイルのみに書き込み、stdoutには出さない
     with open(LOG_FILE, "a") as f:
         f.write(line + "\n")
 

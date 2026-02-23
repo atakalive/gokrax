@@ -240,10 +240,8 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
         return TransitionAction()
 
     if state == "DONE":
-        return TransitionAction(
-            new_state="IDLE",
-            impl_msg=get_notification_for_state("IDLE").impl_msg,
-        )
+        # DONE→IDLEは自動遷移。通知不要（push+closeは呼び出し元で処理済み）
+        return TransitionAction(new_state="IDLE")
 
     if not batch:
         return TransitionAction()

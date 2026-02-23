@@ -109,6 +109,9 @@ ALLOWED_REVIEWERS = list(AGENTS.keys())
 # 非アクティブ判定 (秒)
 INACTIVE_THRESHOLD_SEC = 81
 
+# /new コマンド後の待ち時間（秒）
+POST_NEW_COMMAND_WAIT_SEC = 10
+
 # エージェントセッションストアのベースパス
 SESSIONS_BASE = Path.home() / ".openclaw/agents"
 

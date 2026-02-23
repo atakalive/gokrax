@@ -66,10 +66,10 @@ class TestCheckTransition:
         assert check_transition("BLOCKED", _make_batch()).new_state is None
 
     def test_done_always_transitions_to_idle(self):
+        """DONE→IDLEは自動遷移。通知メッセージは不要（人の介入なし）。"""
         from watchdog import check_transition
         action = check_transition("DONE", [])
         assert action.new_state == "IDLE"
-        assert action.impl_msg is not None
 
     def test_done_with_batch_still_transitions(self):
         from watchdog import check_transition

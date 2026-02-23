@@ -205,7 +205,8 @@ class TestWatchdogMergeSummary:
         with patch("notify.fetch_discord_replies", return_value=[msg]):
             action = check_transition("MERGE_SUMMARY_SENT", data["batch"], data)
         assert action.new_state == "DONE"
-        assert action.impl_msg is not None
+        # DONE遷移は自動push+close。impl_msgは不要（watchdogが直接処理する）
+        assert action.send_review is False
 
     def test_watchdog_ignores_wrong_author(self):
         """author.id が M でなければ遷移しない"""

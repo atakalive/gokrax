@@ -122,6 +122,35 @@ def _check_nudge(state: str, data: dict) -> TransitionAction | None:
     return TransitionAction(nudge=state)
 
 
+_VERDICT_EMOJI = {"APPROVE": "🟢", "P0": "🔴", "P1": "🟡"}
+
+
+def _format_merge_summary(project: str, batch: list) -> str:
+    """#dev-bar 投稿用マージサマリーを生成する。"""
+    from config import MERGE_SUMMARY_FOOTER
+    lines = [f"**[{project}] マージサマリー**\n"]
+    for item in batch:
+        num = item["issue"]
+        title = item.get("title", "")
+        commit = item.get("commit", "?")
+        lines.append(f"**#{num}: {title}** (`{commit}`)")
+        # コードレビュー結果を表示（なければ設計レビュー）
+        reviews = item.get("code_reviews") or item.get("design_reviews") or {}
+        for reviewer, rev in reviews.items():
+            verdict = rev.get("verdict", "?")
+            emoji = _VERDICT_EMOJI.get(verdict, "⚪")
+            summary = rev.get("summary", "")
+            # summary の1行目だけ使う（長いレビューは切る）
+            first_line = summary.split("\n")[0][:120] if summary else ""
+            if first_line:
+                lines.append(f"  {emoji} **{reviewer}**: {verdict} — {first_line}")
+            else:
+                lines.append(f"  {emoji} **{reviewer}**: {verdict}")
+        lines.append("")  # 空行で区切り
+    lines.append(MERGE_SUMMARY_FOOTER)
+    return "\n".join(lines)
+
+
 def get_notification_for_state(
     state: str,
     project: str = "",
@@ -502,14 +531,7 @@ def process(path: Path):
             from config import MERGE_SUMMARY_FOOTER, DISCORD_CHANNEL
             from notify import post_discord
             batch = notification["batch"]
-            lines = [f"**[{pj}] マージサマリー**\n"]
-            for item in batch:
-                num = item["issue"]
-                title = item.get("title", "")
-                commit = item.get("commit", "?")
-                lines.append(f"- #{num}: {title} (`{commit}`)")
-            lines.append(MERGE_SUMMARY_FOOTER)
-            content = "\n".join(lines)
+            content = _format_merge_summary(pj, batch)
             message_id = post_discord(DISCORD_CHANNEL, content)
             if message_id:
                 # summary_message_id をパイプラインに保存

@@ -45,7 +45,7 @@ def cmd_status(args):
         issues = ", ".join(f"#{i['issue']}" for i in batch) if batch else "none"
         mode_config = REVIEW_MODES.get(review_mode, REVIEW_MODES["standard"])
         reviewers_str = ", ".join(f'"{r}"' for r in mode_config["members"])
-        print(f"[{enabled}] {pj}: {state}  mode={review_mode}  issues=[{issues}]  Reviewers=[{reviewers_str}]")
+        print(f"[{enabled}] {pj}: {state}  issues=[{issues}]  ReviewerSize={review_mode}  Reviewers=[{reviewers_str}]")
 
         # Show per-issue review progress for review states
         if state in ("DESIGN_REVIEW", "CODE_REVIEW") and batch:
@@ -335,8 +335,9 @@ def cmd_revise(args):
 
 def cmd_merge_summary(args):
     """マージサマリーを #dev-bar に投稿し、MERGE_SUMMARY_SENT に遷移"""
-    from config import MERGE_SUMMARY_FOOTER, DISCORD_CHANNEL
+    from config import DISCORD_CHANNEL
     from notify import post_discord
+    from watchdog import _format_merge_summary
 
     path = get_path(args.project)
     data = load_pipeline(path)
@@ -346,14 +347,7 @@ def cmd_merge_summary(args):
 
     batch = data.get("batch", [])
     project = data.get("project", args.project)
-    lines = [f"**[{project}] マージサマリー**\n"]
-    for item in batch:
-        num = item["issue"]
-        title = item.get("title", "")
-        commit = item.get("commit", "?")
-        lines.append(f"- #{num}: {title} (`{commit}`)")
-    lines.append(MERGE_SUMMARY_FOOTER)
-    content = "\n".join(lines)
+    content = _format_merge_summary(project, batch)
 
     message_id = post_discord(DISCORD_CHANNEL, content)
     if not message_id:

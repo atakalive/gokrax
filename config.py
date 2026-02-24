@@ -113,8 +113,8 @@ BLOCK_TIMERS = {
     "DESIGN_REVIEW":  1800,  # 30分
     "DESIGN_REVISE":  1200,  # 20分
     "IMPLEMENTATION": 1800,  # 30分
-    "CODE_REVIEW":    1200,  # 20分
-    "CODE_REVISE":    900,   # 15分
+    "CODE_REVIEW":    1800,  # 30分
+    "CODE_REVISE":    1200,  # 20分
 }
 
 # タイムアウト延長可能な状態

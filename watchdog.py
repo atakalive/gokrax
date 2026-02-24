@@ -242,7 +242,7 @@ def get_notification_for_state(
             f"対象Issue: {issues_str}\n"
             f"Claude Codeが楽に実装できるように、**対象Issue本文の説明を修正せよ** (glab issue update)。\n"
             f"コメントによる補足は禁止する。\n"
-            f"最後に、問題がなければ plan-done せよ（一括報告できる）。\n"
+            f"最後に、問題がなければ plan-done して完了せよ（一括報告できる）。\n"
             f"python3 {DEVBAR_CLI} plan-done --project {project} --issue N [N...]\n"
             f"[お願い] 仕事は中断せず、完了まで一気にやること。"
         )
@@ -256,7 +256,8 @@ def get_notification_for_state(
             f"【手順】\n"
             f"1. P0指摘を読み、Issue本文を修正する（glab issue update）\n"
             f"2. devbar に完了報告:\n"
-            f"   python3 {DEVBAR_CLI} design-revise --pj {project} --issue N [N...]"
+            f"   python3 {DEVBAR_CLI} design-revise --pj {project} --issue N [N...]\n"
+            f"[お願い] 仕事は中断せず、完了まで一気にやること。"
         )
         return TransitionAction(impl_msg=msg)
 
@@ -269,7 +270,8 @@ def get_notification_for_state(
             f"1. P0指摘を読み、コードを修正する\n"
             f"2. git commit する\n"
             f"3. devbar に完了報告:\n"
-            f"   python3 {DEVBAR_CLI} code-revise --pj {project} --issue N [N...] --hash <commit>"
+            f"   python3 {DEVBAR_CLI} code-revise --pj {project} --issue N [N...] --hash <commit>\n"
+            f"[お願い] 仕事は中断せず、完了まで一気にやること。"
         )
         return TransitionAction(impl_msg=msg)
 

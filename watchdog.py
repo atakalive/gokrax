@@ -240,10 +240,11 @@ def get_notification_for_state(
         msg = (
             f"[devbar] {project}: 設計確認フェーズ\n"
             f"対象Issue: {issues_str}\n"
-            f"Claude Codeが楽に実装できるように、対象Issueの内容確認/修正をして、\n"
-            f"glab issue update コマンドで **Issue本文に反映せよ**。コメントによる補足は禁止する。\n"
-            f"その後、問題がなければ plan-done せよ。\n"
-            f"python3 {DEVBAR_CLI} plan-done --project {project} --issue N"
+            f"Claude Codeが楽に実装できるように、**対象Issue本文の説明を修正せよ** (glab issue update)。\n"
+            f"コメントによる補足は禁止する。\n"
+            f"最後に、問題がなければ plan-done せよ（一括報告できる）。\n"
+            f"python3 {DEVBAR_CLI} plan-done --project {project} --issue N [N...]\n"
+            f"[お願い] 仕事は中断せず、完了まで一気にやること。"
         )
         return TransitionAction(impl_msg=msg, reset_reviewers=True)
 
@@ -272,6 +273,7 @@ def get_notification_for_state(
         )
         return TransitionAction(impl_msg=msg)
 
+    # 現在はシステム側でCCを動かしているため使っていないが、残しておく
     if state == "IMPLEMENTATION":
         issues_str = ", ".join(
             f"#{i['issue']}" for i in batch if not i.get("commit")

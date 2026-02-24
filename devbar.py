@@ -16,12 +16,90 @@ from config import (
     PIPELINES_DIR, GLAB_BIN, LOG_FILE,
     VALID_STATES, VALID_TRANSITIONS, MAX_BATCH, TRIAGE_ALLOWED_STATES,
     VALID_VERDICTS, GLAB_TIMEOUT, ALLOWED_REVIEWERS, REVIEW_MODES, JST,
+    WATCHDOG_LOOP_SCRIPT, WATCHDOG_LOOP_PIDFILE,
+    WATCHDOG_LOOP_CRON_MARKER, WATCHDOG_LOOP_CRON_ENTRY,
 )
 from pipeline_io import (
     load_pipeline, save_pipeline, update_pipeline,
     add_history, now_iso, get_path, find_issue,
 )
 from watchdog import get_notification_for_state
+import os
+
+
+# === Watchdog Loop Management ===
+
+def _is_loop_running() -> bool:
+    """watchdog-loop.sh が稼働中か判定。"""
+    if not WATCHDOG_LOOP_PIDFILE.exists():
+        return False
+    try:
+        pid = int(WATCHDOG_LOOP_PIDFILE.read_text().strip())
+        return Path(f"/proc/{pid}").exists()
+    except (ValueError, OSError):
+        return False
+
+
+def _start_loop():
+    """watchdog-loop.sh をバックグラウンド起動し、crontab復帰エントリを追加。"""
+    if _is_loop_running():
+        return
+    # loop.sh 起動
+    subprocess.Popen(
+        ["nohup", "bash", str(WATCHDOG_LOOP_SCRIPT)],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    # crontab に復帰エントリ追加
+    _ensure_cron_entry()
+
+
+def _stop_loop():
+    """watchdog-loop.sh を停止し、crontabエントリを削除。"""
+    # kill
+    if WATCHDOG_LOOP_PIDFILE.exists():
+        try:
+            pid = int(WATCHDOG_LOOP_PIDFILE.read_text().strip())
+            os.kill(pid, signal.SIGTERM)
+        except (ValueError, OSError):
+            pass
+    # crontab から削除
+    _remove_cron_entry()
+
+
+def _ensure_cron_entry():
+    """crontab に watchdog-loop 復帰エントリがなければ追加。"""
+    try:
+        current = subprocess.run(
+            ["crontab", "-l"], capture_output=True, text=True
+        ).stdout
+    except Exception:
+        current = ""
+    if WATCHDOG_LOOP_CRON_MARKER in current:
+        return
+    new = current.rstrip("\n") + "\n" + WATCHDOG_LOOP_CRON_ENTRY + "\n"
+    subprocess.run(["crontab", "-"], input=new, text=True, check=True)
+
+
+def _remove_cron_entry():
+    """crontab から watchdog-loop エントリを削除。"""
+    try:
+        current = subprocess.run(
+            ["crontab", "-l"], capture_output=True, text=True
+        ).stdout
+    except Exception:
+        return
+    lines = [l for l in current.splitlines() if WATCHDOG_LOOP_CRON_MARKER not in l]
+    subprocess.run(["crontab", "-"], input="\n".join(lines) + "\n", text=True, check=True)
+
+
+def _any_pj_enabled() -> bool:
+    """いずれかのPJが enabled=True か判定。"""
+    for path in PIPELINES_DIR.glob("*.json"):
+        data = load_pipeline(path)
+        if data.get("enabled", False):
+            return True
+    return False
 from notify import notify_implementer, notify_reviewers, notify_discord, send_to_agent
 
 
@@ -94,6 +172,7 @@ def cmd_enable(args):
         data["enabled"] = True
 
     update_pipeline(path, do_enable)
+    _start_loop()
     print(f"{args.project}: watchdog enabled")
 
 
@@ -104,7 +183,11 @@ def cmd_disable(args):
         data["enabled"] = False
 
     update_pipeline(path, do_disable)
-    print(f"{args.project}: watchdog disabled")
+    if not _any_pj_enabled():
+        _stop_loop()
+        print(f"{args.project}: watchdog disabled (loop stopped — no active projects)")
+    else:
+        print(f"{args.project}: watchdog disabled")
 
 
 def cmd_extend(args):
@@ -284,12 +367,13 @@ def cmd_start(args):
     )
     cmd_transition(transition_args)
 
-    # 6. watchdog有効化
+    # 6. watchdog有効化 + loop起動
     def do_enable(data):
         data["enabled"] = True
     update_pipeline(path, do_enable)
+    _start_loop()
 
-    # 6. 完了メッセージ
+    # 7. 完了メッセージ
     issues_str = ", ".join(f"#{n}" for n in issue_nums)
     print(f"{args.project}: started with issues [{issues_str}] → DESIGN_PLAN (watchdog enabled)")
 

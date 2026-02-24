@@ -13,6 +13,16 @@ GLAB_BIN = "/home/ataka/bin/glab"
 GATEWAY_TOKEN_PATH = Path.home() / ".openclaw/openclaw.json"
 LOG_FILE = Path("/tmp/devbar-watchdog.log")
 
+# watchdog-loop
+WATCHDOG_LOOP_SCRIPT = Path(__file__).resolve().parent / "watchdog-loop.sh"
+WATCHDOG_LOOP_PIDFILE = Path("/tmp/devbar-watchdog-loop.pid")
+WATCHDOG_LOOP_CRON_MARKER = "watchdog-loop"  # crontab行のgrep用マーカー
+WATCHDOG_LOOP_CRON_ENTRY = (
+    f"* * * * * flock -n /tmp/devbar-watchdog-loop.lock"
+    f" nohup bash {Path(__file__).resolve().parent / 'watchdog-loop.sh'}"
+    f" > /dev/null 2>&1 &"
+)
+
 # Discord
 DISCORD_CHANNEL = "1474050582049329213"  # #dev-bar channel ID
 DISCORD_BOT_ACCOUNT = "kaneko-discord"  # 金子さんの発言として投稿

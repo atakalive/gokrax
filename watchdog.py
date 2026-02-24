@@ -17,7 +17,11 @@ from pathlib import Path
 from datetime import datetime
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from config import PIPELINES_DIR, JST, LOG_FILE, REVIEW_MODES, CC_MODEL_PLAN, CC_MODEL_IMPL, DEVBAR_CLI, INACTIVE_THRESHOLD_SEC, SESSIONS_BASE
+from config import (
+    PIPELINES_DIR, JST, LOG_FILE, REVIEW_MODES, CC_MODEL_PLAN, CC_MODEL_IMPL,
+    DEVBAR_CLI, INACTIVE_THRESHOLD_SEC, SESSIONS_BASE,
+    WATCHDOG_LOOP_PIDFILE, WATCHDOG_LOOP_CRON_MARKER,
+)
 from datetime import datetime as _datetime
 import json as _json
 from pipeline_io import (
@@ -858,6 +862,30 @@ def process(path: Path):
                 notify_discord(f"[{pj}] ⚠️ CC起動失敗: {e} ({ts})")
 
 
+def _stop_loop_if_idle():
+    """全PJが disabled なら watchdog-loop.sh を停止し crontab エントリを削除。"""
+    import os, signal, subprocess
+    for p in PIPELINES_DIR.glob("*.json"):
+        d = load_pipeline(p)
+        if d.get("enabled", False):
+            return  # まだアクティブなPJがある
+    # 全PJ disabled → loop停止
+    if WATCHDOG_LOOP_PIDFILE.exists():
+        try:
+            pid = int(WATCHDOG_LOOP_PIDFILE.read_text().strip())
+            os.kill(pid, signal.SIGTERM)
+        except (ValueError, OSError):
+            pass
+    # crontab エントリ削除
+    try:
+        current = subprocess.run(["crontab", "-l"], capture_output=True, text=True).stdout
+        lines = [l for l in current.splitlines() if WATCHDOG_LOOP_CRON_MARKER not in l]
+        subprocess.run(["crontab", "-"], input="\n".join(lines) + "\n", text=True, check=True)
+    except Exception:
+        pass
+    log("[watchdog] All projects disabled — loop stopped")
+
+
 def main():
     logging.basicConfig(
         level=logging.INFO,
@@ -871,6 +899,8 @@ def main():
             process(path)
         except Exception as e:
             log(f"[{path.stem}] ERROR: {e}")
+    # 全PJ完了/停止ならloop自体を停止
+    _stop_loop_if_idle()
 
 
 if __name__ == "__main__":

@@ -28,7 +28,9 @@ def _block_external_calls(request, tmp_path):
         return
     with patch("notify.post_discord", return_value="mock-msg-id"), \
          patch("notify.send_to_agent", return_value=True), \
-         patch("watchdog.send_to_agent", return_value=True):
+         patch("notify.send_to_agent_queued", return_value=True), \
+         patch("watchdog.send_to_agent", return_value=True), \
+         patch("watchdog.send_to_agent_queued", return_value=True):
         yield
     config.LOG_FILE = orig_config
     watchdog.LOG_FILE = orig_watchdog

@@ -21,13 +21,44 @@ from config import (
 logger = logging.getLogger("devbar.notify")
 
 
+def send_to_agent(agent_id: str, message: str, timeout: int = AGENT_SEND_TIMEOUT) -> bool:
+    """openclaw agent CLIでメッセージ送信。
+
+    改行を保持する。idle状態のエージェントへの送信に使う。
+    run中のエージェントにはsend_to_agent_queued()を使うこと。
+    """
+    if config.DRY_RUN:
+        logger.info("[dry-run] send_to_agent skipped (agent=%s)", agent_id)
+        return True
+    try:
+        result = subprocess.run(
+            ["openclaw", "agent", "--agent", agent_id, "--message", message,
+             "--timeout", str(timeout), "--json"],
+            capture_output=True, text=True, timeout=timeout + 10,
+        )
+        if result.returncode != 0:
+            logger.warning("agent send failed (rc=%d, agent=%s): %s",
+                          result.returncode, agent_id, result.stderr.strip())
+        return result.returncode == 0
+    except subprocess.TimeoutExpired:
+        logger.warning("agent send timed out (agent=%s, timeout=%ds)", agent_id, timeout)
+        return False
+    except FileNotFoundError:
+        logger.error("openclaw CLI not found in PATH")
+        return False
+
+
 GATEWAY_SEND_SCRIPT = Path(__file__).resolve().parent / "gateway-send.js"
 
 
-def send_to_agent(agent_id: str, message: str, timeout: int = AGENT_SEND_TIMEOUT) -> bool:
-    """Gateway chat.send 経由でメッセージ送信（キュー対応、run中でもabortしない）。"""
+def send_to_agent_queued(agent_id: str, message: str, timeout: int = AGENT_SEND_TIMEOUT) -> bool:
+    """Gateway chat.send 経由でメッセージ送信（collectキュー、run中でもabortしない）。
+
+    chat.sendは改行を消す。催促など短いメッセージ専用。
+    改行が必要なメッセージにはsend_to_agent()を使うこと。
+    """
     if config.DRY_RUN:
-        logger.info("[dry-run] send_to_agent skipped (agent=%s)", agent_id)
+        logger.info("[dry-run] send_to_agent_queued skipped (agent=%s)", agent_id)
         return True
     session_key = f"agent:{agent_id}:main"
     try:

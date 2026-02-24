@@ -30,7 +30,7 @@ from pipeline_io import (
     load_pipeline, update_pipeline, get_path,
     add_history, now_iso, find_issue,
 )
-from notify import notify_implementer, notify_reviewers, notify_discord, send_to_agent
+from notify import notify_implementer, notify_reviewers, notify_discord, send_to_agent, send_to_agent_queued
 
 
 def _reset_reviewers(review_mode: str = "standard", implementer: str = ""):
@@ -748,7 +748,7 @@ def process(path: Path):
                                 continue
                         except (ValueError, TypeError):
                             continue
-                    if notify_implementer(reviewer, "continue"):
+                    if send_to_agent_queued(reviewer, "continue"):
                         woken.append(reviewer)
                     else:
                         failed.append(reviewer)
@@ -769,7 +769,7 @@ def process(path: Path):
             nudge_msg = "continue"
             if action.extend_notice:
                 nudge_msg += action.extend_notice
-            notify_implementer(notification["implementer"], nudge_msg)
+            send_to_agent_queued(notification["implementer"], nudge_msg)
             ts = _datetime.now(JST).strftime("%m/%d %H:%M")
             notify_discord(f"[{pj}] {action.nudge}: 実装担当を催促 ({ts})")
             return

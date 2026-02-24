@@ -129,10 +129,23 @@ IDLE → DESIGN_PLAN → DESIGN_REVIEW → DESIGN_APPROVED → IMPLEMENTATION
 4. Double-Checked Locking: ロック内で再判定 + 遷移
 5. ロック外で通知（Discord, エージェント送信）
 
+### 7.0 エージェント送信方法
+
+2つの送信経路を用途で使い分ける:
+
+| 関数 | 内部実装 | 改行 | run中のabort | 用途 |
+|---|---|---|---|---|
+| `send_to_agent()` | `openclaw agent` CLI | ✅保持 | ⚠️ abort | レビュー依頼、/new、遷移通知（エージェントがidle時に送る） |
+| `send_to_agent_queued()` | Gateway `chat.send` (collectキュー) | ❌消える | ✅safe | 催促 (`continue`) のみ |
+
+- `openclaw agent` CLIは実行中のrunをabortする。レビュー依頼等はエージェントがidle状態の時に送るため安全
+- Gateway `chat.send` はcollectキューに積まれ、run完了後にfollowup turnとして処理される。改行は消えるが催促は1単語なので問題ない
+- `gateway-send.js` が `chat.send` のNode.jsラッパー（OpenClawの `callGateway()` 内部APIを使用、device identity署名でスコープ取得）
+
 ### 7.1 催促
 
-- **実装担当**: 非アクティブ (181秒以上更新なし) の場合のみ `"continue"` を送信
-- **レビュアー**: 未完了レビュアーに `"continue"` を送信。送信失敗時は10分後にリトライ
+- **実装担当**: 非アクティブ (181秒以上更新なし) の場合のみ `"continue"` を `send_to_agent_queued()` で送信
+- **レビュアー**: 未完了レビュアーに `"continue"` を `send_to_agent_queued()` で送信。送信失敗時は10分後にリトライ
 - CC実行中 (`/proc/<pid>` 存在) はアクティブ扱い
 
 ### 7.2 CC自動起動 (IMPLEMENTATIONのみ)

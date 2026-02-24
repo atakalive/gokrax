@@ -499,8 +499,8 @@ def cmd_plan_done(args):
     print(f"{args.project}: design plan done ({done})")
 
 
-def cmd_revise(args):
-    """revised フラグを設定"""
+def cmd_design_revise(args):
+    """DESIGN_REVISE: design_revised フラグを設定"""
     path = get_path(args.project)
 
     if args.comment:
@@ -509,21 +509,39 @@ def cmd_revise(args):
         if not _post_gitlab_note(gitlab, args.issue, args.comment):
             sys.exit(1)
 
-    def do_revise(data):
-        state = data.get("state", "IDLE")
-        if state == "DESIGN_REVISE":
-            flag = "design_revised"
-        elif state == "CODE_REVISE":
-            flag = "code_revised"
-        else:
-            raise SystemExit(f"Not in revise state: {state}")
+    def do_design_revise(data):
+        if data.get("state") != "DESIGN_REVISE":
+            raise SystemExit(f"Not in DESIGN_REVISE state: {data.get('state')}")
         issue = find_issue(data.get("batch", []), args.issue)
         if not issue:
             raise SystemExit(f"Issue #{args.issue} not in batch")
-        issue[flag] = True
+        issue["design_revised"] = True
 
-    update_pipeline(path, do_revise)
-    print(f"{args.project}: #{args.issue} marked as revised")
+    update_pipeline(path, do_design_revise)
+    print(f"{args.project}: #{args.issue} design-revised")
+
+
+def cmd_code_revise(args):
+    """CODE_REVISE: commit 記録 + code_revised フラグを一発で設定"""
+    path = get_path(args.project)
+
+    if args.comment:
+        data = load_pipeline(path)
+        gitlab = data.get("gitlab", f"atakalive/{args.project}")
+        if not _post_gitlab_note(gitlab, args.issue, args.comment):
+            sys.exit(1)
+
+    def do_code_revise(data):
+        if data.get("state") != "CODE_REVISE":
+            raise SystemExit(f"Not in CODE_REVISE state: {data.get('state')}")
+        issue = find_issue(data.get("batch", []), args.issue)
+        if not issue:
+            raise SystemExit(f"Issue #{args.issue} not in batch")
+        issue["commit"] = args.hash
+        issue["code_revised"] = True
+
+    update_pipeline(path, do_code_revise)
+    print(f"{args.project}: #{args.issue} code-revised (commit={args.hash})")
 
 
 def cmd_review_mode(args):
@@ -650,10 +668,17 @@ def main():
     p.add_argument("--pj", "--project", dest="project", required=True)
     p.add_argument("--issue", type=int, nargs="+", required=True, help="Issue番号（複数指定可）")
 
-    # revise
-    p = sub.add_parser("revise", help="修正完了: レビュー指摘への修正が終わったことを記録")
+    # design-revise
+    p = sub.add_parser("design-revise", help="設計修正完了: DESIGN_REVISE状態でdesign_revisedフラグを設定")
     p.add_argument("--pj", "--project", dest="project", required=True)
     p.add_argument("--issue", type=int, required=True)
+    p.add_argument("--comment", default=None, help="GitLab issue noteに投稿するコメント（省略可）")
+
+    # code-revise
+    p = sub.add_parser("code-revise", help="コード修正完了: CODE_REVISE状態でcommit記録+code_revisedフラグを一発で設定")
+    p.add_argument("--pj", "--project", dest="project", required=True)
+    p.add_argument("--issue", type=int, required=True)
+    p.add_argument("--hash", required=True, help="gitコミットハッシュ")
     p.add_argument("--comment", default=None, help="GitLab issue noteに投稿するコメント（省略可）")
 
     # review-mode
@@ -678,7 +703,8 @@ def main():
         "triage": cmd_triage, "transition": cmd_transition,
         "review": cmd_review, "commit": cmd_commit,
         "cc-start": cmd_cc_start, "plan-done": cmd_plan_done,
-        "revise": cmd_revise, "review-mode": cmd_review_mode,
+        "design-revise": cmd_design_revise, "code-revise": cmd_code_revise,
+        "review-mode": cmd_review_mode,
         "merge-summary": cmd_merge_summary,
     }
     cmds[args.command](args)

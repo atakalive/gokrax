@@ -269,7 +269,7 @@ class TestDevbarCLIIntegration:
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
 
-        r = self._run("revise", "--project", "test-pj", "--issue", "10",
+        r = self._run("design-revise", "--project", "test-pj", "--issue", "10",
                        pipelines_dir=tmp_pipelines)
         assert r.returncode == 0
         with open(path) as f:

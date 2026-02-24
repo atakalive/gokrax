@@ -25,7 +25,7 @@ pipeline_io.py — JSON読み書き（排他ロック + atomic write）
 ### 3.1 実装担当 (Implementer) = 金子 (kaneko)
 
 - DESIGN_PLANフェーズでIssue本文を確認・修正し、`plan-done` を実行する
-- CODE_REVISEフェーズでP0指摘に基づきコードを手動修正し、`commit` + `revise` を実行する
+- CODE_REVISEフェーズでP0指摘に基づきコードを手動修正し、`code-revise` を実行する（commit記録 + revise完了を一発で）
 - IMPLEMENTATIONフェーズではCCが自動起動される（金子が手動でやるのではない）
 
 ### 3.2 レビュアー (Reviewers) = pascal, leibniz, hanfei, dijkstra
@@ -33,7 +33,7 @@ pipeline_io.py — JSON読み書き（排他ロック + atomic write）
 - DESIGN_REVIEWまたはCODE_REVIEWでレビュー依頼を受け取る
 - `devbar review` コマンドでverdict（APPROVE / P0 / P1）を投稿する
 - **自分が設計・実装したものを自分でレビューしてはならない**
-- レビュアーは実装担当ではない。レビュアーが `plan-done`, `commit`, `revise` を実行することはない
+- レビュアーは実装担当ではない。レビュアーが `plan-done`, `commit`, `design-revise`, `code-revise` を実行することはない
 
 ### 3.3 承認者 = M (人間)
 
@@ -71,11 +71,11 @@ IDLE → DESIGN_PLAN → DESIGN_REVIEW → DESIGN_APPROVED → IMPLEMENTATION
 | IDLE | - | 何もない | `devbar start` で DESIGN_PLAN へ |
 | DESIGN_PLAN | 実装担当 | Issue本文を確認・修正し `plan-done` | 全Issueに `design_ready` フラグ |
 | DESIGN_REVIEW | レビュアー | 設計レビュー、`devbar review` で投稿 | `min_reviews` 件集まる |
-| DESIGN_REVISE | 実装担当 | P0指摘に基づきIssue本文を修正、`revise` | 全対象Issueに `design_revised` フラグ |
+| DESIGN_REVISE | 実装担当 | P0指摘に基づきIssue本文を修正、`design-revise` | 全対象Issueに `design_revised` フラグ |
 | DESIGN_APPROVED | (自動通過) | 即座にIMPLEMENTATIONに遷移 | - |
 | IMPLEMENTATION | CC (自動) | CC自動起動 → Plan + Impl → `commit` | 全Issueに `commit` ハッシュ |
 | CODE_REVIEW | レビュアー | コードレビュー、`devbar review` で投稿 | `min_reviews` 件集まる |
-| CODE_REVISE | 実装担当 | P0指摘に基づきコード修正 → `commit` + `revise` | 全対象Issueに `code_revised` フラグ |
+| CODE_REVISE | 実装担当 | P0指摘に基づきコード修正 → `code-revise --hash` | 全対象Issueに `code_revised` フラグ |
 | CODE_APPROVED | (自動通過) | 即座にMERGE_SUMMARY_SENTに遷移 | - |
 | MERGE_SUMMARY_SENT | M (人間) | #dev-barのサマリーに「OK」リプライ | MのOKリプライ検出 |
 | DONE | (自動) | git push + issue close → IDLE | 自動遷移 |
@@ -207,6 +207,6 @@ IDLE → DESIGN_PLAN → DESIGN_REVIEW → DESIGN_APPROVED → IMPLEMENTATION
 
 1. **pipeline JSONの直接編集禁止。** 必ずdevbar CLIを使う
 2. **実装担当が自分の設計/実装をレビュー(APPROVE)してはならない**
-3. **レビュアーが `plan-done`, `commit`, `revise` を実行してはならない**（ロール違反）
+3. **レビュアーが `plan-done`, `commit`, `design-revise`, `code-revise` を実行してはならない**（ロール違反）
 4. **DESIGN_PLANでCCを手動起動してはならない。** Issue確認は実装担当の責務
 5. **watchdog無効時に手動で状態遷移する場合は `--force` フラグが必要**

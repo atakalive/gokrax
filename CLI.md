@@ -112,14 +112,23 @@ python3 devbar.py commit --pj BeamShifter --issue 17 18 19 --hash abc1234
 
 複数Issueを一つのコミットで解決した場合、全Issue番号を列挙する。
 
-### `revise` — 修正完了報告
+### `design-revise` — 設計修正完了報告
 
 ```bash
-python3 devbar.py revise --pj BeamShifter --issue 17
-python3 devbar.py revise --pj BeamShifter --issue 17 --comment "P0指摘のゼロ除算ガードを追加"
+python3 devbar.py design-revise --pj BeamShifter --issue 17
+python3 devbar.py design-revise --pj BeamShifter --issue 17 --comment "P0指摘のIssue本文修正完了"
 ```
 
-**DESIGN_REVISEまたはCODE_REVISE状態でのみ実行可能。**
+**DESIGN_REVISE状態でのみ実行可能。**
+
+### `code-revise` — コード修正完了報告
+
+```bash
+python3 devbar.py code-revise --pj BeamShifter --issue 17 --hash f8f7c30
+python3 devbar.py code-revise --pj BeamShifter --issue 17 --hash f8f7c30 --comment "P0指摘のゼロ除算ガードを追加"
+```
+
+**CODE_REVISE状態でのみ実行可能。`--hash` は必須。commit記録 + revise完了フラグを一発で設定する。**
 
 ### `extend` — タイムアウト延長
 

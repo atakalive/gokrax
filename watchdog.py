@@ -178,10 +178,17 @@ def _check_nudge(state: str, data: dict) -> TransitionAction | None:
     remaining = block_sec - elapsed
     if remaining < EXTEND_NOTICE_THRESHOLD and state in EXTENDABLE_STATES:
         project = data.get("project", "")
-        nudge.extend_notice = (
-            f"\n\n⏰ タイムアウトまで残り{int(remaining)}秒。延長が必要なら:\n"
-            f"python3 {DEVBAR_CLI} extend --project {project} --by 600"
-        )
+        extend_count = data.get("extend_count", 0)
+        max_extends = 2
+        if extend_count < max_extends:
+            nudge.extend_notice = (
+                f"\n\n⏰ タイムアウトまで残り{int(remaining)}秒（延長残り{max_extends - extend_count}回）。延長が必要なら:\n"
+                f"python3 {DEVBAR_CLI} extend --project {project} --by 600"
+            )
+        else:
+            nudge.extend_notice = (
+                f"\n\n⏰ タイムアウトまで残り{int(remaining)}秒。延長上限に達しています。"
+            )
 
     return nudge
 
@@ -667,6 +674,7 @@ def process(path: Path):
             data["batch"] = []
             data["enabled"] = False
             data.pop("timeout_extension", None)
+            data.pop("extend_count", None)
             # Reset REVISE cycle counters (Issue #29)
             data.pop("design_revise_count", None)
             data.pop("code_revise_count", None)

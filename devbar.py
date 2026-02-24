@@ -116,6 +116,8 @@ def cmd_extend(args):
 
     path = get_path(args.project)
 
+    MAX_EXTENDS = 2
+
     result = {}
     def do_extend(data):
         state = data.get("state", "IDLE")
@@ -124,10 +126,17 @@ def cmd_extend(args):
                 f"延長不可: 現在の状態 {state} は対象外です "
                 f"(対象: {', '.join(sorted(EXTENDABLE_STATES))})"
             )
+        extend_count = data.get("extend_count", 0)
+        if extend_count >= MAX_EXTENDS:
+            raise SystemExit(
+                f"延長不可: 延長回数上限({MAX_EXTENDS}回)に達しています"
+            )
         data["timeout_extension"] = data.get("timeout_extension", 0) + args.by
+        data["extend_count"] = extend_count + 1
         result["state"] = state
         result["implementer"] = data.get("implementer", "kaneko")
         result["total"] = data["timeout_extension"]
+        result["count"] = data["extend_count"]
 
     update_pipeline(path, do_extend)
 
@@ -135,7 +144,7 @@ def cmd_extend(args):
     ts = datetime.now(JST).strftime("%m/%d %H:%M")
     notify_discord(
         f"[{args.project}] {result['implementer']} がタイムアウトを{args.by}秒延長 "
-        f"({result['state']}, 累計+{result['total']}秒, {ts})"
+        f"({result['state']}, {result['count']}/{MAX_EXTENDS}回, 累計+{result['total']}秒, {ts})"
     )
 
     print(f"{args.project}: タイムアウト延長 +{args.by}秒 (累計+{result['total']}秒)")

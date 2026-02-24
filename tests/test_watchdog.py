@@ -616,9 +616,9 @@ class TestTimeoutExtension:
         from datetime import datetime, timedelta
         from config import JST
 
-        # DESIGN_PLANのデフォルト: 600秒、延長: +600秒 → 合計1200秒
-        # 1300秒経過 → BLOCKED
-        entered_at = datetime.now(JST) - timedelta(seconds=1300)
+        # DESIGN_PLANのデフォルト: 900秒、延長: +600秒 → 合計1500秒
+        # 1600秒経過 → BLOCKED
+        entered_at = datetime.now(JST) - timedelta(seconds=1600)
         data = {
             "state": "DESIGN_PLAN",
             "timeout_extension": 600,
@@ -636,9 +636,9 @@ class TestTimeoutExtension:
         from datetime import datetime, timedelta
         from config import JST
 
-        # DESIGN_PLAN: デフォルト600秒、猶予期間180秒
-        # 500秒経過 → 残り100秒 < 300秒 → extend_notice付与
-        entered_at = datetime.now(JST) - timedelta(seconds=500)
+        # DESIGN_PLAN: デフォルト900秒、猶予期間180秒
+        # 700秒経過 → 残り200秒 < 300秒 → extend_notice付与
+        entered_at = datetime.now(JST) - timedelta(seconds=700)
         data = {
             "project": "test-pj",
             "state": "DESIGN_PLAN",

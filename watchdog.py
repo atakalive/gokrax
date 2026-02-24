@@ -764,11 +764,12 @@ def process(path: Path):
         ts = _datetime.now(JST).strftime("%m/%d %H:%M")
         notify_discord(f"[{pj}] {notification['old_state']} → {action.new_state} ({ts})")
 
-        # 遷移後にバッチのIssue一覧を別メッセージで通知
-        batch = notification["batch"]
-        if batch:
-            issue_lines = [f"#{i['issue']}: {i.get('title', '')}" for i in batch]
-            notify_discord(f"[{pj}] 対象Issue:\n" + "\n".join(issue_lines))
+        # バッチ開始時のみIssue一覧を別メッセージで通知
+        if action.new_state in ("DESIGN_PLAN", "IMPLEMENTATION"):
+            batch = notification["batch"]
+            if batch:
+                issue_lines = [f"#{i['issue']}: {i.get('title', '')}" for i in batch]
+                notify_discord(f"[{pj}] 対象Issue:\n" + "\n".join(issue_lines))
 
         # MERGE_SUMMARY_SENT遷移時: #dev-bar にサマリーを投稿
         if action.send_merge_summary:

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """devbar-watchdog.py — LLM不要のパイプラインオーケストレーター
 
-cronで1分間隔実行。pipeline JSONを読んで条件満たしてたら状態遷移+アクター通知。
+loop.shで20秒間隔で実行。cronで1分間隔でloop.sh確認。pipeline JSONを読んで条件満たしてたら状態遷移+アクター通知。
 冪等。何回実行しても同じ結果。
 
 Double-Checked Locking パターン:
@@ -37,7 +37,7 @@ def _reset_reviewers(review_mode: str = "standard", implementer: str = ""):
     import time
     mode_config = REVIEW_MODES.get(review_mode, REVIEW_MODES["standard"])
     targets = set(mode_config["members"])
-    if implementer:
+    if implementer != "":
         targets.add(implementer)
     sent_impl = False
     for r in targets:
@@ -765,7 +765,7 @@ def process(path: Path):
                 nudge_msg += action.extend_notice
             notify_implementer(notification["implementer"], nudge_msg)
             ts = _datetime.now(JST).strftime("%m/%d %H:%M")
-            notify_discord(f"[{pj}] {action.nudge}: 実装担当に通知送信 ({ts})")
+            notify_discord(f"[{pj}] {action.nudge}: 実装担当を催促 ({ts})")
             return
 
         ts = _datetime.now(JST).strftime("%m/%d %H:%M")

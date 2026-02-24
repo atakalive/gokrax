@@ -328,7 +328,7 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
         pending_cmds.append(
             f"python3 {DEVBAR_CLI} review --project {project} --issue {num} "
             f"--reviewer {reviewer} --verdict <APPROVE|P0|P1> "
-            f"--summary $'レビュー本文'"
+            f"--summary $'レビュー本文\n2行目\n3行目..'"
         )
 
     todo_header = (
@@ -343,13 +343,14 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
             "レビュー観点:\n"
             "- 設計レビューで承認された仕様通りに実装されているか\n"
             "- バグ、エッジケース、型ヒントの欠落\n"
-            "- テストがあれば妥当性を確認"
+            "- テストがあれば妥当性を判定"
         )
     else:
         guidance = (
             "レビュー観点:\n"
+            "- 数理的精確さ\n"
             "- Issue本文の仕様が明確か、実装可能か\n"
-            "- エッジケースや矛盾がないか"
+            "- 矛盾やエッジケースがないか、対応が漏れていないか"
         )
 
     # --- 完了コマンド一覧（末尾） ---

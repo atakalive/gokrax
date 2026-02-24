@@ -1,379 +1,212 @@
-# DevBar: マルチエージェント開発パイプライン仕様書
+# DevBar — 開発パイプライン仕様書
 
-**Version:** 0.8
-**Author:** Asuka (second)
-**Date:** 2026-02-19
+> 現行コード（2026-02-24時点）に基づく正式仕様。金子さん含むエージェント全員はこの文書に従うこと。
 
-## 1. 背景と動機
+## 1. 概要
 
-### 1.1 現状の問題
+DevBarは **Issue → 設計 → 実装 → レビュー → マージ** のパイプラインを管理するCLI + watchdogシステム。LLMを使わない純粋なオーケストレーターで、pipeline JSONを状態マシンとして駆動する。
 
-2026-02-19のImageRestorationNN開発（Issue #30-#32）で以下の問題が顕在化した：
-
-1. **状態がエージェントの頭の中にしかない** — セッション障害（OAuth 401）やcompactionで文脈が消えると、作業状態が不明になる
-2. **直列実行のボトルネック** — 金子（kaneko）が1 Issueずつ直列処理。3 Issueで数時間
-3. **レビュー工程のスキップ** — 自動化の速度にプロセスが追いつかず、品質ゲートが飛ばされた
-4. **障害復旧に人手が必要** — OAuth失効で1時間以上停止。Mの介入なしに復旧できなかった
-
-### 1.2 目標
-
-- PJ単位の開発状態を永続ファイルで管理し、セッション障害に耐える
-- 状態遷移ルールにより品質ゲート（レビュー必須）を強制する
-- 複数PJの並列処理を可能にする
-- Mへの可視性を確保する（Discord通知、状態確認）
-
-## 2. 基本モデル
-
-### 2.1 PJごとに1つの状態
-
-DevBarの核心は **PJ（プロジェクト）ごとに1つの状態** を持つこと。
-
-1つのPJには複数のアクティブIssueが乗る。PJの状態遷移はバッチ単位で行われ、全Issueが現フェーズを完了してから次のフェーズに進む。
+## 2. アーキテクチャ
 
 ```
-ImageRestorationNN:
-  state: DESIGN_REVIEW
-  active_issues: [#32, #33, #34]
-  ← 全Issueのレビューが完了するまでこの状態に留まる
+devbar.py    — CLI。pipeline JSONの唯一の操作インターフェース
+watchdog.py  — cronで1分間隔実行。条件判定→状態遷移→通知
+notify.py    — エージェント通知 + Discord投稿
+config.py    — 定数の一元管理
+pipeline_io.py — JSON読み書き（排他ロック + atomic write）
 ```
 
-### 2.2 なぜIssueごとではないか
+- **pipeline JSON**: `~/.openclaw/shared/pipelines/<project>.json`
+- **watchdog cron**: `*/1 * * * *` でflock排他実行
+- **Discord通知先**: #dev-bar (kaneko-discord アカウントで投稿)
 
-- PJ単位なら状態管理がシンプル（1 PJ = 1状態）
-- 金子のポーリングは「各PJの状態を見る」だけ
-- 同一PJ内でIssueが異なるフェーズにいると、コンフリクトや管理の複雑さが爆発する
-- バッチ処理のほうがレビュー効率も良い（まとめて出す → まとめて返る）
+## 3. ロール定義
 
-## 3. 用語
+### 3.1 実装担当 (Implementer) = 金子 (kaneko)
 
-| 用語 | 定義 |
-|------|------|
-| PJ (Project) | GitLabリポジトリに対応する開発対象。状態を1つ持つ |
-| Batch | PJの現フェーズで処理対象となるIssueの集合 |
-| State | PJの現在の開発フェーズ |
-| Actor | 状態遷移を実行するエージェント（金子、Pascal等） |
-| Implementer | 設計・実装を担当するエージェント（現状は金子） |
-| Reviewer | レビューを担当するエージェント（Pascal、Leibniz、Dijkstra、韓非） |
+- DESIGN_PLANフェーズでIssue本文を確認・修正し、`plan-done` を実行する
+- CODE_REVISEフェーズでP0指摘に基づきコードを手動修正し、`commit` + `revise` を実行する
+- IMPLEMENTATIONフェーズではCCが自動起動される（金子が手動でやるのではない）
 
-## 4. 状態遷移モデル
+### 3.2 レビュアー (Reviewers) = pascal, leibniz, hanfei, dijkstra
 
-### 4.1 開発の入口
+- DESIGN_REVIEWまたはCODE_REVIEWでレビュー依頼を受け取る
+- `devbar review` コマンドでverdict（APPROVE / P0 / P1）を投稿する
+- **自分が設計・実装したものを自分でレビューしてはならない**
+- レビュアーは実装担当ではない。レビュアーが `plan-done`, `commit`, `revise` を実行することはない
 
-Issueの発生源は3種類あるが、パイプライン上は全て **TRIAGE** に入る。
+### 3.3 承認者 = M (人間)
 
-| 入口 | 内容 | 備考 |
-|------|------|------|
-| **M Issue** | Mが自然言語で希望を書く | Implementerがリライトしてからバッチへ |
-| **コードレビュー指摘** | 全体レビューで発見された問題 | MがImplementerにIssue起票を直接依頼 |
-| **新機能** | 大きめの機能追加 | Mが設計会議でspecを固めてからIssue化。パイプライン外で完了済み |
+- MERGE_SUMMARY_SENT で #dev-bar にサマリーが投稿される。Mが「OK」とリプライするとDONE→マージ
+- `devbar start` や `devbar transition --force` 等の制御コマンドを実行する
 
-Implementer自身がIssue起票する場合は、既に整理済みなのでTRIAGEを素通りしてバッチに入る。
+### 3.4 CC (Claude Code)
 
-### 4.2 状態一覧
+- IMPLEMENTATIONフェーズでwatchdogが自動起動する
+- Plan (model: sonnet) → Impl (model: sonnet) の2段階
+- CC完了後、自動で `devbar commit` を実行する
+- **CCはIMPLEMENTATIONでのみ使用。他のフェーズでは使わない**
 
-```
-TRIAGE                  Implementerが未整理Issueをリライト・バッチ投入判断
-IDLE                    アクティブバッチなし
-DESIGN_PLAN             バッチ内全Issueの設計をCC Planモードで作成中
-DESIGN_REVIEW           レビュアーに設計を送付、レビュー待ち
-DESIGN_REVISE           レビュー指摘（P0）を反映中
-DESIGN_APPROVED         設計レビュー通過（全Issue）
-IMPLEMENTATION          CC CLI bypassPermissionsで実装中
-CODE_REVIEW             レビュアーにコードを送付、レビュー待ち
-CODE_REVISE             コードレビュー指摘（P0）を反映中
-CODE_APPROVED           コードレビュー通過（全Issue）
-MERGE_SUMMARY_SENT      Mにマージサマリー送信済み
-DONE                    MがOK → マージ完了 → IDLEに戻る
-BLOCKED                 外部要因で進行不可
-```
-
-### 4.3 状態遷移図
+## 4. 状態マシン
 
 ```
-  [M / reviewer / implementer] Issue起票
-  │
-  ▼
-TRIAGE
-  │ [implementer] 必要ならリライト、バッチに投入
-  │ （自分で起票したIssueはそのままバッチへ）
-  ▼
-IDLE
-  │ [implementer] バッチにIssueを積む
-  ▼
-DESIGN_PLAN
-  │ [implementer] 全Issueの設計完了
-  ▼
-DESIGN_REVIEW
-  │ [reviewers] 全Issueのレビュー返却
-  ├─ P0あり → DESIGN_REVISE → DESIGN_REVIEW（ループ）
-  │
-  │ P0なし
-  ▼
-DESIGN_APPROVED
-  │ [implementer] 実装開始
-  ▼
-IMPLEMENTATION
-  │ [implementer] 全Issueの実装+テスト完了
-  ▼
-CODE_REVIEW
-  │ [reviewers] 全Issueのレビュー返却
-  ├─ P0あり → CODE_REVISE → CODE_REVIEW（ループ）
-  │
-  │ P0なし
-  ▼
-CODE_APPROVED
-  │ [implementer] Mにサマリー送信
-  ▼
-MERGE_SUMMARY_SENT
-  │ [M] OK指示
-  ▼
-DONE → IDLE
+IDLE → DESIGN_PLAN → DESIGN_REVIEW → DESIGN_APPROVED → IMPLEMENTATION
+                  ↑        ↓                                    ↓
+            DESIGN_REVISE ←┘                              CODE_REVIEW
+                                                       ↗        ↓
+                                                CODE_REVISE  CODE_APPROVED
+                                                                 ↓
+                                                       MERGE_SUMMARY_SENT
+                                                                 ↓
+                                                               DONE → IDLE
+
+※ どの状態からもBLOCKEDに遷移可能（タイムアウト / REVISEサイクル上限）
+※ BLOCKEDからはIDLEにのみ戻れる
 ```
 
-### 4.3 REVIEW → REVISE ループ
+### 4.1 各状態の詳細
 
-- REVIEW中にP0（必須修正）が1つでもあれば → REVISE
-- REVISEで修正完了 → 再度REVIEW
-- P0がなくなるまでループ
-- P1（改善提案）はAPPROVEと共存可。ループには入らない
+| 状態 | 責任者 | やること | 次の状態への条件 |
+|------|--------|----------|-----------------|
+| IDLE | - | 何もない | `devbar start` で DESIGN_PLAN へ |
+| DESIGN_PLAN | 実装担当 | Issue本文を確認・修正し `plan-done` | 全Issueに `design_ready` フラグ |
+| DESIGN_REVIEW | レビュアー | 設計レビュー、`devbar review` で投稿 | `min_reviews` 件集まる |
+| DESIGN_REVISE | 実装担当 | P0指摘に基づきIssue本文を修正、`revise` | 全対象Issueに `design_revised` フラグ |
+| DESIGN_APPROVED | (自動通過) | 即座にIMPLEMENTATIONに遷移 | - |
+| IMPLEMENTATION | CC (自動) | CC自動起動 → Plan + Impl → `commit` | 全Issueに `commit` ハッシュ |
+| CODE_REVIEW | レビュアー | コードレビュー、`devbar review` で投稿 | `min_reviews` 件集まる |
+| CODE_REVISE | 実装担当 | P0指摘に基づきコード修正 → `commit` + `revise` | 全対象Issueに `code_revised` フラグ |
+| CODE_APPROVED | (自動通過) | 即座にMERGE_SUMMARY_SENTに遷移 | - |
+| MERGE_SUMMARY_SENT | M (人間) | #dev-barのサマリーに「OK」リプライ | MのOKリプライ検出 |
+| DONE | (自動) | git push + issue close → IDLE | 自動遷移 |
+| BLOCKED | M (人間) | 手動復旧が必要 | `transition --force --to IDLE` |
 
-### 4.4 レビュー完了条件
+### 4.2 自動通過状態
 
-- **設計レビュー**: バッチ内全Issueについて3件以上のレビューコメント、P0なし
-- **コードレビュー**: 同上
-- レビュアーの選出はしない。全レビュアーに投げ、最低コメント数で判定する
+- **DESIGN_APPROVED**: watchdogが検出次第、即座にIMPLEMENTATIONに遷移。CC自動起動。
+- **CODE_APPROVED**: watchdogが検出次第、即座にMERGE_SUMMARY_SENTに遷移。サマリー自動投稿。
+- **DONE**: git push + issue close → IDLE
 
-## 5. データモデル
+### 4.3 REVISEループ
 
-### 5.1 パイプライン状態ファイル
+- P0/REJECTが含まれる場合、REVIEW → REVISEに遷移
+- REVISE完了後、P0/REJECTを出したレビュアーのレビューのみクリアされる（APPROVE/P1は保持）
+- 再レビュー時、既にAPPROVE/P1済みのIssue×レビュアーの組はスキップ
+- **最大2サイクル** (`MAX_REVISE_CYCLES=2`)。超過するとBLOCKED
 
-PJごとに1ファイル。
+## 5. レビューモード
+
+プロジェクトごとに設定。使用するレビュアーの数を制御。
+
+| モード | レビュアー | 最低レビュー数 |
+|--------|-----------|---------------|
+| full | pascal, leibniz, hanfei, dijkstra | 3 |
+| standard | pascal, leibniz, hanfei | 2 |
+| lite | pascal, leibniz | 2 |
+| skip | (なし) | 0 (自動承認) |
+
+## 6. タイムアウト
+
+| 状態 | 制限時間 | 延長可能 |
+|------|---------|---------|
+| DESIGN_PLAN | 15分 | ✅ (最大2回) |
+| DESIGN_REVIEW | 30分 | ❌ |
+| DESIGN_REVISE | 20分 | ✅ (最大2回) |
+| IMPLEMENTATION | 30分 | ✅ (最大2回) |
+| CODE_REVIEW | 30分 | ❌ |
+| CODE_REVISE | 20分 | ✅ (最大2回) |
+
+- 遷移直後 **180秒** は催促しない (NUDGE_GRACE_SEC)
+- 残り **300秒** 未満で延長案内を催促に付加
+- 延長は `devbar extend --pj <PJ> --by 600` (デフォルト600秒)
+- 延長回数はフェーズごと、DONE時にリセット
+
+## 7. watchdog動作
+
+1. `PIPELINES_DIR` の全 `*.json` をスキャン
+2. `enabled=false` ならスキップ
+3. `check_transition()` で次のアクションを判定（純粋関数、副作用なし）
+4. Double-Checked Locking: ロック内で再判定 + 遷移
+5. ロック外で通知（Discord, エージェント送信）
+
+### 7.1 催促
+
+- **実装担当**: 非アクティブ (181秒以上更新なし) の場合のみ `"continue"` を送信
+- **レビュアー**: 未完了レビュアーに `"continue"` を送信。送信失敗時は10分後にリトライ
+- CC実行中 (`/proc/<pid>` 存在) はアクティブ扱い
+
+### 7.2 CC自動起動 (IMPLEMENTATIONのみ)
+
+- DESIGN_APPROVED → IMPLEMENTATION遷移時に `run_cc=True` → `_start_cc()` で非同期起動
+- CCが死んだ場合 (`_is_cc_running()=False`): watchdogの次サイクルで再起動
+- **DESIGN_PLANではCC自動起動しない。** 実装担当が手動でIssue確認→`plan-done`する
+
+### 7.3 /new 送信タイミング
+
+- **DESIGN_PLAN遷移時**: レビュアー全員にセッションリセット (`/new`) を送信
+- **IMPLEMENTATION遷移時**: 同上 + 実装担当もリセット（PJ変更時のみ）
+- **REVISE→REVIEW遷移時**: `/new`は送信しない（コンテキスト維持）
+
+### 7.4 Discord通知
+
+- 全状態遷移を `#dev-bar` に投稿 (形式: `[PJ] OLD → NEW (timestamp)`)
+- DESIGN_PLAN開始時のみIssue一覧を別メッセージで投稿
+- CC進捗: 📋 Plan開始 → ✅ Plan完了 → 🔨 Impl開始 → ✅ Impl完了
+- マージサマリー: 全Issue×全レビュアーの判定を一覧投稿
+
+## 8. pipeline JSON構造
 
 ```json
 {
-  "project": "ImageRestorationNN",
-  "gitlab": "atakalive/ImageRestorationNN",
-  "state": "CODE_REVIEW",
+  "project": "BeamShifter",
+  "gitlab": "atakalive/BeamShifter",
+  "repo_path": "/mnt/s/wsl/work/project/BeamShifter",
+  "state": "IDLE",
+  "enabled": false,
   "implementer": "kaneko",
-  "updated_at": "2026-02-19T19:15:00+09:00",
+  "review_mode": "standard",
   "batch": [
     {
-      "issue": 32,
-      "title": "チェックポイント選択時の自動描画廃止",
-      "commit": "1dbbade",
-      "cc_session_id": "050b780f-...",
-      "design_reviews": {
-        "pascal": {"verdict": "APPROVE", "at": "2026-02-19T18:30:00+09:00"},
-        "leibniz": {"verdict": "APPROVE", "at": "2026-02-19T18:32:00+09:00"}
-      },
-      "code_reviews": {
-        "pascal": {"verdict": "APPROVE", "at": "2026-02-19T19:31:00+09:00"},
-        "leibniz": {"verdict": "PASS_P1", "summary": "stale overlay提案", "at": "2026-02-19T19:31:00+09:00"}
-      }
-    },
-    {
-      "issue": 33,
-      "title": "...",
+      "issue": 17,
+      "title": "Issue title",
       "commit": null,
-      "design_reviews": {},
-      "code_reviews": {}
+      "cc_session_id": null,
+      "design_ready": false,
+      "design_reviews": {
+        "pascal": {"verdict": "APPROVE", "at": "...", "summary": "..."},
+        "leibniz": {"verdict": "P0", "at": "...", "summary": "..."}
+      },
+      "code_reviews": {},
+      "design_revised": false,
+      "code_revised": false,
+      "added_at": "..."
     }
   ],
-  "history": [
-    {"from": "IDLE", "to": "DESIGN_PLAN", "at": "2026-02-19T18:00:00+09:00", "actor": "kaneko"},
-    {"from": "DESIGN_PLAN", "to": "DESIGN_REVIEW", "at": "2026-02-19T18:20:00+09:00", "actor": "kaneko"}
-  ]
+  "history": [{"from": "IDLE", "to": "DESIGN_PLAN", "at": "...", "actor": "cli"}],
+  "cc_pid": null,
+  "cc_session_id": null,
+  "timeout_extension": 0,
+  "extend_count": 0,
+  "design_revise_count": 0,
+  "code_revise_count": 0,
+  "summary_message_id": null,
+  "_last_impl_project": "BeamShifter"
 }
 ```
 
-### 5.2 ファイル配置
+## 9. verdict定義
 
-```
-/home/ataka/.openclaw/shared/pipelines/
-  ImageRestorationNN.json
-  PaperScreening.json
-  TrajOpt.json
-```
+| Verdict | 意味 | 効果 |
+|---------|------|------|
+| APPROVE | 承認 | カウント対象。再レビュー時スキップ |
+| P0 | 必須修正（ブロッカー） | REVISE遷移トリガー。クリア対象 |
+| P1 | 軽微な指摘（ブロックしない） | APPROVE同等扱い。再レビュー時スキップ |
+| REJECT | 却下 | P0と同等 |
 
-shared/ 以下で全エージェントからアクセス可能。
+## 10. 禁止事項
 
-## 6. アクターの役割
-
-### 6.1 Watchdog（Pythonスクリプト、LLM不要）
-
-パイプラインオーケストレーター。cronで1分間隔実行。`watchdog.py` 参照。
-
-- pipeline JSONを巡回し、条件を満たした状態遷移を自動実行
-- 遷移時にアクター（金子等）を `openclaw session send` で通知
-- 冪等。何回実行しても同じ結果。LLMトークン消費ゼロ
-
-| 検知する遷移 | 条件 | アクション |
-|-------------|------|-----------|
-| TRIAGE: 未処理Issueあり | GitLabにopen Issue & バッチ未投入 | Implementerに通知 |
-| DESIGN_REVIEW 開始時 | 状態遷移直後 | 全レビュアーにsessions_sendで設計レビュー依頼 |
-| DESIGN_REVIEW → DESIGN_APPROVED | 全Issue 3件以上レビュー、P0なし | Implementerに通知 |
-| DESIGN_REVIEW → DESIGN_REVISE | 3件以上レビュー、P0あり | Implementerに通知 |
-| DESIGN_REVISE → DESIGN_REVIEW | 全Issue revised フラグ | 全レビュアーに再レビュー依頼 |
-| IMPLEMENTATION → CODE_REVIEW | 全Issue commit あり | 全レビュアーにコードレビュー依頼 |
-| CODE_REVIEW → CODE_APPROVED | 全Issue 3件以上レビュー、P0なし | Implementerに通知 |
-| CODE_REVIEW → CODE_REVISE | 3件以上レビュー、P0あり | Implementerに通知 |
-| CODE_REVISE → CODE_REVIEW | 全Issue revised フラグ | 全レビュアーに再レビュー依頼 |
-| DONE → IDLE | — | バッチクリア |
-
-### 6.2 Implementer（金子 / kaneko）
-
-watchdogから通知を受けて作業する。能動的なポーリングは不要。
-pipeline JSONの操作は **devbar CLI** 経由で行う（直接JSON編集禁止）。
-
-| PJ状態 | アクション |
-|--------|-----------|
-| TRIAGE | 未整理Issueをリライト。バッチに投入 |
-| IDLE | バッチにIssueを積み、DESIGN_PLANに遷移 |
-| DESIGN_PLAN | 各IssueをCC Planモードで設計。全Issue完了 → DESIGN_REVIEW に遷移 |
-| DESIGN_REVISE | P0指摘を反映。revised フラグを立てる |
-| DESIGN_APPROVED | IMPLEMENTATION に遷移 |
-| IMPLEMENTATION | 各IssueをCC bypassPermissionsで実装+テスト。commit を記録 |
-| CODE_REVISE | P0指摘を反映。revised フラグを立てる |
-| CODE_APPROVED | Mにサマリー送信 → MERGE_SUMMARY_SENT |
-
-### 6.3 Reviewers（Pascal / Leibniz / Dijkstra / 韓非）
-
-- DESIGN_REVIEW / CODE_REVIEW 中にwatchdog経由でsessions_sendの依頼を受け取る
-- verdict（APPROVE / P0 / P1）を **devbar CLI** 経由でpipeline JSONに書き込み
-- glab issue note でIssueコメントにも記録
-
-### 6.4 M（人間）
-
-- MERGE_SUMMARY_SENT → DONE: OK指示
-- バッチに積むIssueの指定
-- 任意の介入（BLOCKED設定、優先度変更）
-
-## 7. watchdog運用
-
-### 7.1 実行方法
-
-```
-* * * * * python3 /mnt/s/wsl/work/project/devbar/watchdog.py
-```
-
-cron自体は常時動くが、PJごとに `enabled` フラグで制御する。
-
-### 7.2 PJの開始と停止
-
-- **開始**: MがAsuka等に「PJ XXのwatchdog開始して」と依頼 → `devbar enable --project PJ`
-- **自動停止**: DONE → IDLE 遷移時にwatchdogが自動で `enabled: false` にする
-- **手動停止**: `devbar disable --project PJ`
-- watchdogは `enabled: true` のPJだけ処理する
-
-### 7.3 特性
-
-- **LLM不要**: if文のみ。トークン消費ゼロ
-- **冪等**: 条件満たさなければ何もしない
-- **flock排他**: pipeline JSONの読み書きは排他ロック
-- **ログ**: `/tmp/devbar-watchdog.log` に遷移記録
-- **全PJ無効時**: 何もせず即終了
-
-## 8. 障害耐性
-
-| 障害 | 復旧 |
-|------|------|
-| セッション切れ | pipeline JSON読み直しで即復旧 |
-| Compaction | 外部ファイルなので影響なし |
-| OAuth失効 | 復旧後にpipeline JSON読むだけ |
-| CC CLI中断 | cc_session_idで `--resume` 可能 |
-
-## 9. Discord通知
-
-状態遷移時に `#dev-bar` チャンネル（金子botアカウントで投稿）に通知：
-
-```
-[ImageRestorationNN] DESIGN_REVIEW → DESIGN_APPROVED
-  Issues: #32, #33, #34
-  Reviews: Pascal ✅, Leibniz ✅ (P1: 2件)
-```
-
-```
-[ImageRestorationNN] CODE_REVIEW → CODE_REVISE
-  Issues: #32 (P0: Leibniz — 非原子的書込)
-```
-
-## 10. 実装方針
-
-### 10.1 Phase 1（MVP）
-
-- **config.py**: 全定数の一元管理（パス、チャンネルID、状態遷移ルール、エージェント定義）
-- **devbar CLI**（devbar.py）: pipeline JSON操作の唯一のインターフェース
-  - `devbar status` — 全PJ状態表示
-  - `devbar init --project PJ` — 新PJのpipeline JSON初期化
-  - `devbar enable/disable --project PJ` — watchdog有効/無効化
-  - `devbar triage --project PJ --issue N [--title T]` — Issueをバッチに投入（IDLE/TRIAGE状態のみ）
-  - `devbar transition --project PJ --to STATE` — 状態遷移（バリデーション付き）
-  - `devbar plan-done --project PJ --issue N [N2 N3...]` — 設計完了フラグ（複数指定可）
-  - `devbar commit --project PJ --issue N [N2...] --hash H` — commit記録（複数指定可）
-  - `devbar review --project PJ --issue N --reviewer ID --verdict V --summary S` — レビュー結果記録 + GitLab Issue note自動投稿
-  - `devbar revise --project PJ --issue N` — revised フラグ設定
-- **notify.py**: エージェント通知（sessions_send）+ Discord投稿。レビュー依頼はレビュアーごとにコピペ用コマンドを埋め込んで送信
-- **watchdog.py**（cron 1分間隔）: 状態遷移の自動検知・実行
-- 状態遷移バリデーション（不正な遷移を拒否）
-- flock排他制御
-
-### 10.2 Phase 2
-
-- レビュアーの自発的ポーリング
-- Discord通知チャンネル
-- 複数Implementer対応
-- 簡易Webダッシュボード
-
-### 10.3 Phase 3
-
-- GitLab API連携（Issue自動取得）
-- 優先度キュー
-- SLA監視（滞留アラート）
-
-## 11. 制約と前提
-
-- **flock必須**: pipeline JSONへの書き込みは `fcntl.flock(LOCK_EX)` で排他
-- **GitLab Issueが正**: pipeline JSONはワークフロー状態。Issue本体はGitLabに残る
-- **devbar review 一本化**: `devbar review` がpipeline JSON書き込み + `glab issue note` 自動投稿を一括実行。レビュアーはdevbar reviewだけ叩けばよい
-- **Mの承認なしにマージしない**: MERGE_SUMMARY_SENT → DONE はM専用
-- **CC Plan必須**: DESIGN_PLANをスキップしない
-- **PJごとに1状態**: 同一PJ内のIssueは同じフェーズを一緒に進む
-- **テスト失敗はレビューで検知**: テストはIMPLEMENTATIONでCCが書く+通す。レビューで不足指摘 → CODE_REVISE で修正
-- **pipeline JSON直接編集禁止**: 全操作はdevbar CLI経由
-
-## 12. 決定事項（2026-02-19）
-
-- **バッチサイズ上限: 5** — CC CLIで同時に扱える現実的な上限
-- **レビュアー選出: しない** — 全レビュアーに投げる。最低コメント数（現状3）で遷移判定
-- **レビュー依頼: watchdogが自動送信** — 状態がREVIEWに遷移したら全レビュアーにsessions_send
-- **TRIAGE発火: watchdogが金子を起こす** — 未処理Issueを検知したらImplementerに通知
-- **コードレビュー起点のIssue**: Mが金子に直接依頼してIssue起票させる（パイプライン外）
-- **Mへのサマリー: フォーマット自由** — 金子がまとめてDiscordに送る
-- **テスト失敗: CODE_REVISEで対応** — 独立した状態は持たない
-- **pipeline JSON操作: devbar CLI経由** — 直接編集禁止
-- **軽微Issue簡略化: 後日検討**
-- **BLOCKED → IDLE で復帰**
-- **devbar自体の開発: 現状の枠組み（金子 + CC + レビュアー）で進める**
-- **devbar review一本化**: pipeline JSON + glab issue noteを一括実行。レビュアーは1コマンドで完結
-- **定数はconfig.pyに一元管理**: パス、チャンネルID、状態遷移ルール、エージェント定義
-- **Discord通知は金子botアカウント** (#dev-bar)
-- **plan-done/commitは複数Issue指定可**: CCでまとめて回した場合に一括マーク
-- **triageはIDLE/TRIAGE状態でのみ可能**: 進行中のバッチにIssueを追加できない
-
-## 13. 決定・解決済み（2026-02-20追記）
-
-- [x] **pipeline JSON**: shared/直置き。ワークフロー状態であり成果物ではないためGit管理不要
-- [x] **BLOCKED → 復帰**: `BLOCKED → IDLE` で実装済み
-- [x] **devbar review一本化**: pipeline JSON + glab issue noteを一括実行。二重作業排除
-- [x] **設計完了検知**: `devbar plan-done` で design_ready フラグ → watchdogが全Issue完了でDESIGN_REVIEWに自動遷移
-- [x] **定数管理**: config.py に一元化
-- [x] **Discord投稿**: 金子botアカウントで #dev-bar に投稿
-- [x] **レビュー依頼フォーマット**: レビュアーごとにコピペ用devbar reviewコマンドを埋め込んで送信
-- [x] **複数Issue一括操作**: plan-done, commit で `--issue N1 N2 N3` 複数指定可
-
-## 14. 未決事項
-
-- [ ] Implementer不在検知: 一定時間状態滞留 → リトライ通知 → 3連続失敗 → BLOCKED + Discord通知
-- [ ] レビュー応答タイムアウト: 3分×NumIssues超過で催促通知
-- [ ] 軽微Issue簡略パイプライン: 後日検討
-- [ ] バッチからのIssue除外コマンド: 後日検討
+1. **pipeline JSONの直接編集禁止。** 必ずdevbar CLIを使う
+2. **実装担当が自分の設計/実装をレビュー(APPROVE)してはならない**
+3. **レビュアーが `plan-done`, `commit`, `revise` を実行してはならない**（ロール違反）
+4. **DESIGN_PLANでCCを手動起動してはならない。** Issue確認は実装担当の責務
+5. **watchdog無効時に手動で状態遷移する場合は `--force` フラグが必要**

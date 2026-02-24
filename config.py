@@ -150,6 +150,9 @@ SESSIONS_BASE = Path.home() / ".openclaw/agents"
 # Discord: MのユーザーID（マージサマリー承認者）
 M_DISCORD_USER_ID = "1469758184456589550"
 
+# Discord: kaneko-discord bot のユーザーID（自己投稿除外用）
+BOT_USER_ID = "1313244623396913212"
+
 # マージサマリーのフッター
 MERGE_SUMMARY_FOOTER = "\n---\n✅ このメッセージに「OK」とリプライすると、マージが実行されます。"
 

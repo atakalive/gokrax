@@ -105,16 +105,32 @@ from notify import notify_implementer, notify_reviewers, notify_discord, send_to
 
 # === Commands ===
 
-def cmd_status(args):
-    """全PJの状態を表示"""
+def get_status_text(enabled_only: bool = False) -> str:
+    """全PJの状態を文字列として取得。
+
+    Args:
+        enabled_only: True の場合、enabled=True のプロジェクトのみ含める
+
+    Returns:
+        Status text string. "No active pipelines." if no matching pipelines.
+    """
+    import io
+    output = io.StringIO()
+
     PIPELINES_DIR.mkdir(parents=True, exist_ok=True)
     files = sorted(PIPELINES_DIR.glob("*.json"))
-    if not files:
-        print("No pipelines found.")
-        return
 
+    # Filter by enabled if requested
+    matching_files = []
     for path in files:
         data = load_pipeline(path)
+        if not enabled_only or data.get("enabled", False):
+            matching_files.append((path, data))
+
+    if not matching_files:
+        return "No active pipelines."
+
+    for path, data in matching_files:
         pj = data.get("project", path.stem)
         state = data.get("state", "IDLE")
         enabled = "ON" if data.get("enabled") else "OFF"
@@ -123,9 +139,9 @@ def cmd_status(args):
         issues = ", ".join(f"#{i['issue']}" for i in batch) if batch else "none"
         mode_config = REVIEW_MODES.get(review_mode, REVIEW_MODES["standard"])
         reviewers_str = ", ".join(f'"{r}"' for r in mode_config["members"])
-        print(f"[{enabled}] {pj}: {state}  issues=[{issues}]  ReviewerSize={review_mode}  Reviewers=[{reviewers_str}]")
+        output.write(f"[{enabled}] {pj}: {state}  issues=[{issues}]  ReviewerSize={review_mode}  Reviewers=[{reviewers_str}]\n")
 
-        # Show per-issue review progress for review states
+        # Show per-issue review progress
         if state in ("DESIGN_REVIEW", "CODE_REVIEW") and batch:
             review_key = "design_reviews" if state == "DESIGN_REVIEW" else "code_reviews"
             min_rev = mode_config["min_reviews"]
@@ -138,7 +154,14 @@ def cmd_status(args):
                     verdicts[v] = verdicts.get(v, 0) + 1
                 verdict_parts = ", ".join(f"{c} {v}" for v, c in sorted(verdicts.items()))
                 verdict_str = f" ({verdict_parts})" if verdict_parts else ""
-                print(f"  #{item['issue']}: {done}/{min_rev} reviews{verdict_str}")
+                output.write(f"  #{item['issue']}: {done}/{min_rev} reviews{verdict_str}\n")
+
+    return output.getvalue().rstrip()
+
+
+def cmd_status(args):
+    """全PJの状態を表示"""
+    print(get_status_text(enabled_only=False))
 
 
 def cmd_init(args):

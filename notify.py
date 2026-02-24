@@ -222,6 +222,35 @@ def notify_discord(message: str):
     post_discord(DISCORD_CHANNEL, message)
 
 
+def fetch_discord_latest(channel_id: str, limit: int = 10) -> list[dict]:
+    """チャンネルの最新メッセージをlimit件取得（新しい順）。
+
+    Args:
+        channel_id: Discord channel ID
+        limit: 取得件数 (default: 10, max: 100)
+
+    Returns:
+        list of message objects (newest first), or [] on error
+    """
+    token = get_bot_token()
+    if not token:
+        return []
+    try:
+        resp = requests.get(
+            f"https://discord.com/api/v10/channels/{channel_id}/messages",
+            headers={"Authorization": f"Bot {token}"},
+            params={"limit": limit},
+            timeout=DISCORD_POST_TIMEOUT,
+        )
+        if resp.status_code == 200:
+            return resp.json()
+        logger.warning("Discord fetch failed (status=%d)", resp.status_code)
+        return []
+    except requests.RequestException as e:
+        logger.warning("Discord fetch error: %s", e)
+        return []
+
+
 def fetch_discord_replies(channel_id: str, after_message_id: str) -> list[dict]:
     """指定メッセージ以降の全メッセージを取得。"""
     token = get_bot_token()

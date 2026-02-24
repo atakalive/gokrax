@@ -183,7 +183,10 @@ _VERDICT_EMOJI = {"APPROVE": "🟢", "P0": "🔴", "P1": "🟡"}
 
 
 def _format_merge_summary(project: str, batch: list) -> str:
-    """#dev-bar 投稿用マージサマリーを生成する。Discord 2000文字制限に収める。"""
+    """#dev-bar 投稿用マージサマリーを生成する。
+
+    2000文字超は post_discord が自動分割するので、ここでは切り詰めない。
+    """
     from config import MERGE_SUMMARY_FOOTER
     lines = [f"**[{project}] マージサマリー**\n"]
     for item in batch:
@@ -191,24 +194,21 @@ def _format_merge_summary(project: str, batch: list) -> str:
         title = item.get("title", "")
         commit = item.get("commit", "?")
         lines.append(f"**#{num}: {title}** (`{commit}`)")
-        # コードレビュー結果を1行にまとめる
+        # コードレビュー結果を表示（なければ設計レビュー）
         reviews = item.get("code_reviews") or item.get("design_reviews") or {}
-        parts = []
         for reviewer, rev in reviews.items():
             verdict = rev.get("verdict", "?")
             emoji = _VERDICT_EMOJI.get(verdict, "⚪")
-            parts.append(f"{emoji}{reviewer}:{verdict}")
-        if parts:
-            lines.append("  " + " / ".join(parts))
+            summary = rev.get("summary", "")
+            # summary の1行目だけ使う（長いレビューは切る）
+            first_line = summary.split("\n")[0][:120] if summary else ""
+            if first_line:
+                lines.append(f"  {emoji} **{reviewer}**: {verdict} — {first_line}")
+            else:
+                lines.append(f"  {emoji} **{reviewer}**: {verdict}")
         lines.append("")  # 空行で区切り
     lines.append(MERGE_SUMMARY_FOOTER)
-    result = "\n".join(lines)
-    # 2000文字制限ガード: 超過時はフッターだけ残して切り詰め
-    if len(result) > 2000:
-        footer = "\n" + MERGE_SUMMARY_FOOTER
-        max_body = 2000 - len(footer) - 4  # "…\n" 分
-        result = result[:max_body] + "…\n" + MERGE_SUMMARY_FOOTER
-    return result
+    return "\n".join(lines)
 
 
 def get_notification_for_state(

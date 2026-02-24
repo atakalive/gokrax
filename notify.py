@@ -73,27 +73,51 @@ def get_bot_token() -> str | None:
 
 
 def post_discord(channel_id: str, content: str) -> str | None:
-    """Discord APIでメッセージ投稿。成功時はmessage_id、失敗時はNone。"""
+    """Discord APIでメッセージ投稿。2000文字超は自動分割。成功時は最後のmessage_id、失敗時はNone。"""
     if config.DRY_RUN:
         logger.info("[dry-run] post_discord skipped (channel=%s)", channel_id)
         return None
     token = get_bot_token()
     if not token:
         return None
-    try:
-        resp = requests.post(
-            f"https://discord.com/api/v10/channels/{channel_id}/messages",
-            headers={"Authorization": f"Bot {token}", "Content-Type": "application/json"},
-            json={"content": content},
-            timeout=DISCORD_POST_TIMEOUT,
-        )
-        if resp.status_code in (200, 201):
-            return resp.json().get("id")
-        logger.warning("Discord post failed (status=%d): %s", resp.status_code, resp.text[:200])
-        return None
-    except requests.RequestException as e:
-        logger.warning("Discord post error: %s", e)
-        return None
+
+    chunks = _split_message(content, 2000)
+    last_id = None
+    for chunk in chunks:
+        try:
+            resp = requests.post(
+                f"https://discord.com/api/v10/channels/{channel_id}/messages",
+                headers={"Authorization": f"Bot {token}", "Content-Type": "application/json"},
+                json={"content": chunk},
+                timeout=DISCORD_POST_TIMEOUT,
+            )
+            if resp.status_code in (200, 201):
+                last_id = resp.json().get("id")
+            else:
+                logger.warning("Discord post failed (status=%d): %s", resp.status_code, resp.text[:200])
+                return None
+        except requests.RequestException as e:
+            logger.warning("Discord post error: %s", e)
+            return None
+    return last_id
+
+
+def _split_message(text: str, limit: int = 2000) -> list[str]:
+    """テキストを改行境界で limit 文字以下に分割する。"""
+    if len(text) <= limit:
+        return [text]
+    chunks = []
+    while text:
+        if len(text) <= limit:
+            chunks.append(text)
+            break
+        # 改行で切れる位置を探す
+        cut = text.rfind("\n", 0, limit)
+        if cut <= 0:
+            cut = limit  # 改行がなければ強制切断
+        chunks.append(text[:cut])
+        text = text[cut:].lstrip("\n")
+    return chunks
 
 
 def fetch_issue_body(issue_num: int, gitlab: str) -> str | None:

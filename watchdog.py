@@ -771,13 +771,20 @@ def process(path: Path):
                 issue_lines = [f"#{i['issue']}: {i.get('title', '')}" for i in batch]
                 notify_discord(f"[{pj}] 対象Issue:\n" + "\n".join(issue_lines))
 
-        # MERGE_SUMMARY_SENT遷移時: #dev-bar にサマリーを投稿
+        # MERGE_SUMMARY_SENT遷移時: #dev-bar にサマリーを投稿（リトライ付き）
         if action.send_merge_summary:
-            from config import MERGE_SUMMARY_FOOTER, DISCORD_CHANNEL
+            import time as _time
+            from config import DISCORD_CHANNEL
             from notify import post_discord
             batch = notification["batch"]
             content = _format_merge_summary(pj, batch)
-            message_id = post_discord(DISCORD_CHANNEL, content)
+            message_id = None
+            for attempt in range(3):
+                message_id = post_discord(DISCORD_CHANNEL, content)
+                if message_id:
+                    break
+                log(f"[{pj}] merge summary post attempt {attempt + 1}/3 failed, retrying...")
+                _time.sleep(2)
             if message_id:
                 # summary_message_id をパイプラインに保存
                 path = get_path(pj)
@@ -786,7 +793,13 @@ def process(path: Path):
                 update_pipeline(path, _save_summary_id)
                 log(f"[{pj}] merge summary posted (message_id={message_id})")
             else:
-                log(f"[{pj}] WARNING: merge summary post failed")
+                # 全リトライ失敗: 遷移をロールバックして次サイクルで再試行
+                log(f"[{pj}] WARNING: merge summary post failed after 3 attempts, rolling back state")
+                path = get_path(pj)
+                old_state = notification["old_state"]
+                def _rollback(data, restore=old_state):
+                    data["state"] = restore
+                update_pipeline(path, _rollback)
 
         # DONE遷移時: git push + issue close を自動実行
         if action.new_state == "DONE":

@@ -767,6 +767,22 @@ def process(path: Path):
         ts = _datetime.now(JST).strftime("%m/%d %H:%M")
         notify_discord(f"[{pj}] {notification['old_state']} → {action.new_state} ({ts})")
 
+        # REVISE遷移時: P0サマリーを投稿
+        if action.new_state in ("DESIGN_REVISE", "CODE_REVISE"):
+            review_key = "design_reviews" if "DESIGN" in action.new_state else "code_reviews"
+            batch = notification["batch"]
+            lines = []
+            for item in batch:
+                reviews = item.get(review_key, {})
+                p0_reviewers = [
+                    r for r, rev in reviews.items()
+                    if rev.get("verdict", "").upper() in ("P0", "REJECT")
+                ]
+                if p0_reviewers:
+                    lines.append(f"#{item['issue']}: {len(p0_reviewers)} P0 ({', '.join(p0_reviewers)})")
+            if lines:
+                notify_discord(f"[{pj}] REVISE対象:\n" + "\n".join(lines))
+
         # バッチ開始時のみIssue一覧を別メッセージで通知
         if action.new_state == "DESIGN_PLAN":
             batch = notification["batch"]

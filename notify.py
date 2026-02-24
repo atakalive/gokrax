@@ -21,26 +21,29 @@ from config import (
 logger = logging.getLogger("devbar.notify")
 
 
+GATEWAY_SEND_SCRIPT = Path(__file__).resolve().parent / "gateway-send.js"
+
+
 def send_to_agent(agent_id: str, message: str, timeout: int = AGENT_SEND_TIMEOUT) -> bool:
-    """openclaw agent CLIでメッセージ送信。"""
+    """Gateway chat.send 経由でメッセージ送信（キュー対応、run中でもabortしない）。"""
     if config.DRY_RUN:
         logger.info("[dry-run] send_to_agent skipped (agent=%s)", agent_id)
         return True
+    session_key = f"agent:{agent_id}:main"
     try:
         result = subprocess.run(
-            ["openclaw", "agent", "--agent", agent_id, "--message", message,
-             "--timeout", str(timeout), "--json"],
+            ["node", str(GATEWAY_SEND_SCRIPT), session_key, message],
             capture_output=True, text=True, timeout=timeout + 10,
         )
         if result.returncode != 0:
-            logger.warning("agent send failed (rc=%d, agent=%s): %s",
+            logger.warning("gateway-send failed (rc=%d, agent=%s): %s",
                           result.returncode, agent_id, result.stderr.strip())
         return result.returncode == 0
     except subprocess.TimeoutExpired:
-        logger.warning("agent send timed out (agent=%s, timeout=%ds)", agent_id, timeout)
+        logger.warning("gateway-send timed out (agent=%s, timeout=%ds)", agent_id, timeout)
         return False
     except FileNotFoundError:
-        logger.error("openclaw CLI not found in PATH")
+        logger.error("node not found in PATH")
         return False
 
 

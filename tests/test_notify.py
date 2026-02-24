@@ -65,13 +65,13 @@ class TestGetBotToken:
 
 class TestSendToAgent:
 
-    def test_openclaw_not_found(self, caplog):
+    def test_node_not_found(self, caplog):
         import notify
         with patch("notify.subprocess.run", side_effect=FileNotFoundError("openclaw")):
             with caplog.at_level(logging.ERROR, logger="devbar.notify"):
                 result = notify.send_to_agent("test-agent", "hello")
         assert result is False
-        assert "openclaw CLI not found" in caplog.text
+        assert "node not found in PATH" in caplog.text
 
     def test_timeout(self, caplog):
         import notify

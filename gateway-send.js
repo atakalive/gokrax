@@ -49,7 +49,7 @@ async function main() {
       method: 'chat.send',
       params: {
         sessionKey,
-        message: '上記の [devbar] メッセージに従って作業を開始しろ。',
+        message: '直前のassistantメッセージに [devbar] の指示が書かれている。その内容を正確に読み、指示に従って作業を開始しろ。assistantメッセージの内容がお前への入力だ。',
         idempotencyKey: crypto.randomUUID(),
       },
     });

@@ -506,19 +506,23 @@ def cmd_design_revise(args):
     if args.comment:
         data = load_pipeline(path)
         gitlab = data.get("gitlab", f"atakalive/{args.project}")
-        if not _post_gitlab_note(gitlab, args.issue, args.comment):
-            sys.exit(1)
+        for num in args.issue:
+            if not _post_gitlab_note(gitlab, num, args.comment):
+                sys.exit(1)
 
     def do_design_revise(data):
         if data.get("state") != "DESIGN_REVISE":
             raise SystemExit(f"Not in DESIGN_REVISE state: {data.get('state')}")
-        issue = find_issue(data.get("batch", []), args.issue)
-        if not issue:
-            raise SystemExit(f"Issue #{args.issue} not in batch")
-        issue["design_revised"] = True
+        batch = data.get("batch", [])
+        for num in args.issue:
+            issue = find_issue(batch, num)
+            if not issue:
+                raise SystemExit(f"Issue #{num} not in batch")
+            issue["design_revised"] = True
 
     update_pipeline(path, do_design_revise)
-    print(f"{args.project}: #{args.issue} design-revised")
+    done = ", ".join(f"#{n}" for n in args.issue)
+    print(f"{args.project}: {done} design-revised")
 
 
 def cmd_code_revise(args):
@@ -528,20 +532,24 @@ def cmd_code_revise(args):
     if args.comment:
         data = load_pipeline(path)
         gitlab = data.get("gitlab", f"atakalive/{args.project}")
-        if not _post_gitlab_note(gitlab, args.issue, args.comment):
-            sys.exit(1)
+        for num in args.issue:
+            if not _post_gitlab_note(gitlab, num, args.comment):
+                sys.exit(1)
 
     def do_code_revise(data):
         if data.get("state") != "CODE_REVISE":
             raise SystemExit(f"Not in CODE_REVISE state: {data.get('state')}")
-        issue = find_issue(data.get("batch", []), args.issue)
-        if not issue:
-            raise SystemExit(f"Issue #{args.issue} not in batch")
-        issue["commit"] = args.hash
-        issue["code_revised"] = True
+        batch = data.get("batch", [])
+        for num in args.issue:
+            issue = find_issue(batch, num)
+            if not issue:
+                raise SystemExit(f"Issue #{num} not in batch")
+            issue["commit"] = args.hash
+            issue["code_revised"] = True
 
     update_pipeline(path, do_code_revise)
-    print(f"{args.project}: #{args.issue} code-revised (commit={args.hash})")
+    done = ", ".join(f"#{n}" for n in args.issue)
+    print(f"{args.project}: {done} code-revised (commit={args.hash})")
 
 
 def cmd_review_mode(args):
@@ -671,13 +679,13 @@ def main():
     # design-revise
     p = sub.add_parser("design-revise", help="設計修正完了: DESIGN_REVISE状態でdesign_revisedフラグを設定")
     p.add_argument("--pj", "--project", dest="project", required=True)
-    p.add_argument("--issue", type=int, required=True)
+    p.add_argument("--issue", type=int, nargs="+", required=True, help="Issue番号（複数指定可）")
     p.add_argument("--comment", default=None, help="GitLab issue noteに投稿するコメント（省略可）")
 
     # code-revise
     p = sub.add_parser("code-revise", help="コード修正完了: CODE_REVISE状態でcommit記録+code_revisedフラグを一発で設定")
     p.add_argument("--pj", "--project", dest="project", required=True)
-    p.add_argument("--issue", type=int, required=True)
+    p.add_argument("--issue", type=int, nargs="+", required=True, help="Issue番号（複数指定可）")
     p.add_argument("--hash", required=True, help="gitコミットハッシュ")
     p.add_argument("--comment", default=None, help="GitLab issue noteに投稿するコメント（省略可）")
 

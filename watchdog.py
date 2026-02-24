@@ -250,7 +250,7 @@ def get_notification_for_state(
             f"対象Issue: {issues_str}\n"
             f"【手順】\n"
             f"1. P0指摘を読み、Issue本文を修正する（glab issue update）\n"
-            f"2. devbar に報告:\n"
+            f"2. devbar に完了報告:\n"
             f"   python3 {DEVBAR_CLI} design-revise --pj {project} --issue N"
         )
         return TransitionAction(impl_msg=msg)
@@ -263,7 +263,7 @@ def get_notification_for_state(
             f"【手順】\n"
             f"1. P0指摘を読み、コードを修正する\n"
             f"2. git commit する\n"
-            f"3. devbar に報告（commit記録 + revise完了を一発で）:\n"
+            f"3. devbar に完了報告:\n"
             f"   python3 {DEVBAR_CLI} code-revise --pj {project} --issue N --hash <commit>"
         )
         return TransitionAction(impl_msg=msg)

@@ -833,15 +833,8 @@ def process(path: Path):
         if action.reset_reviewers:
             impl = ""
             if action.new_state == "DESIGN_PLAN":
-                # PJが前回から変わった場合（初回含む）のみ実装担当もリセット
-                path = get_path(pj)
-                pipeline_data = load_pipeline(path)
-                last_pj = pipeline_data.get("_last_impl_project")
-                if last_pj is None or last_pj != pj:
-                    impl = notification["implementer"]
-                def _save_last_pj(data, p=pj):
-                    data["_last_impl_project"] = p
-                update_pipeline(path, _save_last_pj)
+                # DESIGN_PLAN開始時は毎回実装担当もリセット（compaction破損対策）
+                impl = notification["implementer"]
             _reset_reviewers(notification.get("review_mode", "standard"), implementer=impl)
 
         if action.impl_msg:

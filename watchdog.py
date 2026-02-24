@@ -99,21 +99,7 @@ def clear_reviews(batch: list, key: str, revised_key: str):
 
 
 # BLOCKEDまでの時間 (秒)
-BLOCK_TIMERS = {
-    "DESIGN_PLAN":    600,   # 10分
-    "DESIGN_REVISE":  600,   # 10分
-    "CODE_REVISE":    600,   # 10分
-    "IMPLEMENTATION": 1200,  # 20分
-}
-
-# 状態遷移直後の催促猶予期間（秒）。遷移からこの時間が経つまで催促しない
-NUDGE_GRACE_SEC = 180  # 3分
-
-# タイムアウト延長可能な状態
-EXTENDABLE_STATES = {"DESIGN_PLAN", "DESIGN_REVISE", "IMPLEMENTATION", "CODE_REVISE"}
-
-# 残り時間が閾値未満で延長案内を表示（秒）
-EXTEND_NOTICE_THRESHOLD = 300  # 5分
+from config import BLOCK_TIMERS, NUDGE_GRACE_SEC, EXTENDABLE_STATES, EXTEND_NOTICE_THRESHOLD
 
 
 @dataclass
@@ -149,7 +135,7 @@ def _nudge_key(state: str) -> str:
 def _check_nudge(state: str, data: dict) -> TransitionAction | None:
     """催促/BLOCKED判定。該当しなければNone。"""
     block_sec = BLOCK_TIMERS.get(state)
-    if block_sec is None or data is None:
+    if not block_sec or data is None:
         return None
 
     # 延長分を加算

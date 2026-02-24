@@ -107,6 +107,25 @@ MAX_EMBED_CHARS = 64 * 1024  # 64KB (?) charsのバイト数による
 
 ALLOWED_REVIEWERS = list(AGENTS.keys())
 
+# フェーズ別タイムアウト (秒)。0 = タイムアウトなし
+BLOCK_TIMERS = {
+    "DESIGN_PLAN":    600,   # 10分
+    "DESIGN_REVIEW":  0,     # タイムアウトなし（催促のみ）
+    "DESIGN_REVISE":  600,   # 10分
+    "IMPLEMENTATION": 1200,  # 20分
+    "CODE_REVIEW":    0,     # タイムアウトなし（催促のみ）
+    "CODE_REVISE":    600,   # 10分
+}
+
+# タイムアウト延長可能な状態
+EXTENDABLE_STATES = {"DESIGN_PLAN", "DESIGN_REVISE", "IMPLEMENTATION", "CODE_REVISE"}
+
+# 状態遷移直後の催促猶予期間（秒）
+NUDGE_GRACE_SEC = 180  # 3分
+
+# 残り時間が閾値未満で延長案内を表示（秒）
+EXTEND_NOTICE_THRESHOLD = 300  # 5分
+
 # 非アクティブ判定 (秒)
 INACTIVE_THRESHOLD_SEC = 181
 

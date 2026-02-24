@@ -765,7 +765,7 @@ def process(path: Path):
         notify_discord(f"[{pj}] {notification['old_state']} → {action.new_state} ({ts})")
 
         # バッチ開始時のみIssue一覧を別メッセージで通知
-        if action.new_state in ("DESIGN_PLAN", "IMPLEMENTATION"):
+        if action.new_state == "DESIGN_PLAN":
             batch = notification["batch"]
             if batch:
                 issue_lines = [f"#{i['issue']}: {i.get('title', '')}" for i in batch]

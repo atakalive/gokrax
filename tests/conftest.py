@@ -30,7 +30,8 @@ def _block_external_calls(request, tmp_path):
          patch("notify.send_to_agent", return_value=True), \
          patch("notify.send_to_agent_queued", return_value=True), \
          patch("watchdog.send_to_agent", return_value=True), \
-         patch("watchdog.send_to_agent_queued", return_value=True):
+         patch("watchdog.send_to_agent_queued", return_value=True), \
+         patch("watchdog._stop_loop_if_idle"):
         yield
     config.LOG_FILE = orig_config
     watchdog.LOG_FILE = orig_watchdog

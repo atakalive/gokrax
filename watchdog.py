@@ -240,9 +240,9 @@ def get_notification_for_state(
         msg = (
             f"[devbar] {project}: 設計確認フェーズ\n"
             f"対象Issue: {issues_str}\n"
-            f"Claude Codeが楽に実装できるように、**対象Issue本文の説明を修正せよ** (glab issue update)。\n"
+            f"Claude Codeが楽に実装できる粒度まで、**対象Issue本文の説明を修正せよ** (glab issue update)。\n"
             f"コメントによる補足は禁止する。\n"
-            f"最後に、問題がなければ plan-done して完了せよ（一括報告できる）。\n"
+            f"全て修正後、問題がなければ plan-done して完了せよ（一括報告できる）。\n"
             f"python3 {DEVBAR_CLI} plan-done --project {project} --issue N [N...]\n"
             f"[お願い] 仕事は中断せず、完了まで一気にやること。"
         )

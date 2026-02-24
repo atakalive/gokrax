@@ -776,18 +776,11 @@ def process(path: Path):
 
         # MERGE_SUMMARY_SENT遷移時: #dev-bar にサマリーを投稿（リトライ付き）
         if action.send_merge_summary:
-            import time as _time
             from config import DISCORD_CHANNEL
             from notify import post_discord
             batch = notification["batch"]
             content = _format_merge_summary(pj, batch)
-            message_id = None
-            for attempt in range(3):
-                message_id = post_discord(DISCORD_CHANNEL, content)
-                if message_id:
-                    break
-                log(f"[{pj}] merge summary post attempt {attempt + 1}/3 failed, retrying...")
-                _time.sleep(2)
+            message_id = post_discord(DISCORD_CHANNEL, content)
             if message_id:
                 # summary_message_id をパイプラインに保存
                 path = get_path(pj)

@@ -72,8 +72,11 @@ def get_bot_token() -> str | None:
         return None
 
 
-def post_discord(channel_id: str, content: str) -> str | None:
-    """Discord APIでメッセージ投稿。2000文字超は自動分割。成功時は最後のmessage_id、失敗時はNone。"""
+def post_discord(channel_id: str, content: str, retries: int = 3) -> str | None:
+    """Discord APIでメッセージ投稿。2000文字超は自動分割。失敗時はリトライ。
+
+    成功時は最後のmessage_id、全リトライ失敗時はNone。
+    """
     if config.DRY_RUN:
         logger.info("[dry-run] post_discord skipped (channel=%s)", channel_id)
         return None
@@ -81,24 +84,32 @@ def post_discord(channel_id: str, content: str) -> str | None:
     if not token:
         return None
 
+    import time as _time
     chunks = _split_message(content, 2000)
     last_id = None
     for chunk in chunks:
-        try:
-            resp = requests.post(
-                f"https://discord.com/api/v10/channels/{channel_id}/messages",
-                headers={"Authorization": f"Bot {token}", "Content-Type": "application/json"},
-                json={"content": chunk},
-                timeout=DISCORD_POST_TIMEOUT,
-            )
-            if resp.status_code in (200, 201):
-                last_id = resp.json().get("id")
-            else:
-                logger.warning("Discord post failed (status=%d): %s", resp.status_code, resp.text[:200])
-                return None
-        except requests.RequestException as e:
-            logger.warning("Discord post error: %s", e)
+        chunk_id = None
+        for attempt in range(retries):
+            try:
+                resp = requests.post(
+                    f"https://discord.com/api/v10/channels/{channel_id}/messages",
+                    headers={"Authorization": f"Bot {token}", "Content-Type": "application/json"},
+                    json={"content": chunk},
+                    timeout=DISCORD_POST_TIMEOUT,
+                )
+                if resp.status_code in (200, 201):
+                    chunk_id = resp.json().get("id")
+                    break
+                logger.warning("Discord post failed (attempt %d/%d, status=%d): %s",
+                              attempt + 1, retries, resp.status_code, resp.text[:200])
+            except requests.RequestException as e:
+                logger.warning("Discord post error (attempt %d/%d): %s", attempt + 1, retries, e)
+            if attempt < retries - 1:
+                _time.sleep(2)
+        if chunk_id is None:
+            logger.error("Discord post failed after %d attempts", retries)
             return None
+        last_id = chunk_id
     return last_id
 
 

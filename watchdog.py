@@ -10,7 +10,9 @@ Double-Checked Locking パターン:
   3. ロック外で通知
 """
 
+import json
 import logging
+import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -883,19 +885,122 @@ def _stop_loop_if_idle():
     log("[watchdog] All projects disabled — loop stopped")
 
 
+def _load_devbar_state() -> dict:
+    """Load devbar-state.json or return default state."""
+    from config import DEVBAR_STATE_PATH
+    if not DEVBAR_STATE_PATH.exists():
+        return {"last_command_message_id": "0"}
+    try:
+        with open(DEVBAR_STATE_PATH) as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        log("WARNING: devbar-state.json corrupt, using default")
+        return {"last_command_message_id": "0"}
+
+
+def _save_devbar_state(state: dict):
+    """Atomically save devbar-state.json."""
+    import tempfile
+    from config import DEVBAR_STATE_PATH
+    DEVBAR_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=DEVBAR_STATE_PATH.parent, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(state, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, str(DEVBAR_STATE_PATH))
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def check_discord_commands():
+    """Check #dev-bar for 'status' commands from M and respond.
+
+    Process flow:
+    1. Load last_command_message_id from devbar-state.json
+    2. Fetch latest 10 messages from #dev-bar
+    3. Filter: author is M, not bot, content starts with "status"
+    4. Filter: message_id > last_command_message_id
+    5. Process in chronological order (oldest → newest)
+    6. For each: post status, update last_command_message_id
+    """
+    from config import DISCORD_CHANNEL, M_DISCORD_USER_ID, BOT_USER_ID
+    from notify import fetch_discord_latest, post_discord
+    from devbar import get_status_text
+    import config
+
+    # 1. Load state
+    state = _load_devbar_state()
+    last_id = state.get("last_command_message_id", "0")
+
+    # 2. Fetch latest messages
+    messages = fetch_discord_latest(DISCORD_CHANNEL, 10)
+    if not messages:
+        return  # API failure or empty channel, skip this cycle
+
+    # 3. Filter messages
+    candidates = []
+    for msg in messages:
+        author_id = msg.get("author", {}).get("id")
+        content = msg.get("content", "")
+        msg_id = msg.get("id")
+
+        # Filter: from M, not from bot, starts with "status"
+        if (author_id == M_DISCORD_USER_ID and
+            author_id != BOT_USER_ID and
+            content.strip().lower().startswith("status") and
+            msg_id and int(msg_id) > int(last_id)):
+            candidates.append(msg)
+
+    # 4. Process in chronological order (reversed, API returns newest first)
+    for msg in reversed(candidates):
+        msg_id = msg["id"]
+
+        # 5. Get status and post response
+        status = get_status_text(enabled_only=True)
+        response = f"```\n{status}\n```"
+
+        if config.DRY_RUN:
+            log(f"[dry-run] Discord status command response skipped (msg_id={msg_id})")
+        else:
+            post_discord(DISCORD_CHANNEL, response)
+
+        # 6. Update state (even in dry-run to test deduplication)
+        state["last_command_message_id"] = msg_id
+        _save_devbar_state(state)
+        log(f"Processed Discord status command (msg_id={msg_id})")
+
+
 def main():
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
         handlers=[logging.StreamHandler(), logging.FileHandler(LOG_FILE)],
     )
+
+    # Check Discord commands BEFORE pipeline processing
+    # Works even if PIPELINES_DIR doesn't exist
+    try:
+        check_discord_commands()
+    except Exception as e:
+        log(f"[discord-commands] ERROR: {e}")
+
+    # Early exit if no pipelines
     if not PIPELINES_DIR.exists():
         return
+
+    # Process pipelines
     for path in sorted(PIPELINES_DIR.glob("*.json")):
         try:
             process(path)
         except Exception as e:
             log(f"[{path.stem}] ERROR: {e}")
+
     # 全PJ完了/停止ならloop自体を停止
     _stop_loop_if_idle()
 

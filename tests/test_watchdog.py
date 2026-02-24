@@ -10,6 +10,9 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+import config
+import pipeline_io
+
 
 # ── ヘルパー ──────────────────────────────────────────────────────────────────
 
@@ -914,3 +917,565 @@ class TestReviseLoopLimit:
         assert "design_revise_count" not in data
         assert "code_revise_count" not in data
         assert data["state"] == "IDLE"
+
+
+class TestReviseP0Summary:
+    """Tests for REVISE P0 summary feature (Issue #31)"""
+
+    def test_design_review_to_design_revise_with_p0_posts_summary(self, tmp_path, monkeypatch):
+        """Single issue with P0 review triggers P0 summary message."""
+        from watchdog import process
+
+        path = tmp_path / "test-pj.json"
+        batch = [{
+            "issue": 123, "title": "Issue 123", "commit": None,
+            "cc_session_id": None,
+            "design_reviews": {"pascal": {"verdict": "APPROVE"}, "leibniz": {"verdict": "P0"}},
+            "code_reviews": {},
+            "added_at": "2025-01-01T00:00:00+09:00",
+        }]
+        data = {
+            "project": "test-pj",
+            "state": "DESIGN_REVIEW",
+            "enabled": True,
+            "batch": batch,
+            "review_mode": "standard",
+        }
+        _write_pipeline(path, data)
+
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        def fake_update(p, cb):
+            cb(data)
+            return data
+
+        with patch("watchdog.update_pipeline", side_effect=fake_update), \
+             patch("watchdog.notify_discord") as mock_discord, \
+             patch("watchdog.notify_reviewers"):
+            process(path)
+
+        # Should have 2 calls: transition notification + P0 summary
+        assert mock_discord.call_count == 2
+
+        calls = mock_discord.call_args_list
+        # First call: transition notification
+        assert "DESIGN_REVISE" in calls[0][0][0]
+
+        # Second call: P0 summary
+        summary = calls[1][0][0]
+        assert "[test-pj] REVISE対象:" in summary
+        assert "#123:" in summary
+        assert "1 P0" in summary
+        assert "leibniz" in summary
+
+    def test_code_review_to_code_revise_multiple_issues_posts_all(self, tmp_path, monkeypatch):
+        """Multiple issues with P0s all appear in summary."""
+        from watchdog import process
+
+        path = tmp_path / "test-pj.json"
+        batch = [
+            {
+                "issue": 10, "title": "Issue 10", "commit": None, "cc_session_id": None,
+                "design_reviews": {},
+                "code_reviews": {"pascal": {"verdict": "P0"}, "hanfei": {"verdict": "APPROVE"}},
+                "added_at": "2025-01-01T00:00:00+09:00",
+            },
+            {
+                "issue": 11, "title": "Issue 11", "commit": None, "cc_session_id": None,
+                "design_reviews": {},
+                "code_reviews": {"pascal": {"verdict": "P0"}, "leibniz": {"verdict": "REJECT"}},
+                "added_at": "2025-01-01T00:00:00+09:00",
+            },
+            {
+                "issue": 12, "title": "Issue 12", "commit": None, "cc_session_id": None,
+                "design_reviews": {},
+                "code_reviews": {"hanfei": {"verdict": "P0"}, "leibniz": {"verdict": "P0"}},
+                "added_at": "2025-01-01T00:00:00+09:00",
+            },
+        ]
+        data = {
+            "project": "test-pj",
+            "state": "CODE_REVIEW",
+            "enabled": True,
+            "batch": batch,
+            "review_mode": "standard",
+        }
+        _write_pipeline(path, data)
+
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        def fake_update(p, cb):
+            cb(data)
+            return data
+
+        with patch("watchdog.update_pipeline", side_effect=fake_update), \
+             patch("watchdog.notify_discord") as mock_discord, \
+             patch("watchdog.notify_reviewers"):
+            process(path)
+
+        assert mock_discord.call_count == 2
+        summary = mock_discord.call_args_list[1][0][0]
+
+        # All 3 issues should appear
+        assert "#10:" in summary and "1 P0" in summary
+        assert "#11:" in summary and "2 P0" in summary  # P0 + REJECT
+        assert "#12:" in summary and "2 P0" in summary
+
+    def test_mixed_verdicts_only_p0_issues_shown(self, tmp_path, monkeypatch):
+        """Only issues with P0/REJECT shown; APPROVE-only hidden."""
+        from watchdog import process
+
+        path = tmp_path / "test-pj.json"
+        batch = [
+            {
+                "issue": 20, "title": "Issue 20", "commit": None, "cc_session_id": None,
+                "design_reviews": {"pascal": {"verdict": "P0"}, "leibniz": {"verdict": "APPROVE"}},
+                "code_reviews": {},
+                "added_at": "2025-01-01T00:00:00+09:00",
+            },
+            {
+                "issue": 21, "title": "Issue 21", "commit": None, "cc_session_id": None,
+                "design_reviews": {"pascal": {"verdict": "APPROVE"}, "leibniz": {"verdict": "APPROVE"}},
+                "code_reviews": {},
+                "added_at": "2025-01-01T00:00:00+09:00",
+            },
+            {
+                "issue": 22, "title": "Issue 22", "commit": None, "cc_session_id": None,
+                "design_reviews": {"hanfei": {"verdict": "REJECT"}, "pascal": {"verdict": "APPROVE"}},
+                "code_reviews": {},
+                "added_at": "2025-01-01T00:00:00+09:00",
+            },
+        ]
+        data = {
+            "project": "test-pj",
+            "state": "DESIGN_REVIEW",
+            "enabled": True,
+            "batch": batch,
+            "review_mode": "standard",
+        }
+        _write_pipeline(path, data)
+
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        def fake_update(p, cb):
+            cb(data)
+            return data
+
+        with patch("watchdog.update_pipeline", side_effect=fake_update), \
+             patch("watchdog.notify_discord") as mock_discord, \
+             patch("watchdog.notify_reviewers"):
+            process(path)
+
+        summary = mock_discord.call_args_list[1][0][0]
+        # #20 and #22 shown, #21 hidden
+        assert "#20:" in summary
+        assert "#21:" not in summary
+        assert "#22:" in summary
+
+    def test_all_approve_no_p0_no_summary_posted(self, tmp_path, monkeypatch):
+        """All APPROVE verdicts → transition to APPROVED, no P0 summary."""
+        from watchdog import process
+
+        path = tmp_path / "test-pj.json"
+        batch = [{
+            "issue": 30, "title": "Issue 30", "commit": None, "cc_session_id": None,
+            "design_reviews": {"pascal": {"verdict": "APPROVE"}, "leibniz": {"verdict": "APPROVE"}},
+            "code_reviews": {},
+            "added_at": "2025-01-01T00:00:00+09:00",
+        }]
+        data = {
+            "project": "test-pj",
+            "state": "DESIGN_REVIEW",
+            "enabled": True,
+            "batch": batch,
+            "review_mode": "standard",
+        }
+        _write_pipeline(path, data)
+
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        def fake_update(p, cb):
+            cb(data)
+            return data
+
+        with patch("watchdog.update_pipeline", side_effect=fake_update), \
+             patch("watchdog.notify_discord") as mock_discord, \
+             patch("watchdog.notify_reviewers"):
+            process(path)
+
+        # Only 1 call: transition notification (no P0 summary)
+        assert mock_discord.call_count == 1
+        assert "DESIGN_APPROVED" in mock_discord.call_args_list[0][0][0]
+
+    def test_reject_verdict_counted_as_p0(self, tmp_path, monkeypatch):
+        """REJECT verdict counted as P0 in summary."""
+        from watchdog import process
+
+        path = tmp_path / "test-pj.json"
+        batch = [{
+            "issue": 40, "title": "Issue 40", "commit": None, "cc_session_id": None,
+            "design_reviews": {},
+            "code_reviews": {"pascal": {"verdict": "APPROVE"}, "leibniz": {"verdict": "REJECT"}, "hanfei": {"verdict": "P0"}},
+            "added_at": "2025-01-01T00:00:00+09:00",
+        }]
+        data = {
+            "project": "test-pj",
+            "state": "CODE_REVIEW",
+            "enabled": True,
+            "batch": batch,
+            "review_mode": "standard",
+        }
+        _write_pipeline(path, data)
+
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        def fake_update(p, cb):
+            cb(data)
+            return data
+
+        with patch("watchdog.update_pipeline", side_effect=fake_update), \
+             patch("watchdog.notify_discord") as mock_discord, \
+             patch("watchdog.notify_reviewers"):
+            process(path)
+
+        summary = mock_discord.call_args_list[1][0][0]
+        assert "#40:" in summary
+        assert "2 P0" in summary  # REJECT + P0
+        assert "leibniz" in summary and "hanfei" in summary
+
+    def test_notify_discord_call_order_transition_then_summary(self, tmp_path, monkeypatch):
+        """Verify notify_discord called twice: transition first, summary second."""
+        from watchdog import process
+
+        path = tmp_path / "test-pj.json"
+        batch = [{
+            "issue": 50, "title": "Issue 50", "commit": None, "cc_session_id": None,
+            "design_reviews": {"pascal": {"verdict": "P0"}, "leibniz": {"verdict": "APPROVE"}},
+            "code_reviews": {},
+            "added_at": "2025-01-01T00:00:00+09:00",
+        }]
+        data = {
+            "project": "test-pj",
+            "state": "DESIGN_REVIEW",
+            "enabled": True,
+            "batch": batch,
+            "review_mode": "standard",
+        }
+        _write_pipeline(path, data)
+
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        def fake_update(p, cb):
+            cb(data)
+            return data
+
+        with patch("watchdog.update_pipeline", side_effect=fake_update), \
+             patch("watchdog.notify_discord") as mock_discord, \
+             patch("watchdog.notify_reviewers"):
+            process(path)
+
+        calls = mock_discord.call_args_list
+        assert len(calls) == 2
+
+        # First: transition
+        first_msg = calls[0][0][0]
+        assert "DESIGN_REVISE" in first_msg
+        assert "REVISE対象:" not in first_msg
+
+        # Second: summary
+        second_msg = calls[1][0][0]
+        assert "REVISE対象:" in second_msg
+
+    def test_reviewer_names_set_comparison_order_independent(self, tmp_path, monkeypatch):
+        """Reviewer names verified with set comparison (dict order undefined)."""
+        from watchdog import process
+
+        path = tmp_path / "test-pj.json"
+        batch = [{
+            "issue": 60, "title": "Issue 60", "commit": None, "cc_session_id": None,
+            "design_reviews": {"pascal": {"verdict": "P0"}, "leibniz": {"verdict": "REJECT"}, "hanfei": {"verdict": "P0"}},
+            "code_reviews": {},
+            "added_at": "2025-01-01T00:00:00+09:00",
+        }]
+        data = {
+            "project": "test-pj",
+            "state": "DESIGN_REVIEW",
+            "enabled": True,
+            "batch": batch,
+            "review_mode": "standard",
+        }
+        _write_pipeline(path, data)
+
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        def fake_update(p, cb):
+            cb(data)
+            return data
+
+        with patch("watchdog.update_pipeline", side_effect=fake_update), \
+             patch("watchdog.notify_discord") as mock_discord, \
+             patch("watchdog.notify_reviewers"):
+            process(path)
+
+        summary = mock_discord.call_args_list[1][0][0]
+        assert "#60:" in summary
+        assert "3 P0" in summary
+
+        # Extract reviewer names and compare as set
+        import re
+        match = re.search(r"#60: 3 P0 \(([^)]+)\)", summary)
+        assert match
+        reviewers = set(r.strip() for r in match.group(1).split(","))
+        assert reviewers == {"pascal", "leibniz", "hanfei"}
+
+
+def _mock_discord_message(msg_id: str, author_id: str, content: str) -> dict:
+    """Create mock Discord message object."""
+    return {
+        "id": msg_id,
+        "author": {"id": author_id},
+        "content": content,
+    }
+
+
+class TestDiscordStatusCommand:
+    """Tests for Discord status command (Issue #30)"""
+
+    def test_m_posts_status_gets_response(self, tmp_path, monkeypatch):
+        """M posts 'status' → bot responds with status text."""
+        from config import M_DISCORD_USER_ID, DISCORD_CHANNEL, DEVBAR_STATE_PATH
+        import watchdog
+
+        # Setup pipeline
+        path = tmp_path / "test-pj.json"
+        data = {"project": "test-pj", "state": "IDLE", "enabled": True, "batch": [], "review_mode": "standard"}
+        _write_pipeline(path, data)
+
+        # Setup state path
+        state_path = tmp_path / "devbar-state.json"
+        monkeypatch.setattr(config, "DEVBAR_STATE_PATH", state_path)
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        # Mock Discord API
+        messages = [_mock_discord_message("1001", M_DISCORD_USER_ID, "status")]
+
+        with patch("notify.fetch_discord_latest", return_value=messages) as mock_fetch, \
+             patch("notify.post_discord") as mock_post:
+            watchdog.check_discord_commands()
+
+        # Should fetch and post
+        mock_fetch.assert_called_once_with(DISCORD_CHANNEL, 10)
+        mock_post.assert_called_once()
+        assert "test-pj" in mock_post.call_args[0][1]
+
+        # State should be updated
+        state = json.loads(state_path.read_text())
+        assert state["last_command_message_id"] == "1001"
+
+    def test_case_insensitive_status(self, tmp_path, monkeypatch):
+        """'Status' and 'STATUS' both trigger response."""
+        from config import M_DISCORD_USER_ID
+        import watchdog
+
+        state_path = tmp_path / "devbar-state.json"
+        monkeypatch.setattr(config, "DEVBAR_STATE_PATH", state_path)
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        messages = [
+            _mock_discord_message("1001", M_DISCORD_USER_ID, "Status"),
+            _mock_discord_message("1002", M_DISCORD_USER_ID, "STATUS"),
+        ]
+
+        with patch("notify.fetch_discord_latest", return_value=messages), \
+             patch("notify.post_discord") as mock_post:
+            watchdog.check_discord_commands()
+
+        # Both should trigger (2 posts)
+        assert mock_post.call_count == 2
+
+    def test_non_m_user_ignored(self, tmp_path, monkeypatch):
+        """Non-M user's 'status' → ignored."""
+        from config import M_DISCORD_USER_ID
+        import watchdog
+
+        state_path = tmp_path / "devbar-state.json"
+        monkeypatch.setattr(config, "DEVBAR_STATE_PATH", state_path)
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        messages = [_mock_discord_message("1001", "999999999999999999", "status")]  # Different user
+
+        with patch("notify.fetch_discord_latest", return_value=messages), \
+             patch("notify.post_discord") as mock_post:
+            watchdog.check_discord_commands()
+
+        # Should not post
+        mock_post.assert_not_called()
+
+    def test_bot_self_excluded(self, tmp_path, monkeypatch):
+        """Bot's own 'status' message → ignored."""
+        from config import BOT_USER_ID
+        import watchdog
+
+        state_path = tmp_path / "devbar-state.json"
+        monkeypatch.setattr(config, "DEVBAR_STATE_PATH", state_path)
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        messages = [_mock_discord_message("1001", BOT_USER_ID, "status")]
+
+        with patch("notify.fetch_discord_latest", return_value=messages), \
+             patch("notify.post_discord") as mock_post:
+            watchdog.check_discord_commands()
+
+        # Should not post
+        mock_post.assert_not_called()
+
+    def test_duplicate_message_not_reprocessed(self, tmp_path, monkeypatch):
+        """Same message ID → no duplicate response."""
+        from config import M_DISCORD_USER_ID
+        import watchdog
+
+        state_path = tmp_path / "devbar-state.json"
+        state_path.write_text(json.dumps({"last_command_message_id": "1001"}))
+
+        monkeypatch.setattr(config, "DEVBAR_STATE_PATH", state_path)
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        messages = [_mock_discord_message("1001", M_DISCORD_USER_ID, "status")]
+
+        with patch("notify.fetch_discord_latest", return_value=messages), \
+             patch("notify.post_discord") as mock_post:
+            watchdog.check_discord_commands()
+
+        # Should not reprocess
+        mock_post.assert_not_called()
+
+    def test_startswith_status(self, tmp_path, monkeypatch):
+        """'statusABC' triggers, 'hogestatus' doesn't."""
+        from config import M_DISCORD_USER_ID
+        import watchdog
+
+        state_path = tmp_path / "devbar-state.json"
+        monkeypatch.setattr(config, "DEVBAR_STATE_PATH", state_path)
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        messages = [
+            _mock_discord_message("1001", M_DISCORD_USER_ID, "statusABC"),
+            _mock_discord_message("1002", M_DISCORD_USER_ID, "hogestatus"),
+        ]
+
+        with patch("notify.fetch_discord_latest", return_value=messages), \
+             patch("notify.post_discord") as mock_post:
+            watchdog.check_discord_commands()
+
+        # Only 'statusABC' should trigger
+        assert mock_post.call_count == 1
+
+    def test_enabled_only_in_output(self, tmp_path, monkeypatch):
+        """Only enabled [ON] projects shown in response."""
+        from config import M_DISCORD_USER_ID
+        import watchdog
+        import devbar
+
+        # Create enabled and disabled pipelines
+        enabled_path = tmp_path / "enabled-pj.json"
+        _write_pipeline(enabled_path, {"project": "enabled-pj", "state": "IDLE", "enabled": True, "batch": [], "review_mode": "standard"})
+
+        disabled_path = tmp_path / "disabled-pj.json"
+        _write_pipeline(disabled_path, {"project": "disabled-pj", "state": "IDLE", "enabled": False, "batch": [], "review_mode": "standard"})
+
+        state_path = tmp_path / "devbar-state.json"
+        monkeypatch.setattr(config, "DEVBAR_STATE_PATH", state_path)
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(devbar, "PIPELINES_DIR", tmp_path)
+
+        messages = [_mock_discord_message("1001", M_DISCORD_USER_ID, "status")]
+
+        with patch("notify.fetch_discord_latest", return_value=messages), \
+             patch("notify.post_discord") as mock_post:
+            watchdog.check_discord_commands()
+
+        response = mock_post.call_args[0][1]
+        assert "enabled-pj" in response
+        assert "disabled-pj" not in response
+
+    def test_no_pipelines_response(self, tmp_path, monkeypatch):
+        """No pipelines → 'No active pipelines.'"""
+        from config import M_DISCORD_USER_ID
+        import watchdog
+        import devbar
+
+        state_path = tmp_path / "devbar-state.json"
+        monkeypatch.setattr(config, "DEVBAR_STATE_PATH", state_path)
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(devbar, "PIPELINES_DIR", tmp_path)
+
+        messages = [_mock_discord_message("1001", M_DISCORD_USER_ID, "status")]
+
+        with patch("notify.fetch_discord_latest", return_value=messages), \
+             patch("notify.post_discord") as mock_post:
+            watchdog.check_discord_commands()
+
+        response = mock_post.call_args[0][1]
+        assert "No active pipelines." in response
+
+    def test_multiple_pending_messages_processed_in_order(self, tmp_path, monkeypatch):
+        """Multiple unprocessed messages → all processed oldest→newest."""
+        from config import M_DISCORD_USER_ID
+        import watchdog
+
+        state_path = tmp_path / "devbar-state.json"
+        monkeypatch.setattr(config, "DEVBAR_STATE_PATH", state_path)
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        # API returns newest first
+        messages = [
+            _mock_discord_message("1003", M_DISCORD_USER_ID, "status"),
+            _mock_discord_message("1002", M_DISCORD_USER_ID, "status"),
+            _mock_discord_message("1001", M_DISCORD_USER_ID, "status"),
+        ]
+
+        with patch("notify.fetch_discord_latest", return_value=messages), \
+             patch("notify.post_discord") as mock_post:
+            watchdog.check_discord_commands()
+
+        # Should process all 3
+        assert mock_post.call_count == 3
+
+        # Final state should be latest message ID
+        state = json.loads(state_path.read_text())
+        assert state["last_command_message_id"] == "1003"
+
+    def test_fetch_discord_latest_failure_skips(self, tmp_path, monkeypatch):
+        """fetch_discord_latest() returns [] → skip gracefully."""
+        import watchdog
+
+        state_path = tmp_path / "devbar-state.json"
+        monkeypatch.setattr(config, "DEVBAR_STATE_PATH", state_path)
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        with patch("notify.fetch_discord_latest", return_value=[]), \
+             patch("notify.post_discord") as mock_post:
+            watchdog.check_discord_commands()
+
+        # Should not post
+        mock_post.assert_not_called()
+
+        # State file should not be created
+        assert not state_path.exists()

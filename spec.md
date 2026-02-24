@@ -216,7 +216,35 @@ IDLE → DESIGN_PLAN → DESIGN_REVIEW → DESIGN_APPROVED → IMPLEMENTATION
 | P1 | 軽微な指摘（ブロックしない） | APPROVE同等扱い。再レビュー時スキップ |
 | REJECT | 却下 | P0と同等 |
 
-## 10. 禁止事項
+## 10. テスト原則
+
+### ⚠️ テストは絶対に本番環境に影響を与えてはならない
+
+これは最優先ルール。テストが本番のwatchdog、crontab、pipeline JSON、Discord通知、エージェントセッションに触れることは許されない。
+
+#### 必須の隔離措置 (conftest.py `_block_external_calls`)
+
+| 対象 | mock方法 | 理由 |
+|---|---|---|
+| `notify.post_discord` | `return_value="mock-msg-id"` | Discord APIを叩かない |
+| `notify.send_to_agent` | `return_value=True` | openclaw agent CLIを叩かない |
+| `notify.send_to_agent_queued` | `return_value=True` | Gateway chat.sendを叩かない |
+| `watchdog.send_to_agent` | `return_value=True` | 同上 |
+| `watchdog.send_to_agent_queued` | `return_value=True` | 同上 |
+| `watchdog._stop_loop_if_idle` | mock化 | **本番のwatchdog-loop.shを殺さない** |
+| `config.PIPELINES_DIR` | `tmp_path` にmonkeypatch | 本番のpipeline JSONに触れない |
+| `config.LOG_FILE` / `watchdog.LOG_FILE` | `tmp_path` にリダイレクト | 本番ログを汚さない |
+
+#### 新しい外部副作用を追加するとき
+
+1. 本番環境に影響する関数（ファイル書き込み、プロセス操作、API呼び出し）を追加したら、**conftest.pyにmockを追加すること**
+2. テストを走らせた後、本番のwatchdogが生きてることを確認すること: `cat /tmp/devbar-watchdog-loop.pid && ps -p $(cat /tmp/devbar-watchdog-loop.pid)`
+
+#### 事故記録
+
+- **2026-02-25**: `_stop_loop_if_idle()` がテスト中に本番のwatchdog-loop.shを殺した。テスト用tmp_pathにはdisabled PJしかないため「全PJ disabled」と誤判定。IMPLEMENTATION中のdevbarパイプラインが停止した
+
+## 11. 禁止事項
 
 1. **pipeline JSONの直接編集禁止。** 必ずdevbar CLIを使う
 2. **実装担当が自分の設計/実装をレビュー(APPROVE)してはならない**

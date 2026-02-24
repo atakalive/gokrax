@@ -260,16 +260,6 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
         if existing.get("verdict", "").upper() in ("APPROVE", "P1"):
             continue
 
-        # devbar review コマンド生成
-        cmd = (
-            f"python3 {DEVBAR_CLI} review \\\n"
-            f"  --project {project} \\\n"
-            f"  --issue {num} \\\n"
-            f"  --reviewer {reviewer} \\\n"
-            f"  --verdict APPROVE \\\n"
-            f"  --summary $'ここにレビュー本文\\n本文2行目\\n本文3行目...'"
-        )
-
         section_parts = [f"### #{num}: {title}\n"]
 
         # Issue本文を取得して埋め込み
@@ -293,7 +283,6 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
                     f"  `git -C {repo_path} show {commit}`\n\n"
                 )
 
-        section_parts.append(f"```\n{cmd}\n```")
         section_text = "".join(section_parts)
 
         # 文字数制限チェック
@@ -302,8 +291,7 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
                 f"### #{num}: {title}\n"
                 f"**(truncated)** 文字数制限のため省略。以下のコマンドで確認してください:\n"
                 f"  Issue: `{GLAB_BIN} issue show {num} -R {gitlab}`\n"
-                + (f"  Diff: `git -C {repo_path} show {commit}`\n\n" if commit else "\n")
-                + f"```\n{cmd}\n```"
+                + (f"  Diff: `git -C {repo_path} show {commit}`\n" if commit else "")
             )
             truncated = True
         else:

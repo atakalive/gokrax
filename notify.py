@@ -314,6 +314,28 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
     if not sections:
         return ""
 
+    # --- TODOチェックリスト（冒頭） ---
+    pending_issues = []
+    pending_cmds = []
+    for i in batch:
+        num = i["issue"]
+        title = i.get("title", "")
+        review_key = "code_reviews" if is_code else "design_reviews"
+        existing = i.get(review_key, {}).get(reviewer, {})
+        if existing.get("verdict", "").upper() in ("APPROVE", "P1"):
+            continue
+        pending_issues.append(f"□ #{num}: {title}")
+        pending_cmds.append(
+            f"python3 {DEVBAR_CLI} review --project {project} --issue {num} "
+            f"--reviewer {reviewer} --verdict <APPROVE|P0|P1> "
+            f"--summary $'レビュー本文'"
+        )
+
+    todo_header = (
+        f"【タスク: {len(pending_issues)}件 — 全て完了するまで止めるな】\n"
+        + "\n".join(pending_issues)
+    )
+
     body = "\n\n".join(sections)
 
     if is_code:
@@ -321,12 +343,23 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
             "レビュー観点:\n"
             "- 設計レビューで承認された仕様通りに実装されているか\n"
             "- バグ、エッジケース、型ヒントの欠落\n"
-            "- テストがあれば妥当性を確認\n\n"
-            "verdict: APPROVE / P0 / P1 から選択。summaryにレビュー本文を書き、devbarに送信してください。"
+            "- テストがあれば妥当性を確認"
         )
     else:
-        guidance = "verdict: APPROVE / P0 / P1 から選択。summaryにレビュー本文を書き、devbarに送信してください。"
+        guidance = (
+            "レビュー観点:\n"
+            "- Issue本文の仕様が明確か、実装可能か\n"
+            "- エッジケースや矛盾がないか"
+        )
+
+    # --- 完了コマンド一覧（末尾） ---
+    cmds_block = "\n".join(pending_cmds)
+    completion = (
+        f"\n\n【完了コマンド — 全Issue分を実行すること】\n"
+        f"```\n{cmds_block}\n```\n"
+        f"⚠️ 全Issueのreviewコマンドを実行するまでタスク未完了。途中で止めるな。"
+    )
 
     truncate_notice = "\n\n**注意:** 一部のデータが文字数制限により省略されています。" if truncated else ""
 
-    return f"[devbar] {project}: {phase}レビュー依頼\n\n{body}\n\n{guidance}{truncate_notice}"
+    return f"[devbar] {project}: {phase}レビュー依頼\n\n{todo_header}\n\n{guidance}\n\n{body}{completion}{truncate_notice}"

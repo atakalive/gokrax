@@ -592,36 +592,39 @@ class TestTimeoutExtension:
 
     def test_check_nudge_with_timeout_extension(self):
         """_check_nudge() がtimeout_extensionを反映してタイムアウト判定すること"""
-        from watchdog import _check_nudge, BLOCK_TIMERS
+        from watchdog import _check_nudge
         from datetime import datetime, timedelta
-        from config import JST
+        from config import JST, BLOCK_TIMERS
 
-        # DESIGN_PLANのデフォルトタイムアウト: 600秒
-        # timeout_extension: +600秒 → 合計1200秒
-        entered_at = datetime.now(JST) - timedelta(seconds=700)  # 700秒経過
+        base = BLOCK_TIMERS["DESIGN_PLAN"]
+        extension = 600
+        # base + extension の中間 → BLOCKEDにならない
+        elapsed = base + extension // 2
+        entered_at = datetime.now(JST) - timedelta(seconds=elapsed)
         data = {
             "state": "DESIGN_PLAN",
-            "timeout_extension": 600,
+            "timeout_extension": extension,
             "history": [{"from": "IDLE", "to": "DESIGN_PLAN", "at": entered_at.isoformat()}],
         }
 
         action = _check_nudge("DESIGN_PLAN", data)
 
-        # 700秒経過 < 1200秒（デフォルト600 + 延長600） → BLOCKEDにならない
         assert action is None or action.new_state != "BLOCKED"
 
     def test_check_nudge_blocked_with_timeout_extension(self):
         """timeout_extension加算後もタイムアウト超過でBLOCKED遷移すること"""
         from watchdog import _check_nudge
         from datetime import datetime, timedelta
-        from config import JST
+        from config import JST, BLOCK_TIMERS
 
-        # DESIGN_PLANのデフォルト: 900秒、延長: +600秒 → 合計1500秒
-        # 1600秒経過 → BLOCKED
-        entered_at = datetime.now(JST) - timedelta(seconds=1600)
+        base = BLOCK_TIMERS["DESIGN_PLAN"]
+        extension = 600
+        # base + extension + 100秒超過 → BLOCKED
+        elapsed = base + extension + 100
+        entered_at = datetime.now(JST) - timedelta(seconds=elapsed)
         data = {
             "state": "DESIGN_PLAN",
-            "timeout_extension": 600,
+            "timeout_extension": extension,
             "history": [{"from": "IDLE", "to": "DESIGN_PLAN", "at": entered_at.isoformat()}],
         }
 
@@ -632,13 +635,14 @@ class TestTimeoutExtension:
 
     def test_check_nudge_extend_notice_shown(self):
         """残り5分未満 + EXTENDABLE_STATEでextend_noticeが付くこと"""
-        from watchdog import _check_nudge, EXTEND_NOTICE_THRESHOLD
+        from watchdog import _check_nudge
         from datetime import datetime, timedelta
-        from config import JST
+        from config import JST, BLOCK_TIMERS, EXTEND_NOTICE_THRESHOLD
 
-        # DESIGN_PLAN: デフォルト900秒、猶予期間180秒
-        # 700秒経過 → 残り200秒 < 300秒 → extend_notice付与
-        entered_at = datetime.now(JST) - timedelta(seconds=700)
+        base = BLOCK_TIMERS["DESIGN_PLAN"]
+        # 残り100秒 < EXTEND_NOTICE_THRESHOLD → extend_notice付与
+        elapsed = base - 100
+        entered_at = datetime.now(JST) - timedelta(seconds=elapsed)
         data = {
             "project": "test-pj",
             "state": "DESIGN_PLAN",
@@ -657,11 +661,13 @@ class TestTimeoutExtension:
         """残り時間が十分ある場合、extend_noticeがNoneであること"""
         from watchdog import _check_nudge
         from datetime import datetime, timedelta
-        from config import JST
+        from config import JST, BLOCK_TIMERS, NUDGE_GRACE_SEC, EXTEND_NOTICE_THRESHOLD
 
-        # DESIGN_PLAN: デフォルト600秒、猶予期間180秒
-        # 200秒経過 → 残り400秒 > 300秒 → extend_notice無し
-        entered_at = datetime.now(JST) - timedelta(seconds=200)
+        base = BLOCK_TIMERS["DESIGN_PLAN"]
+        # 猶予期間は超えてるが、残り時間がEXTEND_NOTICE_THRESHOLDより多い
+        elapsed = NUDGE_GRACE_SEC + 10
+        assert base - elapsed > EXTEND_NOTICE_THRESHOLD, "テスト前提条件: 残り時間が閾値より大きいこと"
+        entered_at = datetime.now(JST) - timedelta(seconds=elapsed)
         data = {
             "project": "test-pj",
             "state": "DESIGN_PLAN",

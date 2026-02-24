@@ -22,11 +22,10 @@ async function main() {
   
   try {
     const result = await callGateway({
-      method: 'chat.send',
+      method: 'chat.inject',
       params: {
         sessionKey,
         message,
-        idempotencyKey: crypto.randomUUID(),
       },
       mode: GATEWAY_CLIENT_MODES.CLI,
       clientName: GATEWAY_CLIENT_NAMES.CLI,

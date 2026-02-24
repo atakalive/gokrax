@@ -260,11 +260,15 @@ def get_notification_for_state(
         msg = (
             f"[devbar] {project}: コード修正フェーズ\n"
             f"対象Issue: {issues_str}\n"
-            f"コードレビューのP0指摘に基づいてコードを修正してください。\n"
-            f"修正後、コミットして記録:\n"
-            f"python3 {DEVBAR_CLI} commit --project {project} --issue N --hash <commit>\n"
-            f"全Issue修正完了後、revise コマンドで完了報告:\n"
-            f"python3 {DEVBAR_CLI} revise --project {project} --issue N"
+            f"コードレビューのP0指摘に基づいてコードを修正してください。\n\n"
+            f"【手順 — 全ステップ必須。省略するな】\n"
+            f"1. P0指摘を読み、コードを修正する\n"
+            f"2. git commit する\n"
+            f"3. 各Issueごとに commit を記録する（これをやらないと再レビューで古いdiffが送られる）:\n"
+            f"   python3 {DEVBAR_CLI} commit --project {project} --issue N --hash <commit>\n"
+            f"4. 各Issueごとに revise 完了を報告する:\n"
+            f"   python3 {DEVBAR_CLI} revise --project {project} --issue N\n\n"
+            f"⚠️ commit コマンドを忘れるとレビュアーに古いdiffが送られ、再REJECTされる。"
         )
         return TransitionAction(impl_msg=msg)
 

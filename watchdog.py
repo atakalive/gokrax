@@ -731,8 +731,16 @@ def process(path: Path):
             for reviewer in notification["nudge_reviewers"]:
                 if _is_agent_inactive(reviewer):
                     fail_key = f"_nudge_failed_{reviewer}"
-                    if pipeline_data.get(fail_key):
-                        continue
+                    fail_at = pipeline_data.get(fail_key)
+                    if fail_at:
+                        # 10分経過したらリトライ許可
+                        try:
+                            from datetime import datetime as _dt
+                            elapsed = (_datetime.now(JST) - _dt.fromisoformat(fail_at)).total_seconds()
+                            if elapsed < 600:
+                                continue
+                        except (ValueError, TypeError):
+                            continue
                     if notify_implementer(reviewer, "continue"):
                         woken.append(reviewer)
                     else:
@@ -742,7 +750,7 @@ def process(path: Path):
             if failed:
                 def _set_fails(data, reviewers=failed):
                     for r in reviewers:
-                        data[f"_nudge_failed_{r}"] = True
+                        data[f"_nudge_failed_{r}"] = _datetime.now(JST).isoformat()
                 update_pipeline(path, _set_fails)
             if woken:
                 ts = _datetime.now(JST).strftime("%m/%d %H:%M")

@@ -265,7 +265,16 @@ def cmd_start(args):
     )
     cmd_triage(triage_args)
 
-    # 4. DESIGN_PLANに遷移
+    # 4. review_mode設定（--mode指定時、遷移前に設定して/newの宛先に反映させる）
+    if getattr(args, "mode", None):
+        from watchdog import REVIEW_MODES
+        if args.mode not in REVIEW_MODES:
+            raise SystemExit(f"Invalid mode: {args.mode} (valid: {list(REVIEW_MODES)})")
+        def do_mode(data):
+            data["review_mode"] = args.mode
+        update_pipeline(path, do_mode)
+
+    # 5. DESIGN_PLANに遷移
     transition_args = argparse.Namespace(
         project=args.project,
         to="DESIGN_PLAN",
@@ -274,15 +283,6 @@ def cmd_start(args):
         resume=False,
     )
     cmd_transition(transition_args)
-
-    # 5. review_mode設定（--mode指定時のみ）
-    if getattr(args, "mode", None):
-        from watchdog import REVIEW_MODES
-        if args.mode not in REVIEW_MODES:
-            raise SystemExit(f"Invalid mode: {args.mode} (valid: {list(REVIEW_MODES)})")
-        def do_mode(data):
-            data["review_mode"] = args.mode
-        update_pipeline(path, do_mode)
 
     # 6. watchdog有効化
     def do_enable(data):

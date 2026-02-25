@@ -313,6 +313,14 @@ def cmd_triage(args):
             raise SystemExit(
                 f"Batch overflow: {len(batch)} existing + {len(args.issue)} new > {MAX_BATCH}"
             )
+
+        # Clear reviewer metadata if starting a new batch
+        if len(batch) == 0:
+            data.pop("excluded_reviewers", None)
+            data.pop("min_reviews_override", None)
+            data.pop("design_min_reviews_met_at", None)
+            data.pop("code_min_reviews_met_at", None)
+
         for num, title in zip(args.issue, titles):
             if find_issue(batch, num):
                 raise SystemExit(f"Issue #{num} already in batch")
@@ -475,8 +483,9 @@ def cmd_transition(args):
     if notif.impl_msg:
         notify_implementer(implementer, f"[devbar] {pj}: {prefix}{notif.impl_msg}")
     if notif.send_review:
+        excluded = data.get("excluded_reviewers", [])
         notify_reviewers(pj, args.to, batch, gitlab, repo_path=repo_path,
-                        review_mode=review_mode)
+                        review_mode=review_mode, excluded=excluded)
 
     # Discord 通知
     history = data.get("history", [])

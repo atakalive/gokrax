@@ -78,6 +78,48 @@ def send_to_agent_queued(agent_id: str, message: str, timeout: int = AGENT_SEND_
         return False
 
 
+def ping_agent(agent_id: str, timeout: int = 20) -> bool:
+    """Send ping to agent and return True if it responds (returncode==0).
+
+    Protocol: Any response (even "NO_REPLY") counts as alive.
+    Timeout or returncode!=0 indicates agent is down.
+    In DRY_RUN mode, always returns True.
+
+    Args:
+        agent_id: Agent identifier
+        timeout: CLI timeout in seconds
+
+    Returns:
+        True if agent is alive (returncode==0), False otherwise
+    """
+    if config.DRY_RUN:
+        logger.info("[dry-run] ping_agent skipped (agent=%s)", agent_id)
+        return True
+
+    try:
+        result = subprocess.run(
+            [
+                "openclaw", "agent",
+                "--agent", agent_id,
+                "--message", "ping",
+                "--json",
+                "--timeout", str(timeout)
+            ],
+            capture_output=True,
+            text=True,
+            timeout=timeout + 10,  # subprocess timeout > CLI timeout
+        )
+        alive = result.returncode == 0
+        logger.info(
+            "ping_agent %s: %s (rc=%d)",
+            agent_id, "alive" if alive else "dead", result.returncode
+        )
+        return alive
+    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+        logger.warning("ping_agent %s: dead (%s)", agent_id, e)
+        return False
+
+
 def get_bot_token() -> str | None:
     """Discord bot token取得。失敗時はログ出力してNone返却。"""
     import re
@@ -218,14 +260,17 @@ def notify_implementer(agent_id: str, message: str):
 
 def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
                      repo_path: str = "", review_mode: str = "standard",
-                     prev_reviews: dict = None):
+                     prev_reviews: dict = None, excluded: list[str] = None):
     """各レビュアーに個別のメッセージを送信。
 
     review_mode が "skip" の場合は通知をスキップ（自動承認用）。
     バッチ開始時に全レビュアーへ /new を送信してセッションリセット。
+    excluded に含まれるレビュアーには通知しない。
     """
     if prev_reviews is None:
         prev_reviews = {}
+    if excluded is None:
+        excluded = []
 
     # review_mode 検証
     if review_mode not in REVIEW_MODES:
@@ -242,6 +287,9 @@ def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
 
     # 各レビュアーにレビュー依頼メッセージ送信（/new はDESIGN_PLAN/IMPL開始時に先行送信済み）
     for r in reviewers:
+        if r in excluded:
+            logger.info("notify_reviewers: skipping excluded reviewer=%s", r)
+            continue
         if r not in AGENTS:
             continue  # 既にログ出力済み
         msg = format_review_request(project, state, batch, gitlab, reviewer=r,

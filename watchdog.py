@@ -33,29 +33,67 @@ from pipeline_io import (
 from notify import notify_implementer, notify_reviewers, notify_discord, send_to_agent, send_to_agent_queued
 
 
-def _reset_reviewers(review_mode: str = "standard", implementer: str = ""):
-    """レビュアー（+実装担当）に /new を先行送信（collectキュー経由）。"""
+def _reset_reviewers(review_mode: str = "standard", implementer: str = "") -> list[str]:
+    """レビュアー（+実装担当）に /new を先行送信（collectキュー経由）。free tier をping確認。
+
+    Args:
+        review_mode: Review mode to determine member list
+        implementer: Implementer agent ID (if DESIGN_PLAN state)
+
+    Returns:
+        List of excluded reviewer names (those who failed ping check)
+    """
     from config import AGENTS, REVIEW_MODES, POST_NEW_COMMAND_WAIT_SEC
+    from notify import ping_agent
+    import config
     import time
+
     mode_config = REVIEW_MODES.get(review_mode, REVIEW_MODES["standard"])
     targets = set(mode_config["members"])
-    if implementer != "":
+    if implementer:
         targets.add(implementer)
+
     log(f"[/new] reset_reviewers: mode={review_mode}, impl='{implementer}', targets={sorted(targets)}")
+
+    # Send /new to all targets
     sent_impl = False
     for r in targets:
         if r in AGENTS:
             log(f"[/new] sending /new to {r}")
-            send_to_agent_queued(r, "/new")
+            if not send_to_agent_queued(r, "/new"):
+                log(f"[/new] WARNING: failed to send /new to {r}")
             if r == implementer:
                 sent_impl = True
         else:
             log(f"[/new] SKIP {r} (not in AGENTS)")
-    # 実装担当に/new送信後、セッションリセット完了を待つ
-    if sent_impl:
+
+    # Wait for session reset completion
+    if sent_impl or targets:
+        log(f"[/new] waiting {POST_NEW_COMMAND_WAIT_SEC} sec for session reset")
         from config import DRY_RUN
         if not DRY_RUN:
             time.sleep(POST_NEW_COMMAND_WAIT_SEC)
+
+    # Ping free tier reviewers
+    excluded = []
+    grace_sec = mode_config.get("grace_period_sec", 0)
+
+    # Skip ping if no grace period (lite/min/skip modes)
+    if grace_sec == 0:
+        log("[/new] no grace period, skipping ping")
+        return excluded
+
+    for reviewer in mode_config["members"]:
+        tier = config.get_tier(reviewer)
+        if tier == "free":
+            if not ping_agent(reviewer):
+                log(f"[/new] WARNING: free tier reviewer {reviewer} failed ping, excluding")
+                excluded.append(reviewer)
+
+    if excluded:
+        log(f"[/new] excluded {len(excluded)} reviewers: {excluded}")
+
+    return excluded
 
 
 def log(msg: str):
@@ -348,51 +386,146 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
 
     if state in ("DESIGN_REVIEW", "CODE_REVIEW"):
         key = "design_reviews" if "DESIGN" in state else "code_reviews"
+        appr = "DESIGN_APPROVED" if "DESIGN" in state else "CODE_APPROVED"
+        revise_state = "DESIGN_REVISE" if "DESIGN" in state else "CODE_REVISE"
         review_mode = data.get("review_mode", "standard") if data else "standard"
 
         # "skip" mode: 即座に承認状態へ遷移
         if review_mode == "skip":
-            appr = "DESIGN_APPROVED" if "DESIGN" in state else "CODE_APPROVED"
             return TransitionAction(
                 new_state=appr,
                 impl_msg=f"[review_mode=skip] 自動承認: {appr}",
             )
 
         mode_config = REVIEW_MODES.get(review_mode, REVIEW_MODES["standard"])
-        min_rev = mode_config["min_reviews"]
+        min_rev = data.get("min_reviews_override", mode_config["min_reviews"]) if data else mode_config["min_reviews"]
+        excluded = data.get("excluded_reviewers", []) if data else []
+        effective_count = len(mode_config["members"]) - len(excluded)
+        grace_sec = mode_config.get("grace_period_sec", 0)
+
         count, has_p0 = count_reviews(batch, key)
 
+        # Check if min_reviews reached
         if count >= min_rev:
-            pj = data.get("project", "") if data else ""
-            if has_p0:
-                # Check REVISE cycle limit (Issue #29)
-                from config import MAX_REVISE_CYCLES
-                counter_key = "design_revise_count" if "DESIGN" in state else "code_revise_count"
-                current_count = data.get(counter_key, 0) if data else 0
+            # Record when min_reviews was first met
+            met_key = f"{'design' if 'DESIGN' in state else 'code'}_min_reviews_met_at"
+            if data and not data.get(met_key):
+                from datetime import timedelta
+                data[met_key] = datetime.now(JST).isoformat()
+                log(
+                    f"[GRACE] min_reviews={min_rev} met at {data[met_key]}, effective={effective_count}, grace={grace_sec} sec"
+                )
 
-                if current_count >= MAX_REVISE_CYCLES:
-                    # Reached maximum cycles, transition to BLOCKED
-                    phase = "設計" if "DESIGN" in state else "コード"
+            # Case 1: All effective reviewers done → immediate transition
+            if count >= effective_count:
+                log(f"[GRACE] all {effective_count} effective reviewers done, transitioning")
+                if data:
+                    data.pop(met_key, None)  # Clear met_at timestamp
+
+                pj = data.get("project", "") if data else ""
+                if has_p0:
+                    # Check REVISE cycle limit (Issue #29)
+                    from config import MAX_REVISE_CYCLES
+                    counter_key = "design_revise_count" if "DESIGN" in state else "code_revise_count"
+                    current_count = data.get(counter_key, 0) if data else 0
+
+                    if current_count >= MAX_REVISE_CYCLES:
+                        # Reached maximum cycles, transition to BLOCKED
+                        phase = "設計" if "DESIGN" in state else "コード"
+                        return TransitionAction(
+                            new_state="BLOCKED",
+                            impl_msg=(
+                                f"{phase}レビューサイクルが上限（{MAX_REVISE_CYCLES}回）に達しました。\n"
+                                f"P0の指摘が解消されていません。手動で対応してください。DiscordでMに報告してください。"
+                            ),
+                        )
+
                     return TransitionAction(
-                        new_state="BLOCKED",
-                        impl_msg=(
-                            f"{phase}レビューサイクルが上限（{MAX_REVISE_CYCLES}回）に達しました。\n"
-                            f"P0の指摘が解消されていません。手動で対応してください。DiscordでMに報告してください。"
-                        ),
+                        new_state=revise_state,
+                        impl_msg=get_notification_for_state(revise_state, project=pj, batch=batch).impl_msg,
+                    )
+                else:
+                    return TransitionAction(new_state=appr)
+
+            # Case 2: Check grace period
+            # No grace if min_reviews == effective_count (all reviewers required)
+            effective_grace = grace_sec if min_rev < effective_count else 0
+
+            if effective_grace > 0 and data and data.get(met_key):
+                from datetime import timedelta
+                met_at = datetime.fromisoformat(data[met_key])
+                now = datetime.now(JST)
+                elapsed = (now - met_at).total_seconds()
+
+                if elapsed >= effective_grace:
+                    log(
+                        f"[GRACE] grace period expired (elapsed={elapsed:.1f} sec, grace={effective_grace} sec), transitioning"
+                    )
+                    data.pop(met_key, None)  # Clear met_at timestamp
+
+                    pj = data.get("project", "") if data else ""
+                    if has_p0:
+                        # Check REVISE cycle limit
+                        from config import MAX_REVISE_CYCLES
+                        counter_key = "design_revise_count" if "DESIGN" in state else "code_revise_count"
+                        current_count = data.get(counter_key, 0) if data else 0
+
+                        if current_count >= MAX_REVISE_CYCLES:
+                            phase = "設計" if "DESIGN" in state else "コード"
+                            return TransitionAction(
+                                new_state="BLOCKED",
+                                impl_msg=(
+                                    f"{phase}レビューサイクルが上限（{MAX_REVISE_CYCLES}回）に達しました。\n"
+                                    f"P0の指摘が解消されていません。手動で対応してください。DiscordでMに報告してください。"
+                                ),
+                            )
+
+                        return TransitionAction(
+                            new_state=revise_state,
+                            impl_msg=get_notification_for_state(revise_state, project=pj, batch=batch).impl_msg,
+                        )
+                    else:
+                        return TransitionAction(new_state=appr)
+                else:
+                    remaining = effective_grace - elapsed
+                    log(
+                        f"[GRACE] waiting for remaining reviewers ({remaining:.1f} sec remaining)"
+                    )
+                    return TransitionAction()  # Stay in REVIEW state
+            else:
+                # No grace period or min==effective → immediate transition
+                if data:
+                    data.pop(met_key, None)  # Clear met_at timestamp
+
+                pj = data.get("project", "") if data else ""
+                log(f"[GRACE] no grace period, transitioning")
+                if has_p0:
+                    # Check REVISE cycle limit
+                    from config import MAX_REVISE_CYCLES
+                    counter_key = "design_revise_count" if "DESIGN" in state else "code_revise_count"
+                    current_count = data.get(counter_key, 0) if data else 0
+
+                    if current_count >= MAX_REVISE_CYCLES:
+                        phase = "設計" if "DESIGN" in state else "コード"
+                        return TransitionAction(
+                            new_state="BLOCKED",
+                            impl_msg=(
+                                f"{phase}レビューサイクルが上限（{MAX_REVISE_CYCLES}回）に達しました。\n"
+                                f"P0の指摘が解消されていません。手動で対応してください。DiscordでMに報告してください。"
+                            ),
+                        )
+
+                    return TransitionAction(
+                        new_state=revise_state,
+                        impl_msg=get_notification_for_state(revise_state, project=pj, batch=batch).impl_msg,
+                    )
+                else:
+                    return TransitionAction(
+                        new_state=appr,
+                        impl_msg=get_notification_for_state(appr, project=pj, batch=batch).impl_msg,
                     )
 
-                # Under limit, proceed with REVISE transition
-                rev = "DESIGN_REVISE" if "DESIGN" in state else "CODE_REVISE"
-                return TransitionAction(
-                    new_state=rev,
-                    impl_msg=get_notification_for_state(rev, project=pj, batch=batch).impl_msg,
-                )
-            else:
-                appr = "DESIGN_APPROVED" if "DESIGN" in state else "CODE_APPROVED"
-                return TransitionAction(
-                    new_state=appr,
-                    impl_msg=get_notification_for_state(appr, project=pj, batch=batch).impl_msg,
-                )
+        # Not enough reviews yet
         # 未完了レビュアーの催促（猶予期間内はスキップ）
         entered_at = _get_state_entered_at(data, state) if data is not None else None
         if entered_at is not None:
@@ -418,10 +551,30 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
         )
 
     if state in ("DESIGN_REVISE", "CODE_REVISE"):
+        review_key = "design_reviews" if "DESIGN" in state else "code_reviews"
         revised_key = "design_revised" if "DESIGN" in state else "code_revised"
-        if all(i.get(revised_key) for i in batch):
-            review_state = "DESIGN_REVIEW" if "DESIGN" in state else "CODE_REVIEW"
+        review_state = "DESIGN_REVIEW" if "DESIGN" in state else "CODE_REVIEW"
+
+        # Issue #37 fix: Only P0/REJECT issues need the revised flag
+        all_done = True
+        for issue in batch:
+            # Check if this issue has any P0/REJECT verdicts
+            has_p0 = any(
+                r.get("verdict", "").upper() in ("REJECT", "P0")
+                for r in issue.get(review_key, {}).values()
+            )
+
+            # Only P0/REJECT issues need the revised flag
+            if has_p0 and not issue.get(revised_key):
+                all_done = False
+                break
+
+        if all_done:
+            log(
+                f"[REVISE] all P0/REJECT issues revised, transitioning to {review_state}"
+            )
             return TransitionAction(new_state=review_state, send_review=True)
+
         nudge = _check_nudge(state, data) if data is not None else None
         return nudge or TransitionAction()
 
@@ -741,6 +894,14 @@ def process(path: Path):
             
             clear_reviews(batch, key, revised_key)
 
+            # Clear met_at timestamp when REVISE→REVIEW
+            if "DESIGN" in state:
+                data.pop("design_min_reviews_met_at", None)
+                log(f"[{pj}] cleared design_min_reviews_met_at")
+            else:
+                data.pop("code_min_reviews_met_at", None)
+                log(f"[{pj}] cleared code_min_reviews_met_at")
+
         # BLOCKED: Disable watchdog (Issue #29)
         if action.new_state == "BLOCKED":
             data["enabled"] = False
@@ -889,8 +1050,32 @@ def process(path: Path):
             if action.new_state == "DESIGN_PLAN":
                 # DESIGN_PLAN開始時は毎回実装担当もリセット（compaction破損対策）
                 impl = notification["implementer"]
-            log(f"[{pj}] reset_reviewers triggered: new_state={action.new_state}, impl='{impl}', review_mode={notification.get('review_mode', 'standard')}")
-            _reset_reviewers(notification.get("review_mode", "standard"), implementer=impl)
+            review_mode = notification.get("review_mode", "standard")
+            log(f"[{pj}] reset_reviewers triggered: new_state={action.new_state}, impl='{impl}', review_mode={review_mode}")
+            excluded = _reset_reviewers(review_mode, implementer=impl)
+
+            # Save excluded_reviewers and min_reviews_override inside update_pipeline lock
+            mode_config = REVIEW_MODES.get(review_mode, REVIEW_MODES["standard"])
+            path = get_path(pj)
+
+            def _save_excluded(data):
+                data["excluded_reviewers"] = excluded
+
+                # Calculate effective reviewer count
+                effective_count = len(mode_config["members"]) - len(excluded)
+                min_reviews = mode_config["min_reviews"]
+
+                # Clamp min_reviews if deadlock would occur
+                if effective_count < min_reviews:
+                    clamped = max(effective_count, 0)
+                    log(
+                        f"[{pj}] [DEADLOCK] effective reviewers ({effective_count}) < min_reviews ({min_reviews}), clamping to {clamped}"
+                    )
+                    data["min_reviews_override"] = clamped
+                else:
+                    data.pop("min_reviews_override", None)
+
+            update_pipeline(path, _save_excluded)
 
         if action.impl_msg:
             notify_implementer(
@@ -900,12 +1085,14 @@ def process(path: Path):
         if action.send_review:
             review_mode = notification.get("review_mode", "standard")
             prev_reviews = notification.get("prev_reviews", {})
+            excluded = notification.get("excluded_reviewers", [])
 
             notify_reviewers(
                 pj, action.new_state, notification["batch"], notification["gitlab"],
                 repo_path=notification.get("repo_path", ""),
                 review_mode=review_mode,
                 prev_reviews=prev_reviews,
+                excluded=excluded,
             )
         if action.run_cc:
             try:

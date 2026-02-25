@@ -97,24 +97,45 @@ REVIEW_MODES = {
     "full": {
         "members": ["pascal", "leibniz", "hanfei", "dijkstra"],
         "min_reviews": 3,
+        "grace_period_sec": 300,
     },
     "standard": {
         "members": ["pascal", "leibniz", "hanfei"],
         "min_reviews": 2,
+        "grace_period_sec": 300,
     },
     "lite": {
         "members": ["leibniz", "pascal"],
         "min_reviews": 2,
+        "grace_period_sec": 0,
     },
     "min": {
         "members": ["leibniz"],
         "min_reviews": 1,
+        "grace_period_sec": 0,
     },
     "skip": {
         "members": [],
         "min_reviews": 0,
+        "grace_period_sec": 0,
     },
 }
+
+# Reviewer tiers: regular, semi, free
+REVIEWER_TIERS: dict[str, list[str]] = {
+    "regular": ["leibniz", "dijkstra"],
+    "semi": ["pascal"],
+    "free": ["hanfei"],
+}
+
+
+def get_tier(agent_name: str) -> str:
+    """Return tier for agent. Unknown agents are conservatively marked as 'free'."""
+    for tier, members in REVIEWER_TIERS.items():
+        if agent_name in members:
+            return tier
+    return "free"
+
 
 # Maximum characters for embedded review data (issue body + diff)
 # レビュアーの最小コンテキスト200k中、プロンプト等で40k消費 → 残り160k
@@ -162,3 +183,24 @@ MERGE_SUMMARY_FOOTER = "\n---\n✅ このメッセージに「OK」とリプラ�
 
 # グローバル状態ファイル（PJ 間セッション管理用）
 DEVBAR_STATE_PATH = PIPELINES_DIR.parent / "devbar-state.json"
+
+
+def _validate_reviewer_tiers():
+    """Warn if REVIEW_MODES contains reviewers not in REVIEWER_TIERS."""
+    import logging
+    logger = logging.getLogger(__name__)
+
+    all_tier_members = set()
+    for members in REVIEWER_TIERS.values():
+        all_tier_members.update(members)
+
+    for mode_name, config in REVIEW_MODES.items():
+        for reviewer in config["members"]:
+            if reviewer not in all_tier_members:
+                logger.warning(
+                    "[config] Reviewer '%s' in mode '%s' not found in REVIEWER_TIERS, will be treated as 'free'",
+                    reviewer, mode_name
+                )
+
+
+_validate_reviewer_tiers()

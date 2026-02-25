@@ -749,6 +749,8 @@ def process(path: Path):
             "batch": saved_batch,
             "repo_path": data.get("repo_path", ""),
             "review_mode": data.get("review_mode", "standard"),
+            "prev_code_reviews": data.get("_prev_code_reviews", {}),
+            "prev_design_reviews": data.get("_prev_design_reviews", {}),
         })
 
     update_pipeline(path, do_transition)
@@ -878,10 +880,15 @@ def process(path: Path):
             )
         if action.send_review:
             review_mode = notification.get("review_mode", "standard")
+            is_code_review = "CODE" in action.new_state
+            prev_reviews = (notification.get("prev_code_reviews", {}) if is_code_review
+                            else notification.get("prev_design_reviews", {}))
+
             notify_reviewers(
                 pj, action.new_state, notification["batch"], notification["gitlab"],
                 repo_path=notification.get("repo_path", ""),
                 review_mode=review_mode,
+                prev_reviews=prev_reviews,
             )
         if action.run_cc:
             try:

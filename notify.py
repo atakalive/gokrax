@@ -217,12 +217,16 @@ def notify_implementer(agent_id: str, message: str):
 
 
 def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
-                     repo_path: str = "", review_mode: str = "standard"):
+                     repo_path: str = "", review_mode: str = "standard",
+                     prev_reviews: dict = None):
     """各レビュアーに個別のメッセージを送信。
 
     review_mode が "skip" の場合は通知をスキップ（自動承認用）。
     バッチ開始時に全レビュアーへ /new を送信してセッションリセット。
     """
+    if prev_reviews is None:
+        prev_reviews = {}
+
     # review_mode 検証
     if review_mode not in REVIEW_MODES:
         logger.error("Invalid review_mode: %s, defaulting to 'standard'", review_mode)
@@ -241,7 +245,7 @@ def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
         if r not in AGENTS:
             continue  # 既にログ出力済み
         msg = format_review_request(project, state, batch, gitlab, reviewer=r,
-                                    repo_path=repo_path)
+                                    repo_path=repo_path, prev_reviews=prev_reviews)
         if not msg:
             logger.info("No pending issues for %s — skipping review request", r)
             continue
@@ -304,8 +308,12 @@ def fetch_discord_replies(channel_id: str, after_message_id: str) -> list[dict]:
 
 
 def format_review_request(project: str, state: str, batch: list, gitlab: str,
-                          reviewer: str, repo_path: str = "") -> str:
+                          reviewer: str, repo_path: str = "",
+                          prev_reviews: dict = None) -> str:
     """レビュー依頼メッセージを生成（データ埋め込み + 20000文字制限）。"""
+    if prev_reviews is None:
+        prev_reviews = {}
+
     is_code = "CODE" in state
     phase = "コード" if is_code else "設計"
     sections = []
@@ -317,13 +325,24 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
         title = i.get("title", "")
         commit = i.get("commit")
 
-        # APPROVE/P1済みIssueはスキップ（再レビュー不要）
+        # APPROVE済みIssueはスキップ（再レビュー不要）
         review_key = "code_reviews" if is_code else "design_reviews"
         existing = i.get(review_key, {}).get(reviewer, {})
-        if existing.get("verdict", "").upper() in ("APPROVE", "P1"):
+        if existing.get("verdict", "").upper() == "APPROVE":
             continue
 
         section_parts = [f"### #{num}: {title}\n"]
+
+        # 再レビュー: 前回の指摘を引用 (Issue #35)
+        if prev_reviews:
+            issue_prev = prev_reviews.get(num, {})
+            prev_review = issue_prev.get(reviewer, {})
+            if prev_review:
+                prev_verdict = prev_review.get("verdict", "")
+                prev_summary = prev_review.get("summary", "").strip()
+                if prev_summary:  # Only show if summary is non-empty
+                    quoted = "\n".join(f"> {line}" for line in prev_summary.split("\n"))
+                    section_parts.append(f"\n**前回の指摘 ({prev_verdict}):**\n{quoted}\n\n")
 
         # Issue本文を取得して埋め込み
         issue_body = fetch_issue_body(num, gitlab)

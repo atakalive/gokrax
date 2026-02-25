@@ -461,3 +461,106 @@ class TestNotifyReviewersWithMode:
 
         # 4 reviewers × 1 call (review message only) = 4 calls
         assert mock_send.call_count == 4
+
+
+class TestPrevReviews:
+    """前回レビューの引用表示テスト（Issue #35）"""
+
+    def _make_batch_item(self, issue_num, title="t"):
+        return {
+            "issue": issue_num, "title": title, "commit": None,
+            "design_reviews": {}, "code_reviews": {},
+        }
+
+    def test_format_review_request_with_prev_feedback(self):
+        """再レビュー時に前回の指摘が引用される"""
+        import notify
+        batch = [self._make_batch_item(42, "Test Issue")]
+        prev_reviews = {
+            42: {
+                "pascal": {
+                    "verdict": "P0",
+                    "summary": "InitAsync メソッドがありません",
+                    "at": "2026-02-25T10:00:00+09:00"
+                }
+            }
+        }
+
+        with patch("notify.fetch_issue_body", return_value="Fix the bug"):
+            msg = notify.format_review_request(
+                "TestPJ", "DESIGN_REVIEW", batch, "test/repo",
+                reviewer="pascal", prev_reviews=prev_reviews
+            )
+
+        # Check that previous feedback is quoted
+        assert "**前回の指摘 (P0):**" in msg
+        assert "> InitAsync メソッドがありません" in msg
+
+    def test_prev_feedback_multiline_quote(self):
+        """複数行のフィードバックが正しく引用される"""
+        import notify
+        batch = [self._make_batch_item(1, "Test")]
+        prev_reviews = {
+            1: {
+                "pascal": {
+                    "verdict": "P1",
+                    "summary": "Line 1\nLine 2\nLine 3"
+                }
+            }
+        }
+
+        with patch("notify.fetch_issue_body", return_value=""):
+            msg = notify.format_review_request(
+                "TestPJ", "DESIGN_REVIEW", batch, "test/repo",
+                reviewer="pascal", prev_reviews=prev_reviews
+            )
+
+        assert "> Line 1\n> Line 2\n> Line 3" in msg
+
+    def test_format_review_request_no_prev_feedback(self):
+        """初回レビュー（prev_reviews=None）では引用なし"""
+        import notify
+        batch = [self._make_batch_item(1, "Bug")]
+
+        with patch("notify.fetch_issue_body", return_value="Fix it"):
+            msg = notify.format_review_request(
+                "TestPJ", "DESIGN_REVIEW", batch, "test/repo",
+                reviewer="pascal", prev_reviews=None
+            )
+
+        assert "前回の指摘" not in msg
+
+    def test_prev_feedback_different_reviewer(self):
+        """他のレビュアーのフィードバックは表示されない"""
+        import notify
+        batch = [self._make_batch_item(1, "Test")]
+        prev_reviews = {
+            1: {
+                "leibniz": {"verdict": "P0", "summary": "Bad code"}
+            }
+        }
+
+        with patch("notify.fetch_issue_body", return_value=""):
+            msg = notify.format_review_request(
+                "TestPJ", "DESIGN_REVIEW", batch, "test/repo",
+                reviewer="pascal", prev_reviews=prev_reviews
+            )
+
+        assert "前回の指摘" not in msg
+        assert "Bad code" not in msg
+
+    def test_prev_feedback_empty_summary(self):
+        """空のsummaryは引用されない"""
+        import notify
+        batch = [self._make_batch_item(1, "Test")]
+        prev_reviews = {
+            1: {"pascal": {"verdict": "P0", "summary": ""}}
+        }
+
+        with patch("notify.fetch_issue_body", return_value=""):
+            msg = notify.format_review_request(
+                "TestPJ", "DESIGN_REVIEW", batch, "test/repo",
+                reviewer="pascal", prev_reviews=prev_reviews
+            )
+
+        assert "前回の指摘" not in msg

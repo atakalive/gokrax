@@ -93,13 +93,13 @@ class TestClearReviews:
         for issue in batch:
             assert "code_revised" not in issue
 
-    def test_p1_verdict_kept(self):
-        """P1 verdict → レビュー保持"""
+    def test_p1_verdict_cleared(self):
+        """P1 verdict → レビュークリア（Issue #36修正後）"""
         batch = [
             {
                 "issue": 1,
                 "code_reviews": {
-                    "pascal": {"verdict": "P1", "at": "t"},
+                    "pascal": {"verdict": "P1", "at": "t", "summary": "minor issue"},
                     "leibniz": {"verdict": "APPROVE", "at": "t"},
                 },
                 "code_revised": True,
@@ -107,6 +107,7 @@ class TestClearReviews:
         ]
         clear_reviews(batch, "code_reviews", "code_revised")
 
-        # P1はクリア対象ではないのでレビュー保持
-        assert len(batch[0]["code_reviews"]) == 2
+        # P1クリア、APPROVEは保持
+        assert "pascal" not in batch[0]["code_reviews"]
+        assert "leibniz" in batch[0]["code_reviews"]
         assert "code_revised" not in batch[0]

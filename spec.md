@@ -90,8 +90,8 @@ IDLE → DESIGN_PLAN → DESIGN_REVIEW → DESIGN_APPROVED → IMPLEMENTATION
 ### 4.3 REVISEループ
 
 - P0/REJECTが含まれる場合、REVIEW → REVISEに遷移
-- REVISE完了後、P0/REJECTを出したレビュアーのレビューのみクリアされる（APPROVE/P1は保持）
-- 再レビュー時、既にAPPROVE/P1済みのIssue×レビュアーの組はスキップ
+- REVISE完了後、APPROVE以外のレビュー（P0/P1/REJECT）はクリアされる（APPROVEのみ保持）
+- 再レビュー時、既にAPPROVE済みのIssue×レビュアーの組はスキップ
 - **最大2サイクル** (`MAX_REVISE_CYCLES=2`)。超過するとBLOCKED
 
 ## 5. レビューモード
@@ -212,8 +212,8 @@ IDLE → DESIGN_PLAN → DESIGN_REVIEW → DESIGN_APPROVED → IMPLEMENTATION
 | Verdict | 意味 | 効果 |
 |---------|------|------|
 | APPROVE | 承認 | カウント対象。再レビュー時スキップ |
-| P0 | 必須修正（ブロッカー） | REVISE遷移トリガー。クリア対象 |
-| P1 | 軽微な指摘（ブロックしない） | APPROVE同等扱い。再レビュー時スキップ |
+| P0 | 必須修正（ブロッカー） | REVISE遷移トリガー。revise後クリアされる |
+| P1 | 軽微な指摘（ブロックしない） | カウント対象。revise後クリアされる |
 | REJECT | 却下 | P0と同等 |
 
 ## 10. テスト原則

@@ -241,7 +241,7 @@ def get_notification_for_state(
         msg = (
             f"[devbar] {project}: 設計確認フェーズ\n"
             f"対象Issue: {issues_str}\n"
-            f"Claude Codeが楽に実装できる粒度まで、**対象Issue本文の説明を修正せよ** (glab issue update)。\n"
+            f"Claude Codeが確実に実装できる粒度まで、**対象Issue本文の説明を修正せよ** (glab issue update)。\n"
             f"コメントによる補足は禁止する。\n"
             f"全て修正後、問題がなければ plan-done して完了せよ（一括報告できる）。\n"
             f"python3 {DEVBAR_CLI} plan-done --project {project} --issue N [N...]\n"
@@ -258,6 +258,7 @@ def get_notification_for_state(
             f"1. P0指摘を読み、Issue本文を修正する（glab issue update）\n"
             f"2. devbar に完了報告:\n"
             f"   python3 {DEVBAR_CLI} design-revise --pj {project} --issue N [N...]\n"
+            f"なお、レビュアー指摘と設計判断が両立しない場合は、別のIssueを立てて議論の場を用意せよ。\n"
             f"[お願い] 仕事は中断せず、完了まで一気にやること。"
         )
         return TransitionAction(impl_msg=msg)
@@ -272,6 +273,7 @@ def get_notification_for_state(
             f"2. git commit する\n"
             f"3. devbar に完了報告:\n"
             f"   python3 {DEVBAR_CLI} code-revise --pj {project} --issue N [N...] --hash <commit>\n"
+            f"なお、レビュアー指摘と設計判断が両立しない場合は、別のIssueを立てて議論の場を用意せよ。\n"
             f"[お願い] 仕事は中断せず、完了まで一気にやること。"
         )
         return TransitionAction(impl_msg=msg)
@@ -361,7 +363,7 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
                         new_state="BLOCKED",
                         impl_msg=(
                             f"{phase}レビューサイクルが上限（{MAX_REVISE_CYCLES}回）に達しました。\n"
-                            f"P0の指摘が解消されていません。手動で対応してください。"
+                            f"P0の指摘が解消されていません。手動で対応してください。DiscordでMに報告してください。"
                         ),
                     )
 

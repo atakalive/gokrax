@@ -67,6 +67,12 @@ def log(msg: str):
         f.write(line + "\n")
 
 
+def _is_ok_reply(content: str) -> bool:
+    """マージサマリーへのOK返信を判定。ok, OK, おk, おｋ 等に対応。"""
+    s = content.strip().lower()
+    return s.startswith("ok") or s.startswith("おk") or s.startswith("おｋ")
+
+
 def count_reviews(batch: list, key: str) -> tuple:
     """(最小レビュー数, P0有無)"""
     min_n = min((len(i.get(key, {})) for i in batch), default=0)
@@ -323,7 +329,7 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
             ref = msg.get("message_reference", {})
             if (ref.get("message_id") == summary_id
                     and msg.get("author", {}).get("id") == M_DISCORD_USER_ID
-                    and msg.get("content", "").strip().lower().startswith("ok")):
+                    and _is_ok_reply(msg.get("content", ""))):
                 return TransitionAction(new_state="DONE")
         return TransitionAction()
 

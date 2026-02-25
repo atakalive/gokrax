@@ -811,7 +811,7 @@ def process(path: Path):
                 nudge_msg += action.extend_notice
             send_to_agent_queued(notification["implementer"], nudge_msg)
             ts = _datetime.now(JST).strftime("%m/%d %H:%M")
-            notify_discord(f"[{pj}] {action.nudge}: 実装担当を催促 ({ts})")
+            notify_discord(f"[{pj}] {action.nudge}: 担当者({notification['implementer']})を催促 ({ts})")
             return
 
         ts = _datetime.now(JST).strftime("%m/%d %H:%M")

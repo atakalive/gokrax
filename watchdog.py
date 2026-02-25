@@ -41,15 +41,21 @@ def _reset_reviewers(review_mode: str = "standard", implementer: str = ""):
     targets = set(mode_config["members"])
     if implementer != "":
         targets.add(implementer)
+    log(f"[/new] reset_reviewers: mode={review_mode}, impl='{implementer}', targets={sorted(targets)}")
     sent_impl = False
     for r in targets:
         if r in AGENTS:
+            log(f"[/new] sending /new to {r}")
             send_to_agent_queued(r, "/new")
             if r == implementer:
                 sent_impl = True
+        else:
+            log(f"[/new] SKIP {r} (not in AGENTS)")
     # 実装担当に/new送信後、セッションリセット完了を待つ
     if sent_impl:
-        time.sleep(POST_NEW_COMMAND_WAIT_SEC)
+        from config import DRY_RUN
+        if not DRY_RUN:
+            time.sleep(POST_NEW_COMMAND_WAIT_SEC)
 
 
 def log(msg: str):
@@ -800,8 +806,8 @@ def process(path: Path):
                 update_pipeline(path, _set_nudge_ts)
             if woken:
                 ts = _datetime.now(JST).strftime("%m/%d %H:%M")
-                log(f"[{pj}] レビュアー催促: {', '.join(woken)} ({ts})")
-                notify_discord(f"[{pj}] レビュアー催促: {', '.join(woken)} ({ts})")
+                log(f"[{pj}] レビュアーを催促: {', '.join(woken)} ({ts})")
+                notify_discord(f"[{pj}] レビュアーを催促: {', '.join(woken)} ({ts})")
             return
 
         if action.nudge:
@@ -811,7 +817,7 @@ def process(path: Path):
                 nudge_msg += action.extend_notice
             send_to_agent_queued(notification["implementer"], nudge_msg)
             ts = _datetime.now(JST).strftime("%m/%d %H:%M")
-            notify_discord(f"[{pj}] {action.nudge}: 担当者({notification['implementer']})を催促 ({ts})")
+            notify_discord(f"[{pj}] {action.nudge}: 担当者 {notification['implementer']} を催促 ({ts})")
             return
 
         ts = _datetime.now(JST).strftime("%m/%d %H:%M")
@@ -877,6 +883,7 @@ def process(path: Path):
             if action.new_state == "DESIGN_PLAN":
                 # DESIGN_PLAN開始時は毎回実装担当もリセット（compaction破損対策）
                 impl = notification["implementer"]
+            log(f"[{pj}] reset_reviewers triggered: new_state={action.new_state}, impl='{impl}', review_mode={notification.get('review_mode', 'standard')}")
             _reset_reviewers(notification.get("review_mode", "standard"), implementer=impl)
 
         if action.impl_msg:

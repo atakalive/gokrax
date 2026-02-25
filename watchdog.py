@@ -34,7 +34,7 @@ from notify import notify_implementer, notify_reviewers, notify_discord, send_to
 
 
 def _reset_reviewers(review_mode: str = "standard", implementer: str = ""):
-    """レビュアー（+実装担当）に /new を先行送信。"""
+    """レビュアー（+実装担当）に /new を先行送信（collectキュー経由）。"""
     from config import AGENTS, REVIEW_MODES, POST_NEW_COMMAND_WAIT_SEC
     import time
     mode_config = REVIEW_MODES.get(review_mode, REVIEW_MODES["standard"])
@@ -44,9 +44,8 @@ def _reset_reviewers(review_mode: str = "standard", implementer: str = ""):
     sent_impl = False
     for r in targets:
         if r in AGENTS:
-            if not send_to_agent(r, "/new"):
-                log(f"WARNING: failed to send /new to {r}")
-            elif r == implementer:
+            send_to_agent_queued(r, "/new")
+            if r == implementer:
                 sent_impl = True
     # 実装担当に/new送信後、セッションリセット完了を待つ
     if sent_impl:

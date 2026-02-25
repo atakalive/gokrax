@@ -678,8 +678,9 @@ def process(path: Path):
 
         pj = data.get("project", path.stem)
 
-        # DONE状態: バッチクリア + watchdog無効化 + タイムアウト延長リセット + REVISE counters reset
+        # DONE状態: バッチを退避してからクリア + watchdog無効化 + タイムアウト延長リセット + REVISE counters reset
         if state == "DONE":
+            _done_batch = list(data.get("batch", []))  # close用に退避
             data["batch"] = []
             data["enabled"] = False
             data.pop("timeout_extension", None)
@@ -722,13 +723,15 @@ def process(path: Path):
         data["state"] = action.new_state
 
         # ロック外通知用に情報を保存
+        # DONE遷移時はbatchが既にクリア済みなので退避分を使う
+        saved_batch = _done_batch if state == "DONE" else list(data.get("batch", []))
         notification.update({
             "pj": pj,
             "old_state": state,
             "action": action,
             "gitlab": data.get("gitlab", f"atakalive/{pj}"),
             "implementer": data.get("implementer", "kaneko"),
-            "batch": list(data.get("batch", [])),
+            "batch": saved_batch,
             "repo_path": data.get("repo_path", ""),
             "review_mode": data.get("review_mode", "standard"),
         })

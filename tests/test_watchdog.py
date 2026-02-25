@@ -1481,3 +1481,40 @@ class TestDiscordStatusCommand:
 
         # State file should not be created
         assert not state_path.exists()
+
+
+class TestAutoCloseOnDone:
+    """DONE遷移時にissue closeにbatchが正しく渡されること"""
+
+    def test_merge_summary_to_done_passes_batch(self, tmp_path, monkeypatch):
+        """MERGE_SUMMARY_SENT→DONE遷移でbatchが_auto_push_and_closeに渡される"""
+        import config, pipeline_io
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        batch = [{"issue": 99, "title": "test issue", "commit": "abc123",
+                  "design_reviews": {}, "code_reviews": {}}]
+        path = tmp_path / "test-pj.json"
+        _write_pipeline(path, {
+            "project": "test-pj", "state": "MERGE_SUMMARY_SENT", "enabled": True,
+            "batch": batch, "gitlab": "atakalive/test-pj",
+            "repo_path": "/tmp/test", "review_mode": "standard",
+            "summary_message_id": "123456",
+            "history": [{"from": "CODE_APPROVED", "to": "MERGE_SUMMARY_SENT",
+                         "at": "2026-01-01T00:00:00+09:00", "actor": "watchdog"}],
+        })
+
+        # MのOKリプライをモック
+        mock_messages = [{"id": "999", "author": {"id": config.M_DISCORD_USER_ID},
+                          "content": "ok", "message_reference": {"message_id": "123456"}}]
+
+        from watchdog import process
+        with patch("watchdog.notify_discord"), \
+             patch("notify.fetch_discord_replies", return_value=mock_messages), \
+             patch("watchdog._auto_push_and_close") as mock_close:
+            process(path)
+
+        mock_close.assert_called_once()
+        called_batch = mock_close.call_args[0][2]  # 3rd positional arg
+        assert len(called_batch) == 1
+        assert called_batch[0]["issue"] == 99

@@ -340,9 +340,10 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
             if prev_review:
                 prev_verdict = prev_review.get("verdict", "")
                 prev_summary = prev_review.get("summary", "").strip()
-                if prev_summary:  # Only show if summary is non-empty
+                section_parts[0] = f"### #{num}: {title}（再レビュー — {prev_verdict}対応済み）\n"
+                if prev_summary:
                     quoted = "\n".join(f"> {line}" for line in prev_summary.split("\n"))
-                    section_parts.append(f"\n**前回の指摘 ({prev_verdict}):**\n{quoted}\n\n")
+                    section_parts.insert(1, f"**前回の{prev_verdict}指摘（あなた）:**\n{quoted}\n\n")
 
         # Issue本文を取得して埋め込み
         issue_body = fetch_issue_body(num, gitlab)

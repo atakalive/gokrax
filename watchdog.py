@@ -626,7 +626,13 @@ def process(path: Path):
     # === ロック内で第2チェック + 遷移 (Double-Checked Locking) ===
     notification: dict = {}
 
+    state0 = state  # 第1チェック時点のstate（DCL用）
+
     def do_transition(data):
+        # ロック待ち中に他プロセスが状態を変えた場合は何もしない（通知も含めてスキップ）
+        if data.get("state", "IDLE") != state0:
+            return
+
         state = data.get("state", "IDLE")
         batch = data.get("batch", [])
         action = check_transition(state, batch, data)
@@ -687,8 +693,6 @@ def process(path: Path):
             # Reset REVISE cycle counters (Issue #29)
             data.pop("design_revise_count", None)
             data.pop("code_revise_count", None)
-            data.pop("_prev_design_reviews", None)
-            data.pop("_prev_code_reviews", None)
 
         # IDLE→DESIGN_PLAN: Reset REVISE cycle counters (Issue #29)
         if state == "IDLE" and action.new_state == "DESIGN_PLAN":
@@ -707,17 +711,17 @@ def process(path: Path):
             key = "design_reviews" if "DESIGN" in state else "code_reviews"
             
             # クリア前にP0/P1レビューを退避（再レビュー依頼で前回指摘を引用するため）
-            prev_key = f"_prev_{key}"
             prev_reviews = {}
             for issue in batch:
                 reviews = issue.get(key, {})
                 cleared = {
-                    r: v for r, v in reviews.items()
+                    r: dict(v) for r, v in reviews.items()
                     if v.get("verdict", "").upper() in ("REJECT", "P0", "P1")
                 }
                 if cleared:
                     prev_reviews[issue["issue"]] = cleared
-            data[prev_key] = prev_reviews
+            # notification dict 経由で渡す（pipeline JSON には保存しない）
+            notification["prev_reviews"] = prev_reviews
             
             clear_reviews(batch, key, revised_key)
 
@@ -749,8 +753,6 @@ def process(path: Path):
             "batch": saved_batch,
             "repo_path": data.get("repo_path", ""),
             "review_mode": data.get("review_mode", "standard"),
-            "prev_code_reviews": data.get("_prev_code_reviews", {}),
-            "prev_design_reviews": data.get("_prev_design_reviews", {}),
         })
 
     update_pipeline(path, do_transition)
@@ -880,9 +882,7 @@ def process(path: Path):
             )
         if action.send_review:
             review_mode = notification.get("review_mode", "standard")
-            is_code_review = "CODE" in action.new_state
-            prev_reviews = (notification.get("prev_code_reviews", {}) if is_code_review
-                            else notification.get("prev_design_reviews", {}))
+            prev_reviews = notification.get("prev_reviews", {})
 
             notify_reviewers(
                 pj, action.new_state, notification["batch"], notification["gitlab"],

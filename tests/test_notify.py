@@ -493,7 +493,7 @@ class TestPrevReviews:
             )
 
         # Check that previous feedback is quoted
-        assert "**前回の指摘 (P0):**" in msg
+        assert "**前回のP0指摘（あなた）:**" in msg
         assert "> InitAsync メソッドがありません" in msg
 
     def test_prev_feedback_multiline_quote(self):
@@ -528,7 +528,7 @@ class TestPrevReviews:
                 reviewer="pascal", prev_reviews=None
             )
 
-        assert "前回の指摘" not in msg
+        assert "前回の" not in msg
 
     def test_prev_feedback_different_reviewer(self):
         """他のレビュアーのフィードバックは表示されない"""
@@ -546,7 +546,7 @@ class TestPrevReviews:
                 reviewer="pascal", prev_reviews=prev_reviews
             )
 
-        assert "前回の指摘" not in msg
+        assert "前回の" not in msg
         assert "Bad code" not in msg
 
     def test_prev_feedback_empty_summary(self):
@@ -563,4 +563,4 @@ class TestPrevReviews:
                 reviewer="pascal", prev_reviews=prev_reviews
             )
 
-        assert "前回の指摘" not in msg
+        assert "前回の" not in msg

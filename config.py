@@ -104,7 +104,7 @@ REVIEW_MODES = {
     },
     "lite": {
         "members": ["leibniz"],
-        "min_reviews": 2,
+        "min_reviews": 1,
     },
     "skip": {
         "members": [],

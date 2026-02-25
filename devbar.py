@@ -55,16 +55,13 @@ def _start_loop():
 
 
 def _stop_loop():
-    """watchdog-loop.sh を停止し、crontabエントリを削除。"""
-    # kill
+    """watchdog-loop.sh を停止。crontabは残す（次回enable時に自動復帰）。"""
     if WATCHDOG_LOOP_PIDFILE.exists():
         try:
             pid = int(WATCHDOG_LOOP_PIDFILE.read_text().strip())
             os.kill(pid, signal.SIGTERM)
         except (ValueError, OSError):
             pass
-    # crontab から削除
-    _remove_cron_entry()
 
 
 def _ensure_cron_entry():

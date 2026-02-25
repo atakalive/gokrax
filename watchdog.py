@@ -88,15 +88,15 @@ def _revise_target_issues(batch: list, review_key: str, revised_key: str) -> str
 
 
 def clear_reviews(batch: list, key: str, revised_key: str):
-    """P0/REJECTを出したレビュアーのレビューのみクリアする。
-    APPROVE/P1のレビューは保持。
+    """P0/REJECT/P1を出したレビュアーのレビューのみクリアする。
+    APPROVEのレビューは保持。
     revised_key は全Issueから削除（次のREVISEサイクル用）。
     """
     for issue in batch:
         reviews = issue.get(key, {})
         to_clear = [
             reviewer for reviewer, r in reviews.items()
-            if r.get("verdict", "").upper() in ("REJECT", "P0")
+            if r.get("verdict", "").upper() in ("REJECT", "P0", "P1")
         ]
         for reviewer in to_clear:
             del reviews[reviewer]
@@ -687,6 +687,8 @@ def process(path: Path):
             # Reset REVISE cycle counters (Issue #29)
             data.pop("design_revise_count", None)
             data.pop("code_revise_count", None)
+            data.pop("_prev_design_reviews", None)
+            data.pop("_prev_code_reviews", None)
 
         # IDLE→DESIGN_PLAN: Reset REVISE cycle counters (Issue #29)
         if state == "IDLE" and action.new_state == "DESIGN_PLAN":
@@ -703,6 +705,20 @@ def process(path: Path):
         if state in ("DESIGN_REVISE", "CODE_REVISE"):
             revised_key = "design_revised" if "DESIGN" in state else "code_revised"
             key = "design_reviews" if "DESIGN" in state else "code_reviews"
+            
+            # クリア前にP0/P1レビューを退避（再レビュー依頼で前回指摘を引用するため）
+            prev_key = f"_prev_{key}"
+            prev_reviews = {}
+            for issue in batch:
+                reviews = issue.get(key, {})
+                cleared = {
+                    r: v for r, v in reviews.items()
+                    if v.get("verdict", "").upper() in ("REJECT", "P0", "P1")
+                }
+                if cleared:
+                    prev_reviews[issue["issue"]] = cleared
+            data[prev_key] = prev_reviews
+            
             clear_reviews(batch, key, revised_key)
 
         # BLOCKED: Disable watchdog (Issue #29)
@@ -777,6 +793,7 @@ def process(path: Path):
             if woken:
                 ts = _datetime.now(JST).strftime("%m/%d %H:%M")
                 log(f"[{pj}] レビュアー催促: {', '.join(woken)} ({ts})")
+                notify_discord(f"[{pj}] レビュアー催促: {', '.join(woken)} ({ts})")
             return
 
         if action.nudge:

@@ -19,7 +19,7 @@ WATCHDOG_LOOP_PIDFILE = Path("/tmp/devbar-watchdog-loop.pid")
 WATCHDOG_LOOP_CRON_MARKER = "watchdog-loop"  # crontab行のgrep用マーカー
 WATCHDOG_LOOP_CRON_ENTRY = (
     f"* * * * * flock -n /tmp/devbar-watchdog-loop.lock"
-    f" nohup bash {Path(__file__).resolve().parent / 'watchdog-loop.sh'}"
+    f" setsid bash {Path(__file__).resolve().parent / 'watchdog-loop.sh'}"
     f" > /dev/null 2>&1 &"
 )
 

@@ -30,7 +30,7 @@ from pipeline_io import (
     load_pipeline, update_pipeline, get_path,
     add_history, now_iso, find_issue,
 )
-from notify import notify_implementer, notify_reviewers, notify_discord, send_to_agent, send_to_agent_queued
+from notify import notify_implementer, notify_reviewers, notify_discord, send_to_agent, send_to_agent_queued, ping_agent
 
 
 def _reset_reviewers(review_mode: str = "standard", implementer: str = "") -> list[str]:

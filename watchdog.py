@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config import (
     PIPELINES_DIR, JST, LOG_FILE, REVIEW_MODES, CC_MODEL_PLAN, CC_MODEL_IMPL,
     DEVBAR_CLI, INACTIVE_THRESHOLD_SEC, SESSIONS_BASE,
-    WATCHDOG_LOOP_PIDFILE, WATCHDOG_LOOP_CRON_MARKER,
+    # WATCHDOG_LOOP_PIDFILE, WATCHDOG_LOOP_CRON_MARKER は devbar.py の enable/disable 専用
 )
 from datetime import datetime as _datetime
 import json as _json
@@ -648,8 +648,18 @@ def process(path: Path):
             if not _is_agent_inactive(implementer, data):
                 # アクティブなら催促しない（カウンタも上げない）
                 return
+            # 前回催促からINACTIVE_THRESHOLD_SEC未満ならスキップ
+            last_nudge = data.get("_last_nudge_at")
+            if last_nudge:
+                try:
+                    elapsed_since_nudge = (_datetime.now(JST) - _datetime.fromisoformat(last_nudge)).total_seconds()
+                    if elapsed_since_nudge < INACTIVE_THRESHOLD_SEC:
+                        return
+                except (ValueError, TypeError):
+                    pass
             key = _nudge_key(action.nudge)
             data[key] = data.get(key, 0) + 1
+            data["_last_nudge_at"] = _datetime.now(JST).isoformat()
             pj = data.get("project", path.stem)
             log(f"[{pj}] {action.nudge}: 催促通知送信 (count={data[key]})")
             notification.update({
@@ -700,10 +710,11 @@ def process(path: Path):
             data["enabled"] = False
             log(f"[{pj}] Watchdog disabled due to BLOCKED transition")
 
-        # 催促カウンタ・失敗フラグリセット（状態から出るとき）
+        # 催促カウンタ・失敗フラグ・催促タイマーリセット（状態から出るとき）
         if state in BLOCK_TIMERS:
             data.pop(_nudge_key(state), None)
-        for k in [k for k in data if k.startswith("_nudge_failed_")]:
+        data.pop("_last_nudge_at", None)
+        for k in [k for k in data if k.startswith(("_nudge_failed_", "_last_nudge_"))]:
             del data[k]
 
         log(f"[{pj}] {state} → {action.new_state}")
@@ -737,28 +748,30 @@ def process(path: Path):
             failed = []
             for reviewer in notification["nudge_reviewers"]:
                 if _is_agent_inactive(reviewer):
-                    fail_key = f"_nudge_failed_{reviewer}"
-                    fail_at = pipeline_data.get(fail_key)
-                    if fail_at:
-                        # 10分経過したらリトライ許可
+                    # 前回催促からINACTIVE_THRESHOLD_SEC未満ならスキップ
+                    nudge_key = f"_last_nudge_{reviewer}"
+                    last_at = pipeline_data.get(nudge_key) or pipeline_data.get(f"_nudge_failed_{reviewer}")
+                    if last_at:
                         try:
-                            from datetime import datetime as _dt
-                            elapsed = (_datetime.now(JST) - _dt.fromisoformat(fail_at)).total_seconds()
-                            if elapsed < 600:
+                            elapsed = (_datetime.now(JST) - _datetime.fromisoformat(last_at)).total_seconds()
+                            if elapsed < INACTIVE_THRESHOLD_SEC:
                                 continue
                         except (ValueError, TypeError):
-                            continue
+                            pass
                     if send_to_agent_queued(reviewer, "continue"):
                         woken.append(reviewer)
                     else:
                         failed.append(reviewer)
                         log(f"[{pj}] {reviewer}: 催促送信失敗、次回スキップ")
-            # 失敗フラグを一括更新
-            if failed:
-                def _set_fails(data, reviewers=failed):
+            # 催促タイムスタンプを一括更新
+            nudged = woken + failed
+            if nudged:
+                def _set_nudge_ts(data, reviewers=nudged, ok=woken, ng=failed):
                     for r in reviewers:
+                        data[f"_last_nudge_{r}"] = _datetime.now(JST).isoformat()
+                    for r in ng:
                         data[f"_nudge_failed_{r}"] = _datetime.now(JST).isoformat()
-                update_pipeline(path, _set_fails)
+                update_pipeline(path, _set_nudge_ts)
             if woken:
                 ts = _datetime.now(JST).strftime("%m/%d %H:%M")
                 log(f"[{pj}] レビュアー催促: {', '.join(woken)} ({ts})")
@@ -861,28 +874,8 @@ def process(path: Path):
                 notify_discord(f"[{pj}] ⚠️ CC起動失敗: {e} ({ts})")
 
 
-def _stop_loop_if_idle():
-    """全PJが disabled なら watchdog-loop.sh を停止し crontab エントリを削除。"""
-    import os, signal, subprocess
-    for p in PIPELINES_DIR.glob("*.json"):
-        d = load_pipeline(p)
-        if d.get("enabled", False):
-            return  # まだアクティブなPJがある
-    # 全PJ disabled → loop停止
-    if WATCHDOG_LOOP_PIDFILE.exists():
-        try:
-            pid = int(WATCHDOG_LOOP_PIDFILE.read_text().strip())
-            os.kill(pid, signal.SIGTERM)
-        except (ValueError, OSError):
-            pass
-    # crontab エントリ削除
-    try:
-        current = subprocess.run(["crontab", "-l"], capture_output=True, text=True).stdout
-        lines = [l for l in current.splitlines() if WATCHDOG_LOOP_CRON_MARKER not in l]
-        subprocess.run(["crontab", "-"], input="\n".join(lines) + "\n", text=True, check=True)
-    except Exception:
-        pass
-    log("[watchdog] All projects disabled — loop stopped")
+# _stop_loop_if_idle は廃止。crontab/loop.sh は常時稼働し、
+# enabledチェックは process() 内の早期returnで行う。
 
 
 def _load_devbar_state() -> dict:
@@ -1000,9 +993,6 @@ def main():
             process(path)
         except Exception as e:
             log(f"[{path.stem}] ERROR: {e}")
-
-    # 全PJ完了/停止ならloop自体を停止
-    _stop_loop_if_idle()
 
 
 if __name__ == "__main__":

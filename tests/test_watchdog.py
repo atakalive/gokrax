@@ -1251,7 +1251,7 @@ class TestDiscordStatusCommand:
     def test_m_posts_status_gets_response(self, tmp_path, monkeypatch):
         """M posts 'status' → bot responds with status text."""
         from config import M_DISCORD_USER_ID, DISCORD_CHANNEL, DEVBAR_STATE_PATH
-        import watchdog
+        import watchdog, devbar
 
         # Setup pipeline
         path = tmp_path / "test-pj.json"
@@ -1263,6 +1263,7 @@ class TestDiscordStatusCommand:
         monkeypatch.setattr(config, "DEVBAR_STATE_PATH", state_path)
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(devbar, "PIPELINES_DIR", tmp_path)
 
         # Mock Discord API
         messages = [_mock_discord_message("1001", M_DISCORD_USER_ID, "status")]
@@ -1283,12 +1284,13 @@ class TestDiscordStatusCommand:
     def test_case_insensitive_status(self, tmp_path, monkeypatch):
         """'Status' and 'STATUS' both trigger response."""
         from config import M_DISCORD_USER_ID
-        import watchdog
+        import watchdog, devbar
 
         state_path = tmp_path / "devbar-state.json"
         monkeypatch.setattr(config, "DEVBAR_STATE_PATH", state_path)
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(devbar, "PIPELINES_DIR", tmp_path)
 
         messages = [
             _mock_discord_message("1001", M_DISCORD_USER_ID, "Status"),

@@ -121,12 +121,12 @@ ALLOWED_REVIEWERS = list(AGENTS.keys())
 
 # フェーズ別タイムアウト (秒)。0 = タイムアウトなし
 BLOCK_TIMERS = {
-    "DESIGN_PLAN":    900,   # 15分
+    "DESIGN_PLAN":    1800,  # 30分
     "DESIGN_REVIEW":  1800,  # 30分
-    "DESIGN_REVISE":  1200,  # 20分
-    "IMPLEMENTATION": 1800,  # 30分
+    "DESIGN_REVISE":  1800,  # 30分
+    "IMPLEMENTATION": 3600,  # 60分
     "CODE_REVIEW":    1800,  # 30分
-    "CODE_REVISE":    1200,  # 20分
+    "CODE_REVISE":    1800,  # 30分
 }
 
 # タイムアウト延長可能な状態

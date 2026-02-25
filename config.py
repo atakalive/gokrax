@@ -103,7 +103,7 @@ REVIEW_MODES = {
         "min_reviews": 2,
     },
     "lite": {
-        "members": ["pascal", "leibniz"],
+        "members": ["leibniz"],
         "min_reviews": 2,
     },
     "skip": {

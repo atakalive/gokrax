@@ -115,7 +115,7 @@ REVIEW_MODES = {
 # Maximum characters for embedded review data (issue body + diff)
 # レビュアーの最小コンテキスト200k中、プロンプト等で40k消費 → 残り160k
 # 安全マージンを取って128k chars（英語コードなら≒128kトークン）
-MAX_EMBED_CHARS = 128 * 1024
+MAX_EMBED_CHARS = 512 * 1024
 
 ALLOWED_REVIEWERS = list(AGENTS.keys())
 

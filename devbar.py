@@ -733,7 +733,7 @@ def main():
     p.add_argument("--pj", "--project", dest="project", required=True)
     p.add_argument("--issue", type=int, nargs="+",
                    help="Issue番号（省略時はGitLabのopen issue全件を自動取得）")
-    p.add_argument("--mode", choices=["full", "standard", "lite", "skip"],
+    p.add_argument("--mode", choices=["full", "standard", "lite", "min", "skip"],
                    help="レビューモード（省略時は既存設定を維持）")
 
     # triage
@@ -794,10 +794,10 @@ def main():
     p.add_argument("--comment", default=None, help="GitLab issue noteに投稿するコメント（省略可）")
 
     # review-mode
-    p = sub.add_parser("review-mode", help="レビューモード変更 (full=4人/standard=3人/lite=2人/skip=なし)")
+    p = sub.add_parser("review-mode", help="レビューモード変更 (full=4人/standard=3人/lite=2人/min=1人/skip=なし)")
     p.add_argument("--pj", "--project", dest="project", required=True)
     p.add_argument("--mode", required=True, choices=list(REVIEW_MODES.keys()),
-                   help="full/standard/lite/skip")
+                   help="full/standard/lite/min/skip")
 
     # merge-summary
     p = sub.add_parser("merge-summary", help="マージサマリーを #dev-bar に投稿してMの承認待ちへ")

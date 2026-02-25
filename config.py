@@ -103,6 +103,10 @@ REVIEW_MODES = {
         "min_reviews": 2,
     },
     "lite": {
+        "members": ["leibniz", "pascal"],
+        "min_reviews": 2,
+    },
+    "min": {
         "members": ["leibniz"],
         "min_reviews": 1,
     },

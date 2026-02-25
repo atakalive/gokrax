@@ -76,19 +76,17 @@ def _reset_reviewers(review_mode: str = "standard", implementer: str = "") -> li
 
     # Ping free tier reviewers
     excluded = []
-    grace_sec = mode_config.get("grace_period_sec", 0)
 
-    # Skip ping if no grace period (lite/min/skip modes)
-    if grace_sec == 0:
-        log("[/new] no grace period, skipping ping")
+    # Check if any free tier members exist in this mode
+    free_members = [m for m in mode_config["members"] if config.get_tier(m) == "free"]
+    if not free_members:
+        log("[/new] no free tier members in mode, skipping ping")
         return excluded
 
-    for reviewer in mode_config["members"]:
-        tier = config.get_tier(reviewer)
-        if tier == "free":
-            if not ping_agent(reviewer):
-                log(f"[/new] WARNING: free tier reviewer {reviewer} failed ping, excluding")
-                excluded.append(reviewer)
+    for reviewer in free_members:
+        if not ping_agent(reviewer):
+            log(f"[/new] WARNING: free tier reviewer {reviewer} failed ping, excluding")
+            excluded.append(reviewer)
 
     if excluded:
         log(f"[/new] excluded {len(excluded)} reviewers: {excluded}")
@@ -349,6 +347,40 @@ def get_notification_for_state(
     return TransitionAction()
 
 
+def _resolve_review_outcome(
+    state: str, data: dict | None, batch: list, has_p0: bool,
+) -> TransitionAction:
+    """min_reviews 到達後の遷移先を決定する。APPROVED or REVISE or BLOCKED."""
+    appr = "DESIGN_APPROVED" if "DESIGN" in state else "CODE_APPROVED"
+    revise_state = "DESIGN_REVISE" if "DESIGN" in state else "CODE_REVISE"
+    pj = data.get("project", "") if data else ""
+
+    if has_p0:
+        from config import MAX_REVISE_CYCLES
+        counter_key = "design_revise_count" if "DESIGN" in state else "code_revise_count"
+        current_count = data.get(counter_key, 0) if data else 0
+
+        if current_count >= MAX_REVISE_CYCLES:
+            phase = "設計" if "DESIGN" in state else "コード"
+            return TransitionAction(
+                new_state="BLOCKED",
+                impl_msg=(
+                    f"{phase}レビューサイクルが上限（{MAX_REVISE_CYCLES}回）に達しました。\n"
+                    f"P0の指摘が解消されていません。手動で対応してください。DiscordでMに報告してください。"
+                ),
+            )
+
+        return TransitionAction(
+            new_state=revise_state,
+            impl_msg=get_notification_for_state(revise_state, project=pj, batch=batch).impl_msg,
+        )
+    else:
+        return TransitionAction(
+            new_state=appr,
+            impl_msg=get_notification_for_state(appr, project=pj, batch=batch).impl_msg,
+        )
+
+
 def check_transition(state: str, batch: list, data: dict | None = None) -> TransitionAction:
     """現在の状態とバッチから次の遷移アクションを決定する純粋関数。副作用なし。"""
     if state in ("IDLE", "TRIAGE", "BLOCKED"):
@@ -407,123 +439,42 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
 
         # Check if min_reviews reached
         if count >= min_rev:
-            # Record when min_reviews was first met
             met_key = f"{'design' if 'DESIGN' in state else 'code'}_min_reviews_met_at"
             if data and not data.get(met_key):
-                from datetime import timedelta
                 data[met_key] = datetime.now(JST).isoformat()
                 log(
                     f"[GRACE] min_reviews={min_rev} met at {data[met_key]}, effective={effective_count}, grace={grace_sec} sec"
                 )
 
-            # Case 1: All effective reviewers done → immediate transition
+            # Determine if we should transition now
+            should_transition = False
+
+            # Case 1: All effective reviewers done → immediate
             if count >= effective_count:
                 log(f"[GRACE] all {effective_count} effective reviewers done, transitioning")
-                if data:
-                    data.pop(met_key, None)  # Clear met_at timestamp
+                should_transition = True
 
-                pj = data.get("project", "") if data else ""
-                if has_p0:
-                    # Check REVISE cycle limit (Issue #29)
-                    from config import MAX_REVISE_CYCLES
-                    counter_key = "design_revise_count" if "DESIGN" in state else "code_revise_count"
-                    current_count = data.get(counter_key, 0) if data else 0
-
-                    if current_count >= MAX_REVISE_CYCLES:
-                        # Reached maximum cycles, transition to BLOCKED
-                        phase = "設計" if "DESIGN" in state else "コード"
-                        return TransitionAction(
-                            new_state="BLOCKED",
-                            impl_msg=(
-                                f"{phase}レビューサイクルが上限（{MAX_REVISE_CYCLES}回）に達しました。\n"
-                                f"P0の指摘が解消されていません。手動で対応してください。DiscordでMに報告してください。"
-                            ),
-                        )
-
-                    return TransitionAction(
-                        new_state=revise_state,
-                        impl_msg=get_notification_for_state(revise_state, project=pj, batch=batch).impl_msg,
-                    )
-                else:
-                    return TransitionAction(new_state=appr)
-
-            # Case 2: Check grace period
-            # No grace if min_reviews == effective_count (all reviewers required)
-            effective_grace = grace_sec if min_rev < effective_count else 0
-
-            if effective_grace > 0 and data and data.get(met_key):
+            # Case 2: Grace period check
+            elif min_rev < effective_count and grace_sec > 0 and data and data.get(met_key):
                 from datetime import timedelta
                 met_at = datetime.fromisoformat(data[met_key])
-                now = datetime.now(JST)
-                elapsed = (now - met_at).total_seconds()
-
-                if elapsed >= effective_grace:
-                    log(
-                        f"[GRACE] grace period expired (elapsed={elapsed:.1f} sec, grace={effective_grace} sec), transitioning"
-                    )
-                    data.pop(met_key, None)  # Clear met_at timestamp
-
-                    pj = data.get("project", "") if data else ""
-                    if has_p0:
-                        # Check REVISE cycle limit
-                        from config import MAX_REVISE_CYCLES
-                        counter_key = "design_revise_count" if "DESIGN" in state else "code_revise_count"
-                        current_count = data.get(counter_key, 0) if data else 0
-
-                        if current_count >= MAX_REVISE_CYCLES:
-                            phase = "設計" if "DESIGN" in state else "コード"
-                            return TransitionAction(
-                                new_state="BLOCKED",
-                                impl_msg=(
-                                    f"{phase}レビューサイクルが上限（{MAX_REVISE_CYCLES}回）に達しました。\n"
-                                    f"P0の指摘が解消されていません。手動で対応してください。DiscordでMに報告してください。"
-                                ),
-                            )
-
-                        return TransitionAction(
-                            new_state=revise_state,
-                            impl_msg=get_notification_for_state(revise_state, project=pj, batch=batch).impl_msg,
-                        )
-                    else:
-                        return TransitionAction(new_state=appr)
+                elapsed = (datetime.now(JST) - met_at).total_seconds()
+                if elapsed >= grace_sec:
+                    log(f"[GRACE] grace period expired ({elapsed:.1f}s >= {grace_sec}s), transitioning")
+                    should_transition = True
                 else:
-                    remaining = effective_grace - elapsed
-                    log(
-                        f"[GRACE] waiting for remaining reviewers ({remaining:.1f} sec remaining)"
-                    )
-                    return TransitionAction()  # Stay in REVIEW state
+                    log(f"[GRACE] waiting ({grace_sec - elapsed:.1f}s remaining)")
+                    return TransitionAction()
+
+            # Case 3: No grace (min == effective or grace_sec == 0) → immediate
             else:
-                # No grace period or min==effective → immediate transition
-                if data:
-                    data.pop(met_key, None)  # Clear met_at timestamp
-
-                pj = data.get("project", "") if data else ""
                 log(f"[GRACE] no grace period, transitioning")
-                if has_p0:
-                    # Check REVISE cycle limit
-                    from config import MAX_REVISE_CYCLES
-                    counter_key = "design_revise_count" if "DESIGN" in state else "code_revise_count"
-                    current_count = data.get(counter_key, 0) if data else 0
+                should_transition = True
 
-                    if current_count >= MAX_REVISE_CYCLES:
-                        phase = "設計" if "DESIGN" in state else "コード"
-                        return TransitionAction(
-                            new_state="BLOCKED",
-                            impl_msg=(
-                                f"{phase}レビューサイクルが上限（{MAX_REVISE_CYCLES}回）に達しました。\n"
-                                f"P0の指摘が解消されていません。手動で対応してください。DiscordでMに報告してください。"
-                            ),
-                        )
-
-                    return TransitionAction(
-                        new_state=revise_state,
-                        impl_msg=get_notification_for_state(revise_state, project=pj, batch=batch).impl_msg,
-                    )
-                else:
-                    return TransitionAction(
-                        new_state=appr,
-                        impl_msg=get_notification_for_state(appr, project=pj, batch=batch).impl_msg,
-                    )
+            if should_transition:
+                if data:
+                    data.pop(met_key, None)
+                return _resolve_review_outcome(state, data, batch, has_p0)
 
         # Not enough reviews yet
         # 未完了レビュアーの催促（猶予期間内はスキップ）
@@ -556,12 +507,20 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
         review_state = "DESIGN_REVIEW" if "DESIGN" in state else "CODE_REVIEW"
 
         # Issue #37 fix: Only P0/REJECT issues need the revised flag
+        # Empty/missing review dict → conservatively require revised flag
         all_done = True
         for issue in batch:
-            # Check if this issue has any P0/REJECT verdicts
+            reviews = issue.get(review_key, {})
+            if not reviews:
+                # No reviews recorded: conservatively require revised
+                if not issue.get(revised_key):
+                    all_done = False
+                    break
+                continue
+
             has_p0 = any(
                 r.get("verdict", "").upper() in ("REJECT", "P0")
-                for r in issue.get(review_key, {}).values()
+                for r in reviews.values()
             )
 
             # Only P0/REJECT issues need the revised flag
@@ -1085,7 +1044,9 @@ def process(path: Path):
         if action.send_review:
             review_mode = notification.get("review_mode", "standard")
             prev_reviews = notification.get("prev_reviews", {})
-            excluded = notification.get("excluded_reviewers", [])
+            # Read excluded from pipeline data (not notification) to pick up _save_excluded writes
+            pipeline_data = load_pipeline(get_path(pj))
+            excluded = pipeline_data.get("excluded_reviewers", [])
 
             notify_reviewers(
                 pj, action.new_state, notification["batch"], notification["gitlab"],

@@ -756,6 +756,7 @@ class TestReviseLoopLimit:
             "project": "test-pj",
             "state": "DESIGN_REVIEW",
             "enabled": True,
+            "review_mode": "lite",
             "batch": [{"issue": 1, "design_reviews": reviews, "code_reviews": {}}],
             "history": [],
             "created_at": "",
@@ -790,6 +791,7 @@ class TestReviseLoopLimit:
             "project": "test-pj",
             "state": "DESIGN_REVIEW",
             "enabled": True,
+            "review_mode": "lite",
             "design_revise_count": 1,  # Already 1 cycle
             "batch": [{"issue": 1, "design_reviews": reviews, "code_reviews": {}}],
             "history": [],
@@ -825,6 +827,7 @@ class TestReviseLoopLimit:
             "project": "test-pj",
             "state": "DESIGN_REVIEW",
             "enabled": True,
+            "review_mode": "lite",
             "design_revise_count": 2,  # Already at max (MAX_REVISE_CYCLES = 2)
             "batch": [{"issue": 1, "design_reviews": reviews, "code_reviews": {}}],
             "history": [],
@@ -860,6 +863,7 @@ class TestReviseLoopLimit:
             "project": "test-pj",
             "state": "CODE_REVIEW",
             "enabled": True,
+            "review_mode": "lite",
             "code_revise_count": 2,  # Already at max
             "batch": [{"issue": 1, "code_reviews": reviews, "design_reviews": {}}],
             "history": [],
@@ -939,7 +943,7 @@ class TestReviseP0Summary:
             "state": "DESIGN_REVIEW",
             "enabled": True,
             "batch": batch,
-            "review_mode": "standard",
+            "review_mode": "lite",
         }
         _write_pipeline(path, data)
 
@@ -999,7 +1003,7 @@ class TestReviseP0Summary:
             "state": "CODE_REVIEW",
             "enabled": True,
             "batch": batch,
-            "review_mode": "standard",
+            "review_mode": "lite",
         }
         _write_pipeline(path, data)
 
@@ -1053,7 +1057,7 @@ class TestReviseP0Summary:
             "state": "DESIGN_REVIEW",
             "enabled": True,
             "batch": batch,
-            "review_mode": "standard",
+            "review_mode": "lite",
         }
         _write_pipeline(path, data)
 
@@ -1091,7 +1095,7 @@ class TestReviseP0Summary:
             "state": "DESIGN_REVIEW",
             "enabled": True,
             "batch": batch,
-            "review_mode": "standard",
+            "review_mode": "lite",
         }
         _write_pipeline(path, data)
 
@@ -1127,7 +1131,7 @@ class TestReviseP0Summary:
             "state": "CODE_REVIEW",
             "enabled": True,
             "batch": batch,
-            "review_mode": "standard",
+            "review_mode": "lite",
         }
         _write_pipeline(path, data)
 
@@ -1164,7 +1168,7 @@ class TestReviseP0Summary:
             "state": "DESIGN_REVIEW",
             "enabled": True,
             "batch": batch,
-            "review_mode": "standard",
+            "review_mode": "lite",
         }
         _write_pipeline(path, data)
 
@@ -1208,7 +1212,7 @@ class TestReviseP0Summary:
             "state": "DESIGN_REVIEW",
             "enabled": True,
             "batch": batch,
-            "review_mode": "standard",
+            "review_mode": "lite",
         }
         _write_pipeline(path, data)
 

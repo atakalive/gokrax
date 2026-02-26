@@ -1157,8 +1157,10 @@ def process(path: Path):
                 notification["batch"],
                 pj,
             )
-            # Queue check: 次のバッチを自動起動 (Issue #45)
-            # この通知ブロックは watchdog actor 専用 (CLI force 遷移では到達しない)
+
+        # DONE→IDLE遷移後: キューの次行を自動起動 (Issue #45)
+        # この通知ブロックは watchdog actor 専用 (CLI force 遷移では到達しない)
+        if notification.get("old_state") == "DONE" and action.new_state == "IDLE":
             _check_queue()
 
         if action.reset_reviewers:

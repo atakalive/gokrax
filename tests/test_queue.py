@@ -50,38 +50,48 @@ class TestParseQueueLine:
         assert result["issues"] == "1,2,3"
 
     def test_invalid_issues_empty_element(self):
-        """issues に空要素 → None"""
-        assert parse_queue_line("Foo 1,,3") is None
+        """issues に空要素 → ValueError"""
+        with pytest.raises(ValueError, match="empty element"):
+            parse_queue_line("Foo 1,,3")
 
     def test_invalid_issues_non_digit(self):
-        """issues に非数値 → None"""
-        assert parse_queue_line("Foo 1,abc") is None
+        """issues に非数値 → ValueError"""
+        with pytest.raises(ValueError, match="non-integer"):
+            parse_queue_line("Foo 1,abc")
 
     def test_invalid_issues_spaces(self):
-        """issues にスペース混入 → None"""
-        assert parse_queue_line("Foo 1, 2, 3") is None
+        """issues にスペース混入 → ValueError (トークン分割で別扱い)"""
+        with pytest.raises(ValueError):
+            parse_queue_line("Foo 1, 2, 3")
 
     def test_empty_line(self):
-        """空行 → None"""
-        assert parse_queue_line("") is None
-        assert parse_queue_line("   ") is None
+        """空行 → ValueError"""
+        with pytest.raises(ValueError):
+            parse_queue_line("")
+        with pytest.raises(ValueError):
+            parse_queue_line("   ")
 
     def test_comment_line(self):
-        """コメント行 → None"""
-        assert parse_queue_line("# comment") is None
-        assert parse_queue_line("# done: Foo 1") is None
+        """コメント行 → ValueError"""
+        with pytest.raises(ValueError):
+            parse_queue_line("# comment")
+        with pytest.raises(ValueError):
+            parse_queue_line("# done: Foo 1")
 
     def test_invalid_token_count(self):
-        """トークン数不足 → None"""
-        assert parse_queue_line("OnlyProject") is None
+        """トークン数不足 → ValueError"""
+        with pytest.raises(ValueError, match="need PROJECT ISSUES"):
+            parse_queue_line("OnlyProject")
 
     def test_duplicate_mode(self):
-        """MODE 重複 → None"""
-        assert parse_queue_line("Foo 1 standard lite") is None
+        """MODE 重複 → ValueError"""
+        with pytest.raises(ValueError, match="Duplicate mode"):
+            parse_queue_line("Foo 1 standard lite")
 
     def test_unknown_token(self):
-        """不明トークン → None"""
-        assert parse_queue_line("Foo 1 unknown_option") is None
+        """不明トークン → ValueError"""
+        with pytest.raises(ValueError, match="Unknown token"):
+            parse_queue_line("Foo 1 unknown_option")
 
     def test_valid_automerge_only(self):
         """automerge のみ"""

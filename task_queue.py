@@ -16,7 +16,7 @@ from pipeline_io import load_pipeline, get_path
 from config import REVIEW_MODES
 
 
-def parse_queue_line(line: str) -> Optional[dict]:
+def parse_queue_line(line: str) -> dict:
     """キュー行を1行パースする。
 
     形式: PROJECT ISSUES [MODE] [OPTIONS...]
@@ -31,20 +31,23 @@ def parse_queue_line(line: str) -> Optional[dict]:
         line: キューファイルの1行
 
     Returns:
-        パース結果の dict、または None (無効行/コメント/done行)
-        dict には original_line キーが含まれる
+        パース結果の dict（original_line キーを含む）
+
+    Raises:
+        ValueError: 無効行（空行/コメント/done行含む）、トークン数不足、
+                    不正トークン、issues形式不正、MODE重複
     """
     # 前後の空白を除去
     stripped = line.strip()
 
-    # 空行・コメント行をスキップ (# done: は除外対象)
+    # 空行・コメント行
     if not stripped or stripped.startswith("#"):
-        return None
+        raise ValueError(f"Skip line (empty or comment): {line!r}")
 
     # トークン分割
     tokens = stripped.split()
     if len(tokens) < 2:
-        return None
+        raise ValueError(f"Invalid queue line (need PROJECT ISSUES): {line!r}")
 
     project = tokens[0]
     issues_raw = tokens[1]
@@ -53,7 +56,7 @@ def parse_queue_line(line: str) -> Optional[dict]:
     try:
         get_path(project)
     except SystemExit:
-        return None
+        raise ValueError(f"Unknown project: {project!r}")
 
     # issues バリデーション
     if issues_raw == "all":
@@ -61,9 +64,9 @@ def parse_queue_line(line: str) -> Optional[dict]:
     else:
         parts = issues_raw.split(",")
         if any(not p.strip() for p in parts):  # 空要素チェック
-            return None
+            raise ValueError(f"Invalid issues format (empty element): {issues_raw!r}")
         if any(not p.strip().isdigit() for p in parts):  # 数値チェック
-            return None
+            raise ValueError(f"Invalid issues format (non-integer): {issues_raw!r}")
         issues = issues_raw
 
     # オプションパース
@@ -86,12 +89,10 @@ def parse_queue_line(line: str) -> Optional[dict]:
             result["cc_impl_model"] = token.split("=", 1)[1]
         elif token in REVIEW_MODES:
             if result["mode"] is not None:
-                # MODE 重複エラー
-                return None
+                raise ValueError(f"Duplicate mode: already {result['mode']!r}, got {token!r}")
             result["mode"] = token
         else:
-            # 不明トークン
-            return None
+            raise ValueError(f"Unknown token in queue line: {token!r}")
 
     return result
 
@@ -115,8 +116,11 @@ def pop_next_queue_entry(queue_path: Path) -> Optional[dict]:
         return None
 
     with open(queue_path, "r+") as f:
-        # ファイルロック取得 (blocking)
-        fcntl.flock(f, fcntl.LOCK_EX)
+        # ファイルロック取得 (non-blocking: 取れなければ即 None)
+        try:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            return None
         try:
             lines = f.readlines()
             modified = False
@@ -127,9 +131,10 @@ def pop_next_queue_entry(queue_path: Path) -> Optional[dict]:
                 if line.strip().startswith("# done:"):
                     continue
 
-                # パース
-                entry = parse_queue_line(line)
-                if entry is None:
+                # パース（ValueError = 無効行、スキップ）
+                try:
+                    entry = parse_queue_line(line)
+                except ValueError:
                     continue
 
                 # IDLE チェック
@@ -183,7 +188,10 @@ def restore_queue_entry(queue_path: Path, original_line: str) -> bool:
         return False
 
     with open(queue_path, "r+") as f:
-        fcntl.flock(f, fcntl.LOCK_EX)
+        try:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            return False
         try:
             lines = f.readlines()
             modified = False
@@ -237,15 +245,17 @@ def peek_queue(queue_path: Path) -> list[dict]:
         stripped = line.strip()
         is_done = stripped.startswith("# done:")
 
-        if is_done:
-            # "# done: " prefix を除去してパース
-            actual_line = stripped[7:].strip()
-            entry = parse_queue_line(actual_line)
-        else:
-            entry = parse_queue_line(line)
+        try:
+            if is_done:
+                # "# done: " prefix を除去してパース
+                actual_line = stripped[7:].strip()
+                entry = parse_queue_line(actual_line)
+            else:
+                entry = parse_queue_line(line)
+        except ValueError:
+            continue
 
-        if entry is not None:
-            entry["done"] = is_done
-            entries.append(entry)
+        entry["done"] = is_done
+        entries.append(entry)
 
     return entries

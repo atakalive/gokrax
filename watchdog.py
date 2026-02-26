@@ -1130,7 +1130,8 @@ def process(path: Path):
             return
 
         ts = _datetime.now(JST).strftime("%m/%d %H:%M")
-        notify_discord(f"[{pj}] {notification['old_state']} → {action.new_state} ({ts})")
+        q_prefix = "[Queue]" if notification.get("queue_mode") else ""
+        notify_discord(f"{q_prefix}[{pj}] {notification['old_state']} → {action.new_state} ({ts})")
 
         # REVISE遷移時: P0サマリーを投稿
         if action.new_state in ("DESIGN_REVISE", "CODE_REVISE"):

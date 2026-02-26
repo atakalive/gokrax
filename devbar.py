@@ -510,7 +510,8 @@ def cmd_transition(args):
     actor = args.actor or "cli"
     from datetime import datetime
     ts = datetime.now(JST).strftime("%m/%d %H:%M")
-    notify_discord(f"[{pj}] {prefix}{current} → {args.to} (by {actor}, {ts})")
+    q_prefix = "[Queue]" if data.get("queue_mode") else ""
+    notify_discord(f"{q_prefix}[{pj}] {prefix}{current} → {args.to} (by {actor}, {ts})")
 
 
 def _log(msg: str) -> None:

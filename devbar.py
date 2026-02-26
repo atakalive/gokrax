@@ -19,6 +19,7 @@ from config import (
     VALID_VERDICTS, GLAB_TIMEOUT, ALLOWED_REVIEWERS, REVIEW_MODES, JST,
     WATCHDOG_LOOP_SCRIPT, WATCHDOG_LOOP_PIDFILE,
     WATCHDOG_LOOP_CRON_MARKER, WATCHDOG_LOOP_CRON_ENTRY,
+    VALID_FLAG_VERDICTS, STATE_PHASE_MAP,
 )
 from pipeline_io import (
     load_pipeline, save_pipeline, update_pipeline,
@@ -584,6 +585,65 @@ def cmd_review(args):
         print("  → GitLab issue note posted")
 
 
+def cmd_flag(args):
+    """人間（M）による P0/P1 差し込み（任意タイミング）"""
+    path = get_path(args.project)
+
+    def do_flag(data):
+        state = data.get("state", "IDLE")
+
+        # Validate: issue must be in batch
+        issue = find_issue(data.get("batch", []), args.issue)
+        if not issue:
+            raise SystemExit(
+                f"Issue #{args.issue} not in batch (state={state}). "
+                f"Flags can only be posted when the issue is in an active batch."
+            )
+
+        # Determine phase from current state
+        phase = STATE_PHASE_MAP.get(state)
+        if phase is None:
+            raise SystemExit(
+                f"Cannot flag in unknown state: {state}. "
+                f"Valid states: {', '.join(STATE_PHASE_MAP.keys())}"
+            )
+
+        # Record flag
+        flag_entry = {
+            "verdict": args.verdict,
+            "summary": args.summary or "",
+            "at": now_iso(),
+            "by": "M",
+            "phase": phase,
+        }
+        issue.setdefault("flags", []).append(flag_entry)
+
+    # SIGTERM deferral (same pattern as cmd_review)
+    _deferred = False
+    _orig = signal.getsignal(signal.SIGTERM)
+
+    def _defer_sigterm(signum, frame):
+        nonlocal _deferred
+        _deferred = True
+
+    signal.signal(signal.SIGTERM, _defer_sigterm)
+    try:
+        data = update_pipeline(path, do_flag)
+    finally:
+        signal.signal(signal.SIGTERM, _orig)
+        if _deferred:
+            signal.raise_signal(signal.SIGTERM)
+
+    state = data.get("state", "IDLE")
+    print(f"{args.project}: #{args.issue} flag by M = {args.verdict}")
+
+    # Post to GitLab issue note
+    gitlab = data.get("gitlab", f"atakalive/{args.project}")
+    note_body = f"[M] FLAG {args.verdict}\n\n{args.summary or ''}"
+    if _post_gitlab_note(gitlab, args.issue, note_body):
+        print("  → GitLab issue note posted")
+
+
 def cmd_commit(args):
     """commit hash を記録"""
     path = get_path(args.project)
@@ -864,6 +924,14 @@ def main():
                    help="APPROVE/P0/P1/REJECT")
     p.add_argument("--summary", default="", help="レビューサマリー")
 
+    # flag
+    p = sub.add_parser("flag", help="人間（M）による P0/P1 差し込み（任意タイミング）")
+    p.add_argument("--pj", "--project", dest="project", required=True)
+    p.add_argument("--issue", type=int, required=True)
+    p.add_argument("--verdict", required=True, choices=VALID_FLAG_VERDICTS,
+                   help="P0 (blocks progress) or P1 (informational)")
+    p.add_argument("--summary", default="", help="フラグの説明")
+
     # commit
     p = sub.add_parser("commit", help="実装完了: commitハッシュをバッチに記録")
     p.add_argument("--pj", "--project", dest="project", required=True)
@@ -919,7 +987,7 @@ def main():
         "enable": cmd_enable, "disable": cmd_disable,
         "extend": cmd_extend, "start": cmd_start,
         "triage": cmd_triage, "transition": cmd_transition,
-        "review": cmd_review, "commit": cmd_commit,
+        "review": cmd_review, "flag": cmd_flag, "commit": cmd_commit,
         "cc-start": cmd_cc_start, "plan-done": cmd_plan_done,
         "design-revise": cmd_design_revise, "code-revise": cmd_code_revise,
         "review-mode": cmd_review_mode,

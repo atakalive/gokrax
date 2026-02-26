@@ -2283,3 +2283,312 @@ class TestQueueFieldLifecycle:
         # This is tested implicitly: BLOCKED transition does NOT clear fields
         # No explicit cleanup code for BLOCKED in watchdog.py
         pass
+
+
+# ── TestFlag (Issue #46) ──────────────────────────────────────────────────────
+
+class TestFlag:
+    """Tests for devbar flag command (Issue #46)"""
+
+    def test_flag_p0_during_implementation(self, tmp_path):
+        """Flag P0 can be posted during IMPLEMENTATION (code phase)"""
+        from devbar import cmd_flag
+        import argparse
+
+        pipeline = tmp_path / "myproject.json"
+        _write_pipeline(pipeline, {
+            "project": "myproject",
+            "state": "IMPLEMENTATION",
+            "batch": [{"issue": 1, "title": "Test", "design_reviews": {}, "code_reviews": {}}],
+            "enabled": True,
+        })
+
+        args = argparse.Namespace(
+            project="myproject",
+            issue=1,
+            verdict="P0",
+            summary="Critical bug found"
+        )
+
+        with patch("devbar.get_path", return_value=pipeline):
+            with patch("devbar._post_gitlab_note", return_value=True):
+                cmd_flag(args)
+
+        data = json.loads(pipeline.read_text())
+        flags = data["batch"][0].get("flags", [])
+        assert len(flags) == 1
+        assert flags[0]["verdict"] == "P0"
+        assert flags[0]["by"] == "M"
+        assert flags[0]["phase"] == "code"
+        assert flags[0]["summary"] == "Critical bug found"
+
+    def test_flag_p0_during_design_plan(self, tmp_path):
+        """Flag P0 can be posted during DESIGN_PLAN (design phase)"""
+        from devbar import cmd_flag
+        import argparse
+
+        pipeline = tmp_path / "myproject.json"
+        _write_pipeline(pipeline, {
+            "project": "myproject",
+            "state": "DESIGN_PLAN",
+            "batch": [{"issue": 1, "title": "Test", "design_reviews": {}, "code_reviews": {}}],
+            "enabled": True,
+        })
+
+        args = argparse.Namespace(
+            project="myproject",
+            issue=1,
+            verdict="P1",
+            summary="Minor concern"
+        )
+
+        with patch("devbar.get_path", return_value=pipeline):
+            with patch("devbar._post_gitlab_note", return_value=True):
+                cmd_flag(args)
+
+        data = json.loads(pipeline.read_text())
+        flags = data["batch"][0].get("flags", [])
+        assert len(flags) == 1
+        assert flags[0]["verdict"] == "P1"
+        assert flags[0]["by"] == "M"
+        assert flags[0]["phase"] == "design"
+
+    def test_flag_fails_in_idle(self, tmp_path):
+        """Flag fails when batch is empty (IDLE state)"""
+        from devbar import cmd_flag
+        import argparse
+
+        pipeline = tmp_path / "myproject.json"
+        _write_pipeline(pipeline, {
+            "project": "myproject",
+            "state": "IDLE",
+            "batch": [],
+            "enabled": True,
+        })
+
+        args = argparse.Namespace(
+            project="myproject",
+            issue=1,
+            verdict="P0",
+            summary="Should fail"
+        )
+
+        with patch("devbar.get_path", return_value=pipeline):
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_flag(args)
+            assert "not in batch" in str(exc_info.value)
+
+    def test_flag_fails_in_blocked(self, tmp_path):
+        """Flag fails when state is BLOCKED (batch empty)"""
+        from devbar import cmd_flag
+        import argparse
+
+        pipeline = tmp_path / "myproject.json"
+        _write_pipeline(pipeline, {
+            "project": "myproject",
+            "state": "BLOCKED",
+            "batch": [],
+            "enabled": False,
+        })
+
+        args = argparse.Namespace(
+            project="myproject",
+            issue=1,
+            verdict="P0",
+            summary="Should fail"
+        )
+
+        with patch("devbar.get_path", return_value=pipeline):
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_flag(args)
+            assert "not in batch" in str(exc_info.value)
+
+    def test_flag_fails_in_done(self, tmp_path):
+        """Flag fails when state is DONE (batch empty)"""
+        from devbar import cmd_flag
+        import argparse
+
+        pipeline = tmp_path / "myproject.json"
+        _write_pipeline(pipeline, {
+            "project": "myproject",
+            "state": "DONE",
+            "batch": [],
+            "enabled": False,
+        })
+
+        args = argparse.Namespace(
+            project="myproject",
+            issue=1,
+            verdict="P0",
+            summary="Should fail"
+        )
+
+        with patch("devbar.get_path", return_value=pipeline):
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_flag(args)
+            assert "not in batch" in str(exc_info.value)
+
+    def test_flag_does_not_count_as_review(self):
+        """Flags do not count toward min_reviews"""
+        from watchdog import count_reviews
+
+        batch = [{
+            "issue": 1,
+            "design_reviews": {"pascal": {"verdict": "APPROVE"}},
+            "code_reviews": {},
+            "flags": [{"verdict": "P1", "phase": "design", "by": "M"}]
+        }]
+
+        count, has_p0 = count_reviews(batch, "design_reviews")
+        assert count == 1  # Only the APPROVE review counts
+
+    def test_p0_flag_triggers_design_revise(self):
+        """Unresolved P0 flag in design phase triggers DESIGN_REVISE"""
+        from watchdog import check_transition
+
+        batch = [{
+            "issue": 1,
+            "design_reviews": {"pascal": {"verdict": "APPROVE"}, "leibniz": {"verdict": "APPROVE"}},
+            "code_reviews": {},
+            "flags": [{"verdict": "P0", "phase": "design", "by": "M"}]  # No "resolved" key
+        }]
+
+        data = {"review_mode": "lite"}
+        action = check_transition("DESIGN_REVIEW", batch, data)
+
+        assert action.new_state == "DESIGN_REVISE"
+
+    def test_p0_flag_triggers_code_revise(self):
+        """Unresolved P0 flag in code phase triggers CODE_REVISE"""
+        from watchdog import check_transition
+
+        batch = [{
+            "issue": 1,
+            "design_reviews": {},
+            "code_reviews": {"pascal": {"verdict": "APPROVE"}, "leibniz": {"verdict": "APPROVE"}},
+            "flags": [{"verdict": "P0", "phase": "code", "by": "M"}]
+        }]
+
+        data = {"review_mode": "lite"}
+        action = check_transition("CODE_REVIEW", batch, data)
+
+        assert action.new_state == "CODE_REVISE"
+
+    def test_code_flag_ignored_in_design_review(self):
+        """Code phase flag does not trigger REVISE during DESIGN_REVIEW"""
+        from watchdog import check_transition
+
+        batch = [{
+            "issue": 1,
+            "design_reviews": {"pascal": {"verdict": "APPROVE"}, "leibniz": {"verdict": "APPROVE"}},
+            "code_reviews": {},
+            "flags": [{"verdict": "P0", "phase": "code", "by": "M"}]  # Wrong phase
+        }]
+
+        data = {"review_mode": "lite"}
+        action = check_transition("DESIGN_REVIEW", batch, data)
+
+        # Should approve (not revise) because code phase flag doesn't apply
+        assert action.new_state == "DESIGN_APPROVED"
+
+    def test_p1_flag_does_not_trigger_revise(self):
+        """P1 flags are informational only, do not trigger REVISE"""
+        from watchdog import check_transition
+
+        batch = [{
+            "issue": 1,
+            "design_reviews": {"pascal": {"verdict": "APPROVE"}, "leibniz": {"verdict": "APPROVE"}},
+            "code_reviews": {},
+            "flags": [{"verdict": "P1", "phase": "design", "by": "M"}]
+        }]
+
+        data = {"review_mode": "lite"}
+        action = check_transition("DESIGN_REVIEW", batch, data)
+
+        # Should approve (P1 doesn't block)
+        assert action.new_state == "DESIGN_APPROVED"
+
+    def test_flags_resolved_on_transition(self, tmp_path, monkeypatch):
+        """Flags are marked resolved when REVISE→REVIEW transition completes"""
+        import config
+        from watchdog import process
+
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        # Setup: DESIGN_REVISE with flag posted before this REVISE cycle
+        pipeline = tmp_path / "myproject.json"
+        _write_pipeline(pipeline, {
+            "project": "myproject",
+            "state": "DESIGN_REVISE",
+            "batch": [{
+                "issue": 1,
+                "title": "Test",
+                "design_ready": True,
+                "design_revised": True,
+                "design_reviews": {},
+                "code_reviews": {},
+                "flags": [
+                    {"verdict": "P0", "phase": "design", "by": "M", "at": "2025-01-01T10:00:00"}
+                ]
+            }],
+            "enabled": True,
+            "history": [],
+        })
+
+        with patch("watchdog.notify_reviewers"):
+            with patch("watchdog.notify_discord"):
+                process(pipeline)
+
+        data = json.loads(pipeline.read_text())
+        assert data["state"] == "DESIGN_REVIEW"
+        # Flag should now be marked resolved
+        assert data["batch"][0]["flags"][0]["resolved"] is True
+
+    def test_resolved_flag_does_not_trigger_revise(self):
+        """Resolved P0 flag does not trigger REVISE"""
+        from watchdog import check_transition
+
+        batch = [{
+            "issue": 1,
+            "design_reviews": {"pascal": {"verdict": "APPROVE"}, "leibniz": {"verdict": "APPROVE"}},
+            "code_reviews": {},
+            "flags": [{"verdict": "P0", "phase": "design", "by": "M", "resolved": True}]
+        }]
+
+        data = {"review_mode": "lite"}
+        action = check_transition("DESIGN_REVIEW", batch, data)
+
+        # Should approve (flag is resolved)
+        assert action.new_state == "DESIGN_APPROVED"
+
+    def test_multiple_flags_single_issue(self, tmp_path):
+        """Multiple flags can be posted on a single issue"""
+        from devbar import cmd_flag
+        import argparse
+
+        pipeline = tmp_path / "myproject.json"
+        _write_pipeline(pipeline, {
+            "project": "myproject",
+            "state": "IMPLEMENTATION",
+            "batch": [{"issue": 1, "title": "Test", "design_reviews": {}, "code_reviews": {}}],
+            "enabled": True,
+        })
+
+        # Post first flag
+        args1 = argparse.Namespace(project="myproject", issue=1, verdict="P1", summary="Issue 1")
+        with patch("devbar.get_path", return_value=pipeline):
+            with patch("devbar._post_gitlab_note", return_value=True):
+                cmd_flag(args1)
+
+        # Post second flag
+        args2 = argparse.Namespace(project="myproject", issue=1, verdict="P0", summary="Issue 2")
+        with patch("devbar.get_path", return_value=pipeline):
+            with patch("devbar._post_gitlab_note", return_value=True):
+                cmd_flag(args2)
+
+        data = json.loads(pipeline.read_text())
+        flags = data["batch"][0].get("flags", [])
+        assert len(flags) == 2
+        assert flags[0]["verdict"] == "P1"
+        assert flags[1]["verdict"] == "P0"

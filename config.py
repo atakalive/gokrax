@@ -41,6 +41,21 @@ MAX_HISTORY = 100
 MIN_REVIEWS = 3
 MAX_REVISE_CYCLES = 2  # REVISE→REVIEWの最大サイクル数
 VALID_VERDICTS = ["APPROVE", "P0", "P1", "REJECT"]
+VALID_FLAG_VERDICTS = ["P0", "P1"]
+
+# State→phase mapping (used by flag command)
+STATE_PHASE_MAP: dict[str, str] = {
+    "DESIGN_PLAN": "design",
+    "DESIGN_REVIEW": "design",
+    "DESIGN_REVISE": "design",
+    "DESIGN_APPROVED": "design",
+    "TRIAGE": "design",
+    "IMPLEMENTATION": "code",
+    "CODE_REVIEW": "code",
+    "CODE_REVISE": "code",
+    "CODE_APPROVED": "code",
+    "MERGE_SUMMARY_SENT": "code",
+}
 
 # タイムアウト (seconds)
 AGENT_SEND_TIMEOUT = 30

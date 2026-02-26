@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config import (
     PIPELINES_DIR, JST, LOG_FILE, REVIEW_MODES, CC_MODEL_PLAN, CC_MODEL_IMPL,
     DEVBAR_CLI, INACTIVE_THRESHOLD_SEC, SESSIONS_BASE,
+    STATE_PHASE_MAP,
     # WATCHDOG_LOOP_PIDFILE, WATCHDOG_LOOP_CRON_MARKER は devbar.py の enable/disable 専用
 )
 from datetime import datetime as _datetime
@@ -454,6 +455,24 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
         grace_sec = mode_config.get("grace_period_sec", 0)
 
         count, has_p0 = count_reviews(batch, key)
+
+        # Check for unresolved P0 flags (flag P0 → immediate REVISE)
+        flag_phase = STATE_PHASE_MAP.get(state)
+        if flag_phase is not None:
+            has_flag_p0 = any(
+                f.get("verdict") == "P0"
+                and not f.get("resolved")
+                and f.get("phase") == flag_phase
+                for issue in batch
+                for f in issue.get("flags", [])
+            )
+            if has_flag_p0:
+                revise_state = "DESIGN_REVISE" if "DESIGN" in state else "CODE_REVISE"
+                log(f"[FLAG] unresolved P0 flag(s) in {flag_phase} phase → {revise_state}")
+                return TransitionAction(new_state=revise_state, send_review=False)
+        else:
+            # Defensive: should never happen (all REVIEW states are in STATE_PHASE_MAP)
+            log(f"[FLAG] WARNING: unknown state {state} in REVIEW block, skipping flag check")
 
         # Check if min_reviews reached
         if count >= min_rev:
@@ -924,6 +943,16 @@ def process(path: Path):
             notification["prev_reviews"] = prev_reviews
             
             clear_reviews(batch, key, revised_key)
+
+            # Mark flags as resolved (REVISE→REVIEW transition confirmed)
+            # Only flags from the current phase that were posted before this transition
+            flag_phase = STATE_PHASE_MAP.get(state)
+            if flag_phase is not None:
+                for issue in batch:
+                    for f in issue.get("flags", []):
+                        if f.get("phase") == flag_phase and not f.get("resolved"):
+                            f["resolved"] = True
+                log(f"[{pj}] marked {flag_phase} phase flags as resolved")
 
             # Clear met_at timestamp when REVISE→REVIEW
             if "DESIGN" in state:

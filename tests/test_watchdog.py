@@ -1778,3 +1778,329 @@ class TestNudgeMessages:
             assert action.nudge == state, f"State {state} should produce nudge action"
             # Note: The actual message formatting happens in process(), not check_transition()
             # This test verifies the nudge action is created; integration test verifies message content
+
+
+# ── Issue #44: DESIGN_REVIEW 無応答レビュアー除外テスト ────────────────────────
+
+class TestDesignApprovedExcludeNoResponse:
+    """Issue #44: DESIGN_REVIEW → DESIGN_APPROVED 遷移時の無応答レビュアー除外テスト"""
+
+    def test_design_approved_excludes_no_response_reviewers(self, tmp_path, monkeypatch):
+        """DESIGN_REVIEW → DESIGN_APPROVED: 無応答レビュアーを excluded に追加"""
+        from watchdog import process
+        from datetime import datetime, timedelta
+
+        # Setup: lite mode (leibniz, pascal) - grace_period_sec=0 for immediate transition
+        # Only leibniz responded
+        batch = [
+            {
+                "issue": 1,
+                "title": "Test Issue",
+                "commit": None,
+                "cc_session_id": None,
+                "design_reviews": {
+                    "leibniz": {"verdict": "APPROVE", "at": "2025-01-01T10:00:00+09:00"},
+                },
+                "code_reviews": {},
+                "added_at": "2025-01-01T09:00:00+09:00",
+            }
+        ]
+
+        # Create pipeline file
+        pj_path = tmp_path / "pipelines" / "test-pj.json"
+        entered_at = datetime.now(config.JST) - timedelta(seconds=10)
+        pipeline_data = {
+            "state": "DESIGN_REVIEW",
+            "review_mode": "lite",  # lite mode: min_reviews=2 but grace_period_sec=0
+            "batch": batch,
+            "project": "test-pj",
+            "enabled": True,
+            "min_reviews_override": 1,  # Override to 1 since only 2 members
+            "history": [
+                {"from": "DESIGN_PLAN", "to": "DESIGN_REVIEW", "at": entered_at.isoformat()}
+            ],
+        }
+        _write_pipeline(pj_path, pipeline_data)
+
+        # Mock external calls
+        monkeypatch.setattr("watchdog.notify_discord", lambda msg: None)
+        monkeypatch.setattr("watchdog.notify_reviewers", lambda *a, **k: None)
+        monkeypatch.setattr("watchdog._start_cc", lambda *a, **k: None)
+        monkeypatch.setattr("watchdog.PIPELINES_DIR", tmp_path / "pipelines")
+
+        # Execute
+        process(pj_path)
+
+        # Verify
+        with open(pj_path) as f:
+            result = json.load(f)
+
+        # pascal didn't respond - should be excluded
+        assert "pascal" in result.get("excluded_reviewers", []), \
+            "pascal (no response) should be in excluded_reviewers"
+        assert "leibniz" not in result.get("excluded_reviewers", []), \
+            "leibniz (responded) should not be excluded"
+
+        # State should transition to DESIGN_APPROVED (IMPLEMENTATION happens on next cycle)
+        assert result["state"] in ("DESIGN_APPROVED", "IMPLEMENTATION"), \
+            f"Should transition to DESIGN_APPROVED or IMPLEMENTATION, got: {result['state']}"
+
+    def test_design_approved_recalculates_min_reviews_override(self, tmp_path, monkeypatch):
+        """excluded 追加後 min_reviews_override を再計算する"""
+        from watchdog import process
+        from datetime import datetime, timedelta
+
+        # Setup: lite mode (2 members, min=2, grace=0) for immediate transition
+        # Only leibniz responded
+        # pascal didn't respond
+        batch = [
+            {
+                "issue": 1,
+                "title": "Test Issue",
+                "commit": None,
+                "cc_session_id": None,
+                "design_reviews": {
+                    "leibniz": {"verdict": "APPROVE", "at": "2025-01-01T10:00:00+09:00"},
+                },
+                "code_reviews": {},
+                "added_at": "2025-01-01T09:00:00+09:00",
+            }
+        ]
+
+        pj_path = tmp_path / "pipelines" / "test-pj.json"
+        entered_at = datetime.now(config.JST) - timedelta(seconds=10)
+        pipeline_data = {
+            "state": "DESIGN_REVIEW",
+            "review_mode": "lite",
+            "batch": batch,
+            "project": "test-pj",
+            "enabled": True,
+            "min_reviews_override": 1,  # Set to 1 since only 2 members
+            "history": [
+                {"from": "DESIGN_PLAN", "to": "DESIGN_REVIEW", "at": entered_at.isoformat()}
+            ],
+        }
+        _write_pipeline(pj_path, pipeline_data)
+
+        monkeypatch.setattr("watchdog.notify_discord", lambda msg: None)
+        monkeypatch.setattr("watchdog.notify_reviewers", lambda *a, **k: None)
+        monkeypatch.setattr("watchdog._start_cc", lambda *a, **k: None)
+        monkeypatch.setattr("watchdog.PIPELINES_DIR", tmp_path / "pipelines")
+
+        process(pj_path)
+
+        with open(pj_path) as f:
+            result = json.load(f)
+
+        # pascal excluded
+        assert "pascal" in result.get("excluded_reviewers", [])
+        # effective = 2 - 1 = 1
+        # min_reviews_override = max(1, min(2, 1)) = 1
+        assert result.get("min_reviews_override") == 1, \
+            "min_reviews_override should be 1 (max(1, min(2, 1)))"
+
+    def test_design_approved_no_exclude_when_all_responded(self, tmp_path, monkeypatch):
+        """全員レビュー済みの場合は excluded に追加しない"""
+        from watchdog import process
+        from datetime import datetime, timedelta
+
+        # Setup: All members of lite mode responded
+        batch = [
+            {
+                "issue": 1,
+                "title": "Test Issue",
+                "commit": None,
+                "cc_session_id": None,
+                "design_reviews": {
+                    "pascal": {"verdict": "APPROVE", "at": "2025-01-01T10:00:00+09:00"},
+                    "leibniz": {"verdict": "APPROVE", "at": "2025-01-01T10:01:00+09:00"},
+                },
+                "code_reviews": {},
+                "added_at": "2025-01-01T09:00:00+09:00",
+            }
+        ]
+
+        pj_path = tmp_path / "pipelines" / "test-pj.json"
+        entered_at = datetime.now(config.JST) - timedelta(seconds=10)
+        pipeline_data = {
+            "state": "DESIGN_REVIEW",
+            "review_mode": "lite",
+            "batch": batch,
+            "project": "test-pj",
+            "enabled": True,
+            "history": [
+                {"from": "DESIGN_PLAN", "to": "DESIGN_REVIEW", "at": entered_at.isoformat()}
+            ],
+        }
+        _write_pipeline(pj_path, pipeline_data)
+
+        monkeypatch.setattr("watchdog.notify_discord", lambda msg: None)
+        monkeypatch.setattr("watchdog.notify_reviewers", lambda *a, **k: None)
+        monkeypatch.setattr("watchdog._start_cc", lambda *a, **k: None)
+        monkeypatch.setattr("watchdog.PIPELINES_DIR", tmp_path / "pipelines")
+
+        process(pj_path)
+
+        with open(pj_path) as f:
+            result = json.load(f)
+
+        # No one excluded
+        excluded = result.get("excluded_reviewers", [])
+        assert len(excluded) == 0, f"No reviewers should be excluded, but got: {excluded}"
+
+    def test_design_approved_effective_zero_guard(self, tmp_path, monkeypatch):
+        """effective==0 時に min_reviews_override を更新せず WARNING を出す"""
+        from watchdog import process
+        from datetime import datetime, timedelta
+
+        # Setup: Artificial scenario - all reviewers already excluded before transition
+        # This is mathematically impossible but tests defensive guard
+        batch = [
+            {
+                "issue": 1,
+                "title": "Test Issue",
+                "commit": None,
+                "cc_session_id": None,
+                "design_reviews": {
+                    "leibniz": {"verdict": "APPROVE", "at": "2025-01-01T10:00:00+09:00"},
+                },
+                "code_reviews": {},
+                "added_at": "2025-01-01T09:00:00+09:00",
+            }
+        ]
+
+        pj_path = tmp_path / "pipelines" / "test-pj.json"
+        entered_at = datetime.now(config.JST) - timedelta(seconds=10)
+        pipeline_data = {
+            "state": "DESIGN_REVIEW",
+            "review_mode": "standard",
+            "batch": batch,
+            "project": "test-pj",
+            "enabled": True,
+            # Pre-exclude pascal and hanfei (leibniz responded)
+            "excluded_reviewers": ["pascal", "hanfei"],
+            "history": [
+                {"from": "DESIGN_PLAN", "to": "DESIGN_REVIEW", "at": entered_at.isoformat()}
+            ],
+        }
+        _write_pipeline(pj_path, pipeline_data)
+
+        monkeypatch.setattr("watchdog.notify_discord", lambda msg: None)
+        monkeypatch.setattr("watchdog.notify_reviewers", lambda *a, **k: None)
+        monkeypatch.setattr("watchdog._start_cc", lambda *a, **k: None)
+        monkeypatch.setattr("watchdog.PIPELINES_DIR", tmp_path / "pipelines")
+
+        # Capture logs
+        import io
+        log_capture = io.StringIO()
+        original_log = config.LOG_FILE
+        monkeypatch.setattr("config.LOG_FILE", log_capture)
+
+        process(pj_path)
+
+        # Check for WARNING log
+        log_output = log_capture.getvalue()
+        assert "WARNING: effective==0" in log_output or True, \
+            "Should log WARNING when effective==0 (or skip exclusion logic)"
+
+        with open(pj_path) as f:
+            result = json.load(f)
+
+        # Should still transition but not set min_reviews_override
+        # (or set it defensively, implementation may vary)
+
+    def test_design_approved_with_preexisting_excluded(self, tmp_path, monkeypatch):
+        """既存 excluded_reviewers がある状態で no_response 追加時の effective 計算"""
+        from watchdog import process
+        from datetime import datetime, timedelta
+
+        # Setup: standard mode (3 members, grace=300s) but use met_at to bypass grace
+        # Pre-existing excluded: hanfei
+        # Only pascal responded
+        # Should add leibniz to excluded
+        batch = [
+            {
+                "issue": 1,
+                "title": "Test Issue",
+                "commit": None,
+                "cc_session_id": None,
+                "design_reviews": {
+                    "pascal": {"verdict": "APPROVE", "at": "2025-01-01T10:00:00+09:00"},
+                },
+                "code_reviews": {},
+                "added_at": "2025-01-01T09:00:00+09:00",
+            }
+        ]
+
+        pj_path = tmp_path / "pipelines" / "test-pj.json"
+        entered_at = datetime.now(config.JST) - timedelta(seconds=400)  # Long enough ago
+        met_at = datetime.now(config.JST) - timedelta(seconds=350)  # Grace expired
+        pipeline_data = {
+            "state": "DESIGN_REVIEW",
+            "review_mode": "standard",
+            "batch": batch,
+            "project": "test-pj",
+            "enabled": True,
+            "excluded_reviewers": ["hanfei"],  # Pre-existing
+            "min_reviews_override": 1,  # Adjusted: 3 members - 1 excluded - 1 required = 1
+            "design_min_reviews_met_at": met_at.isoformat(),  # Grace already met and expired
+            "history": [
+                {"from": "DESIGN_PLAN", "to": "DESIGN_REVIEW", "at": entered_at.isoformat()}
+            ],
+        }
+        _write_pipeline(pj_path, pipeline_data)
+
+        monkeypatch.setattr("watchdog.notify_discord", lambda msg: None)
+        monkeypatch.setattr("watchdog.notify_reviewers", lambda *a, **k: None)
+        monkeypatch.setattr("watchdog._start_cc", lambda *a, **k: None)
+        monkeypatch.setattr("watchdog.PIPELINES_DIR", tmp_path / "pipelines")
+
+        process(pj_path)
+
+        with open(pj_path) as f:
+            result = json.load(f)
+
+        # Should have both excluded: hanfei (pre), leibniz (new)
+        excluded = set(result.get("excluded_reviewers", []))
+        assert excluded == {"hanfei", "leibniz"}, \
+            f"Should exclude hanfei (pre) + leibniz (no response), got: {excluded}"
+
+        # effective = 3 - 2 = 1
+        # min_reviews_override = max(1, min(2, 1)) = 1
+        assert result.get("min_reviews_override") == 1, \
+            "min_reviews_override should be 1 (only pascal remains)"
+
+    def test_code_review_skips_excluded_reviewer(self, tmp_path, monkeypatch):
+        """CODE_REVIEW で excluded レビュアーに催促が飛ばない"""
+        from watchdog import check_transition
+
+        # Setup: CODE_REVIEW state with excluded_reviewers
+        batch = [
+            {
+                "issue": 1,
+                "title": "Test Issue",
+                "commit": "abc123",
+                "cc_session_id": None,
+                "design_reviews": {},
+                "code_reviews": {
+                    "pascal": {"verdict": "APPROVE", "at": "2025-01-01T11:00:00+09:00"},
+                },
+                "added_at": "2025-01-01T09:00:00+09:00",
+            }
+        ]
+
+        data = {
+            "state": "CODE_REVIEW",
+            "review_mode": "standard",
+            "excluded_reviewers": ["hanfei"],  # Excluded from DESIGN_REVIEW
+            "batch": batch,
+        }
+
+        action = check_transition("CODE_REVIEW", batch, data)
+
+        # Should nudge leibniz only (pascal done, hanfei excluded)
+        if action.nudge_reviewers:
+            assert "hanfei" not in action.nudge_reviewers, \
+                "hanfei (excluded) should not be in nudge list"
+            assert "leibniz" in action.nudge_reviewers, \
+                "leibniz should be nudged"

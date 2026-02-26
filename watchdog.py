@@ -879,6 +879,30 @@ def process(path: Path):
                 data.pop("code_min_reviews_met_at", None)
                 log(f"[{pj}] cleared code_min_reviews_met_at")
 
+        # DESIGN_REVIEW → DESIGN_APPROVED: 無応答レビュアーを excluded に追加 (Issue #44)
+        if state == "DESIGN_REVIEW" and action.new_state == "DESIGN_APPROVED":
+            review_mode = data.get("review_mode", "standard")
+            mode_config = REVIEW_MODES.get(review_mode, REVIEW_MODES["standard"])
+            all_reviewers = set(mode_config["members"])
+            responded = set()
+            for item in batch:
+                responded.update(item.get("design_reviews", {}).keys())
+            no_response = all_reviewers - responded
+            if no_response:
+                excluded = data.get("excluded_reviewers", [])
+                for r in no_response:
+                    if r not in excluded:
+                        excluded.append(r)
+                data["excluded_reviewers"] = excluded
+                # effective は excluded 全体（既存 + 今回追加分）を差し引いた実員数
+                effective = len(all_reviewers - set(excluded))
+                if effective == 0:
+                    # 全員除外 — 理論上ありえないが防御
+                    log(f"[{pj}] WARNING: effective==0 at DESIGN_APPROVED, skipping min_reviews_override")
+                else:
+                    data["min_reviews_override"] = max(1, min(mode_config["min_reviews"], effective))
+                log(f"[{pj}] 無応答レビュアーを除外: {sorted(no_response)}, excluded={excluded}, effective={effective}")
+
         # BLOCKED: Disable watchdog (Issue #29)
         if action.new_state == "BLOCKED":
             data["enabled"] = False
@@ -977,27 +1001,6 @@ def process(path: Path):
                     for r in ng:
                         data[f"_nudge_failed_{r}"] = _datetime.now(JST).isoformat()
                 update_pipeline(path, _set_nudge_ts)
-
-            # Issue #43: 催促失敗したレビュアーを excluded_reviewers に追加
-            if failed:
-                def _exclude_failed(data, failed_list=failed):
-                    from config import REVIEW_MODES
-                    excluded = data.get("excluded_reviewers", [])
-                    for r in failed_list:
-                        if r not in excluded:
-                            excluded.append(r)
-                    data["excluded_reviewers"] = excluded
-
-                    # Recalculate min_reviews_override
-                    review_mode = data.get("review_mode", "standard")
-                    mode_config = REVIEW_MODES.get(review_mode, REVIEW_MODES["standard"])
-                    effective_count = len(set(mode_config["members"]) - set(excluded))
-                    data["min_reviews_override"] = max(1, min(mode_config["min_reviews"], effective_count))
-
-                    log(f"[{data.get('project', pj)}] Excluded failed reviewers: {failed_list}. "
-                        f"Effective count: {effective_count}, min_reviews_override: {data['min_reviews_override']}")
-
-                update_pipeline(path, _exclude_failed)
 
             if woken:
                 ts = _datetime.now(JST).strftime("%m/%d %H:%M")

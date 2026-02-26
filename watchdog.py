@@ -901,6 +901,7 @@ def process(path: Path):
         # DONE状態: バッチを退避してからクリア + watchdog無効化 + タイムアウト延長リセット + REVISE counters reset
         if state == "DONE":
             _done_batch = list(data.get("batch", []))  # close用に退避
+            _done_queue_mode = data.get("queue_mode", False)  # _check_queue判定用に退避
             data["batch"] = []
             data["enabled"] = False
             data.pop("timeout_extension", None)
@@ -912,6 +913,7 @@ def process(path: Path):
             data.pop("automerge", None)
             data.pop("cc_plan_model", None)
             data.pop("cc_impl_model", None)
+            data.pop("queue_mode", None)
 
         # IDLE→DESIGN_PLAN: Reset REVISE cycle counters (Issue #29)
         if state == "IDLE" and action.new_state == "DESIGN_PLAN":
@@ -1015,6 +1017,7 @@ def process(path: Path):
             "repo_path": data.get("repo_path", ""),
             "review_mode": data.get("review_mode", "standard"),
             "keep_context": data.get("keep_context", False),
+            "queue_mode": _done_queue_mode if state == "DONE" else data.get("queue_mode", False),
         })
 
     update_pipeline(path, do_transition)
@@ -1188,9 +1191,11 @@ def process(path: Path):
                 pj,
             )
 
-        # DONE→IDLE遷移後: キューの次行を自動起動 (Issue #45)
-        # この通知ブロックは watchdog actor 専用 (CLI force 遷移では到達しない)
-        if notification.get("old_state") == "DONE" and action.new_state == "IDLE":
+        # DONE→IDLE遷移後: キューモードのときだけ次行を自動起動 (Issue #45)
+        # devbar start で起動した場合は queue_mode=False なのでスキップ
+        if (notification.get("old_state") == "DONE"
+                and action.new_state == "IDLE"
+                and notification.get("queue_mode")):
             _check_queue()
 
         if action.reset_reviewers:

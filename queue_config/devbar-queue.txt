@@ -1,0 +1,18 @@
+# devbar-queue.txt
+# PROJECT ISSUES [MODE] [OPTIONS...]
+#
+# 例:
+# TrajOpt 25 standard automerge plan=opus impl=sonnet
+# BeamShifter 17,18,19 full
+# TrajOpt all lite
+#
+# - ISSUES: "all" またはカンマ区切り数値 (例: "1,2,3")
+# - MODE: full / standard / lite / min / skip (省略可)
+# - OPTIONS: automerge, plan=MODEL, impl=MODEL, keep-context
+# - 完了行は `# done:` prefix で自動マーク
+# - 失敗時の復元機能あり
+#
+# done: WindFreqSim 7,8 min automerge
+# done: WindFreqSim 10 min automerge plan=opus keep-context
+# done: WindFreqSim 11 min keep-context
+# done: WindFreqSim 9 min automerge impl=opus

@@ -790,9 +790,9 @@ def _check_queue():
     Issue #45: devbar qrun をサブプロセス経由で呼び出し、循環 import を回避。
     """
     import subprocess as _sp
-    from config import PIPELINES_DIR, DEVBAR_CLI
+    from config import DEVBAR_CLI, QUEUE_FILE
 
-    queue_path = PIPELINES_DIR / "devbar-queue.txt"
+    queue_path = QUEUE_FILE
     if not queue_path.exists():
         return
 
@@ -1014,6 +1014,7 @@ def process(path: Path):
             "batch": saved_batch,
             "repo_path": data.get("repo_path", ""),
             "review_mode": data.get("review_mode", "standard"),
+            "keep_context": data.get("keep_context", False),
         })
 
     update_pipeline(path, do_transition)
@@ -1193,13 +1194,19 @@ def process(path: Path):
             _check_queue()
 
         if action.reset_reviewers:
-            impl = ""
-            if action.new_state == "DESIGN_PLAN":
-                # DESIGN_PLAN開始時は毎回実装担当もリセット（compaction破損対策）
-                impl = notification["implementer"]
-            review_mode = notification.get("review_mode", "standard")
-            log(f"[{pj}] reset_reviewers triggered: new_state={action.new_state}, impl='{impl}', review_mode={review_mode}")
-            excluded = _reset_reviewers(review_mode, implementer=impl)
+            # keep_context: レビュアーへの /new 送信をスキップ
+            keep_context = notification.get("keep_context", False)
+            if keep_context:
+                log(f"[{pj}] reset_reviewers SKIPPED (keep_context=True)")
+                excluded = []
+            else:
+                impl = ""
+                if action.new_state == "DESIGN_PLAN":
+                    # DESIGN_PLAN開始時は毎回実装担当もリセット（compaction破損対策）
+                    impl = notification["implementer"]
+                review_mode = notification.get("review_mode", "standard")
+                log(f"[{pj}] reset_reviewers triggered: new_state={action.new_state}, impl='{impl}', review_mode={review_mode}")
+                excluded = _reset_reviewers(review_mode, implementer=impl)
 
             # Save excluded_reviewers and min_reviews_override inside update_pipeline lock
             mode_config = REVIEW_MODES.get(review_mode, REVIEW_MODES["standard"])

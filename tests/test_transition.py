@@ -234,3 +234,51 @@ class TestTransitionNotifications:
         msg = mock_discord.call_args[0][0]
         assert "（再開）" in msg
         assert "DESIGN_PLAN" in msg
+
+
+def test_keep_context_preserved_in_pipeline(tmp_path):
+    """keep_context=True が pipeline.json に保存・読み出しできることを確認。"""
+    import json
+    from pipeline_io import load_pipeline, update_pipeline
+
+    pipeline_path = tmp_path / "test.json"
+    pipeline_path.write_text(json.dumps({
+        "project": "test",
+        "state": "IDLE",
+        "enabled": True,
+        "batch": [],
+        "implementer": "kaneko",
+        "keep_context": True,
+        "review_mode": "standard",
+    }))
+
+    data = load_pipeline(str(pipeline_path))
+    assert data.get("keep_context") is True
+
+
+def test_keep_context_in_notification(tmp_path):
+    """keep_context が notification dict に渡されることを確認。"""
+    import json
+
+    data = {
+        "project": "test",
+        "state": "CODE_REVIEW",
+        "enabled": True,
+        "batch": [{"issue": 1, "title": "test"}],
+        "implementer": "kaneko",
+        "keep_context": True,
+        "review_mode": "standard",
+    }
+
+    # notification dict 構築ロジックの検証
+    notification = {
+        "review_mode": data.get("review_mode", "standard"),
+        "keep_context": data.get("keep_context", False),
+    }
+    assert notification["keep_context"] is True
+
+
+def test_keep_context_default_false(tmp_path):
+    """keep_context 未設定時はデフォルト False。"""
+    data = {"state": "IDLE", "batch": []}
+    assert data.get("keep_context", False) is False

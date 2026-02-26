@@ -378,13 +378,16 @@ def cmd_start(args):
     )
     cmd_triage(triage_args)
 
-    # 4. review_mode設定（--mode指定時、遷移前に設定して/newの宛先に反映させる）
-    if getattr(args, "mode", None):
+    # 4. review_mode / keep_context 設定（遷移前に設定して/newの宛先に反映させる）
+    if getattr(args, "mode", None) or getattr(args, "keep_context", False):
         from watchdog import REVIEW_MODES
-        if args.mode not in REVIEW_MODES:
+        if getattr(args, "mode", None) and args.mode not in REVIEW_MODES:
             raise SystemExit(f"Invalid mode: {args.mode} (valid: {list(REVIEW_MODES)})")
         def do_mode(data):
-            data["review_mode"] = args.mode
+            if getattr(args, "mode", None):
+                data["review_mode"] = args.mode
+            if getattr(args, "keep_context", False):
+                data["keep_context"] = True
         update_pipeline(path, do_mode)
 
     # 5. DESIGN_PLANに遷移
@@ -834,6 +837,7 @@ def cmd_qrun(args):
         project=project,
         issue=None if issues == "all" else [int(x) for x in issues.split(",")],
         mode=mode,
+        keep_context=entry.get("keep_context", False),
     )
 
     # cmd_start 実行 (エラー時は復元)
@@ -896,6 +900,8 @@ def main():
                    help="Issue番号（省略時はGitLabのopen issue全件を自動取得）")
     p.add_argument("--mode", choices=["full", "standard", "lite", "min", "skip"],
                    help="レビューモード（省略時は既存設定を維持）")
+    p.add_argument("--keep-context", action="store_true", default=False, dest="keep_context",
+                   help="レビュアーへの /new 送信をスキップ（コンテキスト維持）")
 
     # triage
     p = sub.add_parser("triage", help="指定Issueをバッチに投入")

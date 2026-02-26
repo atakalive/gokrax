@@ -478,12 +478,17 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
                 return _resolve_review_outcome(state, data, batch, has_p0)
 
         # Not enough reviews yet
-        # 未完了レビュアーの催促（猶予期間内はスキップ）
+        # 1. タイムアウト判定（BLOCKEDのみ早期リターン）
+        nudge = _check_nudge(state, data) if data is not None else None
+        if nudge and nudge.new_state == "BLOCKED":
+            return nudge
+        # 2. 未完了レビュアーの催促（猶予期間内はスキップ）
         entered_at = _get_state_entered_at(data, state) if data is not None else None
         if entered_at is not None:
             elapsed = (_datetime.now(JST) - entered_at).total_seconds()
             if elapsed < NUDGE_GRACE_SEC:
                 return TransitionAction()
+        # 3. レビュアー催促（最低優先）
         pending = _get_pending_reviewers(batch, key, mode_config["members"])
         if pending:
             return TransitionAction(nudge_reviewers=pending)
@@ -539,13 +544,15 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
         return nudge or TransitionAction()
 
     if state == "IMPLEMENTATION":
+        # 1. 完了判定（最優先）
         if all(i.get("commit") for i in batch):
             return TransitionAction(new_state="CODE_REVIEW", send_review=True)
-        # CC未実行 → 起動指示
+        # 2. CC未実行 → 起動指示
         if data is not None and not _is_cc_running(data):
             return TransitionAction(run_cc=True)
-        # CC実行中 → 何もしない
-        return TransitionAction()
+        # 3. CC実行中だが進捗なし → タイムアウト判定
+        nudge = _check_nudge(state, data) if data is not None else None
+        return nudge or TransitionAction()
 
     return TransitionAction()
 
@@ -917,7 +924,11 @@ def process(path: Path):
                                 continue
                         except (ValueError, TypeError):
                             pass
-                    if send_to_agent_queued(reviewer, "continue"):
+                    msg = (
+                        "[Remind] 予定のレビュー作業を進め、完了してください。\n"
+                        "devbar review コマンドで、依頼された全てのレビューを完了報告してください。"
+                    )
+                    if send_to_agent_queued(reviewer, msg):
                         woken.append(reviewer)
                     else:
                         failed.append(reviewer)
@@ -938,8 +949,32 @@ def process(path: Path):
             return
 
         if action.nudge:
-            # 遷移時に既に詳細メッセージを送っているので、催促は常に "continue"
-            nudge_msg = "continue"
+            # 状態ごとの具体的な指示メッセージ
+            nudge_state = action.nudge  # e.g. "DESIGN_REVISE", "CODE_REVISE", etc.
+
+            if nudge_state == "DESIGN_REVISE":
+                nudge_msg = (
+                    "[Remind] 予定のリバイス作業を進め、完了してください。\n"
+                    "devbar design-revise --pj <project> --issue <N> で完了報告してください。"
+                )
+            elif nudge_state == "CODE_REVISE":
+                nudge_msg = (
+                    "[Remind] 予定のリバイス作業を進め、完了してください。\n"
+                    "devbar code-revise --pj <project> --issue <N> --hash <commit> で修正コミットを報告してください。"
+                )
+            elif nudge_state == "DESIGN_PLAN":
+                nudge_msg = (
+                    "[Remind] 設計確認を進め、完了してください。\n"
+                    "devbar plan-done --project <project> --issue <N> で完了報告してください。"
+                )
+            elif nudge_state == "IMPLEMENTATION":
+                nudge_msg = (
+                    "[Remind] 実装を進め、完了してください。\n"
+                    "devbar commit --pj <project> --issue <N> --hash <commit> でコミットを報告してください。"
+                )
+            else:
+                nudge_msg = "[Remind] 作業を進め、完了してください。"
+
             if action.extend_notice:
                 nudge_msg += action.extend_notice
             send_to_agent_queued(notification["implementer"], nudge_msg)

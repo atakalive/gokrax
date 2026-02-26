@@ -443,6 +443,7 @@ def cmd_transition(args):
             data.pop("automerge", None)
             data.pop("cc_plan_model", None)
             data.pop("cc_impl_model", None)
+            data.pop("keep_context", None)
         elif target == "DESIGN_PLAN":
             # Reset REVISE cycle counters when starting new batch (Issue #29)
             data.pop("design_revise_count", None)

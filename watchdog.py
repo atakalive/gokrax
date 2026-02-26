@@ -167,6 +167,7 @@ class TransitionAction:
     nudge: str | None = None   # 催促通知が必要な状態名
     nudge_reviewers: list | None = None  # 催促が必要なレビュアーのリスト
     extend_notice: str | None = None  # タイムアウト延長案内メッセージ
+    save_grace_met_at: str | None = None  # grace met_atをpipelineに保存する必要がある場合のキー名
 
 
 def _get_state_entered_at(data: dict, state: str) -> _datetime | None:
@@ -464,7 +465,7 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
                     should_transition = True
                 else:
                     log(f"[GRACE] waiting ({grace_sec - elapsed:.1f}s remaining)")
-                    return TransitionAction()
+                    return TransitionAction(save_grace_met_at=met_key)
 
             # Case 3: No grace (min == effective or grace_sec == 0) → immediate
             else:
@@ -748,7 +749,7 @@ def process(path: Path):
         return
 
     pre_action = check_transition(state, batch, data)
-    if pre_action.new_state is None and not pre_action.nudge and not pre_action.nudge_reviewers:
+    if pre_action.new_state is None and not pre_action.nudge and not pre_action.nudge_reviewers and not pre_action.save_grace_met_at:
         return
 
     # === ロック内で第2チェック + 遷移 (Double-Checked Locking) ===

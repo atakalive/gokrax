@@ -489,7 +489,8 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
             if elapsed < NUDGE_GRACE_SEC:
                 return TransitionAction()
         # 3. レビュアー催促（最低優先）
-        pending = _get_pending_reviewers(batch, key, mode_config["members"])
+        excluded = data.get("excluded_reviewers", []) if data else []
+        pending = _get_pending_reviewers(batch, key, mode_config["members"], excluded=excluded)
         if pending:
             return TransitionAction(nudge_reviewers=pending)
         return TransitionAction()
@@ -688,10 +689,17 @@ def _is_agent_inactive(agent_id: str, pipeline_data: dict | None = None) -> bool
         return True  # 読めない = 非アクティブ扱い
 
 
-def _get_pending_reviewers(batch: list, review_key: str, reviewers: list) -> list:
-    """全Issueのレビューを完了していないレビュアーのリストを返す。"""
+def _get_pending_reviewers(batch: list, review_key: str, reviewers: list, excluded=None) -> list:
+    """全Issueのレビューを完了していないレビュアーのリストを返す。
+
+    Args:
+        excluded: 除外するレビュアーのリスト（例: レート制限で応答不能になった者）
+    """
+    excluded_set = set(excluded or [])
     pending = []
     for reviewer in reviewers:
+        if reviewer in excluded_set:
+            continue
         # 全Issueにこのレビュアーのレビューがあるか
         if not all(reviewer in i.get(review_key, {}) for i in batch):
             pending.append(reviewer)
@@ -780,6 +788,8 @@ def process(path: Path):
                 "pj": pj,
                 "action": action,
                 "nudge_reviewers": list(action.nudge_reviewers),
+                "batch": list(batch),
+                "old_state": state,
             })
             return
 
@@ -910,8 +920,14 @@ def process(path: Path):
             # 非アクティブなレビュアーにのみ「continue」送信（送信失敗時は次回スキップ）
             path = get_path(pj)
             pipeline_data = load_pipeline(path)
+            state = notification.get("old_state", "")
+            batch = notification.get("batch", [])
             woken = []
             failed = []
+
+            # Determine review key based on state
+            review_key = "design_reviews" if "DESIGN" in state else "code_reviews"
+
             for reviewer in notification["nudge_reviewers"]:
                 if _is_agent_inactive(reviewer):
                     # 前回催促からINACTIVE_THRESHOLD_SEC未満ならスキップ
@@ -924,10 +940,29 @@ def process(path: Path):
                                 continue
                         except (ValueError, TypeError):
                             pass
-                    msg = (
-                        "[Remind] 予定のレビュー作業を進め、完了してください。\n"
-                        "devbar review コマンドで、依頼された全てのレビューを完了報告してください。"
+
+                    # Find pending issues for this reviewer
+                    pending_issues = [
+                        item["issue"] for item in batch
+                        if reviewer not in item.get(review_key, {})
+                    ]
+
+                    # Skip if no pending issues (shouldn't happen due to _get_pending_reviewers)
+                    if not pending_issues:
+                        continue
+
+                    # Generate copy-pasteable command for each issue
+                    from config import review_command
+                    cmd_lines = "\n".join(
+                        review_command(pj, num, reviewer) for num in pending_issues
                     )
+
+                    msg = (
+                        f"[Remind] {pj} のレビューが未完了です。対象: {', '.join(f'#{n}' for n in pending_issues)}\n"
+                        f"以下のコマンドで各 Issue のレビューを報告してください:\n"
+                        f"{cmd_lines}"
+                    )
+
                     if send_to_agent_queued(reviewer, msg):
                         woken.append(reviewer)
                     else:
@@ -942,6 +977,28 @@ def process(path: Path):
                     for r in ng:
                         data[f"_nudge_failed_{r}"] = _datetime.now(JST).isoformat()
                 update_pipeline(path, _set_nudge_ts)
+
+            # Issue #43: 催促失敗したレビュアーを excluded_reviewers に追加
+            if failed:
+                def _exclude_failed(data, failed_list=failed):
+                    from config import REVIEW_MODES
+                    excluded = data.get("excluded_reviewers", [])
+                    for r in failed_list:
+                        if r not in excluded:
+                            excluded.append(r)
+                    data["excluded_reviewers"] = excluded
+
+                    # Recalculate min_reviews_override
+                    review_mode = data.get("review_mode", "standard")
+                    mode_config = REVIEW_MODES.get(review_mode, REVIEW_MODES["standard"])
+                    effective_count = len(set(mode_config["members"]) - set(excluded))
+                    data["min_reviews_override"] = max(1, min(mode_config["min_reviews"], effective_count))
+
+                    log(f"[{data.get('project', pj)}] Excluded failed reviewers: {failed_list}. "
+                        f"Effective count: {effective_count}, min_reviews_override: {data['min_reviews_override']}")
+
+                update_pipeline(path, _exclude_failed)
+
             if woken:
                 ts = _datetime.now(JST).strftime("%m/%d %H:%M")
                 log(f"[{pj}] レビュアーを催促: {', '.join(woken)} ({ts})")

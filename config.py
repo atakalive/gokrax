@@ -203,4 +203,25 @@ def _validate_reviewer_tiers():
                 )
 
 
+def review_command(project: str, issue: int, reviewer: str) -> str:
+    """レビュー報告コマンド文字列を生成する。単一ソース。
+
+    Args:
+        project: プロジェクト名
+        issue: Issue番号
+        reviewer: レビュアー名
+
+    Returns:
+        コピペ可能な devbar review コマンド文字列
+    """
+    return (
+        f'python3 {DEVBAR_CLI} review'
+        f' --project {project}'
+        f' --issue {issue}'
+        f' --reviewer {reviewer}'
+        f' --verdict <APPROVE/P0/P1>'
+        f' --summary "..."'
+    )
+
+
 _validate_reviewer_tiers()

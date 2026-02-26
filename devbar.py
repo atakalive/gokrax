@@ -439,6 +439,11 @@ def cmd_transition(args):
             # Reset REVISE cycle counters when starting new batch (Issue #29)
             data.pop("design_revise_count", None)
             data.pop("code_revise_count", None)
+        elif args.force and target in ("DESIGN_REVIEW", "CODE_REVIEW"):
+            # Issue #41: Reset counters when force-transitioning to REVIEW states from BLOCKED
+            counter_key = "design_revise_count" if "DESIGN" in target else "code_revise_count"
+            data.pop(counter_key, None)
+            print(f"[FORCE] Resetting {counter_key} for {current} → {target} transition")
         elif target == "BLOCKED":
             # Disable watchdog when manually transitioning to BLOCKED (Issue #29)
             data["enabled"] = False

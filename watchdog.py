@@ -1199,6 +1199,7 @@ def process(path: Path):
             _check_queue()
 
         if action.reset_reviewers:
+            review_mode = notification.get("review_mode", "standard")
             # keep_context: レビュアーへの /new 送信をスキップ
             keep_context = notification.get("keep_context", False)
             if keep_context:
@@ -1209,7 +1210,6 @@ def process(path: Path):
                 if action.new_state == "DESIGN_PLAN":
                     # DESIGN_PLAN開始時は毎回実装担当もリセット（compaction破損対策）
                     impl = notification["implementer"]
-                review_mode = notification.get("review_mode", "standard")
                 log(f"[{pj}] reset_reviewers triggered: new_state={action.new_state}, impl='{impl}', review_mode={review_mode}")
                 excluded = _reset_reviewers(review_mode, implementer=impl)
 

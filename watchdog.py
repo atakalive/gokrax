@@ -236,10 +236,15 @@ def _check_nudge(state: str, data: dict) -> TransitionAction | None:
 _VERDICT_EMOJI = {"APPROVE": "🟢", "P0": "🔴", "P1": "🟡"}
 
 
-def _format_merge_summary(project: str, batch: list) -> str:
+def _format_merge_summary(project: str, batch: list, automerge: bool = False) -> str:
     """#dev-bar 投稿用マージサマリーを生成する。
 
     2000文字超は post_discord が自動分割するので、ここでは切り詰めない。
+
+    Args:
+        project: プロジェクト名
+        batch: バッチアイテム
+        automerge: automerge有効時は True (Issue #45)
     """
     from config import MERGE_SUMMARY_FOOTER
     lines = [f"**[{project}] マージサマリー**\n"]
@@ -261,7 +266,13 @@ def _format_merge_summary(project: str, batch: list) -> str:
             else:
                 lines.append(f"  {emoji} **{reviewer}**: {verdict}")
         lines.append("")  # 空行で区切り
-    lines.append(MERGE_SUMMARY_FOOTER)
+
+    # Footer (Issue #45: automerge時は文言変更)
+    if automerge:
+        lines.append("\n---\n⚡ automerge有効 — 自動マージします")
+    else:
+        lines.append(MERGE_SUMMARY_FOOTER)
+
     return "\n".join(lines)
 
 
@@ -390,6 +401,12 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
     if state == "MERGE_SUMMARY_SENT":
         if data is None:
             return TransitionAction()
+
+        # Automerge: skip approval wait (Issue #45)
+        if data.get("automerge", False):
+            return TransitionAction(new_state="DONE")
+
+        # Manual merge: wait for M's OK
         from notify import fetch_discord_replies
         from config import M_DISCORD_USER_ID, DISCORD_CHANNEL
         summary_id = data.get("summary_message_id")
@@ -566,6 +583,11 @@ def _start_cc(project: str, batch: list, gitlab: str, repo_path: str, pipeline_p
     import tempfile
     from notify import fetch_issue_body
 
+    # CC モデル指定を pipeline JSON から読み取る (Issue #45)
+    data = load_pipeline(pipeline_path)
+    plan_model = data.get("cc_plan_model") or CC_MODEL_PLAN
+    impl_model = data.get("cc_impl_model") or CC_MODEL_IMPL
+
     session_id = str(_uuid.uuid4())
 
     # Issue本文を収集
@@ -616,14 +638,14 @@ cd "{repo_path}"
 _notify() {{ local ts=$(date +"%m/%d %H:%M"); python3 -c "import sys; sys.path.insert(0,'{Path(DEVBAR_CLI).resolve().parent}'); from notify import notify_discord; notify_discord(sys.argv[1])" "$1 ($ts)" 2>/dev/null || true; }}
 
 # Phase 1: Plan
-_notify "[{project}] 📋 CC Plan 開始 (model: {CC_MODEL_PLAN})"
-claude -p --model "{CC_MODEL_PLAN}" --session-id "{session_id}" \
+_notify "[{project}] 📋 CC Plan 開始 (model: {plan_model})"
+claude -p --model "{plan_model}" --session-id "{session_id}" \
   --permission-mode plan --output-format json < "{plan_path}"
 _notify "[{project}] ✅ CC Plan 完了"
 
 # Phase 2: Impl
-_notify "[{project}] 🔨 CC Impl 開始 (model: {CC_MODEL_IMPL})"
-claude -p --model "{CC_MODEL_IMPL}" --resume "{session_id}" \
+_notify "[{project}] 🔨 CC Impl 開始 (model: {impl_model})"
+claude -p --model "{impl_model}" --resume "{session_id}" \
   --permission-mode bypassPermissions --output-format json < "{impl_path}"
 _notify "[{project}] ✅ CC Impl 完了"
 
@@ -743,6 +765,34 @@ def _auto_push_and_close(repo_path: str, gitlab: str, batch: list, project: str)
             log(f"[{project}] Issue #{issue_num} closeエラー: {e}")
 
 
+def _check_queue():
+    """キューから次のタスクを起動 (DONE→IDLE後にのみ呼ばれる)。
+
+    Issue #45: devbar qrun をサブプロセス経由で呼び出し、循環 import を回避。
+    """
+    import subprocess as _sp
+    from config import PIPELINES_DIR, DEVBAR_CLI
+
+    queue_path = PIPELINES_DIR / "devbar-queue.txt"
+    if not queue_path.exists():
+        return
+
+    # devbar qrun を subprocess 経由で呼び出し
+    try:
+        result = _sp.run(
+            ["python3", str(DEVBAR_CLI), "qrun", "--queue", str(queue_path)],
+            capture_output=True, text=True, timeout=60,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            log(f"[queue] {result.stdout.strip()}")
+        elif "Queue empty" not in result.stdout:
+            log(f"[queue] qrun failed: {result.stderr.strip()}")
+    except _sp.TimeoutExpired:
+        log("[queue] qrun timeout (>60s)")
+    except Exception as e:
+        log(f"[queue] qrun error: {e}")
+
+
 def _format_nudge_message(state: str, project: str, batch: list) -> str:
     """催促メッセージ生成。get_notification_for_state() に委譲。"""
     notif = get_notification_for_state(state, project=project, batch=batch)
@@ -839,6 +889,10 @@ def process(path: Path):
             # Reset REVISE cycle counters (Issue #29)
             data.pop("design_revise_count", None)
             data.pop("code_revise_count", None)
+            # Clear queue options (Issue #45)
+            data.pop("automerge", None)
+            data.pop("cc_plan_model", None)
+            data.pop("cc_impl_model", None)
 
         # IDLE→DESIGN_PLAN: Reset REVISE cycle counters (Issue #29)
         if state == "IDLE" and action.new_state == "DESIGN_PLAN":
@@ -1073,7 +1127,11 @@ def process(path: Path):
             from config import DISCORD_CHANNEL
             from notify import post_discord
             batch = notification["batch"]
-            content = _format_merge_summary(pj, batch)
+            # automerge フラグを最新のパイプラインから読み取る (Issue #45)
+            path = get_path(pj)
+            pipeline_data = load_pipeline(path)
+            automerge = pipeline_data.get("automerge", False)
+            content = _format_merge_summary(pj, batch, automerge=automerge)
             message_id = post_discord(DISCORD_CHANNEL, content)
             if message_id:
                 # summary_message_id をパイプラインに保存
@@ -1099,6 +1157,9 @@ def process(path: Path):
                 notification["batch"],
                 pj,
             )
+            # Queue check: 次のバッチを自動起動 (Issue #45)
+            # この通知ブロックは watchdog actor 専用 (CLI force 遷移では到達しない)
+            _check_queue()
 
         if action.reset_reviewers:
             impl = ""

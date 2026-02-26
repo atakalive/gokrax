@@ -12,6 +12,7 @@ DEVBAR_CLI = PurePosixPath("/home/ataka/.openclaw/shared/bin/devbar")
 GLAB_BIN = "/home/ataka/bin/glab"
 GATEWAY_TOKEN_PATH = Path.home() / ".openclaw/openclaw.json"
 LOG_FILE = Path("/tmp/devbar-watchdog.log")
+QUEUE_FILE = PIPELINES_DIR / "devbar-queue.txt"
 
 # watchdog-loop
 WATCHDOG_LOOP_SCRIPT = Path(__file__).resolve().parent / "watchdog-loop.sh"

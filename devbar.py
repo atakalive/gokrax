@@ -435,6 +435,10 @@ def cmd_transition(args):
             # Reset REVISE cycle counters when returning to IDLE (Issue #29)
             data.pop("design_revise_count", None)
             data.pop("code_revise_count", None)
+            # Clear queue options (Issue #45)
+            data.pop("automerge", None)
+            data.pop("cc_plan_model", None)
+            data.pop("cc_impl_model", None)
         elif target == "DESIGN_PLAN":
             # Reset REVISE cycle counters when starting new batch (Issue #29)
             data.pop("design_revise_count", None)
@@ -712,7 +716,8 @@ def cmd_merge_summary(args):
 
     batch = data.get("batch", [])
     project = data.get("project", args.project)
-    content = _format_merge_summary(project, batch)
+    automerge = data.get("automerge", False)
+    content = _format_merge_summary(project, batch, automerge=automerge)
 
     message_id = post_discord(DISCORD_CHANNEL, content)
     if not message_id:
@@ -725,6 +730,75 @@ def cmd_merge_summary(args):
 
     update_pipeline(path, do_update)
     print(f"{args.project}: merge summary sent (message_id={message_id})")
+
+
+def cmd_qrun(args):
+    """キューから次のバッチを実行: pop → cmd_start → オプション保存"""
+    from task_queue import pop_next_queue_entry, restore_queue_entry, peek_queue
+    from config import QUEUE_FILE
+
+    queue_path = Path(args.queue) if args.queue else QUEUE_FILE
+
+    # Dry-run: キュー内容を表示
+    if args.dry_run:
+        entries = peek_queue(queue_path)
+        if not entries:
+            print("Queue empty")
+            return
+        for e in entries:
+            done = " [DONE]" if e.get("done") else ""
+            mode = f" mode={e['mode']}" if e.get("mode") else ""
+            opts = []
+            if e.get("automerge"):
+                opts.append("automerge")
+            if e.get("cc_plan_model"):
+                opts.append(f"plan={e['cc_plan_model']}")
+            if e.get("cc_impl_model"):
+                opts.append(f"impl={e['cc_impl_model']}")
+            opts_str = " " + " ".join(opts) if opts else ""
+            print(f"{e['project']} {e['issues']}{mode}{opts_str}{done}")
+        return
+
+    # 次のエントリをpop
+    entry = pop_next_queue_entry(queue_path)
+    if not entry:
+        print("Queue empty or no executable entries")
+        return
+
+    # cmd_start 引数を構築
+    project = entry["project"]
+    issues = entry["issues"]
+    mode = entry.get("mode")
+
+    start_args = argparse.Namespace(
+        project=project,
+        issue=None if issues == "all" else [int(x) for x in issues.split(",")],
+        mode=mode,
+    )
+
+    # cmd_start 実行 (エラー時は復元)
+    try:
+        cmd_start(start_args)
+    except (SystemExit, Exception) as e:
+        restore_queue_entry(queue_path, entry["original_line"])
+        print(f"[qrun] Failed to start {project}: {e}", file=sys.stderr)
+        raise
+
+    # 成功: automerge/cc_model をパイプラインに保存
+    path = get_path(project)
+
+    def _save_queue_options(data):
+        if entry.get("automerge"):
+            data["automerge"] = True
+        if entry.get("cc_plan_model"):
+            data["cc_plan_model"] = entry["cc_plan_model"]
+        if entry.get("cc_impl_model"):
+            data["cc_impl_model"] = entry["cc_impl_model"]
+
+    update_pipeline(path, _save_queue_options)
+
+    automerge_flag = entry.get("automerge", False)
+    print(f"[qrun] {project}: started (automerge={automerge_flag})")
 
 
 def main():
@@ -830,6 +904,11 @@ def main():
     p = sub.add_parser("merge-summary", help="マージサマリーを #dev-bar に投稿してMの承認待ちへ")
     p.add_argument("--pj", "--project", dest="project", required=True)
 
+    # qrun
+    p = sub.add_parser("qrun", help="キューから次のバッチを実行")
+    p.add_argument("--queue", type=Path, help="キューファイルパス (default: devbar-queue.txt)")
+    p.add_argument("--dry-run", action="store_true", help="実行せず内容のみ表示")
+
     args = parser.parse_args()
     if not args.command:
         parser.print_help()
@@ -845,6 +924,7 @@ def main():
         "design-revise": cmd_design_revise, "code-revise": cmd_code_revise,
         "review-mode": cmd_review_mode,
         "merge-summary": cmd_merge_summary,
+        "qrun": cmd_qrun,
     }
     cmds[args.command](args)
 

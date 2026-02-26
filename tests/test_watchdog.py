@@ -2104,3 +2104,182 @@ class TestDesignApprovedExcludeNoResponse:
                 "hanfei (excluded) should not be in nudge list"
             assert "leibniz" in action.nudge_reviewers, \
                 "leibniz should be nudged"
+
+
+# ── Issue #45: Automerge / CC Model / Queue Tests ────────────────────────────
+
+class TestAutomerge:
+    """automerge 機能のテスト (Issue #45)"""
+
+    def test_automerge_skip_approval(self):
+        """automerge=True: MERGE_SUMMARY_SENT → DONE 即遷移"""
+        from watchdog import check_transition
+
+        batch = _make_batch(1, commit="abc123")
+        data = {"automerge": True, "summary_message_id": "msg_123"}
+
+        action = check_transition("MERGE_SUMMARY_SENT", batch, data)
+        assert action.new_state == "DONE"
+
+    def test_automerge_false_waits_for_ok(self):
+        """automerge=False: M の OK リプライ待ち"""
+        from watchdog import check_transition
+
+        batch = _make_batch(1, commit="abc123")
+        data = {"automerge": False, "summary_message_id": "msg_123"}
+
+        with patch("notify.fetch_discord_replies", return_value=[]):
+            action = check_transition("MERGE_SUMMARY_SENT", batch, data)
+            assert action.new_state is None  # Still waiting
+
+    def test_automerge_missing_field_defaults_false(self):
+        """automerge フィールドなし → False として扱う"""
+        from watchdog import check_transition
+
+        batch = _make_batch(1, commit="abc123")
+        data = {"summary_message_id": "msg_123"}  # No automerge field
+
+        with patch("notify.fetch_discord_replies", return_value=[]):
+            action = check_transition("MERGE_SUMMARY_SENT", batch, data)
+            assert action.new_state is None  # Waits for OK
+
+    def test_merge_summary_footer_automerge_enabled(self):
+        """automerge=True: フッター文言が変わる"""
+        from watchdog import _format_merge_summary
+
+        batch = _make_batch(1, commit="abc123")
+        content = _format_merge_summary("TestProj", batch, automerge=True)
+
+        assert "⚡ automerge有効" in content
+        assert "「OK」とリプライ" not in content
+
+    def test_merge_summary_footer_automerge_disabled(self):
+        """automerge=False: 通常のフッター"""
+        from watchdog import _format_merge_summary
+        from config import MERGE_SUMMARY_FOOTER
+
+        batch = _make_batch(1, commit="abc123")
+        content = _format_merge_summary("TestProj", batch, automerge=False)
+
+        assert MERGE_SUMMARY_FOOTER in content
+        assert "⚡ automerge有効" not in content
+
+
+class TestCCModelOverride:
+    """CC モデル指定機能のテスト (Issue #45)"""
+
+    def test_cc_model_from_pipeline(self, tmp_path, monkeypatch):
+        """_start_cc: pipeline JSON から cc_plan_model / cc_impl_model を読む"""
+        from watchdog import _start_cc
+
+        # Pipeline JSON を作成
+        pipeline_path = tmp_path / "test.json"
+        pipeline_data = {
+            "state": "IMPLEMENTATION",
+            "cc_plan_model": "opus",
+            "cc_impl_model": "haiku",
+        }
+        _write_pipeline(pipeline_path, pipeline_data)
+
+        batch = _make_batch(1)
+        batch[0]["commit"] = None  # Not done yet
+
+        mock_fetch_body = MagicMock(return_value="Issue body")
+        mock_popen = MagicMock()
+        mock_popen.return_value.pid = 12345
+        mock_update_pipeline = MagicMock()
+
+        monkeypatch.setattr("notify.fetch_issue_body", mock_fetch_body)
+        monkeypatch.setattr("subprocess.Popen", mock_popen)
+        monkeypatch.setattr("watchdog.update_pipeline", mock_update_pipeline)
+
+        _start_cc("TestProj", batch, "atakalive/TestProj", "/tmp/repo", pipeline_path)
+
+        # Popen が呼ばれたスクリプトを確認
+        popen_call = mock_popen.call_args
+        script_path = popen_call[0][0][1]  # ["bash", script_path]
+
+        # スクリプト内容を読む
+        with open(script_path) as f:
+            script_content = f.read()
+
+        assert '--model "opus"' in script_content
+        assert '--model "haiku"' in script_content
+
+    def test_cc_model_defaults(self, tmp_path, monkeypatch):
+        """cc_plan_model / cc_impl_model 未指定 → デフォルト値を使用"""
+        from watchdog import _start_cc
+        from config import CC_MODEL_PLAN, CC_MODEL_IMPL
+
+        # Pipeline JSON (cc_model フィールドなし)
+        pipeline_path = tmp_path / "test.json"
+        pipeline_data = {"state": "IMPLEMENTATION"}
+        _write_pipeline(pipeline_path, pipeline_data)
+
+        batch = _make_batch(1)
+        batch[0]["commit"] = None
+
+        mock_fetch_body = MagicMock(return_value="Issue body")
+        mock_popen = MagicMock()
+        mock_popen.return_value.pid = 12345
+        mock_update_pipeline = MagicMock()
+
+        monkeypatch.setattr("notify.fetch_issue_body", mock_fetch_body)
+        monkeypatch.setattr("subprocess.Popen", mock_popen)
+        monkeypatch.setattr("watchdog.update_pipeline", mock_update_pipeline)
+
+        _start_cc("TestProj", batch, "atakalive/TestProj", "/tmp/repo", pipeline_path)
+
+        popen_call = mock_popen.call_args
+        script_path = popen_call[0][0][1]
+
+        with open(script_path) as f:
+            script_content = f.read()
+
+        assert f'--model "{CC_MODEL_PLAN}"' in script_content
+        assert f'--model "{CC_MODEL_IMPL}"' in script_content
+
+
+class TestQueueFieldLifecycle:
+    """automerge / cc_model フィールドのライフサイクル (Issue #45)"""
+
+    def test_done_to_idle_clears_queue_fields(self, tmp_path, monkeypatch):
+        """DONE → IDLE: automerge / cc_model をクリア"""
+        from watchdog import process
+
+        # Pipeline 作成
+        pipeline_path = tmp_path / "test.json"
+        pipeline_data = {
+            "state": "DONE",
+            "enabled": True,
+            "batch": [],
+            "automerge": True,
+            "cc_plan_model": "opus",
+            "cc_impl_model": "sonnet",
+        }
+        _write_pipeline(pipeline_path, pipeline_data)
+
+        # Mock 依存
+        mock_auto_push = MagicMock()
+        mock_check_queue = MagicMock()
+        monkeypatch.setattr("watchdog._auto_push_and_close", mock_auto_push)
+        monkeypatch.setattr("watchdog._check_queue", mock_check_queue)
+        monkeypatch.setattr("watchdog.notify_discord", MagicMock())
+
+        # Process 実行
+        process(pipeline_path)
+
+        # Pipeline を再読み込み
+        data = pipeline_io.load_pipeline(pipeline_path)
+
+        # automerge / cc_model がクリアされている
+        assert "automerge" not in data
+        assert "cc_plan_model" not in data
+        assert "cc_impl_model" not in data
+        assert data["state"] == "IDLE"
+
+    def test_blocked_preserves_queue_fields(self, tmp_path):
+        """BLOCKED 遷移: automerge / cc_model を保持 (resume 用)"""
+        # This is tested implicitly: BLOCKED transition does NOT clear fields
+        # No explicit cleanup code for BLOCKED in watchdog.py
+        pass

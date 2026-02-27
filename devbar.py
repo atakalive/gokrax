@@ -776,7 +776,7 @@ def cmd_merge_summary(args):
     import logging
     logger = logging.getLogger(__name__)
     from config import DISCORD_CHANNEL
-    from notify import post_discord, send_to_agent
+    from notify import post_discord, notify_implementer
     from watchdog import _format_merge_summary
 
     path = get_path(args.project)
@@ -802,19 +802,18 @@ def cmd_merge_summary(args):
     update_pipeline(path, do_update)
 
     # Notify implementer of batch completion (Issue #48)
-    implementer = data.get("implementer", "kaneko")
+    implementer = data.get("implementer") or "kaneko"
     notification_msg = (
         f"[devbar] {project}: バッチ完了\n"
         f"{content}\n\n"
-        f"上記の作業を振り返り、以下だけを記録してください:\n"
-        f"- 踏んだ罠、ハマったこと(あれば)\n"
-        f"- レビュアー指摘で学んだこと(あれば)\n"
-        f"- 今後の作業に影響する判断(あれば)\n"
-        f"記録すべきことがなければ NO_REPLY で構いません。"
+        "上記の作業を振り返り、以下だけを記録してください:\n"
+        "- 踏んだ罠、ハマったこと（あれば）\n"
+        "- レビュアー指摘で学んだこと（あれば）\n"
+        "- 今後の作業に影響する判断（あれば）\n"
+        "記録すべきことがなければ NO_REPLY で構いません。"
     )
     try:
-        if not send_to_agent(implementer, notification_msg):
-            logger.warning("実装者通知失敗（続行）: agent=%s", implementer)
+        notify_implementer(implementer, notification_msg)
     except Exception as e:
         logger.warning("実装者通知失敗（続行）: %s", e)
 

@@ -459,8 +459,8 @@ class TestNotifyReviewersWithMode:
                 notify.notify_reviewers("proj", "DESIGN_REVIEW", batch, "atakalive/proj",
                                        review_mode="full")
 
-        # 4 reviewers × 1 call (review message only) = 4 calls
-        assert mock_send.call_count == 4
+        # full mode has 3 reviewers (pascal, leibniz, dijkstra) × 1 call = 3 calls
+        assert mock_send.call_count == 3
 
 
 class TestPrevReviews:

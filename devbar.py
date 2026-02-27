@@ -773,8 +773,10 @@ def cmd_review_mode(args):
 
 def cmd_merge_summary(args):
     """マージサマリーを #dev-bar に投稿し、MERGE_SUMMARY_SENT に遷移"""
+    import logging
+    logger = logging.getLogger(__name__)
     from config import DISCORD_CHANNEL
-    from notify import post_discord
+    from notify import post_discord, send_to_agent
     from watchdog import _format_merge_summary
 
     path = get_path(args.project)
@@ -798,6 +800,24 @@ def cmd_merge_summary(args):
         data["state"] = "MERGE_SUMMARY_SENT"
 
     update_pipeline(path, do_update)
+
+    # Notify implementer of batch completion (Issue #48)
+    implementer = data.get("implementer", "kaneko")
+    notification_msg = (
+        f"[devbar] {project}: バッチ完了\n"
+        f"{content}\n\n"
+        f"上記の作業を振り返り、以下だけを記録してください:\n"
+        f"- 踏んだ罠、ハマったこと(あれば)\n"
+        f"- レビュアー指摘で学んだこと(あれば)\n"
+        f"- 今後の作業に影響する判断(あれば)\n"
+        f"記録すべきことがなければ NO_REPLY で構いません。"
+    )
+    try:
+        if not send_to_agent(implementer, notification_msg):
+            logger.warning("実装者通知失敗（続行）: agent=%s", implementer)
+    except Exception as e:
+        logger.warning("実装者通知失敗（続行）: %s", e)
+
     print(f"{args.project}: merge summary sent (message_id={message_id})")
 
 

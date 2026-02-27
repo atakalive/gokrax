@@ -58,7 +58,8 @@ class TestCmdMergeSummary:
         write_pipeline(path, _make_pipeline())
         from devbar import cmd_merge_summary
         args = argparse.Namespace(project="test-pj")
-        with patch("notify.post_discord", return_value="1234567890") as mock_post:
+        with patch("notify.post_discord", return_value="1234567890") as mock_post, \
+             patch("notify.send_to_agent", return_value=True):
             cmd_merge_summary(args)
         with open(path) as f:
             data = json.load(f)
@@ -81,7 +82,8 @@ class TestCmdMergeSummary:
         write_pipeline(path, _make_pipeline())
         from devbar import cmd_merge_summary
         args = argparse.Namespace(project="test-pj")
-        with patch("notify.post_discord", return_value=None):
+        with patch("notify.post_discord", return_value=None), \
+             patch("notify.send_to_agent", return_value=True):
             with pytest.raises(SystemExit, match="Discord 投稿に失敗"):
                 cmd_merge_summary(args)
 
@@ -95,7 +97,8 @@ class TestCmdMergeSummary:
         def mock_post(channel_id, content):
             posted_content.append(content)
             return "msg-id-999"
-        with patch("notify.post_discord", side_effect=mock_post):
+        with patch("notify.post_discord", side_effect=mock_post), \
+             patch("notify.send_to_agent", return_value=True):
             cmd_merge_summary(args)
         assert posted_content
         content = posted_content[0]
@@ -115,7 +118,8 @@ class TestCmdMergeSummary:
         def mock_post(channel_id, content):
             posted_content.append(content)
             return "msg-id-999"
-        with patch("notify.post_discord", side_effect=mock_post):
+        with patch("notify.post_discord", side_effect=mock_post), \
+             patch("notify.send_to_agent", return_value=True):
             cmd_merge_summary(args)
         assert MERGE_SUMMARY_FOOTER.strip() in posted_content[0]
 
@@ -135,12 +139,91 @@ class TestCmdMergeSummary:
         def mock_post(channel_id, content):
             posted_content.append(content)
             return "msg-id-999"
-        with patch("notify.post_discord", side_effect=mock_post):
+        with patch("notify.post_discord", side_effect=mock_post), \
+             patch("notify.send_to_agent", return_value=True):
             cmd_merge_summary(args)
         content = posted_content[0]
         assert "#1" in content
         assert "#2" in content
         assert "def456" in content
+
+    def test_merge_summary_notifies_implementer(self, tmp_pipelines):
+        """merge-summary が完了時に implementer に通知すること (Issue #48)"""
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, _make_pipeline())
+        from devbar import cmd_merge_summary
+        args = argparse.Namespace(project="test-pj")
+
+        with patch("notify.post_discord", return_value="1234567890"), \
+             patch("notify.send_to_agent", return_value=True) as mock_send:
+            cmd_merge_summary(args)
+
+        # Verify send_to_agent was called once
+        mock_send.assert_called_once()
+
+        # Verify arguments
+        call_args = mock_send.call_args
+        agent_id = call_args[0][0]
+        message = call_args[0][1]
+
+        assert agent_id == "kaneko"
+        assert "[devbar] test-pj: バッチ完了" in message
+        assert "上記の作業を振り返り" in message
+        assert "NO_REPLY で構いません" in message
+        assert "#1" in message  # Issue from batch
+
+    def test_merge_summary_notifies_custom_implementer(self, tmp_pipelines):
+        """implementer フィールドがカスタム値の場合、正しいエージェントに通知すること"""
+        path = tmp_pipelines / "test-pj.json"
+        data = _make_pipeline()
+        data["implementer"] = "pascal"
+        write_pipeline(path, data)
+        from devbar import cmd_merge_summary
+        args = argparse.Namespace(project="test-pj")
+
+        with patch("notify.post_discord", return_value="1234567890"), \
+             patch("notify.send_to_agent", return_value=True) as mock_send:
+            cmd_merge_summary(args)
+
+        call_args = mock_send.call_args
+        agent_id = call_args[0][0]
+        assert agent_id == "pascal"
+
+    def test_merge_summary_continues_on_send_failure(self, tmp_pipelines):
+        """send_to_agent が失敗してもフローが継続すること (Issue #48)"""
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, _make_pipeline())
+        from devbar import cmd_merge_summary
+        args = argparse.Namespace(project="test-pj")
+
+        with patch("notify.post_discord", return_value="1234567890"), \
+             patch("notify.send_to_agent", return_value=False):
+            # Should not raise exception
+            cmd_merge_summary(args)
+
+        # Verify state transition completed despite send failure
+        with open(path) as f:
+            data = json.load(f)
+        assert data["state"] == "MERGE_SUMMARY_SENT"
+        assert data["summary_message_id"] == "1234567890"
+
+    def test_merge_summary_continues_on_send_exception(self, tmp_pipelines):
+        """send_to_agent が例外を投げてもフローが継続すること (Issue #48)"""
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, _make_pipeline())
+        from devbar import cmd_merge_summary
+        args = argparse.Namespace(project="test-pj")
+
+        with patch("notify.post_discord", return_value="1234567890"), \
+             patch("notify.send_to_agent", side_effect=RuntimeError("Network error")):
+            # Should not raise exception
+            cmd_merge_summary(args)
+
+        # Verify state transition completed despite exception
+        with open(path) as f:
+            data = json.load(f)
+        assert data["state"] == "MERGE_SUMMARY_SENT"
+        assert data["summary_message_id"] == "1234567890"
 
 
 class TestWatchdogCodeApprovedPostsSummary:

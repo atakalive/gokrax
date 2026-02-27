@@ -828,7 +828,7 @@ class TestReviseLoopLimit:
             "state": "DESIGN_REVIEW",
             "enabled": True,
             "review_mode": "lite",
-            "design_revise_count": 2,  # Already at max (MAX_REVISE_CYCLES = 2)
+            "design_revise_count": 3,  # Already at max (MAX_REVISE_CYCLES = 3)
             "batch": [{"issue": 1, "design_reviews": reviews, "code_reviews": {}}],
             "history": [],
             "created_at": "",
@@ -864,7 +864,7 @@ class TestReviseLoopLimit:
             "state": "CODE_REVIEW",
             "enabled": True,
             "review_mode": "lite",
-            "code_revise_count": 2,  # Already at max
+            "code_revise_count": 3,  # Already at max (MAX_REVISE_CYCLES = 3)
             "batch": [{"issue": 1, "code_reviews": reviews, "design_reviews": {}}],
             "history": [],
             "created_at": "",

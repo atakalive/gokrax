@@ -18,16 +18,53 @@
 # done: WindFreqSim 9 min automerge impl=opus
 # EMCalibrator SurfaceModel — 依存順キュー
 # Phase 1a: データ型+ABC（dataclass並べるだけ。まとめてよし）
-EMCalibrator 32,33 full automerge
+# done: EMCalibrator 32,33 full automerge
 # Phase 1b: LHS（scipy呼ぶだけ）
-EMCalibrator 35 full automerge
+# done: EMCalibrator 35 full automerge
 # Phase 1c: RSM本体（数値計算の核。ここはOpus）
-EMCalibrator 34 full automerge plan=opus impl=opus keep-context
+# done: EMCalibrator 34 full automerge plan=opus impl=opus keep-context
 # Phase 1d: テスト基盤（fixture定義）
-EMCalibrator 36 full automerge
+# done: EMCalibrator 36 full automerge
 # Phase 2: CalibrationManager（状態遷移+compare_modes+dump/load。核）
-EMCalibrator 37 full automerge plan=opus impl=opus keep-context
+# done: EMCalibrator 37 full automerge plan=opus impl=opus keep-context
 # Phase 3: StateManager+API（薄ラッパー。まとめてよし）
-EMCalibrator 38,39 full automerge plan=opus impl=sonnet
+# done: EMCalibrator 38,39 full automerge plan=opus
 # Phase 4: GUI+C#（独立。まとめてよし）
-EMCalibrator 40,41 full automerge plan=opus impl=sonnet
+# done: EMCalibrator 40,41 full automerge plan=opus
+#
+#
+# TrajOpt 統合GUI — 依存順キュー (19 Issues, spec rev4A)
+#
+# ===== Phase 1: GUI基盤 =====
+# Batch 1: 並行着手可能な独立3件（logging_if + argparse + GUI骨格）
+# done: TrajOpt 32,33,34 full automerge
+# Batch 2: ParamForm（GUI部品、P1-3依存）
+TrajOpt 35 full automerge plan=opus keep-context
+# Batch 3: StandardOptTask + task_registry（密結合）
+TrajOpt 36,37 full automerge plan=opus keep-context
+# Batch 4: RunManager（Phase 1核心。stop-file + _is_our_process）
+TrajOpt 38 full plan=opus impl=opus keep-context
+#
+# ===== Phase 2: 完全再開 =====
+# Batch 5: Greedy save/load（全オプティマイザ基盤。Sobol+schema migration）
+TrajOpt 39 full plan=opus impl=opus
+# Batch 6: SA + PT save/load（継承チェイン。PT _skip_full_init契約）
+TrajOpt 40,41 full automerge plan=opus impl=opus keep-context
+# Batch 7: --resume実装（eval_fn復元 + stop-fileループ）
+TrajOpt 42 full plan=opus impl=opus keep-context
+# Batch 8: resume GUI（薄ラッパー）
+TrajOpt 43 full automerge keep-context
+#
+# ===== Phase 3: プリセット+履歴 =====
+# Batch 9: PresetManager + ResultBrowser（独立2件）
+TrajOpt 44,45 full automerge plan=opus
+# Batch 10: GUI配線 + mcmc_monitor
+TrajOpt 46 full automerge keep-context
+#
+# ===== Phase 4: 並列+拡張 =====
+# Batch 11: orphan + 並列（密結合）
+TrajOpt 47,48 full automerge plan=opus
+# Batch 12: Checkerboard骨格（スタブのみ）
+TrajOpt 49 full automerge
+# Batch 13: 統合テスト
+TrajOpt 50 full plan=opus impl=opus

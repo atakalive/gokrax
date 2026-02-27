@@ -800,7 +800,7 @@ def _check_queue():
     try:
         result = _sp.run(
             ["python3", str(DEVBAR_CLI), "qrun", "--queue", str(queue_path)],
-            capture_output=True, text=True, timeout=60,
+            capture_output=True, text=True, timeout=180,
         )
         if result.returncode == 0 and result.stdout.strip():
             log(f"[queue] {result.stdout.strip()}")

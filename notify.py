@@ -482,4 +482,5 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
 
     truncate_notice = "\n\n**注意:** 一部のデータが文字数制限により省略されています。" if truncated else ""
 
-    return f"[devbar] {project}: {phase}レビュー依頼\n\n{todo_header}\n\n{guidance}\n\n{body}{completion}{truncate_notice}"
+    phase_note = "" if is_code else "\n⚠️ これは設計レビュー DESIGN_REVIEW です。コードやdiffはまだ存在しません。\n"
+    return f"[devbar] {project}: {phase}レビュー依頼{phase_note}\n\n{todo_header}\n\n{guidance}\n\n{body}{completion}{truncate_notice}"

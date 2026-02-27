@@ -16,3 +16,18 @@
 # done: WindFreqSim 10 min automerge plan=opus keep-context
 # done: WindFreqSim 11 min keep-context
 # done: WindFreqSim 9 min automerge impl=opus
+# EMCalibrator SurfaceModel — 依存順キュー
+# Phase 1a: データ型+ABC（dataclass並べるだけ。まとめてよし）
+EMCalibrator 32,33 full automerge
+# Phase 1b: LHS（scipy呼ぶだけ）
+EMCalibrator 35 full automerge
+# Phase 1c: RSM本体（数値計算の核。ここはOpus）
+EMCalibrator 34 full automerge plan=opus impl=opus keep-context
+# Phase 1d: テスト基盤（fixture定義）
+EMCalibrator 36 full automerge
+# Phase 2: CalibrationManager（状態遷移+compare_modes+dump/load。核）
+EMCalibrator 37 full automerge plan=opus impl=opus keep-context
+# Phase 3: StateManager+API（薄ラッパー。まとめてよし）
+EMCalibrator 38,39 full automerge plan=opus impl=sonnet
+# Phase 4: GUI+C#（独立。まとめてよし）
+EMCalibrator 40,41 full automerge plan=opus impl=sonnet

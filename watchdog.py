@@ -336,7 +336,7 @@ def get_notification_for_state(
             f"3. devbar に完了報告:\n"
             f"   python3 {DEVBAR_CLI} code-revise --pj {project} --issue N [N...] --hash <commit>\n\n"
             f"複数レビュアーから同一のP1指摘がある場合、その指摘は正しい可能性が高いため修正せよ。\n"
-            f"--hash <commit> 送信を忘れずにすること。\n"
+            f"--hash <commit> を忘れずに添付して送信すること。\n"
             f"レビュアー指摘と設計判断が相違する場合は、新規Issueを立てて設計判断を議論する場所を用意せよ。\n"
             f"[お願い] 仕事は中断せず、完了まで一気にやること。"
         )

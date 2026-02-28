@@ -914,6 +914,7 @@ def process(path: Path):
             data.pop("automerge", None)
             data.pop("cc_plan_model", None)
             data.pop("cc_impl_model", None)
+            data.pop("keep_context", None)
             data.pop("queue_mode", None)
 
         # IDLE→DESIGN_PLAN: Reset REVISE cycle counters (Issue #29)

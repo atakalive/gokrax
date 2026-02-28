@@ -31,6 +31,7 @@
 - **[v4] §6.3ステップ統合（Dijkstra M-1）**: ステップ5/6を統合（要約生成+review_history追加+クリア）
 - **[v4] review_requestsリセット：REVIEWエントリ時（Dijkstra m-2）**: 全パス（start/extend/resume/REVISEからの戻り）で統一
 - **[v4] --review-only + --auto-continue → review-only優先（Dijkstra m-3）**: 組み合わせ時はreview_onlyが勝つ（auto_continue無視）
+- **[v4] _apply_spec_action競合時の通知誤送信防止（セルフチェック）**: DCLで遷移がスキップされた場合、通知・送信も抑止。applied_action（再計算結果）を使用
 
 ---
 
@@ -903,7 +904,11 @@ def check_transition_spec(
 ```python
 def _apply_spec_action(pipeline_path: str, action: SpecTransitionAction, now: datetime):
     """既存update_pipeline()パターンを使用。ディスクから再読み込み+state一致確認。"""
+    applied = False  # 遷移が実際に行われたか
+    applied_action = None
+
     def _update(data):
+        nonlocal applied, applied_action
         # state一致確認（lock待ち中に変わっていたらスキップ）
         if data["state"] != action.expected_state:
             return  # 競合: 別プロセスが先に遷移済み
@@ -914,15 +919,18 @@ def _apply_spec_action(pipeline_path: str, action: SpecTransitionAction, now: da
             data["state"] = action2.next_state
             if action2.pipeline_updates:
                 data["spec_config"].update(action2.pipeline_updates)
+            applied = True
+            applied_action = action2  # 再計算結果を使う
 
-    pipeline = update_pipeline(pipeline_path, _update)
+    update_pipeline(pipeline_path, _update)
 
-    # 副作用（送信・通知）はlock外で実行
-    if action.send_to:
-        for agent_id, msg in action.send_to.items():
-            send_to_agent(agent_id, msg)
-    if action.discord_notify:
-        notify_discord(action.discord_notify)
+    # 副作用は遷移が実際に行われた場合のみ
+    if applied and applied_action:
+        if applied_action.send_to:
+            for agent_id, msg in applied_action.send_to.items():
+                send_to_agent(agent_id, msg)
+        if applied_action.discord_notify:
+            notify_discord(applied_action.discord_notify)
 ```
 
 ### 10.2 タイムアウトと催促

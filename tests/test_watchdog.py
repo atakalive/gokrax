@@ -1487,6 +1487,406 @@ class TestDiscordStatusCommand:
         assert not state_path.exists()
 
 
+class TestDiscordQrunCommand:
+    """Tests for Discord qrun command (Issue #47)"""
+
+    def test_qrun_success_path(self, tmp_path, monkeypatch):
+        """M posts 'qrun' → bot pops queue, starts project, posts success."""
+        from config import M_DISCORD_USER_ID, DISCORD_CHANNEL, DEVBAR_STATE_PATH, QUEUE_FILE
+        import watchdog, devbar, task_queue
+
+        # Setup state path
+        state_path = tmp_path / "devbar-state.json"
+        monkeypatch.setattr(config, "DEVBAR_STATE_PATH", state_path)
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(devbar, "PIPELINES_DIR", tmp_path)
+
+        # Setup queue
+        queue_path = tmp_path / "devbar-queue.txt"
+        queue_path.write_text("test-pj 1,2,3\n")
+        monkeypatch.setattr(config, "QUEUE_FILE", queue_path)
+
+        # Setup pipeline (IDLE state)
+        pipeline_path = tmp_path / "test-pj.json"
+        _write_pipeline(pipeline_path, {
+            "project": "test-pj",
+            "state": "IDLE",
+            "enabled": False,
+            "batch": [],
+            "review_mode": "standard"
+        })
+
+        # Mock Discord API
+        messages = [_mock_discord_message("1001", M_DISCORD_USER_ID, "qrun")]
+
+        with patch("notify.fetch_discord_latest", return_value=messages), \
+             patch("notify.post_discord") as mock_post, \
+             patch("devbar.cmd_start") as mock_start:
+            watchdog.check_discord_commands()
+
+        # Should call cmd_start
+        mock_start.assert_called_once()
+        args = mock_start.call_args[0][0]
+        assert args.project == "test-pj"
+        assert args.issue == [1, 2, 3]
+
+        # Should post success
+        mock_post.assert_called_once()
+        assert "test-pj started" in mock_post.call_args[0][1]
+        assert "issues=1,2,3" in mock_post.call_args[0][1]
+
+        # State should be updated
+        state = json.loads(state_path.read_text())
+        assert state["last_command_message_id"] == "1001"
+
+        # Queue entry should be marked as done
+        queue_content = queue_path.read_text()
+        assert "# done: test-pj 1,2,3" in queue_content
+
+    def test_qrun_queue_empty(self, tmp_path, monkeypatch):
+        """qrun when queue empty → bot posts 'Queue empty'."""
+        from config import M_DISCORD_USER_ID, DISCORD_CHANNEL
+        import watchdog
+
+        state_path = tmp_path / "devbar-state.json"
+        monkeypatch.setattr(config, "DEVBAR_STATE_PATH", state_path)
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+
+        # Empty queue
+        queue_path = tmp_path / "devbar-queue.txt"
+        queue_path.write_text("")
+        monkeypatch.setattr(config, "QUEUE_FILE", queue_path)
+
+        messages = [_mock_discord_message("1001", M_DISCORD_USER_ID, "qrun")]
+
+        with patch("notify.fetch_discord_latest", return_value=messages), \
+             patch("notify.post_discord") as mock_post:
+            watchdog.check_discord_commands()
+
+        # Should post "Queue empty"
+        mock_post.assert_called_once_with(DISCORD_CHANNEL, "Queue empty")
+
+    def test_qrun_cmd_start_exception(self, tmp_path, monkeypatch):
+        """cmd_start raises Exception → restore queue, post error."""
+        from config import M_DISCORD_USER_ID, QUEUE_FILE
+        import watchdog, devbar, task_queue
+
+        state_path = tmp_path / "devbar-state.json"
+        monkeypatch.setattr(config, "DEVBAR_STATE_PATH", state_path)
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(devbar, "PIPELINES_DIR", tmp_path)
+
+        queue_path = tmp_path / "devbar-queue.txt"
+        queue_path.write_text("test-pj all\n")
+        monkeypatch.setattr(config, "QUEUE_FILE", queue_path)
+
+        # Setup pipeline
+        pipeline_path = tmp_path / "test-pj.json"
+        _write_pipeline(pipeline_path, {
+            "project": "test-pj",
+            "state": "IDLE",
+            "enabled": False,
+            "batch": [],
+            "review_mode": "standard"
+        })
+
+        # Mock task_queue functions
+        def mock_get_path(project):
+            return tmp_path / f"{project}.json"
+
+        def mock_load_pipeline(path):
+            if "test-pj" in str(path):
+                return {"state": "IDLE"}
+            raise FileNotFoundError
+
+        monkeypatch.setattr("task_queue.get_path", mock_get_path)
+        monkeypatch.setattr("task_queue.load_pipeline", mock_load_pipeline)
+
+        messages = [_mock_discord_message("1001", M_DISCORD_USER_ID, "qrun")]
+
+        with patch("notify.fetch_discord_latest", return_value=messages), \
+             patch("notify.post_discord") as mock_post, \
+             patch("devbar.cmd_start", side_effect=Exception("Test error")):
+            watchdog.check_discord_commands()
+
+        # Should post error
+        mock_post.assert_called_once()
+        error_msg = mock_post.call_args[0][1]
+        assert "qrun: failed to start test-pj" in error_msg
+        assert "Test error" in error_msg
+
+        # Queue entry should be restored (no "# done:" prefix)
+        queue_content = queue_path.read_text()
+        assert queue_content.strip() == "test-pj all"
+
+    def test_qrun_cmd_start_system_exit(self, tmp_path, monkeypatch):
+        """cmd_start raises SystemExit → restore queue, post error."""
+        from config import M_DISCORD_USER_ID
+        import watchdog, devbar
+
+        state_path = tmp_path / "devbar-state.json"
+        monkeypatch.setattr(config, "DEVBAR_STATE_PATH", state_path)
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(devbar, "PIPELINES_DIR", tmp_path)
+
+        queue_path = tmp_path / "devbar-queue.txt"
+        queue_path.write_text("test-pj 1\n")
+        monkeypatch.setattr(config, "QUEUE_FILE", queue_path)
+
+        # Setup pipeline
+        pipeline_path = tmp_path / "test-pj.json"
+        _write_pipeline(pipeline_path, {
+            "project": "test-pj",
+            "state": "IDLE",
+            "enabled": False,
+            "batch": [],
+            "review_mode": "standard"
+        })
+
+        # Mock task_queue functions
+        def mock_get_path(project):
+            return tmp_path / f"{project}.json"
+
+        def mock_load_pipeline(path):
+            if "test-pj" in str(path):
+                return {"state": "IDLE"}
+            raise FileNotFoundError
+
+        monkeypatch.setattr("task_queue.get_path", mock_get_path)
+        monkeypatch.setattr("task_queue.load_pipeline", mock_load_pipeline)
+
+        messages = [_mock_discord_message("1001", M_DISCORD_USER_ID, "qrun")]
+
+        with patch("notify.fetch_discord_latest", return_value=messages), \
+             patch("notify.post_discord") as mock_post, \
+             patch("devbar.cmd_start", side_effect=SystemExit("Cannot start: validation error")):
+            watchdog.check_discord_commands()
+
+        # Should post error
+        mock_post.assert_called_once()
+        error_msg = mock_post.call_args[0][1]
+        assert "qrun: failed to start test-pj" in error_msg
+        assert "Cannot start" in error_msg
+
+        # Queue entry should be restored
+        queue_content = queue_path.read_text()
+        assert "# done:" not in queue_content
+
+    def test_qrun_dry_run_mode(self, tmp_path, monkeypatch):
+        """DRY_RUN mode → skip all actions, only log."""
+        from config import M_DISCORD_USER_ID
+        import watchdog
+
+        monkeypatch.setattr(config, "DRY_RUN", True)
+
+        state_path = tmp_path / "devbar-state.json"
+        monkeypatch.setattr(config, "DEVBAR_STATE_PATH", state_path)
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+
+        queue_path = tmp_path / "devbar-queue.txt"
+        queue_path.write_text("test-pj 1\n")
+        monkeypatch.setattr(config, "QUEUE_FILE", queue_path)
+
+        messages = [_mock_discord_message("1001", M_DISCORD_USER_ID, "qrun")]
+
+        with patch("notify.fetch_discord_latest", return_value=messages), \
+             patch("notify.post_discord") as mock_post, \
+             patch("devbar.cmd_start") as mock_start:
+            watchdog.check_discord_commands()
+
+        # Should NOT call cmd_start
+        mock_start.assert_not_called()
+
+        # Should NOT post to Discord
+        mock_post.assert_not_called()
+
+        # State SHOULD be updated (deduplication)
+        state = json.loads(state_path.read_text())
+        assert state["last_command_message_id"] == "1001"
+
+        # Queue should be unchanged
+        assert queue_path.read_text() == "test-pj 1\n"
+
+    def test_qrun_deduplication(self, tmp_path, monkeypatch):
+        """Same qrun message ID → not reprocessed."""
+        from config import M_DISCORD_USER_ID
+        import watchdog
+
+        state_path = tmp_path / "devbar-state.json"
+        state_path.write_text(json.dumps({"last_command_message_id": "1001"}))
+
+        monkeypatch.setattr(config, "DEVBAR_STATE_PATH", state_path)
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+
+        messages = [_mock_discord_message("1001", M_DISCORD_USER_ID, "qrun")]
+
+        with patch("notify.fetch_discord_latest", return_value=messages), \
+             patch("notify.post_discord") as mock_post:
+            watchdog.check_discord_commands()
+
+        # Should not reprocess
+        mock_post.assert_not_called()
+
+    def test_qrun_with_automerge_option(self, tmp_path, monkeypatch):
+        """qrun with automerge option → pipeline updated with automerge flag."""
+        from config import M_DISCORD_USER_ID
+        import watchdog, devbar
+
+        state_path = tmp_path / "devbar-state.json"
+        monkeypatch.setattr(config, "DEVBAR_STATE_PATH", state_path)
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(devbar, "PIPELINES_DIR", tmp_path)
+
+        queue_path = tmp_path / "devbar-queue.txt"
+        queue_path.write_text("test-pj 1 automerge\n")
+        monkeypatch.setattr(config, "QUEUE_FILE", queue_path)
+
+        pipeline_path = tmp_path / "test-pj.json"
+        _write_pipeline(pipeline_path, {
+            "project": "test-pj",
+            "state": "IDLE",
+            "enabled": False,
+            "batch": [],
+            "review_mode": "standard"
+        })
+
+        # Mock task_queue functions
+        def mock_get_path(project):
+            return tmp_path / f"{project}.json"
+
+        def mock_load_pipeline(path):
+            if "test-pj" in str(path):
+                return {"state": "IDLE"}
+            raise FileNotFoundError
+
+        monkeypatch.setattr("task_queue.get_path", mock_get_path)
+        monkeypatch.setattr("task_queue.load_pipeline", mock_load_pipeline)
+        monkeypatch.setattr("pipeline_io.get_path", mock_get_path)
+
+        messages = [_mock_discord_message("1001", M_DISCORD_USER_ID, "qrun")]
+
+        with patch("notify.fetch_discord_latest", return_value=messages), \
+             patch("notify.post_discord") as mock_post, \
+             patch("devbar.cmd_start"):
+            watchdog.check_discord_commands()
+
+        # Success message should include automerge=True
+        assert mock_post.call_count == 1
+        success_msg = mock_post.call_args[0][1]
+        assert "automerge=True" in success_msg
+
+        # Pipeline should have automerge flag
+        data = json.loads(pipeline_path.read_text())
+        assert data.get("automerge") is True
+        assert data.get("queue_mode") is True
+
+    def test_qrun_case_insensitive(self, tmp_path, monkeypatch):
+        """'Qrun', 'QRUN' both trigger."""
+        from config import M_DISCORD_USER_ID
+        import watchdog
+
+        state_path = tmp_path / "devbar-state.json"
+        monkeypatch.setattr(config, "DEVBAR_STATE_PATH", state_path)
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+
+        queue_path = tmp_path / "devbar-queue.txt"
+        queue_path.write_text("test-pj1 1\ntest-pj2 2\n")
+        monkeypatch.setattr(config, "QUEUE_FILE", queue_path)
+
+        messages = [
+            _mock_discord_message("1001", M_DISCORD_USER_ID, "Qrun"),
+            _mock_discord_message("1002", M_DISCORD_USER_ID, "QRUN"),
+        ]
+
+        with patch("notify.fetch_discord_latest", return_value=messages), \
+             patch("notify.post_discord") as mock_post, \
+             patch("devbar.cmd_start"):
+            watchdog.check_discord_commands()
+
+        # Both should trigger (2 posts - queue becomes empty on 2nd)
+        assert mock_post.call_count == 2
+
+    def test_qrun_non_m_user_ignored(self, tmp_path, monkeypatch):
+        """Non-M user's 'qrun' → ignored."""
+        from config import M_DISCORD_USER_ID
+        import watchdog
+
+        state_path = tmp_path / "devbar-state.json"
+        monkeypatch.setattr(config, "DEVBAR_STATE_PATH", state_path)
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+
+        messages = [_mock_discord_message("1001", "999999999999999999", "qrun")]
+
+        with patch("notify.fetch_discord_latest", return_value=messages), \
+             patch("notify.post_discord") as mock_post:
+            watchdog.check_discord_commands()
+
+        # Should not process
+        mock_post.assert_not_called()
+
+    def test_status_and_qrun_mixed(self, tmp_path, monkeypatch):
+        """Both status and qrun commands in same batch → both processed."""
+        from config import M_DISCORD_USER_ID
+        import watchdog, devbar
+
+        state_path = tmp_path / "devbar-state.json"
+        monkeypatch.setattr(config, "DEVBAR_STATE_PATH", state_path)
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(devbar, "PIPELINES_DIR", tmp_path)
+
+        queue_path = tmp_path / "devbar-queue.txt"
+        queue_path.write_text("test-pj 1\n")
+        monkeypatch.setattr(config, "QUEUE_FILE", queue_path)
+
+        # Setup pipeline for status display
+        pipeline_path = tmp_path / "test-pj.json"
+        _write_pipeline(pipeline_path, {
+            "project": "test-pj",
+            "state": "IDLE",
+            "enabled": True,
+            "batch": [],
+            "review_mode": "standard"
+        })
+
+        # Mock task_queue functions
+        def mock_get_path(project):
+            return tmp_path / f"{project}.json"
+
+        def mock_load_pipeline(path):
+            if "test-pj" in str(path):
+                return {"state": "IDLE"}
+            raise FileNotFoundError
+
+        monkeypatch.setattr("task_queue.get_path", mock_get_path)
+        monkeypatch.setattr("task_queue.load_pipeline", mock_load_pipeline)
+        monkeypatch.setattr("pipeline_io.get_path", mock_get_path)
+
+        # API returns newest first
+        messages = [
+            _mock_discord_message("1002", M_DISCORD_USER_ID, "qrun"),
+            _mock_discord_message("1001", M_DISCORD_USER_ID, "status"),
+        ]
+
+        with patch("notify.fetch_discord_latest", return_value=messages), \
+             patch("notify.post_discord") as mock_post, \
+             patch("devbar.cmd_start"):
+            watchdog.check_discord_commands()
+
+        # Should post twice (status + qrun success)
+        assert mock_post.call_count == 2
+
+        # First call should be status (contains project info)
+        first_call = mock_post.call_args_list[0][0][1]
+        assert "test-pj" in first_call or "```" in first_call
+
+        # Second call should be qrun success
+        second_call = mock_post.call_args_list[1][0][1]
+        assert "qrun:" in second_call and "started" in second_call
+
+
 class TestAutoCloseOnDone:
     """DONE遷移時にissue closeにbatchが正しく渡されること"""
 

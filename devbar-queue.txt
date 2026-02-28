@@ -16,6 +16,7 @@
 # done: WindFreqSim 10 min automerge plan=opus keep-context
 # done: WindFreqSim 11 min keep-context
 # done: WindFreqSim 9 min automerge impl=opus
+#
 # EMCalibrator SurfaceModel — 依存順キュー
 # Phase 1a: データ型+ABC（dataclass並べるだけ。まとめてよし）
 # done: EMCalibrator 32,33 full automerge

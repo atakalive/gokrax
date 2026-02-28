@@ -1322,16 +1322,118 @@ def _save_devbar_state(state: dict):
         raise
 
 
+def _handle_qrun(msg_id: str):
+    """Handle Discord qrun command: pop queue entry and start project.
+
+    Process flow:
+    1. Check DRY_RUN mode (skip all actions if true)
+    2. Pop next queue entry
+    3. If None: post "Queue empty" to Discord
+    4. Parse issues field (handle ValueError)
+    5. Build argparse.Namespace for cmd_start
+    6. Call cmd_start() with try-catch
+    7. On exception: restore_queue_entry + post error to Discord
+    8. On success: update_pipeline with queue options + post success to Discord
+
+    Args:
+        msg_id: Discord message ID (for logging only)
+    """
+    from config import DISCORD_CHANNEL, QUEUE_FILE
+    from notify import post_discord
+    from task_queue import pop_next_queue_entry, restore_queue_entry
+    from devbar import cmd_start
+    from pipeline_io import update_pipeline, get_path
+    import config
+    import argparse
+
+    # DRY_RUN mode: log only, skip all actions
+    if config.DRY_RUN:
+        log(f"[dry-run] Discord qrun command skipped (msg_id={msg_id})")
+        return
+
+    # Pop next queue entry
+    entry = pop_next_queue_entry(QUEUE_FILE)
+
+    # Handle empty queue
+    if not entry:
+        post_discord(DISCORD_CHANNEL, "Queue empty")
+        log(f"[qrun] Queue empty (msg_id={msg_id})")
+        return
+
+    project = entry["project"]
+    issues = entry["issues"]
+    mode = entry.get("mode")
+
+    # Parse issues field (defensive, parse_queue_line already validates)
+    try:
+        if issues == "all":
+            issue_list = None
+        else:
+            issue_list = [int(x) for x in issues.split(",")]
+    except ValueError as e:
+        restore_queue_entry(QUEUE_FILE, entry["original_line"])
+        error_msg = f"qrun: invalid issues format: {issues}"
+        post_discord(DISCORD_CHANNEL, error_msg)
+        log(f"[qrun] {error_msg} (msg_id={msg_id})")
+        return
+
+    # Build argparse.Namespace for cmd_start
+    start_args = argparse.Namespace(
+        project=project,
+        issue=issue_list,
+        mode=mode,
+        keep_context=entry.get("keep_context", False),
+    )
+
+    # Call cmd_start with try-catch
+    try:
+        cmd_start(start_args)
+    except SystemExit as e:
+        # cmd_start raises SystemExit on validation errors
+        restore_queue_entry(QUEUE_FILE, entry["original_line"])
+        error_msg = f"qrun: failed to start {project}: {str(e)}"
+        post_discord(DISCORD_CHANNEL, error_msg)
+        log(f"[qrun] {error_msg} (msg_id={msg_id})")
+        return
+    except Exception as e:
+        # Unexpected exception
+        restore_queue_entry(QUEUE_FILE, entry["original_line"])
+        error_msg = f"qrun: failed to start {project}: {type(e).__name__}: {str(e)}"
+        post_discord(DISCORD_CHANNEL, error_msg)
+        log(f"[qrun] {error_msg} (msg_id={msg_id})")
+        return
+
+    # Success: update_pipeline with queue options (same as cmd_qrun)
+    path = get_path(project)
+
+    def _save_queue_options(data):
+        data["queue_mode"] = True
+        if entry.get("automerge"):
+            data["automerge"] = True
+        if entry.get("cc_plan_model"):
+            data["cc_plan_model"] = entry["cc_plan_model"]
+        if entry.get("cc_impl_model"):
+            data["cc_impl_model"] = entry["cc_impl_model"]
+
+    update_pipeline(path, _save_queue_options)
+
+    # Post success to Discord
+    automerge_flag = entry.get("automerge", False)
+    success_msg = f"qrun: {project} started (issues={issues}, automerge={automerge_flag})"
+    post_discord(DISCORD_CHANNEL, success_msg)
+    log(f"[qrun] {success_msg} (msg_id={msg_id})")
+
+
 def check_discord_commands():
-    """Check #dev-bar for 'status' commands from M and respond.
+    """Check #dev-bar for 'status' and 'qrun' commands from M and respond.
 
     Process flow:
     1. Load last_command_message_id from devbar-state.json
     2. Fetch latest 10 messages from #dev-bar
-    3. Filter: author is M, not bot, content starts with "status"
+    3. Filter: author is M, not bot, content starts with "status" or "qrun"
     4. Filter: message_id > last_command_message_id
     5. Process in chronological order (oldest → newest)
-    6. For each: post status, update last_command_message_id
+    6. For each: handle command, update last_command_message_id
     """
     from config import DISCORD_CHANNEL, M_DISCORD_USER_ID, BOT_USER_ID
     from notify import fetch_discord_latest, post_discord
@@ -1354,30 +1456,37 @@ def check_discord_commands():
         content = msg.get("content", "")
         msg_id = msg.get("id")
 
-        # Filter: from M, not from bot, starts with "status"
+        content_lower = content.strip().lower()
+        # Filter: from M, not from bot, starts with "status" or "qrun"
         if (author_id == M_DISCORD_USER_ID and
             author_id != BOT_USER_ID and
-            content.strip().lower().startswith("status") and
+            (content_lower.startswith("status") or content_lower.startswith("qrun")) and
             msg_id and int(msg_id) > int(last_id)):
             candidates.append(msg)
 
     # 4. Process in chronological order (reversed, API returns newest first)
     for msg in reversed(candidates):
         msg_id = msg["id"]
+        content = msg["content"]
+        content_lower = content.strip().lower()
 
-        # 5. Get status and post response
-        status = get_status_text(enabled_only=True)
-        response = f"```\n{status}\n```"
+        # 5. Route to appropriate handler
+        if content_lower.startswith("status"):
+            status = get_status_text(enabled_only=True)
+            response = f"```\n{status}\n```"
 
-        if config.DRY_RUN:
-            log(f"[dry-run] Discord status command response skipped (msg_id={msg_id})")
-        else:
-            post_discord(DISCORD_CHANNEL, response)
+            if config.DRY_RUN:
+                log(f"[dry-run] Discord status command response skipped (msg_id={msg_id})")
+            else:
+                post_discord(DISCORD_CHANNEL, response)
+
+        elif content_lower.startswith("qrun"):
+            _handle_qrun(msg_id)
 
         # 6. Update state (even in dry-run to test deduplication)
         state["last_command_message_id"] = msg_id
         _save_devbar_state(state)
-        log(f"Processed Discord status command (msg_id={msg_id})")
+        log(f"Processed Discord {content_lower.split()[0]} command (msg_id={msg_id})")
 
 
 def main():

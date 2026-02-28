@@ -69,3 +69,18 @@
 # done: TrajOpt 49 full automerge
 # Batch 13: 統合テスト
 # done: TrajOpt 50 full automerge plan=opus impl=opus
+# === Spec Mode Implementation (spec-mode-spec_rev7) ===
+# Phase 1: 基盤
+DevBar 49 full
+# Phase 2: CLI + パース（並行可だがDevBarは逐次）
+DevBar 50 full
+DevBar 51 full
+# Phase 3: watchdog統合 + 改訂 + Issue系
+DevBar 52 full
+DevBar 53 full
+DevBar 54 full
+# Phase 4: 通知 + 異常系
+DevBar 55 full
+DevBar 56 full
+# Phase 5: 統合テスト
+DevBar 57 full

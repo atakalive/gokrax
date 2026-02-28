@@ -57,6 +57,8 @@
 - **[v2] S-4 行数見積もり修正（Dijkstra s-4）**: 150→250行
 - **[v2] 早期終了オプション真理値表追加（Dijkstra s-5）**
 - **[v2] エラーハンドリング方針（Dijkstra s-6）**: 未知状態は SPEC_PAUSED + M通知
+- **[v2] 重複検出アルゴリズム簡素化（Dijkstra m-3 / M指示）**: 初期実装ではアルゴリズム不要。implementer（Opus）に委任。将来はembedding類似度を検討
+- **[v2] REVISE完了通知のcommit空対応（Dijkstra m-9）**: commit hash空時は `(commit: N/A)` 表示 + SPEC_PAUSED遷移
 
 ---
 
@@ -519,26 +521,25 @@ class MergedReviewReport:  # [v2] Dijkstra s-2
     highest_verdict: str
 ```
 
-### 5.4 重複検出
+### 5.4 重複検出・統合
 
 <!-- [v2] Leibniz C-9: 自動統合廃止 -->
 
-**自動統合は行わない。候補グルーピングのみ提示。Critical は常に個別保持。**
+**自動統合は行わない。Critical は常に個別保持。**
 
-```python
-def detect_duplicate_candidates(items: list[SpecReviewItem]) -> list[list[str]]:
-    """同一section + タイトル単語重複率50%以上 → グループ化（提示のみ）。
-    Critical items は候補から除外。"""
-```
+**初期実装:** 重複検出アルゴリズムは実装しない。統合レポートに全指摘を重篤度順で列挙し、重複判断は spec_implementer（Opus）に委ねる。理由: 仕様書の技術的指摘の重複判定は単語マッチや形態素解析では精度が出ない。将来的に embedding 類似度ベースの候補提示を検討。
 
 統合レポートフォーマット:
 ```markdown
 # Rev{N} レビュー統合レポート
 ## サマリー
+- レビュアー: {reviewer} ({verdict}), ...
+- Critical: {n}件, Major: {n}件, Minor: {n}件, Suggestion: {n}件
 ## 全指摘一覧（重篤度順）
 ### Critical — {normalized_id}: {title} ({section})
 ### Major — ...
-## 重複候補グループ一覧
+### Minor — ...
+### Suggestion — ...
 ```
 
 ---
@@ -676,6 +677,9 @@ def check_transition_spec(
 箇条書きベース。2000字超過時は分割。
 
 **成功系:** REVIEW開始/完了、REVISE完了、APPROVED、APPROVED(forced+監査)、ISSUE完了、QUEUE完了
+
+<!-- [v2] Dijkstra m-9: commit空の場合 -->
+**REVISE完了通知:** commit hash が空の場合（git commit 失敗等）は `(commit: N/A)` と表示し、SPEC_PAUSED に遷移。
 
 **失敗系:** YAMLパース失敗、送信失敗、git push失敗、glab起票失敗、REVIEW_FAILED、STALLED、PAUSED
 

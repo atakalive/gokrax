@@ -16,8 +16,13 @@ if (!sessionKey || !message) {
 }
 
 async function main() {
-  const { n: callGateway, s: ADMIN_SCOPE } = await import('/usr/lib/node_modules/openclaw/dist/call-BUD9fxqU.js');
-  const { h: GATEWAY_CLIENT_NAMES, m: GATEWAY_CLIENT_MODES } = await import('/usr/lib/node_modules/openclaw/dist/message-channel-CeD-0oOz.js');
+  const fs = await import('fs');
+  const callFile = fs.readdirSync('/usr/lib/node_modules/openclaw/dist/')
+    .filter(f => f.startsWith('call-') && f.endsWith('.js')).sort().pop();
+  const { n: callGateway, s: ADMIN_SCOPE } = await import(`/usr/lib/node_modules/openclaw/dist/${callFile}`);
+  const mcFile = fs.readdirSync('/usr/lib/node_modules/openclaw/dist/')
+    .filter(f => f.startsWith('message-channel-') && f.endsWith('.js')).sort().pop();
+  const { h: GATEWAY_CLIENT_NAMES, m: GATEWAY_CLIENT_MODES } = await import(`/usr/lib/node_modules/openclaw/dist/${mcFile}`);
   const crypto = await import('crypto');
   
   try {

@@ -40,14 +40,14 @@
 - **[v2] 手動 approve の監査ログ（Leibniz M-5）**: review_history に `actor`, `forced`, `remaining_issues` を記録。Discord に監査通知
 - **[v2] check_spec_mode を純粋関数化（Leibniz M-6 / Dijkstra C-3）**: `check_transition_spec() -> SpecTransitionAction` 純粋関数
 - **[v2] REJECT verdict の扱い（Dijkstra M-1）**: REJECT を廃止し P0 に統一。エイリアスマッピングで変換
-- **[v2] YAML コードブロックのネスト対策（Dijkstra M-2）**: `---BEGIN SPEC---` / `---END SPEC---` デリミタ
+- **[v2] YAML コードブロックのネスト対策（Dijkstra M-2）**: spec全文埋め込み廃止により根本解消。ファイルパス参照のためデリミタ不要
 - **[v2] ISSUE_SUGGESTION データフロー定義（Dijkstra M-4）**: `spec_config.issue_suggestions: {}` に格納
 - **[v2] SPEC_DONE → IDLE 遷移コマンド（Dijkstra M-5）**: `devbar spec done` 追加
 - **[v2] GitLab Issue 起票の部分失敗リカバリ（Dijkstra M-7）**: `created_issues[]` に逐次記録、リトライ時スキップ
 - **[v2] セルフレビュー改善（Dijkstra M-8）**: パス2は別エージェント（レビュアーの1人）に依頼
 - **[v2] §6.3 セクション番号重複修正（Leibniz m-1 / Dijkstra C-4）**: §6.4 に繰り下げ
 - **[v2] Discord 通知の文字数制限対応（Leibniz m-2）**: 箇条書きベース、2000字超過時は分割
-- **[v2] spec 全文埋め込みのサイズ制限（Leibniz m-3 / Dijkstra m-6）**: `MAX_SPEC_EMBED_CHARS = 50000`
+- **[v2] spec 全文埋め込み廃止（Leibniz m-3 / Dijkstra m-6 / M指示）**: spec本文は埋め込まず、ファイルパス参照に統一。レビュアーが自分で読む前提
 - **[v2] Issue 注記の存在検査（Leibniz m-4）**: 起票後に読み戻して⚠️注記を検査、欠落時は自動追記
 - **[v2] M 確認ゲート追加（Dijkstra m-5）**: SPEC_APPROVED → ISSUE_SUGGESTION は `devbar spec continue` で明示的に進行
 - **[v2] 失敗系通知の追加（Leibniz s-2）**: パース失敗、送信失敗、git push失敗、glab起票失敗を通知
@@ -298,7 +298,7 @@ SPEC_REVISE_TIMEOUT_SEC = 1800
 SPEC_ISSUE_SUGGESTION_TIMEOUT_SEC = 600
 SPEC_REVISE_SELF_REVIEW_PASSES = 2
 MAX_SPEC_RETRIES = 3                        # [v2] Pascal C-3
-MAX_SPEC_EMBED_CHARS = 50000                # [v2] Leibniz m-3
+# MAX_SPEC_EMBED_CHARS 廃止 — spec全文埋め込みをやめ、ファイルパス参照に統一
 ```
 
 ### 3.3 CLI→pipeline 写像表
@@ -375,43 +375,74 @@ DevBar [SPEC_REVIEW] rev2 (cycle 1/5, retries: 0/3)
 ### 5.1 レビュー依頼の送信
 
 <!-- [v2] Leibniz C-2: send_to_agent()固定 -->
+<!-- [v2+] M指示: spec全文埋め込み廃止。ファイルパス参照に統一 -->
 
-1. specファイル読み込み
-2. サイズチェック: `> MAX_SPEC_EMBED_CHARS` → パス参照+要約に切り替え
-3. 各レビュアーに **`send_to_agent()`** で送信
-4. `review_requests[reviewer].sent_at` 記録
+1. 各レビュアーに **`send_to_agent()`**（改行保持）でレビュー依頼を送信
+2. `review_requests[reviewer].sent_at` を記録
+3. spec 本文は**埋め込まない**。レビュアーがファイルパスから自分で読む前提
 
-**初回プロンプト:**
+**初回プロンプト（実績ベースのフォーマット）:**
+
 ```
-仕様書パス: {spec_path} (rev{current_rev})
+以下の仕様書をレビューしてください。**やりすぎレビュー**を依頼します。重箱の隅を突くレベルで徹底的に。
+
 プロジェクト: {project}
+仕様書: {spec_path} (rev{current_rev}, {line_count}行)
 
 ## レビュー指示
-- 重篤度: Critical(P0) / Major(P1) / Minor / Suggestion
-- セクション番号明記
-- 擬似コード整合性に注意
-- YAMLブロックは応答内で**1つだけ**
+- 重篤度を必ず付与: 🔴 Critical (P0) / 🟠 Major (P1) / 🟡 Minor / 💡 Suggestion
+- セクション番号を明記（例: §6.2）
+- 擬似コード間の整合性（引数・型・呼び出し規約）に特に注意
+- 実装時に詰まりそうな曖昧さを指摘
+- 既存の devbar コードベース（watchdog.py, notify.py, config.py, devbar.py）との整合性も確認
+- ステートマシン遷移の抜け穴・デッドロック・競合状態を探せ
+- エラーハンドリングの欠如箇所を指摘
+- プロンプトテンプレートの不整合や曖昧さを指摘
 
 ## 出力フォーマット
+以下の構造化フォーマットで出力してください:
+
 ```yaml
 verdict: APPROVE | P0 | P1
 items:
   - id: C-1
     severity: critical | major | minor | suggestion
     section: "§6.2"
-    title: "タイトル"
-    description: "説明"
-    suggestion: "修正案"
+    title: "簡潔なタイトル"
+    description: "詳細な説明"
+    suggestion: "修正案（あれば）"
 ```
 
-verdict対応: P0→critical含む, P1→major含む, APPROVE→minor/suggestionのみ
+## レビュー結果の保存
+レビュー完了後、結果を以下のファイルに保存してください:
+`{repo_path}/reviews/{date}_{reviewer}_{spec_name}_rev{current_rev}.md`
 
----BEGIN SPEC---
-{spec_content}
----END SPEC---
+ファイル内容はレビュー全文（verdict + 全items + 補足説明）をmarkdownで。
 ```
 
-**rev2以降:** diff情報 = `git diff --numstat {last_commit}..HEAD -- {spec_path}`。changelog = 実装者YAML報告を一次ソース。
+**rev2以降のプロンプト:**
+
+diff情報は `git diff --numstat {last_commit}..HEAD -- {spec_path}` で計算。changelog_summary は実装者の改訂完了報告 `changes:` を一次ソースとする。
+
+```
+以下の仕様書の改訂版をレビューしてください。
+
+プロジェクト: {project}
+仕様書: {spec_path} (rev{current_rev})
+前回からの変更: +{added_lines}行, -{removed_lines}行
+前回 commit: {last_commit}
+
+## 前回レビューからの変更点
+{changelog_summary}
+
+## レビュー指示
+- 前回の指摘が適切に反映されているか確認
+- 新たに追加された部分に問題がないか確認
+- 重篤度・セクション番号・YAML フォーマットは前回と同様
+
+## レビュー結果の保存
+`{repo_path}/reviews/{date}_{reviewer}_{spec_name}_rev{current_rev}.md`
+```
 
 ### 5.2 レビュー回収
 

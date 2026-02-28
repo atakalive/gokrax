@@ -1175,6 +1175,24 @@ def process(path: Path):
                     data["summary_message_id"] = message_id
                 update_pipeline(path, _save_summary_id)
                 log(f"[{pj}] merge summary posted (message_id={message_id})")
+
+                # 実装者セッションに通知 (Issue #48)
+                pipeline_data_fresh = load_pipeline(path)
+                implementer = pipeline_data_fresh.get("implementer") or "kaneko"
+                prompt = (
+                    f"[devbar] {pj}: バッチ完了\n"
+                    f"{content}\n\n"
+                    "上記の作業を振り返り、以下だけを記録してください:\n"
+                    "- 踏んだ罠、ハマったこと（あれば）\n"
+                    "- レビュアー指摘で学んだこと（あれば）\n"
+                    "- 今後の作業に影響する判断（あれば）\n"
+                    "記録すべきことがなければ NO_REPLY で構いません。"
+                )
+                try:
+                    notify_implementer(implementer, prompt)
+                    log(f"[{pj}] implementer notified: {implementer}")
+                except Exception as e:
+                    log(f"[{pj}] WARNING: implementer notification failed: {e}")
             else:
                 # 全リトライ失敗: 遷移をロールバックして次サイクルで再試行
                 log(f"[{pj}] WARNING: merge summary post failed after 3 attempts, rolling back state")

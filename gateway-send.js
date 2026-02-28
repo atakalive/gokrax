@@ -20,9 +20,17 @@ async function main() {
   const callFile = fs.readdirSync('/usr/lib/node_modules/openclaw/dist/')
     .filter(f => f.startsWith('call-') && f.endsWith('.js')).sort().pop();
   const { n: callGateway, s: ADMIN_SCOPE } = await import(`/usr/lib/node_modules/openclaw/dist/${callFile}`);
-  const mcFile = fs.readdirSync('/usr/lib/node_modules/openclaw/dist/')
-    .filter(f => f.startsWith('message-channel-') && f.endsWith('.js')).sort().pop();
-  const { h: GATEWAY_CLIENT_NAMES, m: GATEWAY_CLIENT_MODES } = await import(`/usr/lib/node_modules/openclaw/dist/${mcFile}`);
+  const distDir = '/usr/lib/node_modules/openclaw/dist/';
+  const mcCandidates = fs.readdirSync(distDir)
+    .filter(f => f.startsWith('message-channel-') && f.endsWith('.js'));
+  // Find the file that exports GATEWAY_CLIENT_NAMES as 'h' (export signature varies between builds)
+  let mcFile;
+  for (const c of mcCandidates) {
+    const src = fs.readFileSync(distDir + c, 'utf8');
+    if (src.includes('GATEWAY_CLIENT_NAMES as h')) { mcFile = c; break; }
+  }
+  if (!mcFile) throw new Error('No message-channel module found with expected exports');
+  const { h: GATEWAY_CLIENT_NAMES, m: GATEWAY_CLIENT_MODES } = await import(`${distDir}${mcFile}`);
   const crypto = await import('crypto');
   
   try {

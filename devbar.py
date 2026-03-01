@@ -968,7 +968,7 @@ def cmd_qrun(args):
 
 def _reset_review_requests(spec_config: dict) -> None:
     """review_requestsの全エントリをpendingにリセット（§5.4）"""
-    for entry in spec_config["review_requests"].values():
+    for entry in spec_config.get("review_requests", {}).values():
         entry["status"] = "pending"
         entry["sent_at"] = None
         entry["timeout_at"] = None
@@ -983,12 +983,14 @@ def _archive_current_reviews(spec_config: dict) -> None:
         spec_config["current_reviews"] = {}
         return
 
+    _SEV_MAP = {"p0": "critical", "p1": "major", "p2": "minor"}
     reviews_summary = {}
     merged = {"critical": 0, "major": 0, "minor": 0, "suggestion": 0}
     for reviewer, entry in cr.get("entries", {}).items():
         counts = {}
         for item in entry.get("items", []):
-            sev = item.get("severity", "minor").lower()
+            sev = _SEV_MAP.get(item.get("severity", "minor").lower(),
+                               item.get("severity", "minor").lower())
             counts[sev] = counts.get(sev, 0) + 1
             if sev in merged:
                 merged[sev] += 1
@@ -1013,7 +1015,7 @@ def cmd_spec_start(args):
     """spec modeパイプライン開始（§4.2, §2.5, §2.6, §3.3）"""
     path = get_path(args.project)
     data = load_pipeline(path)
-
+    # 事前チェック（早期エラー用、本番チェックはdo_start内flock内で再実行）
     if data.get("state", "IDLE") != "IDLE":
         raise SystemExit(f"Cannot start: state is {data['state']} (expected IDLE)")
     if data.get("spec_mode"):
@@ -1021,6 +1023,10 @@ def cmd_spec_start(args):
 
     if args.skip_review and args.review_only:
         raise SystemExit("--skip-review and --review-only are mutually exclusive")
+
+    # specファイル存在チェック（cwd相対パス）
+    if not Path(args.spec).exists():
+        raise SystemExit(f"Spec file not found: {args.spec}")
 
     # §2.6 優先順位ルール適用
     auto_continue = args.auto_continue
@@ -1050,6 +1056,11 @@ def cmd_spec_start(args):
     pipelines_dir = str(Path(PIPELINES_DIR) / args.project / "spec-reviews")
 
     def do_start(data):
+        # flock内で再チェック（TOCTOU回避）
+        if data.get("state", "IDLE") != "IDLE":
+            raise SystemExit(f"Cannot start: state is {data['state']} (expected IDLE)")
+        if data.get("spec_mode"):
+            raise SystemExit("spec_mode already active")
         sc = default_spec_config()
         sc.update({
             "spec_path": args.spec,
@@ -1058,7 +1069,7 @@ def cmd_spec_start(args):
             "no_queue": no_queue,
             "skip_review": skip_review,
             "auto_continue": auto_continue,
-            "max_revise_cycles": args.max_cycles or MAX_SPEC_REVISE_CYCLES,
+            "max_revise_cycles": args.max_cycles if args.max_cycles is not None else MAX_SPEC_REVISE_CYCLES,
             "model": args.model,
             "review_requests": review_requests,
             "pipelines_dir": pipelines_dir,
@@ -1079,40 +1090,52 @@ def cmd_spec_start(args):
 
 def cmd_spec_approve(args):
     """SPEC_APPROVEDに遷移（§4.3）"""
+    _APPROVE_ALLOWED = ("SPEC_REVIEW", "SPEC_STALLED", "SPEC_REVISE")
     path = get_path(args.project)
-    data = load_pipeline(path)
-    sc = data.get("spec_config", {})
-    state = data.get("state")
-
-    if not args.force:
-        cr = sc.get("current_reviews", {})
-        for reviewer, entry in cr.get("entries", {}).items():
-            v = entry.get("verdict", "")
-            if v in ("P0", "P1"):
-                raise SystemExit(
-                    f"Cannot approve: {reviewer} has {v}. Use --force to override."
-                )
-
-    # force時の remaining_p1_items 収集（update_pipeline 前に取得）
-    remaining_p1_items = []
-    if args.force:
-        cr = sc.get("current_reviews", {})
-        for reviewer, entry in cr.get("entries", {}).items():
-            if entry.get("verdict", "") in ("P0", "P1"):
-                for item in entry.get("items", []):
-                    remaining_p1_items.append(f"{reviewer}:{item.get('id', '?')}")
+    # 全チェックをflock内に移動してTOCTOU回避
+    ctx = {}  # ロック内→外の値受け渡し
 
     def do_approve(data):
-        sc = data["spec_config"]
+        state = data.get("state")
+        if state not in _APPROVE_ALLOWED:
+            raise SystemExit(
+                f"Cannot approve: state is {state} "
+                f"(expected one of {_APPROVE_ALLOWED})"
+            )
+        if not data.get("spec_mode"):
+            raise SystemExit("Cannot approve: spec_mode is not active")
+
+        sc = data.get("spec_config", {})
+
+        if not args.force:
+            cr = sc.get("current_reviews", {})
+            for reviewer, entry in cr.get("entries", {}).items():
+                v = entry.get("verdict", "")
+                if v in ("P0", "P1"):
+                    raise SystemExit(
+                        f"Cannot approve: {reviewer} has {v}. Use --force to override."
+                    )
+
         if args.force:
+            # remaining_p1_items 収集（archive前に取得）
+            remaining = []
+            cr = sc.get("current_reviews", {})
+            for reviewer, entry in cr.get("entries", {}).items():
+                if entry.get("verdict", "") in ("P0", "P1"):
+                    for item in entry.get("items", []):
+                        remaining.append(f"{reviewer}:{item.get('id', '?')}")
+
+            ctx["from_state"] = state
+            ctx["rev"] = sc.get("current_rev", "?")
+
             _archive_current_reviews(sc)
             sc.setdefault("force_events", []).append({
                 "at": datetime.now(JST).isoformat(),
                 "actor": "M",
-                "from_state": data["state"],
+                "from_state": state,
                 "rev": sc.get("current_rev", "?"),
                 "rev_index": sc.get("rev_index", 0),
-                "remaining_p1_items": remaining_p1_items,
+                "remaining_p1_items": remaining,
             })
         data["state"] = "SPEC_APPROVED"
 
@@ -1121,8 +1144,8 @@ def cmd_spec_approve(args):
     if args.force:
         try:
             notify_discord(
-                f"⚠️ [spec-approve --force] {args.project}: "
-                f"rev{sc.get('current_rev', '?')} force-approved from {state}"
+                f"\u26a0\ufe0f [spec-approve --force] {args.project}: "
+                f"rev{ctx.get('rev', '?')} force-approved from {ctx.get('from_state', '?')}"
             )
         except Exception:
             pass

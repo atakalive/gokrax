@@ -71,6 +71,13 @@ def _args(**kwargs):
 
 class TestCmdSpecStart:
 
+    @pytest.fixture(autouse=True)
+    def _spec_file(self, tmp_pipelines, monkeypatch):
+        """spec start テスト用: cwd を tmp_pipelines に変更し docs/spec.md を作成"""
+        (tmp_pipelines / "docs").mkdir(exist_ok=True)
+        (tmp_pipelines / "docs" / "spec.md").write_text("# test spec")
+        monkeypatch.chdir(tmp_pipelines)
+
     def test_start_basic(self, tmp_pipelines):
         """IDLE → SPEC_REVIEW、spec_config 全フィールドの確認"""
         path = tmp_pipelines / "test-pj.json"
@@ -256,6 +263,26 @@ class TestCmdSpecApprove:
         assert fe["actor"] == "M"
         assert fe["from_state"] == "SPEC_REVIEW"
         assert "pascal:item1" in fe["remaining_p1_items"]
+
+
+    def test_approve_invalid_state(self, tmp_pipelines):
+        """IDLE等の不正状態からapproveするとSystemExit"""
+        path = tmp_pipelines / "test-pj.json"
+        sc = _make_spec_config()
+        write_pipeline(path, _make_pipeline(state="IDLE", spec_mode=True, spec_config=sc))
+
+        from devbar import cmd_spec_approve
+        with pytest.raises(SystemExit, match="Cannot approve"):
+            cmd_spec_approve(_args(project="test-pj", force=False))
+
+    def test_approve_no_spec_mode(self, tmp_pipelines):
+        """spec_mode=False ならSystemExit"""
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, _make_pipeline(state="SPEC_REVIEW", spec_mode=False))
+
+        from devbar import cmd_spec_approve
+        with pytest.raises(SystemExit, match="spec_mode"):
+            cmd_spec_approve(_args(project="test-pj", force=False))
 
 
 # ── TestCmdSpecContinue ───────────────────────────────────────────────────────

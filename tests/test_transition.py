@@ -236,49 +236,232 @@ class TestTransitionNotifications:
         assert "DESIGN_PLAN" in msg
 
 
-def test_keep_context_preserved_in_pipeline(tmp_path):
-    """keep_context=True が pipeline.json に保存・読み出しできることを確認。"""
-    import json
-    from pipeline_io import load_pipeline, update_pipeline
+class TestKeepCtx:
+    """keep_ctx_batch / keep_ctx_intra 分離テスト (Issue #58)"""
 
-    pipeline_path = tmp_path / "test.json"
-    pipeline_path.write_text(json.dumps({
-        "project": "test",
-        "state": "IDLE",
-        "enabled": True,
-        "batch": [],
-        "implementer": "kaneko",
-        "keep_context": True,
-        "review_mode": "standard",
-    }))
+    def test_keep_ctx_preserved_in_pipeline(self, tmp_path):
+        """keep_ctx_batch / keep_ctx_intra が pipeline.json に保存・読み出しできる。"""
+        from pipeline_io import load_pipeline
 
-    data = load_pipeline(str(pipeline_path))
-    assert data.get("keep_context") is True
+        pipeline_path = tmp_path / "test.json"
+        pipeline_path.write_text(json.dumps({
+            "project": "test",
+            "state": "IDLE",
+            "enabled": True,
+            "batch": [],
+            "implementer": "kaneko",
+            "keep_ctx_batch": True,
+            "keep_ctx_intra": False,
+            "review_mode": "standard",
+        }))
 
+        data = load_pipeline(str(pipeline_path))
+        assert data.get("keep_ctx_batch") is True
+        assert data.get("keep_ctx_intra") is False
 
-def test_keep_context_in_notification(tmp_path):
-    """keep_context が notification dict に渡されることを確認。"""
-    import json
+    def test_keep_ctx_in_notification(self):
+        """keep_ctx_batch / keep_ctx_intra が notification dict に渡される。"""
+        data = {
+            "project": "test",
+            "state": "CODE_REVIEW",
+            "batch": [{"issue": 1, "title": "test"}],
+            "keep_ctx_batch": True,
+            "keep_ctx_intra": False,
+        }
 
-    data = {
-        "project": "test",
-        "state": "CODE_REVIEW",
-        "enabled": True,
-        "batch": [{"issue": 1, "title": "test"}],
-        "implementer": "kaneko",
-        "keep_context": True,
-        "review_mode": "standard",
-    }
+        notification = {
+            "keep_ctx_batch": data.get("keep_ctx_batch", False),
+            "keep_ctx_intra": data.get("keep_ctx_intra", False),
+        }
+        assert notification["keep_ctx_batch"] is True
+        assert notification["keep_ctx_intra"] is False
 
-    # notification dict 構築ロジックの検証
-    notification = {
-        "review_mode": data.get("review_mode", "standard"),
-        "keep_context": data.get("keep_context", False),
-    }
-    assert notification["keep_context"] is True
+    def test_keep_ctx_default_false(self):
+        """keep_ctx 未設定時はデフォルト False。"""
+        data = {"state": "IDLE", "batch": []}
+        assert data.get("keep_ctx_batch", False) is False
+        assert data.get("keep_ctx_intra", False) is False
 
+    def test_reset_reviewers_design_plan_batch(self, tmp_pipelines, sample_pipeline):
+        """DESIGN_PLAN遷移 + keep_ctx_batch=True → reset_reviewers スキップ"""
+        sample_pipeline["state"] = "IDLE"
+        sample_pipeline["keep_ctx_batch"] = True
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, sample_pipeline)
+        from devbar import cmd_transition
+        args = argparse.Namespace(
+            project="test-pj", to="DESIGN_PLAN", actor="cli", force=False, resume=False,
+        )
+        with patch("watchdog._reset_reviewers") as mock_reset, \
+             patch("devbar.notify_implementer"), \
+             patch("devbar.notify_reviewers"):
+            cmd_transition(args)
+        mock_reset.assert_not_called()
 
-def test_keep_context_default_false(tmp_path):
-    """keep_context 未設定時はデフォルト False。"""
-    data = {"state": "IDLE", "batch": []}
-    assert data.get("keep_context", False) is False
+    def test_reset_reviewers_design_plan_no_batch(self, tmp_pipelines, sample_pipeline):
+        """DESIGN_PLAN遷移 + keep_ctx_batch=False → reset_reviewers 実行"""
+        sample_pipeline["state"] = "IDLE"
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, sample_pipeline)
+        from devbar import cmd_transition
+        args = argparse.Namespace(
+            project="test-pj", to="DESIGN_PLAN", actor="cli", force=False, resume=False,
+        )
+        with patch("watchdog._reset_reviewers", return_value=[]) as mock_reset, \
+             patch("devbar.notify_implementer"), \
+             patch("devbar.notify_reviewers"):
+            cmd_transition(args)
+        mock_reset.assert_called_once()
+
+    def test_reset_reviewers_implementation_intra(self, tmp_pipelines, sample_pipeline):
+        """IMPLEMENTATION遷移 + keep_ctx_intra=True → reset_reviewers スキップ"""
+        sample_pipeline["state"] = "DESIGN_APPROVED"
+        sample_pipeline["keep_ctx_intra"] = True
+        sample_pipeline["batch"] = [{"issue": 1, "title": "T"}]
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, sample_pipeline)
+        from devbar import cmd_transition
+        args = argparse.Namespace(
+            project="test-pj", to="IMPLEMENTATION", actor="cli", force=False, resume=False,
+        )
+        with patch("watchdog._reset_reviewers") as mock_reset, \
+             patch("devbar.notify_implementer"), \
+             patch("devbar.notify_reviewers"):
+            cmd_transition(args)
+        mock_reset.assert_not_called()
+
+    def test_reset_reviewers_implementation_no_intra(self, tmp_pipelines, sample_pipeline):
+        """IMPLEMENTATION遷移 + keep_ctx_intra=False → reset_reviewers 実行"""
+        sample_pipeline["state"] = "DESIGN_APPROVED"
+        sample_pipeline["batch"] = [{"issue": 1, "title": "T"}]
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, sample_pipeline)
+        from devbar import cmd_transition
+        args = argparse.Namespace(
+            project="test-pj", to="IMPLEMENTATION", actor="cli", force=False, resume=False,
+        )
+        with patch("watchdog._reset_reviewers", return_value=[]) as mock_reset, \
+             patch("devbar.notify_implementer"), \
+             patch("devbar.notify_reviewers"):
+            cmd_transition(args)
+        mock_reset.assert_called_once()
+
+    def test_reset_reviewers_design_plan_only_intra_does_not_skip(self, tmp_pipelines, sample_pipeline):
+        """DESIGN_PLAN遷移 + keep_ctx_intra=True のみ → reset_reviewers 実行（batchがFalse）"""
+        sample_pipeline["state"] = "IDLE"
+        sample_pipeline["keep_ctx_intra"] = True
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, sample_pipeline)
+        from devbar import cmd_transition
+        args = argparse.Namespace(
+            project="test-pj", to="DESIGN_PLAN", actor="cli", force=False, resume=False,
+        )
+        with patch("watchdog._reset_reviewers", return_value=[]) as mock_reset, \
+             patch("devbar.notify_implementer"), \
+             patch("devbar.notify_reviewers"):
+            cmd_transition(args)
+        mock_reset.assert_called_once()
+
+    def test_reset_reviewers_implementation_only_batch_does_not_skip(self, tmp_pipelines, sample_pipeline):
+        """IMPLEMENTATION遷移 + keep_ctx_batch=True のみ → reset_reviewers 実行（intraがFalse）"""
+        sample_pipeline["state"] = "DESIGN_APPROVED"
+        sample_pipeline["keep_ctx_batch"] = True
+        sample_pipeline["batch"] = [{"issue": 1, "title": "T"}]
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, sample_pipeline)
+        from devbar import cmd_transition
+        args = argparse.Namespace(
+            project="test-pj", to="IMPLEMENTATION", actor="cli", force=False, resume=False,
+        )
+        with patch("watchdog._reset_reviewers", return_value=[]) as mock_reset, \
+             patch("devbar.notify_implementer"), \
+             patch("devbar.notify_reviewers"):
+            cmd_transition(args)
+        mock_reset.assert_called_once()
+
+    def test_revise_always_skips_reset(self, tmp_pipelines, sample_pipeline):
+        """DESIGN_REVISE / CODE_REVISE → 常に reset_reviewers スキップ"""
+        for from_state, to_state in [
+            ("DESIGN_REVIEW", "DESIGN_REVISE"),
+            ("CODE_REVIEW", "CODE_REVISE"),
+        ]:
+            sample_pipeline["state"] = from_state
+            sample_pipeline["batch"] = [{"issue": 1, "title": "T"}]
+            # keep_ctx フラグなし でもスキップ
+            sample_pipeline.pop("keep_ctx_batch", None)
+            sample_pipeline.pop("keep_ctx_intra", None)
+            path = tmp_pipelines / "test-pj.json"
+            write_pipeline(path, sample_pipeline)
+            from devbar import cmd_transition
+            args = argparse.Namespace(
+                project="test-pj", to=to_state, actor="cli", force=False, resume=False,
+            )
+            with patch("watchdog._reset_reviewers") as mock_reset, \
+                 patch("devbar.notify_implementer"), \
+                 patch("devbar.notify_reviewers"):
+                cmd_transition(args)
+            mock_reset.assert_not_called()
+
+    def test_idle_cleanup_pops_keep_ctx(self, tmp_pipelines, sample_pipeline):
+        """IDLE遷移で keep_ctx_batch, keep_ctx_intra, keep_context(旧) が pop される。"""
+        sample_pipeline["state"] = "DONE"
+        sample_pipeline["keep_ctx_batch"] = True
+        sample_pipeline["keep_ctx_intra"] = True
+        sample_pipeline["keep_context"] = True  # 旧フラグ
+        sample_pipeline["cc_session_id"] = "test-session-123"
+        sample_pipeline["batch"] = [{"issue": 1, "title": "T"}]
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, sample_pipeline)
+        from devbar import cmd_transition
+        args = argparse.Namespace(
+            project="test-pj", to="IDLE", actor="cli", force=False, resume=False,
+        )
+        with patch("devbar.notify_implementer"), patch("devbar.notify_reviewers"):
+            cmd_transition(args)
+        with open(path) as f:
+            data = json.load(f)
+        assert "keep_ctx_batch" not in data
+        assert "keep_ctx_intra" not in data
+        assert "keep_context" not in data
+
+    def test_idle_cleanup_preserves_cc_session_id(self, tmp_pipelines, sample_pipeline):
+        """IDLE遷移で cc_session_id は pop されない（次バッチ再利用のため）。"""
+        sample_pipeline["state"] = "DONE"
+        sample_pipeline["cc_session_id"] = "test-session-456"
+        sample_pipeline["batch"] = [{"issue": 1, "title": "T"}]
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, sample_pipeline)
+        from devbar import cmd_transition
+        args = argparse.Namespace(
+            project="test-pj", to="IDLE", actor="cli", force=False, resume=False,
+        )
+        with patch("devbar.notify_implementer"), patch("devbar.notify_reviewers"):
+            cmd_transition(args)
+        with open(path) as f:
+            data = json.load(f)
+        assert data.get("cc_session_id") == "test-session-456"
+
+    def test_legacy_keep_context_normalization(self):
+        """旧 keep_context=True → keep_ctx_batch + keep_ctx_intra に正規化。"""
+        data = {"keep_context": True}
+        # watchdog.py の正規化ロジックと同じ
+        if "keep_context" in data and "keep_ctx_batch" not in data:
+            legacy = data.pop("keep_context", False)
+            if legacy:
+                data["keep_ctx_batch"] = True
+                data["keep_ctx_intra"] = True
+        assert data.get("keep_ctx_batch") is True
+        assert data.get("keep_ctx_intra") is True
+        assert "keep_context" not in data
+
+    def test_legacy_normalization_skipped_when_new_fields_exist(self):
+        """新フィールドが既に存在すれば旧フィールド正規化をスキップ。"""
+        data = {"keep_context": True, "keep_ctx_batch": False, "keep_ctx_intra": False}
+        if "keep_context" in data and "keep_ctx_batch" not in data:
+            legacy = data.pop("keep_context", False)
+            if legacy:
+                data["keep_ctx_batch"] = True
+                data["keep_ctx_intra"] = True
+        # keep_ctx_batch is already present → normalization skipped
+        assert data.get("keep_ctx_batch") is False
+        assert data.get("keep_ctx_intra") is False

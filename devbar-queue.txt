@@ -8,7 +8,7 @@
 #
 # - ISSUES: "all" またはカンマ区切り数値 (例: "1,2,3")
 # - MODE: full / standard / lite / min / skip (省略可)
-# - OPTIONS: automerge, plan=MODEL, impl=MODEL, keep-context
+# - OPTIONS: automerge, plan=MODEL, impl=MODEL, keep-ctx-batch, keep-ctx-intra, keep-ctx-all (keep-context=all互換)
 # - 完了行は `# done:` prefix で自動マーク
 # - 失敗時の復元機能あり
 #
@@ -71,19 +71,19 @@
 # done: TrajOpt 50 full automerge plan=opus impl=opus
 #
 # keep-ctx分離（spec-mode前提）
-DevBar 58 full automerge plan=opus impl=opus
+# done: devbar 58 full automerge plan=opus impl=opus
 # === Spec Mode Implementation (spec-mode-spec_rev7) ===
 # Phase 1: 基盤
-DevBar 49 full automerge
-# Phase 2: CLI + パース（並行可だがDevBarは逐次）
-DevBar 50 full automerge
-DevBar 51 full automerge plan=opus impl=opus keep-ctx-intra
+devbar 49 full automerge
+# Phase 2: CLI + パース（並行可だがdevbarは逐次）
+devbar 50 full automerge
+devbar 51 full automerge plan=opus impl=opus keep-ctx-intra
 # Phase 3: watchdog統合 + 改訂 + Issue系
-DevBar 52 full automerge plan=opus impl=opus keep-ctx-all
-DevBar 53 full automerge plan=opus keep-ctx-all
-DevBar 54 full automerge
+devbar 52 full automerge plan=opus impl=opus keep-ctx-all
+devbar 53 full automerge plan=opus keep-ctx-all
+devbar 54 full automerge keep-ctx-intra
 # Phase 4: 通知 + 異常系
-DevBar 55 full automerge
-DevBar 56 full automerge plan=opus keep-ctx-batch
+devbar 55 full automerge keep-ctx-intra
+devbar 56 full automerge plan=opus keep-ctx-batch
 # Phase 5: 統合テスト
-DevBar 57 full automerge plan=opus impl=opus keep-ctx-all
+devbar 57 full automerge plan=opus impl=opus keep-ctx-all

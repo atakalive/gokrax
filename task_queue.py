@@ -75,7 +75,8 @@ def parse_queue_line(line: str) -> dict:
         "issues": issues,
         "mode": None,
         "automerge": False,
-        "keep_context": False,
+        "keep_ctx_batch": False,
+        "keep_ctx_intra": False,
         "cc_plan_model": None,
         "cc_impl_model": None,
         "original_line": line.rstrip("\n"),
@@ -84,8 +85,13 @@ def parse_queue_line(line: str) -> dict:
     for token in tokens[2:]:
         if token == "automerge":
             result["automerge"] = True
-        elif token == "keep-context":
-            result["keep_context"] = True
+        elif token == "keep-ctx-batch":
+            result["keep_ctx_batch"] = True
+        elif token == "keep-ctx-intra":
+            result["keep_ctx_intra"] = True
+        elif token in ("keep-ctx-all", "keep-context"):
+            result["keep_ctx_batch"] = True
+            result["keep_ctx_intra"] = True
         elif token.startswith("plan="):
             result["cc_plan_model"] = token.split("=", 1)[1]
         elif token.startswith("impl="):

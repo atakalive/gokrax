@@ -39,6 +39,8 @@ class TestParseQueueLine:
         assert result["issues"] == "all"
         assert result["mode"] is None
         assert result["automerge"] is False
+        assert result["keep_ctx_batch"] is False
+        assert result["keep_ctx_intra"] is False
         assert result["cc_plan_model"] is None
         assert result["cc_impl_model"] is None
 
@@ -118,6 +120,44 @@ class TestParseQueueLine:
         assert result["automerge"] is True
         assert result["cc_plan_model"] == "haiku"
         assert result["cc_impl_model"] == "sonnet"
+
+    # --- keep-ctx tests (Issue #58) ---
+
+    def test_keep_ctx_batch_only(self):
+        """keep-ctx-batch 単独"""
+        result = parse_queue_line("Foo 1 keep-ctx-batch")
+        assert result["keep_ctx_batch"] is True
+        assert result["keep_ctx_intra"] is False
+
+    def test_keep_ctx_intra_only(self):
+        """keep-ctx-intra 単独"""
+        result = parse_queue_line("Foo 1 keep-ctx-intra")
+        assert result["keep_ctx_batch"] is False
+        assert result["keep_ctx_intra"] is True
+
+    def test_keep_ctx_all(self):
+        """keep-ctx-all → 両方True"""
+        result = parse_queue_line("Foo 1 keep-ctx-all")
+        assert result["keep_ctx_batch"] is True
+        assert result["keep_ctx_intra"] is True
+
+    def test_keep_context_legacy(self):
+        """keep-context (後方互換) → 両方True"""
+        result = parse_queue_line("Foo 1 keep-context")
+        assert result["keep_ctx_batch"] is True
+        assert result["keep_ctx_intra"] is True
+
+    def test_keep_ctx_batch_and_intra_separate(self):
+        """keep-ctx-batch + keep-ctx-intra 個別指定 → 両方True"""
+        result = parse_queue_line("Foo 1 keep-ctx-batch keep-ctx-intra")
+        assert result["keep_ctx_batch"] is True
+        assert result["keep_ctx_intra"] is True
+
+    def test_no_keep_ctx_flags(self):
+        """フラグなし → 両方False"""
+        result = parse_queue_line("Foo 1")
+        assert result["keep_ctx_batch"] is False
+        assert result["keep_ctx_intra"] is False
 
 
 class TestPopNextQueueEntry:

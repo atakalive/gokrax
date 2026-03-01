@@ -608,7 +608,9 @@ def _start_cc(project: str, batch: list, gitlab: str, repo_path: str, pipeline_p
     plan_model = data.get("cc_plan_model") or CC_MODEL_PLAN
     impl_model = data.get("cc_impl_model") or CC_MODEL_IMPL
 
-    session_id = str(_uuid.uuid4())
+    # keep_ctx_batch: 前バッチの cc_session_id を再利用 (Issue #58)
+    prev_session = data.get("cc_session_id") if data.get("keep_ctx_batch") else None
+    session_id = prev_session or str(_uuid.uuid4())
 
     # Issue本文を収集
     issue_nums: list[int] = []
@@ -659,7 +661,7 @@ _notify() {{ local ts=$(date +"%m/%d %H:%M"); python3 -c "import sys; sys.path.i
 
 # Phase 1: Plan
 _notify "[{project}] 📋 CC Plan 開始 (model: {plan_model})"
-claude -p --model "{plan_model}" --session-id "{session_id}" \
+claude -p --model "{plan_model}" {"--resume" if prev_session else "--session-id"} "{session_id}" \
   --permission-mode plan --output-format json < "{plan_path}"
 _notify "[{project}] ✅ CC Plan 完了"
 
@@ -912,6 +914,13 @@ def process(path: Path):
 
         pj = data.get("project", path.stem)
 
+        # 旧 keep_context → 新フィールドへの正規化 (Issue #58)
+        if "keep_context" in data and "keep_ctx_batch" not in data:
+            legacy = data.pop("keep_context", False)
+            if legacy:
+                data["keep_ctx_batch"] = True
+                data["keep_ctx_intra"] = True
+
         # DONE状態: バッチを退避してからクリア + watchdog無効化 + タイムアウト延長リセット + REVISE counters reset
         if state == "DONE":
             _done_batch = list(data.get("batch", []))  # close用に退避
@@ -927,7 +936,9 @@ def process(path: Path):
             data.pop("automerge", None)
             data.pop("cc_plan_model", None)
             data.pop("cc_impl_model", None)
-            data.pop("keep_context", None)
+            data.pop("keep_context", None)      # 旧フラグ（後方互換クリーンアップ）
+            data.pop("keep_ctx_batch", None)
+            data.pop("keep_ctx_intra", None)
             data.pop("queue_mode", None)
 
         # IDLE→DESIGN_PLAN: Reset REVISE cycle counters (Issue #29)
@@ -1031,7 +1042,8 @@ def process(path: Path):
             "batch": saved_batch,
             "repo_path": data.get("repo_path", ""),
             "review_mode": data.get("review_mode", "standard"),
-            "keep_context": data.get("keep_context", False),
+            "keep_ctx_batch": data.get("keep_ctx_batch", False),
+            "keep_ctx_intra": data.get("keep_ctx_intra", False),
             "queue_mode": _done_queue_mode if state == "DONE" else data.get("queue_mode", False),
         })
 
@@ -1234,10 +1246,17 @@ def process(path: Path):
 
         if action.reset_reviewers:
             review_mode = notification.get("review_mode", "standard")
-            # keep_context: レビュアーへの /new 送信をスキップ
-            keep_context = notification.get("keep_context", False)
-            if keep_context:
-                log(f"[{pj}] reset_reviewers SKIPPED (keep_context=True)")
+            # keep_ctx 分岐: 遷移先に応じて参照フラグを切り替え
+            if action.new_state in ("DESIGN_REVISE", "CODE_REVISE"):
+                skip_reset = True  # REVISE遷移は常にスキップ
+            elif action.new_state == "DESIGN_PLAN":
+                skip_reset = notification.get("keep_ctx_batch", False)
+            elif action.new_state == "IMPLEMENTATION":
+                skip_reset = notification.get("keep_ctx_intra", False)
+            else:
+                skip_reset = False
+            if skip_reset:
+                log(f"[{pj}] reset_reviewers SKIPPED (keep_ctx for {action.new_state})")
                 excluded = []
             else:
                 impl = ""
@@ -1396,7 +1415,8 @@ def _handle_qrun(msg_id: str):
         project=project,
         issue=issue_list,
         mode=mode,
-        keep_context=entry.get("keep_context", False),
+        keep_ctx_batch=entry.get("keep_ctx_batch", False),
+        keep_ctx_intra=entry.get("keep_ctx_intra", False),
     )
 
     # Call cmd_start with try-catch

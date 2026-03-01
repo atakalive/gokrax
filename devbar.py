@@ -378,19 +378,27 @@ def cmd_start(args):
     )
     cmd_triage(triage_args)
 
-    # 4. review_mode / keep_context 設定（遷移前に設定して/newの宛先に反映させる）
-    if getattr(args, "mode", None) or getattr(args, "keep_context", False):
+    # 4. keep-ctx フラグ正規化 (keep-context / keep-ctx-all → 両方True)
+    if getattr(args, "keep_context", False) or getattr(args, "keep_ctx_all", False):
+        args.keep_ctx_batch = True
+        args.keep_ctx_intra = True
+
+    # 5. review_mode / keep_ctx 設定（遷移前に設定して/newの宛先に反映させる）
+    has_keep_ctx = getattr(args, "keep_ctx_batch", False) or getattr(args, "keep_ctx_intra", False)
+    if getattr(args, "mode", None) or has_keep_ctx:
         from watchdog import REVIEW_MODES
         if getattr(args, "mode", None) and args.mode not in REVIEW_MODES:
             raise SystemExit(f"Invalid mode: {args.mode} (valid: {list(REVIEW_MODES)})")
         def do_mode(data):
             if getattr(args, "mode", None):
                 data["review_mode"] = args.mode
-            if getattr(args, "keep_context", False):
-                data["keep_context"] = True
+            if getattr(args, "keep_ctx_batch", False):
+                data["keep_ctx_batch"] = True
+            if getattr(args, "keep_ctx_intra", False):
+                data["keep_ctx_intra"] = True
         update_pipeline(path, do_mode)
 
-    # 5. DESIGN_PLANに遷移
+    # 6. DESIGN_PLANに遷移
     transition_args = argparse.Namespace(
         project=args.project,
         to="DESIGN_PLAN",
@@ -400,13 +408,13 @@ def cmd_start(args):
     )
     cmd_transition(transition_args)
 
-    # 6. watchdog有効化 + loop起動
+    # 7. watchdog有効化 + loop起動
     def do_enable(data):
         data["enabled"] = True
     update_pipeline(path, do_enable)
     _start_loop()
 
-    # 7. 完了メッセージ
+    # 8. 完了メッセージ
     issues_str = ", ".join(f"#{n}" for n in issue_nums)
     print(f"{args.project}: started with issues [{issues_str}] → DESIGN_PLAN (watchdog enabled)")
 
@@ -443,7 +451,9 @@ def cmd_transition(args):
             data.pop("automerge", None)
             data.pop("cc_plan_model", None)
             data.pop("cc_impl_model", None)
-            data.pop("keep_context", None)
+            data.pop("keep_context", None)      # 旧フラグ（後方互換クリーンアップ）
+            data.pop("keep_ctx_batch", None)
+            data.pop("keep_ctx_intra", None)
         elif target == "DESIGN_PLAN":
             # Reset REVISE cycle counters when starting new batch (Issue #29)
             data.pop("design_revise_count", None)
@@ -471,9 +481,16 @@ def cmd_transition(args):
     notif = get_notification_for_state(args.to, pj, batch, gitlab, implementer)
     prefix = "（再開）" if resume else ""
     if notif.reset_reviewers:
-        keep_context = data.get("keep_context", False)
-        if keep_context:
-            print(f"[{pj}] reset_reviewers SKIPPED (keep_context=True)")
+        if args.to in ("DESIGN_REVISE", "CODE_REVISE"):
+            skip_reset = True  # REVISE遷移は常にスキップ
+        elif args.to == "DESIGN_PLAN":
+            skip_reset = data.get("keep_ctx_batch", False)
+        elif args.to == "IMPLEMENTATION":
+            skip_reset = data.get("keep_ctx_intra", False)
+        else:
+            skip_reset = False
+        if skip_reset:
+            print(f"[{pj}] reset_reviewers SKIPPED (keep_ctx for {args.to})")
         else:
             from watchdog import _reset_reviewers
             impl = ""
@@ -843,6 +860,12 @@ def cmd_qrun(args):
                 opts.append(f"plan={e['cc_plan_model']}")
             if e.get("cc_impl_model"):
                 opts.append(f"impl={e['cc_impl_model']}")
+            if e.get("keep_ctx_batch") and e.get("keep_ctx_intra"):
+                opts.append("keep-ctx-all")
+            elif e.get("keep_ctx_batch"):
+                opts.append("keep-ctx-batch")
+            elif e.get("keep_ctx_intra"):
+                opts.append("keep-ctx-intra")
             opts_str = " " + " ".join(opts) if opts else ""
             print(f"{e['project']} {e['issues']}{mode}{opts_str}{done}")
         return
@@ -862,7 +885,8 @@ def cmd_qrun(args):
         project=project,
         issue=None if issues == "all" else [int(x) for x in issues.split(",")],
         mode=mode,
-        keep_context=entry.get("keep_context", False),
+        keep_ctx_batch=entry.get("keep_ctx_batch", False),
+        keep_ctx_intra=entry.get("keep_ctx_intra", False),
     )
 
     # cmd_start 実行 (エラー時は復元)
@@ -927,7 +951,10 @@ def main():
     p.add_argument("--mode", choices=["full", "standard", "lite", "min", "skip"],
                    help="レビューモード（省略時は既存設定を維持）")
     p.add_argument("--keep-context", action="store_true", default=False, dest="keep_context",
-                   help="レビュアーへの /new 送信をスキップ（コンテキスト維持）")
+                   help="(後方互換) = --keep-ctx-all")
+    p.add_argument("--keep-ctx-batch", action="store_true", default=False, dest="keep_ctx_batch")
+    p.add_argument("--keep-ctx-intra", action="store_true", default=False, dest="keep_ctx_intra")
+    p.add_argument("--keep-ctx-all", action="store_true", default=False, dest="keep_ctx_all")
 
     # triage
     p = sub.add_parser("triage", help="指定Issueをバッチに投入")

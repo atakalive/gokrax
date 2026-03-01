@@ -1011,7 +1011,7 @@ def _apply_spec_action(pipeline_path: str, action: SpecTransitionAction, now: da
 - → SPEC_DONE: `[Spec] ✅ {project}: spec mode完了`
 
 **REVISE完了通知:**
-- commit hashあり: `[Spec] {project}: rev{N} 改訂完了 ({commit})`
+- commit hashあり: `[Spec] {project}: rev{N} 改訂完了 ({commit[:7]})`（先頭7文字に短縮）
 - git commit失敗（commit空）: `[Spec] ⚠️ {project}: rev{N} git commit失敗` → SPEC_PAUSED
 - 変更なし（差分0）: `[Spec] ⚠️ {project}: rev{N} 変更なし（改訂が空）` → SPEC_PAUSED
 

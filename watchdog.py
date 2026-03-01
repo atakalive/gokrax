@@ -43,12 +43,13 @@ from notify import (
     notify_implementer, notify_reviewers, notify_discord,
     send_to_agent, send_to_agent_queued, ping_agent,
     spec_notify_review_start, spec_notify_review_complete,
-    spec_notify_approved, spec_notify_approved_forced,
+    spec_notify_approved, spec_notify_approved_auto,
     spec_notify_stalled, spec_notify_review_failed,
     spec_notify_paused, spec_notify_revise_done,
-    spec_notify_revise_commit_failed, spec_notify_revise_no_changes,
+    spec_notify_revise_commit_failed,
     spec_notify_issue_plan_done, spec_notify_queue_plan_done,
     spec_notify_done, spec_notify_failure,
+
 )
 from spec_review import (
     should_continue_review, _reset_review_requests,
@@ -1145,9 +1146,12 @@ def _check_spec_revise(
         updates = build_revise_completion_updates(spec_config, parsed, now)
         updates["_revise_response"] = None  # 消費済みクリア（Leibniz P0-1）
         current_rev = parsed.get("new_rev", "?")
+        reviewer_count = len(spec_config.get("review_requests", {}))
+        revise_msg = spec_notify_revise_done(project, current_rev, parsed.get("commit", ""))
+        review_msg = spec_notify_review_start(project, current_rev, reviewer_count)
         return SpecTransitionAction(
             next_state="SPEC_REVIEW",
-            discord_notify=spec_notify_revise_done(project, current_rev, parsed.get("commit", "")),
+            discord_notify=f"{revise_msg}\n{review_msg}",
             pipeline_updates=updates,
         )
     # --- ここまで S-5 追加。以下は既存のタイムアウトチェック ---
@@ -1527,7 +1531,7 @@ def check_transition_spec(
         if spec_config.get("auto_continue"):
             return SpecTransitionAction(
                 next_state="ISSUE_SUGGESTION",
-                discord_notify=spec_notify_approved(project, spec_config.get("current_rev", "?")),
+                discord_notify=spec_notify_approved_auto(project, spec_config.get("current_rev", "?")),
             )
         # デフォルト: M確認待ち（通知は遷移元で発火済み）
         return SpecTransitionAction(next_state=None)

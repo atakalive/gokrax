@@ -504,13 +504,14 @@ def spec_notify_review_complete(
 
 
 def spec_notify_approved(project: str, rev: str | int) -> str:
-    """→ SPEC_APPROVED（通常）"""
+    """→ SPEC_APPROVED（通常、M確認待ち）"""
     return f"[Spec] {project}: spec承認 (rev{rev})。`devbar spec continue` でIssue分割へ"
 
 
-def spec_notify_approved_forced(project: str, rev: str | int, remaining_p1_plus: int) -> str:
-    """→ SPEC_APPROVED（強制承認）"""
-    return f"[Spec] ⚠️ {project}: 強制承認 (P1以上 {remaining_p1_plus}件残存)"
+def spec_notify_approved_auto(project: str, rev: str | int) -> str:
+    """→ SPEC_APPROVED（auto_continue: 自動進行）"""
+    return f"[Spec] {project}: spec承認 (rev{rev}) → Issue分割へ自動進行"
+
 
 
 def spec_notify_stalled(project: str, rev: str | int, remaining_p1_plus: int) -> str:
@@ -529,7 +530,7 @@ def spec_notify_paused(project: str, reason: str) -> str:
 
 
 def spec_notify_revise_done(project: str, rev: str | int, commit: str) -> str:
-    """REVISE完了（commit hashあり）"""
+    """REVISE完了（commit hashあり）。commit は先頭7文字に短縮（§11補足）。"""
     return f"[Spec] {project}: rev{rev} 改訂完了 ({commit[:7]})"
 
 
@@ -537,10 +538,6 @@ def spec_notify_revise_commit_failed(project: str, rev: str | int) -> str:
     """REVISE完了（git commit失敗）"""
     return f"[Spec] ⚠️ {project}: rev{rev} git commit失敗"
 
-
-def spec_notify_revise_no_changes(project: str, rev: str | int) -> str:
-    """REVISE完了（差分0）"""
-    return f"[Spec] ⚠️ {project}: rev{rev} 変更なし（改訂が空）"
 
 
 def spec_notify_issue_plan_done(project: str, issue_count: int) -> str:

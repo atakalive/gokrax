@@ -104,7 +104,7 @@ def _any_pj_enabled() -> bool:
         if data.get("enabled", False):
             return True
     return False
-from notify import notify_implementer, notify_reviewers, notify_discord, send_to_agent
+from notify import notify_implementer, notify_reviewers, notify_discord, send_to_agent, spec_notify_approved_forced, spec_notify_review_start
 
 
 # === Commands ===
@@ -1085,6 +1085,13 @@ def cmd_spec_start(args):
     _start_loop()
 
     target = "SPEC_APPROVED" if skip_review else "SPEC_REVIEW"
+    if not skip_review:
+        reviewer_count = len(sc.get("review_requests", {}))
+        rev = sc.get("current_rev", "1")
+        try:
+            notify_discord(spec_notify_review_start(args.project, rev, reviewer_count))
+        except Exception:
+            pass
     print(f"{args.project}: spec mode started (spec={args.spec}) → {target}")
 
 
@@ -1143,9 +1150,9 @@ def cmd_spec_approve(args):
 
     if args.force:
         try:
+            remaining_count = len(ctx.get("remaining_p1_items", []))
             notify_discord(
-                f"\u26a0\ufe0f [spec-approve --force] {args.project}: "
-                f"rev{ctx.get('rev', '?')} force-approved from {ctx.get('from_state', '?')}"
+                spec_notify_approved_forced(args.project, ctx.get("rev", "?"), remaining_count)
             )
         except Exception:
             pass

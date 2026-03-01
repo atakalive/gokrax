@@ -44,9 +44,10 @@ from notify import (
     send_to_agent, send_to_agent_queued, ping_agent,
     spec_notify_review_start, spec_notify_review_complete,
     spec_notify_approved, spec_notify_approved_auto,
+    spec_notify_approved_forced,
     spec_notify_stalled, spec_notify_review_failed,
     spec_notify_paused, spec_notify_revise_done,
-    spec_notify_revise_commit_failed,
+    spec_notify_revise_commit_failed, spec_notify_revise_no_changes,
     spec_notify_issue_plan_done, spec_notify_queue_plan_done,
     spec_notify_done, spec_notify_failure,
 
@@ -1140,6 +1141,14 @@ def _check_spec_revise(
                 next_state="SPEC_PAUSED",
                 discord_notify=spec_notify_revise_commit_failed(project, spec_config.get("current_rev", "1")),
                 pipeline_updates={"paused_from": "SPEC_REVISE"},
+            )
+        # 差分0 → PAUSED（§11: 変更なし）
+        changes = parsed.get("changes", {})
+        if changes.get("added_lines", 0) + changes.get("removed_lines", 0) == 0:
+            return SpecTransitionAction(
+                next_state="SPEC_PAUSED",
+                discord_notify=spec_notify_revise_no_changes(project, spec_config.get("current_rev", "1")),
+                pipeline_updates={"paused_from": "SPEC_REVISE", "_revise_response": None},
             )
 
         # 改訂完了 → SPEC_REVIEW へ遷移

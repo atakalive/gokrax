@@ -5,11 +5,13 @@ from notify import (
     spec_notify_review_complete,
     spec_notify_approved,
     spec_notify_approved_auto,
+    spec_notify_approved_forced,
     spec_notify_stalled,
     spec_notify_review_failed,
     spec_notify_paused,
     spec_notify_revise_done,
     spec_notify_revise_commit_failed,
+    spec_notify_revise_no_changes,
     spec_notify_issue_plan_done,
     spec_notify_queue_plan_done,
     spec_notify_done,
@@ -39,6 +41,18 @@ class TestSpecNotifyBasicFormat:
         assert "myproj" in s
         assert "rev1" in s
         assert "自動進行" in s
+
+    def test_approved_forced(self):
+        s = spec_notify_approved_forced("myproj", "3", 5)
+        assert "[Spec]" in s
+        assert "myproj" in s
+        assert "5" in s
+
+    def test_revise_no_changes(self):
+        s = spec_notify_revise_no_changes("myproj", "1")
+        assert "[Spec]" in s
+        assert "myproj" in s
+        assert "rev1" in s
 
     def test_stalled(self):
         s = spec_notify_stalled("myproj", "2", 7)
@@ -100,8 +114,13 @@ class TestSpecNotifyReviewComplete:
         assert "s:0" in s
 
 
-class TestSpecNotifyStalledRemaining:
+class TestSpecNotifyForcedAndStalled:
     """残存件数が正しいこと"""
+
+    def test_approved_forced_remaining(self):
+        s = spec_notify_approved_forced("proj", "1", 3)
+        assert "3" in s
+        assert "P1" in s
 
     def test_stalled_remaining(self):
         s = spec_notify_stalled("proj", "2", 12)

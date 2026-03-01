@@ -513,6 +513,11 @@ def spec_notify_approved_auto(project: str, rev: str | int) -> str:
     return f"[Spec] {project}: spec承認 (rev{rev}) → Issue分割へ自動進行"
 
 
+def spec_notify_approved_forced(project: str, rev: str | int, remaining_p1_plus: int) -> str:
+    """→ SPEC_APPROVED（強制承認 via `spec approve --force`）"""
+    return f"[Spec] ⚠️ {project}: 強制承認 (P1以上 {remaining_p1_plus}件残存)"
+
+
 
 def spec_notify_stalled(project: str, rev: str | int, remaining_p1_plus: int) -> str:
     """→ SPEC_STALLED"""
@@ -537,6 +542,11 @@ def spec_notify_revise_done(project: str, rev: str | int, commit: str) -> str:
 def spec_notify_revise_commit_failed(project: str, rev: str | int) -> str:
     """REVISE完了（git commit失敗）"""
     return f"[Spec] ⚠️ {project}: rev{rev} git commit失敗"
+
+
+def spec_notify_revise_no_changes(project: str, rev: str | int) -> str:
+    """REVISE完了（差分0）→ SPEC_PAUSED"""
+    return f"[Spec] ⚠️ {project}: rev{rev} 変更なし（改訂が空）"
 
 
 

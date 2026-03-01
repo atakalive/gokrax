@@ -1087,6 +1087,37 @@ def _check_spec_revise(
     data: dict,
 ) -> SpecTransitionAction:
     """SPEC_REVISE: タイムアウト検出。純粋関数（spec_config を mutate しない）。"""
+    # --- implementer 応答チェック（S-5 追加） ---
+    from spec_revise import parse_revise_response, build_revise_completion_updates
+
+    revise_response = spec_config.get("_revise_response")
+    if revise_response:
+        parsed = parse_revise_response(revise_response, spec_config.get("current_rev", "1"))
+        if parsed is None:
+            # パース失敗 → PAUSED
+            return SpecTransitionAction(
+                next_state="SPEC_PAUSED",
+                discord_notify="[Spec] REVISE完了報告のパース失敗 → PAUSED",
+                pipeline_updates={"paused_from": "SPEC_REVISE"},
+            )
+        if not parsed.get("commit"):
+            return SpecTransitionAction(
+                next_state="SPEC_PAUSED",
+                discord_notify="[Spec] REVISE完了報告: commit hash 空 → PAUSED",
+                pipeline_updates={"paused_from": "SPEC_REVISE"},
+            )
+
+        # 改訂完了 → SPEC_REVIEW へ遷移
+        updates = build_revise_completion_updates(spec_config, parsed, now)
+        updates["_revise_response"] = None  # 消費済みクリア（Leibniz P0-1）
+        current_rev = parsed.get("new_rev", "?")
+        return SpecTransitionAction(
+            next_state="SPEC_REVIEW",
+            discord_notify=f"[Spec] 改訂完了 (rev{current_rev}) → 再レビュー",
+            pipeline_updates=updates,
+        )
+    # --- ここまで S-5 追加。以下は既存のタイムアウトチェック ---
+
     # タイムアウト起点: _revise_retry_at（リトライ後）or history（初回）
     retry_at_str = spec_config.get("_revise_retry_at")
     if retry_at_str:

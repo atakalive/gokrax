@@ -13,6 +13,7 @@ Double-Checked Locking パターン:
 import json
 import logging
 import os
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -28,7 +29,7 @@ from config import (
 from config import (
     SPEC_STATES, SPEC_REVIEW_TIMEOUT_SEC, SPEC_REVISE_TIMEOUT_SEC,
     SPEC_ISSUE_SUGGESTION_TIMEOUT_SEC, SPEC_ISSUE_PLAN_TIMEOUT_SEC, SPEC_QUEUE_PLAN_TIMEOUT_SEC,
-    MAX_SPEC_RETRIES, SPEC_REVISE_SELF_REVIEW_PASSES,
+    MAX_SPEC_RETRIES, SPEC_REVISE_SELF_REVIEW_PASSES, SPEC_REVIEW_RAW_RETENTION_DAYS,
 )
 from datetime import datetime as _datetime
 from datetime import timedelta as _timedelta
@@ -1557,6 +1558,56 @@ def check_transition_spec(
 
 
 # ---------------------------------------------------------------------------
+# Spec mode: pipelines_dir 管理（§12.1）
+# ---------------------------------------------------------------------------
+
+def _ensure_pipelines_dir(pipelines_dir: str) -> None:
+    """pipelines_dirが存在しなければ作成（§12.1）。
+
+    - is_dir() でチェック（同名ファイルが存在したらログ警告して return）
+    - mkdir(mode=0o700) でアトミックにパーミッション設定
+    - chmod 失敗（/mnt 等の非互換FS）はログのみで続行
+    """
+    pd = Path(pipelines_dir)
+    if pd.exists():
+        if not pd.is_dir():
+            log(f"[spec] pipelines_dir is not a directory: {pd}")
+        return
+    try:
+        pd.mkdir(parents=True, mode=0o700, exist_ok=True)
+    except OSError as e:
+        log(f"[spec] mkdir failed: {pd}: {e}")
+
+
+_SPEC_REVIEW_FILE_PATTERN = re.compile(r".*_rev\d+\.md$")
+_SPEC_TERMINAL_STATES = {"SPEC_DONE", "SPEC_STALLED", "SPEC_REVIEW_FAILED", "SPEC_PAUSED"}
+
+
+def _cleanup_expired_spec_files(pipelines_dir: str) -> None:
+    """pipelines_dir内のspec-review生成物で、RETENTION超過ファイルを削除（§12.1）。
+
+    削除対象: *_rev*.md パターンのファイルのみ（命名規則で限定）。
+    mtime基準でSPEC_REVIEW_RAW_RETENTION_DAYS超過を判定。
+    ディレクトリ不在・is_dir失敗はログのみで安全にreturn。
+    """
+    pd = Path(pipelines_dir)
+    if not pd.is_dir():
+        return
+    cutoff = _datetime.now(JST) - _timedelta(days=SPEC_REVIEW_RAW_RETENTION_DAYS)
+    for f in pd.iterdir():
+        if not f.is_file():
+            continue
+        if not _SPEC_REVIEW_FILE_PATTERN.match(f.name):
+            continue
+        try:
+            mtime = _datetime.fromtimestamp(f.stat().st_mtime, tz=JST)
+            if mtime < cutoff:
+                f.unlink()
+                log(f"[spec] cleanup expired: {f.name}")
+        except OSError as e:
+            log(f"[spec] cleanup error: {f.name}: {e}")
+
+
 # Spec mode: _apply_spec_action — DCLパターン（§10.1）
 # ---------------------------------------------------------------------------
 
@@ -1615,11 +1666,18 @@ def _apply_spec_action(
     # 副作用はロック外で実行（applied_action の結果を使用）
     if applied and applied_action:
         if applied_action.send_to:
+            pd = orig_data.get("spec_config", {}).get("pipelines_dir")
+            if pd:
+                _ensure_pipelines_dir(pd)
             for agent_id, msg in applied_action.send_to.items():
                 if not send_to_agent_queued(agent_id, msg):
                     notify_discord(spec_notify_failure(pj, "送信失敗", f"agent={agent_id}"))
         if applied_action.discord_notify:
             notify_discord(applied_action.discord_notify)
+        if applied_action.next_state in _SPEC_TERMINAL_STATES:
+            pd = orig_data.get("spec_config", {}).get("pipelines_dir")
+            if pd:
+                _cleanup_expired_spec_files(pd)
 
 
 def process(path: Path):

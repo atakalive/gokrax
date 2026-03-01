@@ -427,7 +427,7 @@ class TestCheckIssuePlan:
         )
         action = _check_issue_plan(sc, _now(), {"project": "devbar"})
         assert action.next_state == "SPEC_PAUSED"
-        assert "PAUSED" in action.discord_notify
+        assert "タイムアウト" in action.discord_notify
 
 
 # ===========================================================================

@@ -39,7 +39,17 @@ from pipeline_io import (
     clear_pending_notification,
     ensure_spec_reviews_dir,
 )
-from notify import notify_implementer, notify_reviewers, notify_discord, send_to_agent, send_to_agent_queued, ping_agent
+from notify import (
+    notify_implementer, notify_reviewers, notify_discord,
+    send_to_agent, send_to_agent_queued, ping_agent,
+    spec_notify_review_start, spec_notify_review_complete,
+    spec_notify_approved, spec_notify_approved_forced,
+    spec_notify_stalled, spec_notify_review_failed,
+    spec_notify_paused, spec_notify_revise_done,
+    spec_notify_revise_commit_failed, spec_notify_revise_no_changes,
+    spec_notify_issue_plan_done, spec_notify_queue_plan_done,
+    spec_notify_done, spec_notify_failure,
+)
 from spec_review import (
     should_continue_review, _reset_review_requests,
     parse_review_yaml, validate_received_entry,
@@ -1059,12 +1069,26 @@ def _check_spec_review(
         review_mode = data.get("review_mode", "standard")
         result = should_continue_review(effective_sc, review_mode)
 
+        # merged severity counts を entries から集計
+        sev_counts = {"critical": 0, "major": 0, "minor": 0, "suggestion": 0}
+        for e in effective_cr.get("entries", {}).values():
+            if e.get("status") != "received":
+                continue
+            for item in e.get("items", []):
+                if isinstance(item, dict) and item.get("severity") in sev_counts:
+                    sev_counts[item["severity"]] += 1
+        c_count  = sev_counts["critical"]
+        m_count  = sev_counts["major"]
+        mi_count = sev_counts["minor"]
+        s_count  = sev_counts["suggestion"]
+        p1_plus  = c_count + m_count
+
         result_map = {
-            "approved": ("SPEC_APPROVED", f"[Spec] spec承認 (rev{current_rev}) 🎉"),
-            "revise":   ("SPEC_REVISE", f"[Spec] rev{current_rev} → 修正要求"),
-            "stalled":  ("SPEC_STALLED", f"[Spec] rev{current_rev} — 修正サイクル上限 → STALLED"),
-            "failed":   ("SPEC_REVIEW_FAILED", f"[Spec] rev{current_rev} — レビュー失敗（応答不足）"),
-            "paused":   ("SPEC_PAUSED", f"[Spec] rev{current_rev} — パース失敗 → PAUSED"),
+            "approved": ("SPEC_APPROVED", spec_notify_approved(project, current_rev)),
+            "revise":   ("SPEC_REVISE",   spec_notify_review_complete(project, current_rev, c_count, m_count, mi_count, s_count)),
+            "stalled":  ("SPEC_STALLED",  spec_notify_stalled(project, current_rev, p1_plus)),
+            "failed":   ("SPEC_REVIEW_FAILED", spec_notify_review_failed(project, current_rev)),
+            "paused":   ("SPEC_PAUSED",   spec_notify_paused(project, "パース失敗")),
         }
         next_state, notify = result_map.get(result, (None, None))
         if result == "paused":
@@ -1099,6 +1123,7 @@ def _check_spec_revise(
     # --- implementer 応答チェック（S-5 追加） ---
     from spec_revise import parse_revise_response, build_revise_completion_updates
 
+    project = data.get("project", "")
     revise_response = spec_config.get("_revise_response")
     if revise_response:
         parsed = parse_revise_response(revise_response, spec_config.get("current_rev", "1"))
@@ -1106,13 +1131,13 @@ def _check_spec_revise(
             # パース失敗 → PAUSED
             return SpecTransitionAction(
                 next_state="SPEC_PAUSED",
-                discord_notify="[Spec] REVISE完了報告のパース失敗 → PAUSED",
+                discord_notify=spec_notify_paused(project, "REVISE完了報告のパース失敗"),
                 pipeline_updates={"paused_from": "SPEC_REVISE"},
             )
         if not parsed.get("commit"):
             return SpecTransitionAction(
                 next_state="SPEC_PAUSED",
-                discord_notify="[Spec] REVISE完了報告: commit hash 空 → PAUSED",
+                discord_notify=spec_notify_revise_commit_failed(project, spec_config.get("current_rev", "1")),
                 pipeline_updates={"paused_from": "SPEC_REVISE"},
             )
 
@@ -1122,7 +1147,7 @@ def _check_spec_revise(
         current_rev = parsed.get("new_rev", "?")
         return SpecTransitionAction(
             next_state="SPEC_REVIEW",
-            discord_notify=f"[Spec] 改訂完了 (rev{current_rev}) → 再レビュー",
+            discord_notify=spec_notify_revise_done(project, current_rev, parsed.get("commit", "")),
             pipeline_updates=updates,
         )
     # --- ここまで S-5 追加。以下は既存のタイムアウトチェック ---
@@ -1154,7 +1179,7 @@ def _check_spec_revise(
     if revise_retries >= MAX_SPEC_RETRIES:
         return SpecTransitionAction(
             next_state="SPEC_PAUSED",
-            discord_notify=f"[Spec] REVISE タイムアウト × {MAX_SPEC_RETRIES} → PAUSED",
+            discord_notify=spec_notify_paused(project, f"REVISE タイムアウト × {MAX_SPEC_RETRIES}"),
             pipeline_updates={
                 "paused_from": "SPEC_REVISE",
                 "retry_counts": {**retry_counts, "SPEC_REVISE": revise_retries + 1},
@@ -1165,7 +1190,7 @@ def _check_spec_revise(
     # リトライ: カウント更新 + 起点リセット
     return SpecTransitionAction(
         next_state=None,
-        discord_notify=f"[Spec] REVISE タイムアウト (retry {revise_retries + 1}/{MAX_SPEC_RETRIES})",
+        discord_notify=spec_notify_failure(project, "REVISE タイムアウト", f"retry {revise_retries + 1}/{MAX_SPEC_RETRIES}"),
         pipeline_updates={
             "retry_counts": {**retry_counts, "SPEC_REVISE": revise_retries + 1},
             "_revise_retry_at": now.isoformat(),  # 起点リセット（Dijkstra P1-2）
@@ -1183,6 +1208,7 @@ def _check_issue_suggestion(
     data: dict,
 ) -> SpecTransitionAction:
     """ISSUE_SUGGESTION: 送信・タイムアウト・回収判定。純粋関数（spec_config を mutate しない）。"""
+    project = data.get("project", "")
     review_requests = spec_config.get("review_requests", {})
     current_reviews = spec_config.get("current_reviews", {})
     entries = current_reviews.get("entries", {})
@@ -1291,7 +1317,7 @@ def _check_issue_suggestion(
             updates["paused_from"] = "ISSUE_SUGGESTION"
             return SpecTransitionAction(
                 next_state="SPEC_PAUSED",
-                discord_notify="[Spec] Issue分割提案: 有効応答なし → PAUSED",
+                discord_notify=spec_notify_paused(project, "Issue分割提案: 有効応答なし"),
                 pipeline_updates=updates,
                 send_to=send_to if send_to else None,
             )
@@ -1316,6 +1342,7 @@ def _check_issue_plan(
     data: dict,
 ) -> SpecTransitionAction:
     """ISSUE_PLAN: 送信・応答回収・タイムアウト。純粋関数（spec_config を mutate しない）。"""
+    project = data.get("project", "")
     implementer = spec_config.get("spec_implementer", "")
     retry_counts = spec_config.get("retry_counts", {})
     # NOTE: retry_counts は sc.update(pu) で全体置換される（deep merge なし）。
@@ -1329,7 +1356,7 @@ def _check_issue_plan(
         if parsed is None:
             return SpecTransitionAction(
                 next_state="SPEC_PAUSED",
-                discord_notify="[Spec] ISSUE_PLAN応答パース失敗 → PAUSED",
+                discord_notify=spec_notify_paused(project, "ISSUE_PLAN応答パース失敗"),
                 pipeline_updates={"paused_from": "ISSUE_PLAN"},
             )
         # 成功: no_queue チェック
@@ -1337,7 +1364,7 @@ def _check_issue_plan(
         next_state = "SPEC_DONE" if spec_config.get("no_queue") else "QUEUE_PLAN"
         return SpecTransitionAction(
             next_state=next_state,
-            discord_notify=f"[Spec] Issue起票完了 ({n}件) → {next_state}",
+            discord_notify=spec_notify_issue_plan_done(project, n),
             pipeline_updates={
                 "created_issues": parsed["created_issues"],
                 "_issue_plan_response": None,
@@ -1371,7 +1398,7 @@ def _check_issue_plan(
     if issue_plan_retries >= MAX_SPEC_RETRIES:
         return SpecTransitionAction(
             next_state="SPEC_PAUSED",
-            discord_notify=f"[Spec] ISSUE_PLAN タイムアウト × {MAX_SPEC_RETRIES} → PAUSED",
+            discord_notify=spec_notify_paused(project, f"ISSUE_PLAN タイムアウト × {MAX_SPEC_RETRIES}"),
             pipeline_updates={
                 "paused_from": "ISSUE_PLAN",
                 "retry_counts": {**retry_counts, "ISSUE_PLAN": issue_plan_retries + 1},
@@ -1380,7 +1407,7 @@ def _check_issue_plan(
 
     return SpecTransitionAction(
         next_state=None,
-        discord_notify=f"[Spec] ISSUE_PLAN タイムアウト (retry {issue_plan_retries + 1}/{MAX_SPEC_RETRIES})",
+        discord_notify=spec_notify_failure(project, "ISSUE_PLAN タイムアウト", f"retry {issue_plan_retries + 1}/{MAX_SPEC_RETRIES}"),
         pipeline_updates={
             "retry_counts": {**retry_counts, "ISSUE_PLAN": issue_plan_retries + 1},
             "_issue_plan_sent": None,
@@ -1398,6 +1425,7 @@ def _check_queue_plan(
     data: dict,
 ) -> SpecTransitionAction:
     """QUEUE_PLAN: 送信・応答回収・タイムアウト。純粋関数（spec_config を mutate しない）。"""
+    project = data.get("project", "")
     implementer = spec_config.get("spec_implementer", "")
     retry_counts = spec_config.get("retry_counts", {})
     queue_plan_retries = retry_counts.get("QUEUE_PLAN", 0)
@@ -1409,13 +1437,13 @@ def _check_queue_plan(
         if parsed is None:
             return SpecTransitionAction(
                 next_state="SPEC_PAUSED",
-                discord_notify="[Spec] QUEUE_PLAN応答パース失敗 → PAUSED",
+                discord_notify=spec_notify_paused(project, "QUEUE_PLAN応答パース失敗"),
                 pipeline_updates={"paused_from": "QUEUE_PLAN"},
             )
         batches = parsed["batches"]
         return SpecTransitionAction(
             next_state="SPEC_DONE",
-            discord_notify=f"[Spec] キュー生成完了 ({batches}バッチ) → SPEC_DONE",
+            discord_notify=spec_notify_queue_plan_done(project, batches),
             pipeline_updates={
                 "_queue_plan_response": None,
                 "_queue_plan_sent": None,
@@ -1448,7 +1476,7 @@ def _check_queue_plan(
     if queue_plan_retries >= MAX_SPEC_RETRIES:
         return SpecTransitionAction(
             next_state="SPEC_PAUSED",
-            discord_notify=f"[Spec] QUEUE_PLAN タイムアウト × {MAX_SPEC_RETRIES} → PAUSED",
+            discord_notify=spec_notify_paused(project, f"QUEUE_PLAN タイムアウト × {MAX_SPEC_RETRIES}"),
             pipeline_updates={
                 "paused_from": "QUEUE_PLAN",
                 "retry_counts": {**retry_counts, "QUEUE_PLAN": queue_plan_retries + 1},
@@ -1457,7 +1485,7 @@ def _check_queue_plan(
 
     return SpecTransitionAction(
         next_state=None,
-        discord_notify=f"[Spec] QUEUE_PLAN タイムアウト (retry {queue_plan_retries + 1}/{MAX_SPEC_RETRIES})",
+        discord_notify=spec_notify_failure(project, "QUEUE_PLAN タイムアウト", f"retry {queue_plan_retries + 1}/{MAX_SPEC_RETRIES}"),
         pipeline_updates={
             "retry_counts": {**retry_counts, "QUEUE_PLAN": queue_plan_retries + 1},
             "_queue_plan_sent": None,
@@ -1477,11 +1505,12 @@ def check_transition_spec(
 ) -> SpecTransitionAction:
     """純粋関数。spec_config/data を一切 mutate しない。
     全状態変更は pipeline_updates に積む。"""
+    project = data.get("project", "")
     if state not in SPEC_STATES:
         return SpecTransitionAction(
             next_state="SPEC_PAUSED",
             error=f"Unknown spec state: {state}",
-            discord_notify=f"[Spec] ⚠️ 未知状態 {state} → SPEC_PAUSED",
+            discord_notify=spec_notify_paused(project, f"未知状態 {state}"),
             pipeline_updates={"paused_from": state},
         )
 
@@ -1493,12 +1522,12 @@ def check_transition_spec(
         if spec_config.get("review_only"):
             return SpecTransitionAction(
                 next_state="SPEC_DONE",
-                discord_notify="[Spec] spec承認完了（--review-only）",
+                discord_notify=spec_notify_done(project),
             )
         if spec_config.get("auto_continue"):
             return SpecTransitionAction(
                 next_state="ISSUE_SUGGESTION",
-                discord_notify="[Spec] spec承認 → Issue分割へ自動進行",
+                discord_notify=spec_notify_approved(project, spec_config.get("current_rev", "?")),
             )
         # デフォルト: M確認待ち（通知は遷移元で発火済み）
         return SpecTransitionAction(next_state=None)
@@ -1574,7 +1603,8 @@ def _apply_spec_action(
     if applied and applied_action:
         if applied_action.send_to:
             for agent_id, msg in applied_action.send_to.items():
-                send_to_agent_queued(agent_id, msg)
+                if not send_to_agent_queued(agent_id, msg):
+                    notify_discord(spec_notify_failure(pj, "送信失敗", f"agent={agent_id}"))
         if applied_action.discord_notify:
             notify_discord(applied_action.discord_notify)
 

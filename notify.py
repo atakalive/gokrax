@@ -484,3 +484,81 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
 
     phase_note = "" if is_code else "\n⚠️ これは設計レビュー DESIGN_REVIEW です。コードやdiffはまだ存在しません。\n"
     return f"[devbar] {project}: {phase}レビュー依頼{phase_note}\n\n{todo_header}\n\n{guidance}\n\n{body}{completion}{truncate_notice}"
+
+
+# ---------------------------------------------------------------------------
+# Spec mode notification formatters (§11)
+# ---------------------------------------------------------------------------
+
+def spec_notify_review_start(project: str, rev: str | int, reviewer_count: int) -> str:
+    """→ SPEC_REVIEW"""
+    return f"[Spec] {project}: rev{rev} レビュー開始 ({reviewer_count}人)"
+
+
+def spec_notify_review_complete(
+    project: str, rev: str | int,
+    critical: int, major: int, minor: int, suggestion: int,
+) -> str:
+    """→ SPEC_REVISE"""
+    return f"[Spec] {project}: rev{rev} レビュー完了 — C:{critical} M:{major} m:{minor} s:{suggestion}"
+
+
+def spec_notify_approved(project: str, rev: str | int) -> str:
+    """→ SPEC_APPROVED（通常）"""
+    return f"[Spec] {project}: spec承認 (rev{rev})。`devbar spec continue` でIssue分割へ"
+
+
+def spec_notify_approved_forced(project: str, rev: str | int, remaining_p1_plus: int) -> str:
+    """→ SPEC_APPROVED（強制承認）"""
+    return f"[Spec] ⚠️ {project}: 強制承認 (P1以上 {remaining_p1_plus}件残存)"
+
+
+def spec_notify_stalled(project: str, rev: str | int, remaining_p1_plus: int) -> str:
+    """→ SPEC_STALLED"""
+    return f"[Spec] ⏸️ {project}: MAX_CYCLES到達、P1以上 {remaining_p1_plus}件残存"
+
+
+def spec_notify_review_failed(project: str, rev: str | int) -> str:
+    """→ SPEC_REVIEW_FAILED"""
+    return f"[Spec] ❌ {project}: 有効レビュー不足"
+
+
+def spec_notify_paused(project: str, reason: str) -> str:
+    """→ SPEC_PAUSED"""
+    return f"[Spec] ⏸️ {project}: パイプライン停止 — {reason}"
+
+
+def spec_notify_revise_done(project: str, rev: str | int, commit: str) -> str:
+    """REVISE完了（commit hashあり）"""
+    return f"[Spec] {project}: rev{rev} 改訂完了 ({commit[:7]})"
+
+
+def spec_notify_revise_commit_failed(project: str, rev: str | int) -> str:
+    """REVISE完了（git commit失敗）"""
+    return f"[Spec] ⚠️ {project}: rev{rev} git commit失敗"
+
+
+def spec_notify_revise_no_changes(project: str, rev: str | int) -> str:
+    """REVISE完了（差分0）"""
+    return f"[Spec] ⚠️ {project}: rev{rev} 変更なし（改訂が空）"
+
+
+def spec_notify_issue_plan_done(project: str, issue_count: int) -> str:
+    """→ ISSUE_PLAN完了"""
+    return f"[Spec] {project}: {issue_count}件 Issue起票完了"
+
+
+def spec_notify_queue_plan_done(project: str, batch_count: int) -> str:
+    """→ QUEUE_PLAN完了"""
+    return f"[Spec] {project}: {batch_count}バッチ キュー生成完了"
+
+
+def spec_notify_done(project: str) -> str:
+    """→ SPEC_DONE"""
+    return f"[Spec] ✅ {project}: spec mode完了"
+
+
+def spec_notify_failure(project: str, kind: str, detail: str = "") -> str:
+    """失敗系通知（汎用）。kind: "YAMLパース失敗", "送信失敗", "git push失敗", "Issue起票失敗" 等。"""
+    suffix = f" — {detail}" if detail else ""
+    return f"[Spec] ❌ {project}: {kind}{suffix}"

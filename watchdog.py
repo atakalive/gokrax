@@ -823,29 +823,32 @@ def _format_nudge_message(state: str, project: str, batch: list) -> str:
 
 
 def _recover_pending_notifications(pj: str, pending: dict, data: dict) -> None:
-    """未完了通知のリカバリ(Issue #59)。impl/review は再送、merge_summary/run_cc は Discord警告。"""
+    """未完了通知のリカバリ(Issue #59)。impl/review は再送、merge_summary/run_cc は Discord警告。
+
+    At-least-once 保証: 通知成功時のみ pending をクリアする。
+    失敗時は pending を維持し、次回 process() で再試行する。
+    """
     if "impl" in pending:
         info = pending["impl"]
         try:
             notify_implementer(info["implementer"], info["msg"])
+            clear_pending_notification(pj, "impl")
         except Exception as e:
-            log(f"[{pj}] WARNING: impl recovery failed: {e}")
-        clear_pending_notification(pj, "impl")
+            log(f"[{pj}] WARNING: impl recovery failed, will retry next cycle: {e}")
 
     if "review" in pending:
         info = pending["review"]
         try:
-            pipeline_data = load_pipeline(get_path(pj))
-            excluded = pipeline_data.get("excluded_reviewers", [])
+            excluded = data.get("excluded_reviewers", [])
             notify_reviewers(
                 pj, info["new_state"], info["batch"], info["gitlab"],
                 repo_path=info.get("repo_path", ""),
                 review_mode=info.get("review_mode", "standard"),
                 excluded=excluded,
             )
+            clear_pending_notification(pj, "review")
         except Exception as e:
-            log(f"[{pj}] WARNING: review recovery failed: {e}")
-        clear_pending_notification(pj, "review")
+            log(f"[{pj}] WARNING: review recovery failed, will retry next cycle: {e}")
 
     if "merge_summary" in pending:
         notify_discord(f"[{pj}] ⚠️ merge_summary通知が中断されていました。手動確認してください。")
@@ -956,7 +959,10 @@ def process(path: Path):
                 "gitlab": data.get("gitlab", f"atakalive/{pj}"),
             })
             # Issue #59: pending notification for run_cc
-            data["_pending_notifications"] = {"run_cc": True}
+            pending = {"run_cc": True}
+            if "_pending_notifications" in data:
+                log(f"[{pj}] WARNING: overwriting existing _pending_notifications")
+            data["_pending_notifications"] = pending
             return
 
         pj = data.get("project", path.stem)

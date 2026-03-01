@@ -454,3 +454,72 @@ class TestPendingOverwriteWarning:
         assert any("WARNING: overwriting" in m for m in log_messages)
         result = _read_pipeline(path)
         assert result["_pending_notifications"]["impl"]["msg"] == "new"
+
+
+# ── Test 11: recovery failure preserves pending ───────────────────────────
+
+class TestRecoveryFailurePreservesPending:
+
+    def test_impl_recovery_failure_preserves_pending(self, tmp_path, monkeypatch):
+        """impl 通知が失敗した場合、pending が維持され次回再試行される"""
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        path = tmp_path / "test-pj.json"
+        data = _base_pipeline(
+            state="DESIGN_REVIEW",
+            batch=_make_batch(1),
+            _pending_notifications={
+                "impl": {
+                    "implementer": "kaneko",
+                    "msg": "[devbar] test-pj: test message",
+                },
+            },
+        )
+        _write_pipeline(path, data)
+
+        from watchdog import process
+
+        mock_impl = MagicMock(side_effect=Exception("send failed"))
+        with patch("watchdog.notify_implementer", mock_impl), \
+             patch("watchdog.notify_discord"):
+            process(path)
+
+        mock_impl.assert_called_once()
+        result = _read_pipeline(path)
+        # pending must be preserved for retry
+        assert "_pending_notifications" in result
+        assert "impl" in result["_pending_notifications"]
+
+    def test_review_recovery_failure_preserves_pending(self, tmp_path, monkeypatch):
+        """review 通知が失敗した場合、pending が維持され次回再試行される"""
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        path = tmp_path / "test-pj.json"
+        data = _base_pipeline(
+            state="DESIGN_REVIEW",
+            batch=_make_batch(1),
+            _pending_notifications={
+                "review": {
+                    "new_state": "DESIGN_REVIEW",
+                    "batch": _make_batch(1),
+                    "gitlab": "atakalive/test-pj",
+                    "repo_path": "",
+                    "review_mode": "standard",
+                },
+            },
+        )
+        _write_pipeline(path, data)
+
+        from watchdog import process
+
+        mock_review = MagicMock(side_effect=Exception("send failed"))
+        with patch("watchdog.notify_reviewers", mock_review), \
+             patch("watchdog.notify_discord"):
+            process(path)
+
+        mock_review.assert_called_once()
+        result = _read_pipeline(path)
+        assert "_pending_notifications" in result
+        assert "review" in result["_pending_notifications"]

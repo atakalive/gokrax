@@ -25,14 +25,25 @@ from config import (
     STATE_PHASE_MAP,
     # WATCHDOG_LOOP_PIDFILE, WATCHDOG_LOOP_CRON_MARKER は devbar.py の enable/disable 専用
 )
+from config import (
+    SPEC_STATES, SPEC_REVIEW_TIMEOUT_SEC, SPEC_REVISE_TIMEOUT_SEC,
+    MAX_SPEC_RETRIES, SPEC_REVISE_SELF_REVIEW_PASSES,
+)
 from datetime import datetime as _datetime
+from datetime import timedelta as _timedelta
 import json as _json
 from pipeline_io import (
     load_pipeline, update_pipeline, get_path,
     add_history, now_iso, find_issue,
     clear_pending_notification,
+    ensure_spec_reviews_dir,
 )
 from notify import notify_implementer, notify_reviewers, notify_discord, send_to_agent, send_to_agent_queued, ping_agent
+from spec_review import (
+    should_continue_review, _reset_review_requests,
+    parse_review_yaml, validate_received_entry,
+    merge_reviews, format_merged_report, build_review_history_entry,
+)
 
 
 def _reset_reviewers(review_mode: str = "standard", implementer: str = "") -> list[str]:
@@ -170,6 +181,17 @@ class TransitionAction:
     nudge_reviewers: list | None = None  # 催促が必要なレビュアーのリスト
     extend_notice: str | None = None  # タイムアウト延長案内メッセージ
     save_grace_met_at: str | None = None  # grace met_atをpipelineに保存する必要がある場合のキー名
+
+
+@dataclass
+class SpecTransitionAction:
+    """check_transition_spec() の返り値。"""
+    next_state: str | None = None
+    expected_state: str | None = None   # DCL用: 現在のstate（競合検出）
+    send_to: dict[str, str] | None = None  # {agent_id: message}
+    discord_notify: str | None = None
+    pipeline_updates: dict | None = None  # spec_config への更新差分
+    error: str | None = None
 
 
 def _get_state_entered_at(data: dict, state: str) -> _datetime | None:
@@ -865,6 +887,363 @@ def _recover_pending_notifications(pj: str, pending: dict, data: dict) -> None:
             log(f"[{pj}] WARNING: run_cc recovery warning failed, will retry: {e}")
 
 
+# ---------------------------------------------------------------------------
+# Spec mode: プロンプト生成ヘルパー（§5.1）
+# ---------------------------------------------------------------------------
+
+def _build_spec_review_prompt_initial(
+    project: str,
+    spec_path: str,
+    current_rev: str,
+    spec_config: dict,
+) -> str:
+    """初回レビュー依頼プロンプト（§5.1）。"""
+    pipelines_dir = spec_config.get("pipelines_dir") or str(PIPELINES_DIR)
+    spec_name = Path(spec_path).stem
+    return f"""以下の仕様書をレビューしてください。**やりすぎレビュー**を依頼します。
+
+プロジェクト: {project}
+仕様書: {spec_path} (rev{current_rev})
+
+## レビュー指示
+- 重篤度を必ず付与: 🔴 Critical (P0) / 🟠 Major (P1) / 🟡 Minor / 💡 Suggestion
+- セクション番号を明記（例: §6.2）
+- 擬似コード間の整合性に特に注意
+- 既存devbarコードベースとの整合性も確認
+- ステートマシン遷移の抜け穴・デッドロックを探せ
+- YAMLブロックは応答内で**1つだけ**
+
+## 出力フォーマット
+```yaml
+verdict: APPROVE | P0 | P1
+items:
+  - id: C-1
+    severity: critical | major | minor | suggestion
+    section: "§6.2"
+    title: "タイトル"
+    description: "説明"
+    suggestion: "修正案"
+```
+
+## レビュー結果の保存
+`{pipelines_dir}/{spec_name}_rev{current_rev}.md`"""
+
+
+def _build_spec_review_prompt_revision(
+    project: str,
+    spec_path: str,
+    current_rev: str,
+    spec_config: dict,
+    data: dict,
+) -> str:
+    """rev2以降のレビュー依頼プロンプト（§5.1）。"""
+    pipelines_dir = spec_config.get("pipelines_dir") or str(PIPELINES_DIR)
+    spec_name = Path(spec_path).stem
+    last_commit = spec_config.get("last_commit", "unknown")
+    last_changes = spec_config.get("last_changes", {})
+    added = last_changes.get("added_lines", "?")
+    removed = last_changes.get("removed_lines", "?")
+    changelog = last_changes.get("changelog_summary", "変更履歴なし")
+    return f"""以下の仕様書の改訂版をレビューしてください。
+
+プロジェクト: {project}
+仕様書: {spec_path} (rev{current_rev})
+前回からの変更: +{added}行, -{removed}行
+前回commit: {last_commit}
+
+## 前回レビューからの変更点
+{changelog}
+
+## レビュー指示
+- 前回の指摘が適切に反映されているか確認
+- 新たに追加された部分に問題がないか確認
+- 重篤度・セクション番号・YAMLフォーマットは前回と同様
+- YAMLブロックは応答内で**1つだけ**
+
+## レビュー結果の保存
+`{pipelines_dir}/{spec_name}_rev{current_rev}.md`"""
+
+
+# ---------------------------------------------------------------------------
+# Spec mode: _check_spec_review（§5.1, §5.2）
+# ---------------------------------------------------------------------------
+
+def _check_spec_review(
+    spec_config: dict,
+    now: _datetime,
+    data: dict,
+) -> SpecTransitionAction:
+    """SPEC_REVIEW: 送信・タイムアウト・回収判定。純粋関数（spec_config を mutate しない）。"""
+    review_requests = spec_config.get("review_requests", {})
+    current_reviews = spec_config.get("current_reviews", {})
+    entries = current_reviews.get("entries", {})
+    project = data.get("project", "")
+    spec_path = spec_config.get("spec_path", "")
+    current_rev = spec_config.get("current_rev", "1")
+    rev_index = spec_config.get("rev_index", 1)
+
+    send_to: dict[str, str] = {}
+    # 更新差分を構築（元の dict は触らない）
+    rr_patch: dict[str, dict] = {}   # review_requests への patch
+    cr_patch: dict[str, dict] = {}   # current_reviews.entries への patch
+
+    for reviewer, req in review_requests.items():
+        status = req.get("status", "pending")
+
+        if status == "pending" and req.get("sent_at") is None:
+            # 未送信 → レビュー依頼プロンプト生成
+            if rev_index <= 1:
+                prompt = _build_spec_review_prompt_initial(
+                    project, spec_path, current_rev, spec_config,
+                )
+            else:
+                prompt = _build_spec_review_prompt_revision(
+                    project, spec_path, current_rev, spec_config, data,
+                )
+            send_to[reviewer] = prompt
+            # 事後条件を patch に積む（元の req は変更しない）
+            rr_patch[reviewer] = {
+                "sent_at": now.isoformat(),
+                "timeout_at": (now + _timedelta(seconds=SPEC_REVIEW_TIMEOUT_SEC)).isoformat(),
+            }
+
+        elif status == "pending" and req.get("timeout_at"):
+            # タイムアウトチェック
+            try:
+                timeout_at = _datetime.fromisoformat(req["timeout_at"])
+            except (ValueError, TypeError):
+                continue
+            if now >= timeout_at:
+                rr_patch[reviewer] = {"status": "timeout"}
+                cr_patch[reviewer] = {
+                    "verdict": None, "items": [], "raw_text": None,
+                    "parse_success": False, "status": "timeout",
+                }
+
+    # 回収完了判定: patch 適用後の状態でチェック
+    def _effective_status(reviewer: str) -> str:
+        if reviewer in rr_patch and "status" in rr_patch[reviewer]:
+            return rr_patch[reviewer]["status"]
+        return review_requests.get(reviewer, {}).get("status", "pending")
+
+    all_complete = (
+        bool(review_requests)
+        and all(_effective_status(r) != "pending" for r in review_requests)
+    )
+
+    # pipeline_updates を構築
+    updates: dict = {}
+    if rr_patch:
+        updates["review_requests_patch"] = rr_patch
+    if cr_patch:
+        updates["current_reviews_patch"] = cr_patch
+
+    if all_complete:
+        # should_continue_review() 用に patch 適用後の仮 spec_config を構築
+        effective_cr = dict(current_reviews)
+        effective_entries = dict(entries)
+        effective_entries.update(cr_patch)
+        effective_cr["entries"] = effective_entries
+        effective_sc = dict(spec_config)
+        effective_sc["current_reviews"] = effective_cr
+
+        review_mode = data.get("review_mode", "standard")
+        result = should_continue_review(effective_sc, review_mode)
+
+        result_map = {
+            "approved": ("SPEC_APPROVED", f"[Spec] spec承認 (rev{current_rev}) 🎉"),
+            "revise":   ("SPEC_REVISE", f"[Spec] rev{current_rev} → 修正要求"),
+            "stalled":  ("SPEC_STALLED", f"[Spec] rev{current_rev} — 修正サイクル上限 → STALLED"),
+            "failed":   ("SPEC_REVIEW_FAILED", f"[Spec] rev{current_rev} — レビュー失敗（応答不足）"),
+            "paused":   ("SPEC_PAUSED", f"[Spec] rev{current_rev} — パース失敗 → PAUSED"),
+        }
+        next_state, notify = result_map.get(result, (None, None))
+        if result == "paused":
+            updates["paused_from"] = "SPEC_REVIEW"
+        return SpecTransitionAction(
+            next_state=next_state,
+            discord_notify=notify,
+            pipeline_updates=updates if updates else None,
+            send_to=send_to if send_to else None,
+        )
+
+    if send_to or updates:
+        return SpecTransitionAction(
+            next_state=None,
+            send_to=send_to if send_to else None,
+            pipeline_updates=updates if updates else None,
+        )
+
+    return SpecTransitionAction(next_state=None)
+
+
+# ---------------------------------------------------------------------------
+# Spec mode: _check_spec_revise（§6.1, §6.3, §10.2）
+# ---------------------------------------------------------------------------
+
+def _check_spec_revise(
+    spec_config: dict,
+    now: _datetime,
+    data: dict,
+) -> SpecTransitionAction:
+    """SPEC_REVISE: タイムアウト検出。純粋関数（spec_config を mutate しない）。"""
+    # タイムアウト起点: _revise_retry_at（リトライ後）or history（初回）
+    retry_at_str = spec_config.get("_revise_retry_at")
+    if retry_at_str:
+        try:
+            baseline = _datetime.fromisoformat(retry_at_str)
+        except (ValueError, TypeError):
+            baseline = None
+    else:
+        baseline = None
+
+    if baseline is None:
+        baseline = _get_state_entered_at(data, "SPEC_REVISE")
+
+    if baseline is None:
+        return SpecTransitionAction(next_state=None)
+
+    elapsed = (now - baseline).total_seconds()
+    if elapsed < SPEC_REVISE_TIMEOUT_SEC:
+        return SpecTransitionAction(next_state=None)
+
+    # タイムアウト: retry_counts を更新
+    retry_counts = spec_config.get("retry_counts", {})
+    revise_retries = retry_counts.get("SPEC_REVISE", 0)
+
+    if revise_retries >= MAX_SPEC_RETRIES:
+        return SpecTransitionAction(
+            next_state="SPEC_PAUSED",
+            discord_notify=f"[Spec] REVISE タイムアウト × {MAX_SPEC_RETRIES} → PAUSED",
+            pipeline_updates={
+                "paused_from": "SPEC_REVISE",
+                "retry_counts": {**retry_counts, "SPEC_REVISE": revise_retries + 1},
+                "_revise_retry_at": None,  # クリア
+            },
+        )
+
+    # リトライ: カウント更新 + 起点リセット
+    return SpecTransitionAction(
+        next_state=None,
+        discord_notify=f"[Spec] REVISE タイムアウト (retry {revise_retries + 1}/{MAX_SPEC_RETRIES})",
+        pipeline_updates={
+            "retry_counts": {**retry_counts, "SPEC_REVISE": revise_retries + 1},
+            "_revise_retry_at": now.isoformat(),  # 起点リセット（Dijkstra P1-2）
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# Spec mode: check_transition_spec（§10.1）
+# ---------------------------------------------------------------------------
+
+def check_transition_spec(
+    state: str,
+    spec_config: dict,
+    now: _datetime,
+    data: dict,
+) -> SpecTransitionAction:
+    """純粋関数。spec_config/data を一切 mutate しない。
+    全状態変更は pipeline_updates に積む。"""
+    if state not in SPEC_STATES:
+        return SpecTransitionAction(
+            next_state="SPEC_PAUSED",
+            error=f"Unknown spec state: {state}",
+            discord_notify=f"[Spec] ⚠️ 未知状態 {state} → SPEC_PAUSED",
+            pipeline_updates={"paused_from": state},
+        )
+
+    if state == "SPEC_REVIEW":
+        return _check_spec_review(spec_config, now, data)
+    elif state == "SPEC_REVISE":
+        return _check_spec_revise(spec_config, now, data)
+    elif state == "SPEC_APPROVED":
+        if spec_config.get("review_only"):
+            return SpecTransitionAction(
+                next_state="SPEC_DONE",
+                discord_notify="[Spec] spec承認完了（--review-only）",
+            )
+        if spec_config.get("auto_continue"):
+            return SpecTransitionAction(
+                next_state="ISSUE_SUGGESTION",
+                discord_notify="[Spec] spec承認 → Issue分割へ自動進行",
+            )
+        # デフォルト: M確認待ち（通知は遷移元で発火済み）
+        return SpecTransitionAction(next_state=None)
+    elif state in ("ISSUE_SUGGESTION", "ISSUE_PLAN", "QUEUE_PLAN"):
+        # 後続 Issue で実装。stub。
+        return SpecTransitionAction(next_state=None)
+    elif state in ("SPEC_DONE", "SPEC_STALLED", "SPEC_REVIEW_FAILED", "SPEC_PAUSED"):
+        return SpecTransitionAction(next_state=None)  # M操作待ち
+    else:
+        return SpecTransitionAction(next_state=None)
+
+
+# ---------------------------------------------------------------------------
+# Spec mode: _apply_spec_action — DCLパターン（§10.1）
+# ---------------------------------------------------------------------------
+
+def _apply_spec_action(
+    pipeline_path: Path,
+    action: SpecTransitionAction,
+    now: _datetime,
+    orig_data: dict,
+) -> None:
+    """DCLパターン: ディスクから再読み込み + state一致確認 + 再計算。"""
+    applied = False
+    applied_action: SpecTransitionAction | None = None
+    pj = orig_data.get("project", pipeline_path.stem)
+
+    def _update(data: dict) -> None:
+        nonlocal applied, applied_action
+        # expected_state 不一致 → 競合スキップ
+        if data.get("state") != action.expected_state:
+            log(f"[{pj}] spec DCL conflict: expected={action.expected_state}, actual={data.get('state')}")
+            return
+
+        sc = data.get("spec_config", {})
+        action2 = check_transition_spec(data["state"], sc, now, data)
+
+        # 状態遷移
+        if action2.next_state:
+            old_state = data["state"]
+            data["state"] = action2.next_state
+            add_history(data, old_state, action2.next_state, actor="watchdog")
+
+        # pipeline_updates は常に適用（next_state=None でも）
+        if action2.pipeline_updates:
+            pu = action2.pipeline_updates
+            # review_requests_patch: per-reviewer の差分を deep merge
+            rr_patch = pu.pop("review_requests_patch", None)
+            if rr_patch:
+                rr = sc.setdefault("review_requests", {})
+                for reviewer, patch in rr_patch.items():
+                    rr.setdefault(reviewer, {}).update(patch)
+            # current_reviews_patch: entries への差分を deep merge
+            cr_patch = pu.pop("current_reviews_patch", None)
+            if cr_patch:
+                cr = sc.setdefault("current_reviews", {})
+                entries = cr.setdefault("entries", {})
+                entries.update(cr_patch)
+            # 残りのフィールドは直接 update
+            sc.update(pu)
+            data["spec_config"] = sc
+
+        if action2.next_state or action2.pipeline_updates or action2.send_to or action2.discord_notify:
+            applied = True
+            applied_action = action2
+
+    update_pipeline(pipeline_path, _update)
+
+    # 副作用はロック外で実行（applied_action の結果を使用）
+    if applied and applied_action:
+        if applied_action.send_to:
+            for agent_id, msg in applied_action.send_to.items():
+                send_to_agent_queued(agent_id, msg)
+        if applied_action.discord_notify:
+            notify_discord(applied_action.discord_notify)
+
+
 def process(path: Path):
     # === 第1チェック (ロックなし) ===
     data = load_pipeline(path)
@@ -885,7 +1264,18 @@ def process(path: Path):
     batch = data.get("batch", [])
     pj = data.get("project", path.stem)
 
-    if state != "DONE" and not batch:
+    # spec mode: batch空を許容し、専用ロジックに委譲
+    if data.get("spec_mode") and state in SPEC_STATES:
+        spec_config = data.get("spec_config", {})
+        now = _datetime.now(JST)
+        action = check_transition_spec(state, spec_config, now, data)
+        # 副作用フィールドが1つでもあれば適用
+        if action.next_state or action.pipeline_updates or action.send_to or action.discord_notify:
+            action.expected_state = state
+            _apply_spec_action(path, action, now, data)
+        return
+
+    if state != "DONE" and not batch and not data.get("spec_mode"):
         log(f"[{pj}] WARNING: state={state} but batch is empty")
         return
 

@@ -190,6 +190,37 @@ class TestCmdSpecStart:
         with pytest.raises(SystemExit, match="already active"):
             cmd_spec_start(args)
 
+    def test_start_spec_file_not_found(self, tmp_pipelines):
+        """spec ファイルが存在しない場合 → SystemExit"""
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, _make_pipeline(state="IDLE"))
+
+        from devbar import cmd_spec_start
+        args = _args(
+            project="test-pj", spec="docs/nonexistent.md", implementer="kaneko",
+            review_only=False, no_queue=False, skip_review=False,
+            max_cycles=None, review_mode=None, model=None, auto_continue=False,
+        )
+        with pytest.raises(SystemExit, match="Spec file not found"):
+            cmd_spec_start(args)
+
+    def test_start_max_cycles_0(self, tmp_pipelines):
+        """--max-cycles 0 → max_revise_cycles=0（0 は None でないため有効値）"""
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, _make_pipeline(state="IDLE"))
+
+        from devbar import cmd_spec_start
+        args = _args(
+            project="test-pj", spec="docs/spec.md", implementer="kaneko",
+            review_only=False, no_queue=False, skip_review=False,
+            max_cycles=0, review_mode=None, model=None, auto_continue=False,
+        )
+        with patch("devbar._start_loop"):
+            cmd_spec_start(args)
+
+        data = json.loads(path.read_text())
+        assert data["spec_config"]["max_revise_cycles"] == 0
+
 
 # ── TestCmdSpecApprove ────────────────────────────────────────────────────────
 

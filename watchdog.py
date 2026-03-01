@@ -30,6 +30,7 @@ import json as _json
 from pipeline_io import (
     load_pipeline, update_pipeline, get_path,
     add_history, now_iso, find_issue,
+    clear_pending_notification,
 )
 from notify import notify_implementer, notify_reviewers, notify_discord, send_to_agent, send_to_agent_queued, ping_agent
 
@@ -821,10 +822,54 @@ def _format_nudge_message(state: str, project: str, batch: list) -> str:
     return notif.impl_msg or f"[devbar] {project}: {state} — 対応してください。"
 
 
+def _recover_pending_notifications(pj: str, pending: dict, data: dict) -> None:
+    """未完了通知のリカバリ(Issue #59)。impl/review は再送、merge_summary/run_cc は Discord警告。"""
+    if "impl" in pending:
+        info = pending["impl"]
+        try:
+            notify_implementer(info["implementer"], info["msg"])
+        except Exception as e:
+            log(f"[{pj}] WARNING: impl recovery failed: {e}")
+        clear_pending_notification(pj, "impl")
+
+    if "review" in pending:
+        info = pending["review"]
+        try:
+            pipeline_data = load_pipeline(get_path(pj))
+            excluded = pipeline_data.get("excluded_reviewers", [])
+            notify_reviewers(
+                pj, info["new_state"], info["batch"], info["gitlab"],
+                repo_path=info.get("repo_path", ""),
+                review_mode=info.get("review_mode", "standard"),
+                excluded=excluded,
+            )
+        except Exception as e:
+            log(f"[{pj}] WARNING: review recovery failed: {e}")
+        clear_pending_notification(pj, "review")
+
+    if "merge_summary" in pending:
+        notify_discord(f"[{pj}] ⚠️ merge_summary通知が中断されていました。手動確認してください。")
+        clear_pending_notification(pj, "merge_summary")
+
+    if "run_cc" in pending:
+        notify_discord(f"[{pj}] ⚠️ CC起動が中断されていました。手動確認してください。")
+        clear_pending_notification(pj, "run_cc")
+
+
 def process(path: Path):
     # === 第1チェック (ロックなし) ===
     data = load_pipeline(path)
     if not data.get("enabled", False):
+        return
+
+    # === Issue #59: 未完了通知のリカバリ ===
+    # pending が残っていれば再送してクリアし、今回のループは終了。
+    # 20秒間隔なので1サイクルスキップは許容（設計判断）。
+    pj_recover = data.get("project", path.stem)
+    pending = data.get("_pending_notifications")
+    if pending:
+        log(f"[{pj_recover}] recovering pending notifications: {list(pending.keys())}")
+        _recover_pending_notifications(pj_recover, pending, data)
         return
 
     state = data.get("state", "IDLE")
@@ -910,6 +955,8 @@ def process(path: Path):
                 "batch": list(data.get("batch", [])),
                 "gitlab": data.get("gitlab", f"atakalive/{pj}"),
             })
+            # Issue #59: pending notification for run_cc
+            data["_pending_notifications"] = {"run_cc": True}
             return
 
         pj = data.get("project", path.stem)
@@ -1046,6 +1093,30 @@ def process(path: Path):
             "keep_ctx_intra": data.get("keep_ctx_intra", False),
             "queue_mode": _done_queue_mode if state == "DONE" else data.get("queue_mode", False),
         })
+
+        # Issue #59: _pending_notifications — at-least-once guarantee
+        pending = {}
+        if action.impl_msg:
+            pending["impl"] = {
+                "implementer": data.get("implementer", "kaneko"),
+                "msg": f"[devbar] {pj}: {action.impl_msg}",
+            }
+        if action.send_review:
+            pending["review"] = {
+                "new_state": action.new_state,
+                "batch": saved_batch,
+                "gitlab": data.get("gitlab", f"atakalive/{pj}"),
+                "repo_path": data.get("repo_path", ""),
+                "review_mode": data.get("review_mode", "standard"),
+            }
+        if action.send_merge_summary:
+            pending["merge_summary"] = True
+        if action.run_cc:
+            pending["run_cc"] = True
+        if pending:
+            if "_pending_notifications" in data:
+                log(f"[{pj}] WARNING: overwriting existing _pending_notifications")
+            data["_pending_notifications"] = pending
 
     update_pipeline(path, do_transition)
 
@@ -1201,6 +1272,7 @@ def process(path: Path):
                     data["summary_message_id"] = message_id
                 update_pipeline(path, _save_summary_id)
                 log(f"[{pj}] merge summary posted (message_id={message_id})")
+                clear_pending_notification(pj, "merge_summary")
 
                 # 実装者セッションに通知 (Issue #48)
                 pipeline_data_fresh = load_pipeline(path)
@@ -1227,6 +1299,7 @@ def process(path: Path):
                 def _rollback(data, restore=old_state):
                     data["state"] = restore
                 update_pipeline(path, _rollback)
+                clear_pending_notification(pj, "merge_summary")
 
         # DONE遷移時: git push + issue close を自動実行
         if action.new_state == "DONE":
@@ -1294,6 +1367,7 @@ def process(path: Path):
                 notification["implementer"],
                 f"[devbar] {pj}: {action.impl_msg}",
             )
+            clear_pending_notification(pj, "impl")
         if action.send_review:
             review_mode = notification.get("review_mode", "standard")
             prev_reviews = notification.get("prev_reviews", {})
@@ -1308,6 +1382,7 @@ def process(path: Path):
                 prev_reviews=prev_reviews,
                 excluded=excluded,
             )
+            clear_pending_notification(pj, "review")
         if action.run_cc:
             try:
                 _start_cc(pj, notification["batch"], notification["gitlab"],
@@ -1316,6 +1391,7 @@ def process(path: Path):
                 log(f"[{pj}] _start_cc failed: {e}")
                 ts = _datetime.now(JST).strftime("%m/%d %H:%M")
                 notify_discord(f"[{pj}] ⚠️ CC起動失敗: {e} ({ts})")
+            clear_pending_notification(pj, "run_cc")
 
 
 # _stop_loop_if_idle は廃止。crontab/loop.sh は常時稼働し、

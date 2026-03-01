@@ -131,6 +131,21 @@ def get_path(project: str) -> Path:
     return path
 
 
+def clear_pending_notification(project: str, key: str) -> None:
+    """_pending_notifications から key を原子的に削除。全キー消えたらdict自体も削除。"""
+    path = get_path(project)
+
+    def _clear(data):
+        pn = data.get("_pending_notifications")
+        if pn is None:
+            return
+        pn.pop(key, None)
+        if not pn:
+            del data["_pending_notifications"]
+
+    update_pipeline(path, _clear)
+
+
 def find_issue(batch: list, issue_num: int) -> dict | None:
     for i in batch:
         if i.get("issue") == issue_num:

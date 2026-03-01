@@ -24,6 +24,7 @@ from config import (
 from pipeline_io import (
     load_pipeline, save_pipeline, update_pipeline,
     add_history, now_iso, get_path, find_issue,
+    clear_pending_notification,
 )
 from watchdog import get_notification_for_state
 import os
@@ -426,6 +427,7 @@ def cmd_transition(args):
         _cfg.DRY_RUN = True
     path = get_path(args.project)
     resume = getattr(args, "resume", False)
+    ctx = {}  # ロック内→外の値受け渡し (Issue #59)
 
     def do_transition(data):
         current = data.get("state", "IDLE")
@@ -467,26 +469,66 @@ def cmd_transition(args):
             # Disable watchdog when manually transitioning to BLOCKED (Issue #29)
             data["enabled"] = False
 
+        # === Issue #59: 通知情報をロック内で構築 + pending フラグ ===
+        pj = data.get("project", args.project)
+        batch = data.get("batch", [])
+        gitlab = data.get("gitlab", f"atakalive/{pj}")
+        implementer = data.get("implementer", "kaneko")
+        repo_path = data.get("repo_path", "")
+        review_mode = data.get("review_mode", "standard")
+
+        notif = get_notification_for_state(target, pj, batch, gitlab, implementer)
+        prefix = "（再開）" if resume else ""
+
+        pending = {}
+        if notif.impl_msg:
+            pending["impl"] = {
+                "implementer": implementer,
+                "msg": f"[devbar] {pj}: {prefix}{notif.impl_msg}",
+            }
+        if notif.send_review:
+            pending["review"] = {
+                "new_state": target,
+                "batch": list(batch),
+                "gitlab": gitlab,
+                "repo_path": repo_path,
+                "review_mode": review_mode,
+            }
+        if pending:
+            if "_pending_notifications" in data:
+                _log(f"[{pj}] WARNING: overwriting existing _pending_notifications")
+            data["_pending_notifications"] = pending
+
+        ctx.update({
+            "pj": pj, "notif": notif, "prefix": prefix,
+            "batch": list(batch), "gitlab": gitlab,
+            "implementer": implementer, "repo_path": repo_path,
+            "review_mode": review_mode,
+            "excluded_reviewers": list(data.get("excluded_reviewers", [])),
+            "keep_ctx_batch": data.get("keep_ctx_batch", False),
+            "keep_ctx_intra": data.get("keep_ctx_intra", False),
+            "queue_mode": data.get("queue_mode", False),
+            "history": list(data.get("history", [])),
+        })
+
     data = update_pipeline(path, do_transition)
     suffix = " [RESUME]" if resume else (" [FORCED]" if args.force else "")
     print(f"{args.project}: {args.to}{suffix}")
 
-    pj = data.get("project", args.project)
-    batch = data.get("batch", [])
-    gitlab = data.get("gitlab", f"atakalive/{pj}")
-    implementer = data.get("implementer", "kaneko")
-    repo_path = data.get("repo_path", "")
-    review_mode = data.get("review_mode", "standard")
+    if not ctx:
+        return
 
-    notif = get_notification_for_state(args.to, pj, batch, gitlab, implementer)
-    prefix = "（再開）" if resume else ""
+    pj = ctx["pj"]
+    notif = ctx["notif"]
+    prefix = ctx["prefix"]
+
     if notif.reset_reviewers:
         if args.to in ("DESIGN_REVISE", "CODE_REVISE"):
             skip_reset = True  # REVISE遷移は常にスキップ
         elif args.to == "DESIGN_PLAN":
-            skip_reset = data.get("keep_ctx_batch", False)
+            skip_reset = ctx["keep_ctx_batch"]
         elif args.to == "IMPLEMENTATION":
-            skip_reset = data.get("keep_ctx_intra", False)
+            skip_reset = ctx["keep_ctx_intra"]
         else:
             skip_reset = False
         if skip_reset:
@@ -504,7 +546,7 @@ def cmd_transition(args):
                 except (FileNotFoundError, json.JSONDecodeError):
                     last_pj = ""
                 if not last_pj or last_pj != pj:
-                    impl = implementer
+                    impl = ctx["implementer"]
                 # グローバル状態に記録
                 try:
                     with open(DEVBAR_STATE_PATH) as _sf:
@@ -514,21 +556,24 @@ def cmd_transition(args):
                 _gstate["last_impl_project"] = pj
                 with open(DEVBAR_STATE_PATH, "w") as _sf:
                     json.dump(_gstate, _sf, indent=2)
-            _reset_reviewers(review_mode, implementer=impl)
+            _reset_reviewers(ctx["review_mode"], implementer=impl)
     if notif.impl_msg:
-        notify_implementer(implementer, f"[devbar] {pj}: {prefix}{notif.impl_msg}")
+        notify_implementer(ctx["implementer"], f"[devbar] {pj}: {prefix}{notif.impl_msg}")
+        clear_pending_notification(pj, "impl")
     if notif.send_review:
-        excluded = data.get("excluded_reviewers", [])
-        notify_reviewers(pj, args.to, batch, gitlab, repo_path=repo_path,
-                        review_mode=review_mode, excluded=excluded)
+        excluded = ctx["excluded_reviewers"]
+        notify_reviewers(pj, args.to, ctx["batch"], ctx["gitlab"],
+                        repo_path=ctx["repo_path"],
+                        review_mode=ctx["review_mode"], excluded=excluded)
+        clear_pending_notification(pj, "review")
 
-    # Discord 通知
-    history = data.get("history", [])
+    # Discord 通知（pending 対象外 — 重複許容）
+    history = ctx["history"]
     current = history[-1].get("from", "?") if history else "?"
     actor = args.actor or "cli"
     from datetime import datetime
     ts = datetime.now(JST).strftime("%m/%d %H:%M")
-    q_prefix = "[Queue]" if data.get("queue_mode") else ""
+    q_prefix = "[Queue]" if ctx.get("queue_mode") else ""
     notify_discord(f"{q_prefix}[{pj}] {prefix}{current} → {args.to} (by {actor}, {ts})")
 
 

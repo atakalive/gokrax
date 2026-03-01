@@ -478,3 +478,67 @@ class TestCheckQueuePlan:
         assert action.next_state == "SPEC_PAUSED"
         assert "パース失敗" in action.discord_notify
         assert action.pipeline_updates.get("paused_from") == "QUEUE_PLAN"
+
+    # 38. 複数reviewer・受領と完了が別tick（Leibniz P0再現テスト）
+    def test_multi_tick_issue_suggestions_preserved(self):
+        """tick1でpascalがreceived→永続化、tick2でleibnizがtimeout→all_complete。
+        issue_suggestionsにpascalの提案が残っていること。"""
+        raw = _yaml_block(
+            "phases:\n"
+            "  - name: Phase 1\n"
+            "    issues:\n"
+            "      - title: Implement foo\n"
+        )
+        # tick1: pascal received, leibniz still pending
+        sc = {
+            "review_requests": {
+                "pascal": {
+                    "status": "pending", "sent_at": _now().isoformat(),
+                    "timeout_at": (_now() + timedelta(seconds=600)).isoformat(),
+                    "last_nudge_at": None, "response": None,
+                },
+                "leibniz": {
+                    "status": "pending", "sent_at": _now().isoformat(),
+                    "timeout_at": (_now() + timedelta(seconds=600)).isoformat(),
+                    "last_nudge_at": None, "response": None,
+                },
+            },
+            "current_reviews": {
+                "entries": {
+                    "pascal": {"status": "received", "raw_text": raw},
+                },
+            },
+            "spec_path": "docs/spec.md",
+            "current_rev": "1",
+        }
+        action1 = _check_issue_suggestion(sc, _now(), {"project": "devbar"})
+        # pascal は received になり、issue_suggestions に格納される
+        assert action1.pipeline_updates["issue_suggestions"]["pascal"] is not None
+        assert action1.next_state is None  # leibniz がまだ pending
+
+        # tick2: pascal の提案は永続化済み(spec_configに反映)、leibniz がtimeout
+        sc2 = {
+            "review_requests": {
+                "pascal": {
+                    "status": "received",  # tick1 で更新済み
+                    "sent_at": _now().isoformat(),
+                    "timeout_at": (_now() - timedelta(seconds=1)).isoformat(),
+                    "last_nudge_at": None, "response": None,
+                },
+                "leibniz": {
+                    "status": "pending", "sent_at": _now().isoformat(),
+                    "timeout_at": (_now() - timedelta(seconds=1)).isoformat(),  # expired
+                    "last_nudge_at": None, "response": None,
+                },
+            },
+            "current_reviews": {"entries": {}},
+            # tick1 で永続化された issue_suggestions
+            "issue_suggestions": {"pascal": {"phases": [{"name": "Phase 1", "issues": [{"title": "Implement foo"}]}]}},
+            "spec_path": "docs/spec.md",
+            "current_rev": "1",
+        }
+        action2 = _check_issue_suggestion(sc2, _now(), {"project": "devbar"})
+        # all_complete (pascal=received, leibniz=timeout) → ISSUE_PLAN
+        assert action2.next_state == "ISSUE_PLAN"
+        # pascal の提案が保持されていること
+        assert "pascal" in action2.pipeline_updates["issue_suggestions"]

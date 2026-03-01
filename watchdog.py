@@ -1189,7 +1189,8 @@ def _check_issue_suggestion(
 
     send_to: dict[str, str] = {}
     rr_patch: dict[str, dict] = {}
-    issue_suggestions: dict = {}
+    # 既存の永続化分から初期化（Leibniz P0: tick跨ぎで過去受領分が消えない）
+    issue_suggestions: dict = dict(spec_config.get("issue_suggestions", {}))
 
     for reviewer, req in review_requests.items():
         status = req.get("status", "pending")
@@ -1260,11 +1261,8 @@ def _check_issue_suggestion(
         updates["review_requests_patch"] = rr_patch
 
     # issue_suggestions を毎tick逐次永続化（Leibniz P0: tick跨ぎ消失防止）
-    # 既存の永続化分とマージ
+    # 関数冒頭で既存永続化分から初期化済みなのでマージ不要
     if issue_suggestions:
-        existing = dict(spec_config.get("issue_suggestions", {}))
-        existing.update(issue_suggestions)
-        issue_suggestions = existing
         updates["issue_suggestions"] = issue_suggestions
 
     if all_complete:

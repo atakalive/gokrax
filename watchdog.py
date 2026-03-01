@@ -851,12 +851,18 @@ def _recover_pending_notifications(pj: str, pending: dict, data: dict) -> None:
             log(f"[{pj}] WARNING: review recovery failed, will retry next cycle: {e}")
 
     if "merge_summary" in pending:
-        notify_discord(f"[{pj}] ⚠️ merge_summary通知が中断されていました。手動確認してください。")
-        clear_pending_notification(pj, "merge_summary")
+        try:
+            notify_discord(f"[{pj}] ⚠️ merge_summary通知が中断されていました。手動確認してください。")
+            clear_pending_notification(pj, "merge_summary")
+        except Exception as e:
+            log(f"[{pj}] WARNING: merge_summary recovery warning failed, will retry: {e}")
 
     if "run_cc" in pending:
-        notify_discord(f"[{pj}] ⚠️ CC起動が中断されていました。手動確認してください。")
-        clear_pending_notification(pj, "run_cc")
+        try:
+            notify_discord(f"[{pj}] ⚠️ CC起動が中断されていました。手動確認してください。")
+            clear_pending_notification(pj, "run_cc")
+        except Exception as e:
+            log(f"[{pj}] WARNING: run_cc recovery warning failed, will retry: {e}")
 
 
 def process(path: Path):

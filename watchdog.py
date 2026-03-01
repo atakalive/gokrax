@@ -834,7 +834,7 @@ def process(path: Path):
         return
 
     pre_action = check_transition(state, batch, data)
-    if pre_action.new_state is None and not pre_action.nudge and not pre_action.nudge_reviewers and not pre_action.save_grace_met_at:
+    if pre_action.new_state is None and not pre_action.nudge and not pre_action.nudge_reviewers and not pre_action.save_grace_met_at and not pre_action.run_cc:
         return
 
     # === ロック内で第2チェック + 遷移 (Double-Checked Locking) ===
@@ -893,8 +893,21 @@ def process(path: Path):
             })
             return
 
-        if action.new_state is None:
+        if action.new_state is None and not action.run_cc:
             # ロック待ち中に他プロセスが状態を変えた → スキップ
+            return
+
+        # run_cc only（状態遷移なし）: CC起動フラグだけ立ててreturn
+        if action.run_cc and action.new_state is None:
+            pj = data.get("project", path.stem)
+            notification.update({
+                "pj": pj,
+                "action": action,
+                "old_state": data.get("state", "IDLE"),
+                "repo_path": data.get("repo_path", ""),
+                "batch": list(data.get("batch", [])),
+                "gitlab": data.get("gitlab", f"atakalive/{pj}"),
+            })
             return
 
         pj = data.get("project", path.stem)

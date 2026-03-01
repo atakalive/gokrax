@@ -1086,12 +1086,11 @@ def cmd_spec_start(args):
 
     target = "SPEC_APPROVED" if skip_review else "SPEC_REVIEW"
     if not skip_review:
-        reviewer_count = len(sc.get("review_requests", {}))
-        rev = sc.get("current_rev", "1")
+        reviewer_count = len(review_requests)
         try:
-            notify_discord(spec_notify_review_start(args.project, rev, reviewer_count))
+            notify_discord(spec_notify_review_start(args.project, "1", reviewer_count))
         except Exception:
-            pass
+            logger.warning("Failed to send review_start notification")
     print(f"{args.project}: spec mode started (spec={args.spec}) → {target}")
 
 

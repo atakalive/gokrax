@@ -1218,17 +1218,31 @@ def _check_issue_suggestion(
                     "response": req.get("response"),
                 }
 
-        # 応答回収: entries に received な応答があればパース
-        if status == "pending":
+        # 応答回収: 送信済み(sent_at is not None)かつ entries に received があればパース
+        # sent_at チェックで送信フェーズとの同一tick競合を防止（Dijkstra P1-1）
+        # パース成功時は issue_suggestions を pipeline_updates 経由で逐次永続化（Leibniz P0）
+        if status == "pending" and req.get("sent_at") is not None:
             entry = entries.get(reviewer, {})
             if entry.get("status") == "received":
                 raw_text = entry.get("raw_text") or entry.get("response") or ""
                 parsed = parse_issue_suggestion_response(raw_text)
                 if parsed is not None:
                     issue_suggestions[reviewer] = parsed
-                    rr_patch[reviewer] = {"status": "received"}
+                    rr_patch[reviewer] = {
+                        "status": "received",
+                        "sent_at": req.get("sent_at"),
+                        "timeout_at": req.get("timeout_at"),
+                        "last_nudge_at": req.get("last_nudge_at"),
+                        "response": req.get("response"),
+                    }
                 else:
-                    rr_patch[reviewer] = {"status": "parse_failed"}
+                    rr_patch[reviewer] = {
+                        "status": "parse_failed",
+                        "sent_at": req.get("sent_at"),
+                        "timeout_at": req.get("timeout_at"),
+                        "last_nudge_at": req.get("last_nudge_at"),
+                        "response": req.get("response"),
+                    }
 
     # 完了判定: patch 適用後の effective status でチェック
     def _effective_status(reviewer: str) -> str:
@@ -1245,6 +1259,14 @@ def _check_issue_suggestion(
     if rr_patch:
         updates["review_requests_patch"] = rr_patch
 
+    # issue_suggestions を毎tick逐次永続化（Leibniz P0: tick跨ぎ消失防止）
+    # 既存の永続化分とマージ
+    if issue_suggestions:
+        existing = dict(spec_config.get("issue_suggestions", {}))
+        existing.update(issue_suggestions)
+        issue_suggestions = existing
+        updates["issue_suggestions"] = issue_suggestions
+
     if all_complete:
         if issue_suggestions:
             # 有効応答あり → ISSUE_PLAN へ遷移
@@ -1259,7 +1281,7 @@ def _check_issue_suggestion(
                     "response": None,
                 }
             updates["review_requests_patch"] = reset_patch
-            updates["issue_suggestions"] = issue_suggestions
+            # issue_suggestions は上で逐次永続化済み
             return SpecTransitionAction(
                 next_state="ISSUE_PLAN",
                 discord_notify="[Spec] Issue分割提案回収完了 → ISSUE_PLAN",
@@ -1298,6 +1320,8 @@ def _check_issue_plan(
     """ISSUE_PLAN: 送信・応答回収・タイムアウト。純粋関数（spec_config を mutate しない）。"""
     implementer = spec_config.get("spec_implementer", "")
     retry_counts = spec_config.get("retry_counts", {})
+    # NOTE: retry_counts は sc.update(pu) で全体置換される（deep merge なし）。
+    # {**retry_counts, "KEY": n} で既存カウントを保持。既存パターン踏襲（Dijkstra Minor-1）
     issue_plan_retries = retry_counts.get("ISSUE_PLAN", 0)
 
     # 応答回収

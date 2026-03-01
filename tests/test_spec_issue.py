@@ -276,7 +276,8 @@ class TestCheckIssueSuggestion:
         # 2人目のレビュアー（未応答）を追加 → all_complete=False の中間状態を作る
         sc["review_requests"]["dijkstra"] = {
             "status": "pending", "sent_at": _now().isoformat(),
-            "timeout_at": None, "last_nudge_at": None, "response": None,
+            "timeout_at": (_now() + timedelta(seconds=600)).isoformat(),
+            "last_nudge_at": None, "response": None,
         }
         sc["review_requests"]["leibniz"]["sent_at"] = _now().isoformat()
         raw = _yaml_block(

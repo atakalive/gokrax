@@ -136,3 +136,83 @@ def find_issue(batch: list, issue_num: int) -> dict | None:
         if i.get("issue") == issue_num:
             return i
     return None
+
+
+# ---------------------------------------------------------------------------
+# spec mode 基盤 — Issue #49
+# ---------------------------------------------------------------------------
+
+def default_spec_config() -> dict:
+    """spec_config のデフォルト値を生成する（§3.1）。
+
+    数値デフォルトは config 定数を参照する（ハードコード禁止）。
+    """
+    from config import (
+        MAX_SPEC_REVISE_CYCLES,
+        SPEC_REVISE_SELF_REVIEW_PASSES,
+    )
+    return {
+        "spec_path": "",
+        "spec_implementer": "",
+        "review_only": False,
+        "no_queue": False,
+        "skip_review": False,
+        "auto_continue": False,
+        "self_review_passes": SPEC_REVISE_SELF_REVIEW_PASSES,
+        "self_review_agent": None,
+        "current_rev": "1",
+        "rev_index": 1,
+        "max_revise_cycles": MAX_SPEC_REVISE_CYCLES,
+        "revise_count": 0,
+        "last_commit": None,
+        "model": None,
+        "review_requests": {},
+        "current_reviews": {},
+        "issue_suggestions": {},
+        "created_issues": [],
+        "review_history": [],
+        "force_events": [],
+        "retry_counts": {},
+        "paused_from": None,
+        "pipelines_dir": None,
+        "last_changes": None,
+    }
+
+
+def validate_spec_config(spec_config: dict) -> list[str]:
+    """spec_config の必須フィールドをバリデーションする。
+
+    Returns:
+        エラーメッセージのリスト（空=OK）。
+    """
+    errors: list[str] = []
+    if not spec_config.get("spec_path"):
+        errors.append("spec_config.spec_path is required")
+    if not spec_config.get("spec_implementer"):
+        errors.append("spec_config.spec_implementer is required")
+    return errors
+
+
+def check_spec_mode_exclusive(data: dict) -> None:
+    """spec_mode=true の間、通常モードの操作を拒否する（§2.3）。
+
+    Raises:
+        SystemExit: spec_mode が有効な場合。
+    """
+    if data.get("spec_mode"):
+        raise SystemExit(
+            "Pipeline is in spec mode. Use 'devbar spec' commands, "
+            "or finish/abort spec mode first."
+        )
+
+
+def ensure_spec_reviews_dir(project: str) -> Path:
+    """spec-reviews ディレクトリを作成して返す。
+
+    パス: PIPELINES_DIR/{project}/spec-reviews/
+    パーミッション: 0o700（owner only）
+    """
+    d = PIPELINES_DIR / project / "spec-reviews"
+    d.mkdir(parents=True, exist_ok=True)
+    d.chmod(0o700)
+    return d

@@ -243,3 +243,55 @@ def review_command(project: str, issue: int, reviewer: str) -> str:
 
 
 _validate_reviewer_tiers()
+
+
+# ---------------------------------------------------------------------------
+# spec mode 基盤 — Issue #49
+# ---------------------------------------------------------------------------
+
+# 1-A. SPEC_STATES（VALID_STATES の直後に論理的に追記）
+SPEC_STATES: list[str] = [
+    "SPEC_REVIEW", "SPEC_REVISE", "SPEC_APPROVED",
+    "ISSUE_SUGGESTION", "ISSUE_PLAN", "QUEUE_PLAN", "SPEC_DONE",
+    "SPEC_STALLED", "SPEC_REVIEW_FAILED", "SPEC_PAUSED",
+]
+
+# 1-B. SPEC_TRANSITIONS
+SPEC_TRANSITIONS: dict[str, list[str]] = {
+    "IDLE":               ["SPEC_REVIEW", "SPEC_APPROVED"],
+    "SPEC_REVIEW":        ["SPEC_REVISE", "SPEC_APPROVED", "SPEC_STALLED",
+                           "SPEC_REVIEW_FAILED", "SPEC_PAUSED"],
+    "SPEC_REVISE":        ["SPEC_REVIEW", "SPEC_PAUSED"],
+    "SPEC_APPROVED":      ["ISSUE_SUGGESTION", "SPEC_DONE"],
+    "ISSUE_SUGGESTION":   ["ISSUE_PLAN", "SPEC_PAUSED"],
+    "ISSUE_PLAN":         ["QUEUE_PLAN", "SPEC_DONE", "SPEC_PAUSED"],
+    "QUEUE_PLAN":         ["SPEC_DONE", "SPEC_PAUSED"],
+    "SPEC_DONE":          ["IDLE"],
+    "SPEC_STALLED":       ["SPEC_APPROVED", "SPEC_REVISE"],
+    "SPEC_REVIEW_FAILED": ["SPEC_REVIEW"],
+    "SPEC_PAUSED":        ["SPEC_REVIEW", "SPEC_REVISE", "SPEC_APPROVED",
+                           "ISSUE_SUGGESTION", "ISSUE_PLAN", "QUEUE_PLAN",
+                           "SPEC_DONE"],
+}
+
+# 1-C. VALID_STATES / VALID_TRANSITIONS への統合（§2.3: sorted(set(...)) で順序固定）
+VALID_STATES = sorted(set(VALID_STATES + SPEC_STATES))
+
+for _state, _targets in SPEC_TRANSITIONS.items():
+    _existing = VALID_TRANSITIONS.get(_state, [])
+    VALID_TRANSITIONS[_state] = sorted(set(_existing + _targets))
+
+# 1-D. STATE_PHASE_MAP への追加
+STATE_PHASE_MAP.update({s: "spec" for s in SPEC_STATES})
+
+# 1-E. spec mode 定数（§3.2）
+MAX_SPEC_REVISE_CYCLES: int = 5
+MIN_VALID_REVIEWS_BY_MODE: dict[str, int] = {
+    "full": 2, "standard": 2, "lite": 1, "min": 1,
+}
+SPEC_REVIEW_TIMEOUT_SEC: int = 1800
+SPEC_REVISE_TIMEOUT_SEC: int = 1800
+SPEC_ISSUE_SUGGESTION_TIMEOUT_SEC: int = 600
+SPEC_REVISE_SELF_REVIEW_PASSES: int = 2
+MAX_SPEC_RETRIES: int = 3
+SPEC_REVIEW_RAW_RETENTION_DAYS: int = 30

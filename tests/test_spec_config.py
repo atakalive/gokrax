@@ -154,3 +154,15 @@ class TestEnsureSpecReviewsDir:
         d1 = ensure_spec_reviews_dir("test-pj")
         d2 = ensure_spec_reviews_dir("test-pj")
         assert d1 == d2
+
+    def test_rejects_empty_project(self, tmp_pipelines):
+        with pytest.raises(ValueError):
+            ensure_spec_reviews_dir("")
+
+    def test_rejects_path_traversal(self, tmp_pipelines):
+        with pytest.raises(ValueError):
+            ensure_spec_reviews_dir("../evil")
+
+    def test_rejects_dot(self, tmp_pipelines):
+        with pytest.raises(ValueError):
+            ensure_spec_reviews_dir("..")

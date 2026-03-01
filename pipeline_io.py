@@ -226,7 +226,12 @@ def ensure_spec_reviews_dir(project: str) -> Path:
 
     パス: PIPELINES_DIR/{project}/spec-reviews/
     パーミッション: 0o700（owner only）
+
+    Raises:
+        ValueError: project が空文字、または path traversal 文字を含む場合。
     """
+    if not project or "/" in project or "\\" in project or project in (".", ".."):
+        raise ValueError(f"Invalid project name: {project!r}")
     d = PIPELINES_DIR / project / "spec-reviews"
     d.mkdir(parents=True, exist_ok=True)
     d.chmod(0o700)

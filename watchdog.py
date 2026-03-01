@@ -27,6 +27,7 @@ from config import (
 )
 from config import (
     SPEC_STATES, SPEC_REVIEW_TIMEOUT_SEC, SPEC_REVISE_TIMEOUT_SEC,
+    SPEC_ISSUE_SUGGESTION_TIMEOUT_SEC, SPEC_ISSUE_PLAN_TIMEOUT_SEC, SPEC_QUEUE_PLAN_TIMEOUT_SEC,
     MAX_SPEC_RETRIES, SPEC_REVISE_SELF_REVIEW_PASSES,
 )
 from datetime import datetime as _datetime
@@ -43,6 +44,14 @@ from spec_review import (
     should_continue_review, _reset_review_requests,
     parse_review_yaml, validate_received_entry,
     merge_reviews, format_merged_report, build_review_history_entry,
+)
+from spec_issue import (
+    build_issue_suggestion_prompt,
+    parse_issue_suggestion_response,
+    build_issue_plan_prompt,
+    parse_issue_plan_response,
+    build_queue_plan_prompt,
+    parse_queue_plan_response,
 )
 
 
@@ -1165,6 +1174,276 @@ def _check_spec_revise(
 
 
 # ---------------------------------------------------------------------------
+# Spec mode: _check_issue_suggestion（§7, §10.1）
+# ---------------------------------------------------------------------------
+
+def _check_issue_suggestion(
+    spec_config: dict,
+    now: _datetime,
+    data: dict,
+) -> SpecTransitionAction:
+    """ISSUE_SUGGESTION: 送信・タイムアウト・回収判定。純粋関数（spec_config を mutate しない）。"""
+    review_requests = spec_config.get("review_requests", {})
+    current_reviews = spec_config.get("current_reviews", {})
+    entries = current_reviews.get("entries", {})
+
+    send_to: dict[str, str] = {}
+    rr_patch: dict[str, dict] = {}
+    issue_suggestions: dict = {}
+
+    for reviewer, req in review_requests.items():
+        status = req.get("status", "pending")
+
+        if status == "pending" and req.get("sent_at") is None:
+            # 未送信 → Issue分割提案プロンプト生成
+            prompt = build_issue_suggestion_prompt(spec_config, data)
+            send_to[reviewer] = prompt
+            rr_patch[reviewer] = {
+                "sent_at": now.isoformat(),
+                "timeout_at": (now + _timedelta(seconds=SPEC_ISSUE_SUGGESTION_TIMEOUT_SEC)).isoformat(),
+            }
+
+        elif status == "pending" and req.get("timeout_at"):
+            # タイムアウトチェック
+            try:
+                timeout_at = _datetime.fromisoformat(req["timeout_at"])
+            except (ValueError, TypeError):
+                continue
+            if now >= timeout_at:
+                rr_patch[reviewer] = {
+                    "status": "timeout",
+                    "sent_at": req.get("sent_at"),
+                    "timeout_at": req.get("timeout_at"),
+                    "last_nudge_at": req.get("last_nudge_at"),
+                    "response": req.get("response"),
+                }
+
+        # 応答回収: entries に received な応答があればパース
+        if status == "pending":
+            entry = entries.get(reviewer, {})
+            if entry.get("status") == "received":
+                raw_text = entry.get("raw_text") or entry.get("response") or ""
+                parsed = parse_issue_suggestion_response(raw_text)
+                if parsed is not None:
+                    issue_suggestions[reviewer] = parsed
+                    rr_patch[reviewer] = {"status": "received"}
+                else:
+                    rr_patch[reviewer] = {"status": "parse_failed"}
+
+    # 完了判定: patch 適用後の effective status でチェック
+    def _effective_status(reviewer: str) -> str:
+        if reviewer in rr_patch and "status" in rr_patch[reviewer]:
+            return rr_patch[reviewer]["status"]
+        return review_requests.get(reviewer, {}).get("status", "pending")
+
+    all_complete = (
+        bool(review_requests)
+        and all(_effective_status(r) != "pending" for r in review_requests)
+    )
+
+    updates: dict = {}
+    if rr_patch:
+        updates["review_requests_patch"] = rr_patch
+
+    if all_complete:
+        if issue_suggestions:
+            # 有効応答あり → ISSUE_PLAN へ遷移
+            # review_requests を全リセット（全フィールド明示）
+            reset_patch: dict[str, dict] = {}
+            for reviewer in review_requests:
+                reset_patch[reviewer] = {
+                    "status": "pending",
+                    "sent_at": None,
+                    "timeout_at": None,
+                    "last_nudge_at": None,
+                    "response": None,
+                }
+            updates["review_requests_patch"] = reset_patch
+            updates["issue_suggestions"] = issue_suggestions
+            return SpecTransitionAction(
+                next_state="ISSUE_PLAN",
+                discord_notify="[Spec] Issue分割提案回収完了 → ISSUE_PLAN",
+                pipeline_updates=updates,
+                send_to=send_to if send_to else None,
+            )
+        else:
+            # 有効応答なし → SPEC_PAUSED
+            updates["paused_from"] = "ISSUE_SUGGESTION"
+            return SpecTransitionAction(
+                next_state="SPEC_PAUSED",
+                discord_notify="[Spec] Issue分割提案: 有効応答なし → PAUSED",
+                pipeline_updates=updates,
+                send_to=send_to if send_to else None,
+            )
+
+    if send_to or updates:
+        return SpecTransitionAction(
+            next_state=None,
+            send_to=send_to if send_to else None,
+            pipeline_updates=updates if updates else None,
+        )
+
+    return SpecTransitionAction(next_state=None)
+
+
+# ---------------------------------------------------------------------------
+# Spec mode: _check_issue_plan（§8.1, §10.1, §10.2）
+# ---------------------------------------------------------------------------
+
+def _check_issue_plan(
+    spec_config: dict,
+    now: _datetime,
+    data: dict,
+) -> SpecTransitionAction:
+    """ISSUE_PLAN: 送信・応答回収・タイムアウト。純粋関数（spec_config を mutate しない）。"""
+    implementer = spec_config.get("spec_implementer", "")
+    retry_counts = spec_config.get("retry_counts", {})
+    issue_plan_retries = retry_counts.get("ISSUE_PLAN", 0)
+
+    # 応答回収
+    issue_plan_response = spec_config.get("_issue_plan_response")
+    if issue_plan_response:
+        parsed = parse_issue_plan_response(issue_plan_response)
+        if parsed is None:
+            return SpecTransitionAction(
+                next_state="SPEC_PAUSED",
+                discord_notify="[Spec] ISSUE_PLAN応答パース失敗 → PAUSED",
+                pipeline_updates={"paused_from": "ISSUE_PLAN"},
+            )
+        # 成功: no_queue チェック
+        n = len(parsed["created_issues"])
+        next_state = "SPEC_DONE" if spec_config.get("no_queue") else "QUEUE_PLAN"
+        return SpecTransitionAction(
+            next_state=next_state,
+            discord_notify=f"[Spec] Issue起票完了 ({n}件) → {next_state}",
+            pipeline_updates={
+                "created_issues": parsed["created_issues"],
+                "_issue_plan_response": None,
+                "_issue_plan_sent": None,
+            },
+        )
+
+    # 未送信チェック
+    issue_plan_sent = spec_config.get("_issue_plan_sent")
+    if not issue_plan_sent:
+        if not implementer:
+            return SpecTransitionAction(next_state=None)
+        prompt = build_issue_plan_prompt(spec_config, data)
+        return SpecTransitionAction(
+            next_state=None,
+            send_to={implementer: prompt},
+            pipeline_updates={"_issue_plan_sent": now.isoformat()},
+        )
+
+    # タイムアウトチェック
+    try:
+        sent_at = _datetime.fromisoformat(issue_plan_sent)
+    except (ValueError, TypeError):
+        return SpecTransitionAction(next_state=None)
+
+    elapsed = (now - sent_at).total_seconds()
+    if elapsed < SPEC_ISSUE_PLAN_TIMEOUT_SEC:
+        return SpecTransitionAction(next_state=None)
+
+    # タイムアウト: リトライ管理
+    if issue_plan_retries >= MAX_SPEC_RETRIES:
+        return SpecTransitionAction(
+            next_state="SPEC_PAUSED",
+            discord_notify=f"[Spec] ISSUE_PLAN タイムアウト × {MAX_SPEC_RETRIES} → PAUSED",
+            pipeline_updates={
+                "paused_from": "ISSUE_PLAN",
+                "retry_counts": {**retry_counts, "ISSUE_PLAN": issue_plan_retries + 1},
+            },
+        )
+
+    return SpecTransitionAction(
+        next_state=None,
+        discord_notify=f"[Spec] ISSUE_PLAN タイムアウト (retry {issue_plan_retries + 1}/{MAX_SPEC_RETRIES})",
+        pipeline_updates={
+            "retry_counts": {**retry_counts, "ISSUE_PLAN": issue_plan_retries + 1},
+            "_issue_plan_sent": None,
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# Spec mode: _check_queue_plan（§9, §10.1, §10.2）
+# ---------------------------------------------------------------------------
+
+def _check_queue_plan(
+    spec_config: dict,
+    now: _datetime,
+    data: dict,
+) -> SpecTransitionAction:
+    """QUEUE_PLAN: 送信・応答回収・タイムアウト。純粋関数（spec_config を mutate しない）。"""
+    implementer = spec_config.get("spec_implementer", "")
+    retry_counts = spec_config.get("retry_counts", {})
+    queue_plan_retries = retry_counts.get("QUEUE_PLAN", 0)
+
+    # 応答回収
+    queue_plan_response = spec_config.get("_queue_plan_response")
+    if queue_plan_response:
+        parsed = parse_queue_plan_response(queue_plan_response)
+        if parsed is None:
+            return SpecTransitionAction(
+                next_state="SPEC_PAUSED",
+                discord_notify="[Spec] QUEUE_PLAN応答パース失敗 → PAUSED",
+                pipeline_updates={"paused_from": "QUEUE_PLAN"},
+            )
+        batches = parsed["batches"]
+        return SpecTransitionAction(
+            next_state="SPEC_DONE",
+            discord_notify=f"[Spec] キュー生成完了 ({batches}バッチ) → SPEC_DONE",
+            pipeline_updates={
+                "_queue_plan_response": None,
+                "_queue_plan_sent": None,
+            },
+        )
+
+    # 未送信チェック
+    queue_plan_sent = spec_config.get("_queue_plan_sent")
+    if not queue_plan_sent:
+        if not implementer:
+            return SpecTransitionAction(next_state=None)
+        prompt = build_queue_plan_prompt(spec_config, data)
+        return SpecTransitionAction(
+            next_state=None,
+            send_to={implementer: prompt},
+            pipeline_updates={"_queue_plan_sent": now.isoformat()},
+        )
+
+    # タイムアウトチェック
+    try:
+        sent_at = _datetime.fromisoformat(queue_plan_sent)
+    except (ValueError, TypeError):
+        return SpecTransitionAction(next_state=None)
+
+    elapsed = (now - sent_at).total_seconds()
+    if elapsed < SPEC_QUEUE_PLAN_TIMEOUT_SEC:
+        return SpecTransitionAction(next_state=None)
+
+    # タイムアウト: リトライ管理
+    if queue_plan_retries >= MAX_SPEC_RETRIES:
+        return SpecTransitionAction(
+            next_state="SPEC_PAUSED",
+            discord_notify=f"[Spec] QUEUE_PLAN タイムアウト × {MAX_SPEC_RETRIES} → PAUSED",
+            pipeline_updates={
+                "paused_from": "QUEUE_PLAN",
+                "retry_counts": {**retry_counts, "QUEUE_PLAN": queue_plan_retries + 1},
+            },
+        )
+
+    return SpecTransitionAction(
+        next_state=None,
+        discord_notify=f"[Spec] QUEUE_PLAN タイムアウト (retry {queue_plan_retries + 1}/{MAX_SPEC_RETRIES})",
+        pipeline_updates={
+            "retry_counts": {**retry_counts, "QUEUE_PLAN": queue_plan_retries + 1},
+            "_queue_plan_sent": None,
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
 # Spec mode: check_transition_spec（§10.1）
 # ---------------------------------------------------------------------------
 
@@ -1201,9 +1480,12 @@ def check_transition_spec(
             )
         # デフォルト: M確認待ち（通知は遷移元で発火済み）
         return SpecTransitionAction(next_state=None)
-    elif state in ("ISSUE_SUGGESTION", "ISSUE_PLAN", "QUEUE_PLAN"):
-        # 後続 Issue で実装。stub。
-        return SpecTransitionAction(next_state=None)
+    elif state == "ISSUE_SUGGESTION":
+        return _check_issue_suggestion(spec_config, now, data)
+    elif state == "ISSUE_PLAN":
+        return _check_issue_plan(spec_config, now, data)
+    elif state == "QUEUE_PLAN":
+        return _check_queue_plan(spec_config, now, data)
     elif state in ("SPEC_DONE", "SPEC_STALLED", "SPEC_REVIEW_FAILED", "SPEC_PAUSED"):
         return SpecTransitionAction(next_state=None)  # M操作待ち
     else:

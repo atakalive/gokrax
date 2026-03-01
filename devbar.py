@@ -10,6 +10,7 @@ import signal
 import subprocess
 import sys
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -20,11 +21,14 @@ from config import (
     WATCHDOG_LOOP_SCRIPT, WATCHDOG_LOOP_PIDFILE,
     WATCHDOG_LOOP_CRON_MARKER, WATCHDOG_LOOP_CRON_ENTRY,
     VALID_FLAG_VERDICTS, STATE_PHASE_MAP,
+    MAX_SPEC_REVISE_CYCLES, MIN_VALID_REVIEWS_BY_MODE,
+    SPEC_REVIEW_TIMEOUT_SEC, SPEC_ISSUE_SUGGESTION_TIMEOUT_SEC,
+    SPEC_REVISE_SELF_REVIEW_PASSES, MAX_SPEC_RETRIES,
 )
 from pipeline_io import (
     load_pipeline, save_pipeline, update_pipeline,
     add_history, now_iso, get_path, find_issue,
-    clear_pending_notification,
+    clear_pending_notification, default_spec_config,
 )
 from watchdog import get_notification_for_state
 import os
@@ -960,6 +964,344 @@ def cmd_qrun(args):
     print(f"[qrun] {project}: started (automerge={automerge_flag})")
 
 
+# === Spec Mode Commands ===
+
+def _reset_review_requests(spec_config: dict) -> None:
+    """review_requestsの全エントリをpendingにリセット（§5.4）"""
+    for entry in spec_config["review_requests"].values():
+        entry["status"] = "pending"
+        entry["sent_at"] = None
+        entry["timeout_at"] = None
+        entry["last_nudge_at"] = None
+        entry["response"] = None
+
+
+def _archive_current_reviews(spec_config: dict) -> None:
+    """current_reviewsをreview_historyにアーカイブし、current_reviewsをクリア（§12.2）"""
+    cr = spec_config.get("current_reviews", {})
+    if not cr or not cr.get("entries"):
+        spec_config["current_reviews"] = {}
+        return
+
+    reviews_summary = {}
+    merged = {"critical": 0, "major": 0, "minor": 0, "suggestion": 0}
+    for reviewer, entry in cr.get("entries", {}).items():
+        counts = {}
+        for item in entry.get("items", []):
+            sev = item.get("severity", "minor").lower()
+            counts[sev] = counts.get(sev, 0) + 1
+            if sev in merged:
+                merged[sev] += 1
+        reviews_summary[reviewer] = {
+            "verdict": entry.get("verdict"),
+            "counts": counts,
+        }
+
+    history_entry = {
+        "rev": cr.get("reviewed_rev", spec_config.get("current_rev", "?")),
+        "rev_index": spec_config.get("rev_index", 0),
+        "reviews": reviews_summary,
+        "merged_counts": merged,
+        "commit": spec_config.get("last_commit"),
+        "timestamp": datetime.now(JST).isoformat(),
+    }
+    spec_config.setdefault("review_history", []).append(history_entry)
+    spec_config["current_reviews"] = {}
+
+
+def cmd_spec_start(args):
+    """spec modeパイプライン開始（§4.2, §2.5, §2.6, §3.3）"""
+    path = get_path(args.project)
+    data = load_pipeline(path)
+
+    if data.get("state", "IDLE") != "IDLE":
+        raise SystemExit(f"Cannot start: state is {data['state']} (expected IDLE)")
+    if data.get("spec_mode"):
+        raise SystemExit("spec_mode already active")
+
+    if args.skip_review and args.review_only:
+        raise SystemExit("--skip-review and --review-only are mutually exclusive")
+
+    # §2.6 優先順位ルール適用
+    auto_continue = args.auto_continue
+    review_only = args.review_only
+    no_queue = args.no_queue
+    skip_review = args.skip_review
+
+    if skip_review:
+        auto_continue = True
+    if review_only:
+        auto_continue = False
+        no_queue = True
+
+    review_mode = args.review_mode or data.get("review_mode", "full")
+    reviewers = REVIEW_MODES.get(review_mode, REVIEW_MODES["full"])["members"]
+    review_requests = {
+        r: {
+            "status": "pending",
+            "sent_at": None,
+            "timeout_at": None,
+            "last_nudge_at": None,
+            "response": None,
+        }
+        for r in reviewers
+    }
+
+    pipelines_dir = str(Path(PIPELINES_DIR) / args.project / "spec-reviews")
+
+    def do_start(data):
+        sc = default_spec_config()
+        sc.update({
+            "spec_path": args.spec,
+            "spec_implementer": args.implementer,
+            "review_only": review_only,
+            "no_queue": no_queue,
+            "skip_review": skip_review,
+            "auto_continue": auto_continue,
+            "max_revise_cycles": args.max_cycles or MAX_SPEC_REVISE_CYCLES,
+            "model": args.model,
+            "review_requests": review_requests,
+            "pipelines_dir": pipelines_dir,
+        })
+        data["spec_mode"] = True
+        data["state"] = "SPEC_APPROVED" if skip_review else "SPEC_REVIEW"
+        data["enabled"] = True
+        if args.review_mode:
+            data["review_mode"] = review_mode
+        data["spec_config"] = sc
+
+    update_pipeline(path, do_start)
+    _start_loop()
+
+    target = "SPEC_APPROVED" if skip_review else "SPEC_REVIEW"
+    print(f"{args.project}: spec mode started (spec={args.spec}) → {target}")
+
+
+def cmd_spec_approve(args):
+    """SPEC_APPROVEDに遷移（§4.3）"""
+    path = get_path(args.project)
+    data = load_pipeline(path)
+    sc = data.get("spec_config", {})
+    state = data.get("state")
+
+    if not args.force:
+        cr = sc.get("current_reviews", {})
+        for reviewer, entry in cr.get("entries", {}).items():
+            v = entry.get("verdict", "")
+            if v in ("P0", "P1"):
+                raise SystemExit(
+                    f"Cannot approve: {reviewer} has {v}. Use --force to override."
+                )
+
+    # force時の remaining_p1_items 収集（update_pipeline 前に取得）
+    remaining_p1_items = []
+    if args.force:
+        cr = sc.get("current_reviews", {})
+        for reviewer, entry in cr.get("entries", {}).items():
+            if entry.get("verdict", "") in ("P0", "P1"):
+                for item in entry.get("items", []):
+                    remaining_p1_items.append(f"{reviewer}:{item.get('id', '?')}")
+
+    def do_approve(data):
+        sc = data["spec_config"]
+        if args.force:
+            _archive_current_reviews(sc)
+            sc.setdefault("force_events", []).append({
+                "at": datetime.now(JST).isoformat(),
+                "actor": "M",
+                "from_state": data["state"],
+                "rev": sc.get("current_rev", "?"),
+                "rev_index": sc.get("rev_index", 0),
+                "remaining_p1_items": remaining_p1_items,
+            })
+        data["state"] = "SPEC_APPROVED"
+
+    update_pipeline(path, do_approve)
+
+    if args.force:
+        try:
+            notify_discord(
+                f"⚠️ [spec-approve --force] {args.project}: "
+                f"rev{sc.get('current_rev', '?')} force-approved from {state}"
+            )
+        except Exception:
+            pass
+
+    print(f"{args.project}: → SPEC_APPROVED" + (" (forced)" if args.force else ""))
+
+
+def cmd_spec_continue(args):
+    """SPEC_APPROVED → ISSUE_SUGGESTION"""
+    path = get_path(args.project)
+    data = load_pipeline(path)
+    if data.get("state") != "SPEC_APPROVED":
+        raise SystemExit(f"Cannot continue: state is {data['state']} (expected SPEC_APPROVED)")
+
+    def do_continue(data):
+        data["state"] = "ISSUE_SUGGESTION"
+
+    update_pipeline(path, do_continue)
+    print(f"{args.project}: SPEC_APPROVED → ISSUE_SUGGESTION")
+
+
+def cmd_spec_done(args):
+    """SPEC_DONE → IDLE"""
+    path = get_path(args.project)
+    data = load_pipeline(path)
+    if data.get("state") != "SPEC_DONE":
+        raise SystemExit(f"Cannot done: state is {data['state']} (expected SPEC_DONE)")
+
+    def do_done(data):
+        data["state"] = "IDLE"
+        data["spec_mode"] = False
+        data["spec_config"] = {}
+
+    update_pipeline(path, do_done)
+    print(f"{args.project}: SPEC_DONE → IDLE (spec mode ended)")
+
+
+def cmd_spec_retry(args):
+    """SPEC_REVIEW_FAILED → SPEC_REVIEW（§4.5）"""
+    path = get_path(args.project)
+    data = load_pipeline(path)
+    if data.get("state") != "SPEC_REVIEW_FAILED":
+        raise SystemExit(f"Cannot retry: state is {data['state']} (expected SPEC_REVIEW_FAILED)")
+
+    def do_retry(data):
+        sc = data["spec_config"]
+        _reset_review_requests(sc)
+        sc["current_reviews"] = {}
+        data["state"] = "SPEC_REVIEW"
+
+    update_pipeline(path, do_retry)
+    print(f"{args.project}: SPEC_REVIEW_FAILED → SPEC_REVIEW (retry)")
+
+
+def cmd_spec_resume(args):
+    """SPEC_PAUSED → paused_from（§4.6）"""
+    path = get_path(args.project)
+    data = load_pipeline(path)
+    if data.get("state") != "SPEC_PAUSED":
+        raise SystemExit(f"Cannot resume: state is {data['state']} (expected SPEC_PAUSED)")
+
+    sc = data.get("spec_config", {})
+    paused_from = sc.get("paused_from")
+    if not paused_from:
+        raise SystemExit("Cannot resume: paused_from is null")
+
+    def do_resume(data):
+        sc = data["spec_config"]
+        now = datetime.now(JST)
+        target = sc["paused_from"]
+
+        if target == "SPEC_REVIEW":
+            _reset_review_requests(sc)
+            sc["current_reviews"] = {}
+
+        for entry in sc.get("review_requests", {}).values():
+            if entry.get("status") == "pending":
+                entry["timeout_at"] = (
+                    now + timedelta(seconds=SPEC_REVIEW_TIMEOUT_SEC)
+                ).isoformat()
+
+        if target == "ISSUE_SUGGESTION":
+            for entry in sc.get("issue_suggestions", {}).values():
+                if isinstance(entry, dict) and entry.get("status") == "pending":
+                    entry["timeout_at"] = (
+                        now + timedelta(seconds=SPEC_ISSUE_SUGGESTION_TIMEOUT_SEC)
+                    ).isoformat()
+
+        sc.setdefault("retry_counts", {})[target] = 0
+        data["state"] = target
+        sc["paused_from"] = None
+
+    update_pipeline(path, do_resume)
+    print(f"{args.project}: SPEC_PAUSED → {paused_from} (resumed)")
+
+
+def cmd_spec_extend(args):
+    """SPEC_STALLED → SPEC_REVISE（MAX_CYCLES増加）（§4.7）"""
+    path = get_path(args.project)
+    data = load_pipeline(path)
+    if data.get("state") != "SPEC_STALLED":
+        raise SystemExit(f"Cannot extend: state is {data['state']} (expected SPEC_STALLED)")
+
+    n = args.cycles
+
+    def do_extend(data):
+        sc = data["spec_config"]
+        sc["max_revise_cycles"] = sc.get("max_revise_cycles", MAX_SPEC_REVISE_CYCLES) + n
+        data["state"] = "SPEC_REVISE"
+
+    update_pipeline(path, do_extend)
+    print(f"{args.project}: SPEC_STALLED → SPEC_REVISE (max_cycles += {n})")
+
+
+def cmd_spec_status(args):
+    """spec mode ステータス表示（§4.4）"""
+    path = get_path(args.project)
+    data = load_pipeline(path)
+    sc = data.get("spec_config", {})
+
+    if not data.get("spec_mode"):
+        print(f"{args.project}: spec mode is not active")
+        return
+
+    state = data.get("state", "?")
+    rev = sc.get("current_rev", "?")
+    cycle = f"{sc.get('revise_count', 0)}/{sc.get('max_revise_cycles', '?')}"
+
+    retry_parts = []
+    for k, v in sc.get("retry_counts", {}).items():
+        retry_parts.append(f"{k}={v}/{MAX_SPEC_RETRIES}")
+    retries = ", ".join(retry_parts) if retry_parts else "none"
+
+    print(f"DevBar [{state}] rev{rev} (cycle {cycle}, retries: {retries})")
+    print(f"  spec: {sc.get('spec_path', '?')}")
+    print(f"  implementer: {sc.get('spec_implementer', '?')}")
+
+    rr = sc.get("review_requests", {})
+    cr_entries = sc.get("current_reviews", {}).get("entries", {})
+    reviewer_parts = []
+    for r, entry in rr.items():
+        status = entry.get("status", "?")
+        if r in cr_entries:
+            ce = cr_entries[r]
+            verdict = ce.get("verdict", "?")
+            items = ce.get("items", [])
+            p0_count = sum(
+                1 for i in items if i.get("severity", "").upper() in ("CRITICAL", "P0")
+            )
+            reviewer_parts.append(f"{r}({'✅' if verdict == 'APPROVE' else verdict} P0×{p0_count})")
+        else:
+            reviewer_parts.append(f"{r}({'⏳' if status == 'pending' else status})")
+    print(f"  reviewers: {', '.join(reviewer_parts)}")
+
+    review_mode = data.get("review_mode", "full")
+    min_valid = MIN_VALID_REVIEWS_BY_MODE.get(review_mode, 2)
+    print(f"  min_valid: {min_valid} ({review_mode} mode)")
+    print(f"  pipelines_dir: {sc.get('pipelines_dir', '?')}")
+
+
+def cmd_spec(args):
+    """spec サブコマンドのディスパッチ"""
+    spec_cmds = {
+        "start": cmd_spec_start,
+        "approve": cmd_spec_approve,
+        "continue": cmd_spec_continue,
+        "done": cmd_spec_done,
+        "retry": cmd_spec_retry,
+        "resume": cmd_spec_resume,
+        "extend": cmd_spec_extend,
+        "status": cmd_spec_status,
+    }
+    if not args.spec_command:
+        raise SystemExit(
+            "usage: devbar spec {start|approve|continue|done|retry|resume|extend|status}"
+        )
+    spec_cmds[args.spec_command](args)
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="devbar",
@@ -1081,6 +1423,54 @@ def main():
     p.add_argument("--queue", type=Path, help="キューファイルパス (default: devbar-queue.txt)")
     p.add_argument("--dry-run", action="store_true", help="実行せず内容のみ表示")
 
+    # spec
+    spec_parser = sub.add_parser("spec", help="Spec mode commands")
+    spec_sub = spec_parser.add_subparsers(dest="spec_command")
+
+    # spec start
+    p = spec_sub.add_parser("start", help="spec modeパイプライン開始")
+    p.add_argument("--pj", "--project", dest="project", required=True)
+    p.add_argument("--spec", required=True, help="specファイルのリポジトリ相対パス")
+    p.add_argument("--implementer", required=True, help="改訂エージェントID")
+    p.add_argument("--review-only", action="store_true", default=False, dest="review_only")
+    p.add_argument("--no-queue", action="store_true", default=False, dest="no_queue")
+    p.add_argument("--skip-review", action="store_true", default=False, dest="skip_review")
+    p.add_argument("--max-cycles", type=int, default=None, dest="max_cycles")
+    p.add_argument("--review-mode", default=None, dest="review_mode",
+                   choices=["full", "standard", "lite", "min"])
+    p.add_argument("--model", default=None)
+    p.add_argument("--auto-continue", action="store_true", default=False, dest="auto_continue")
+
+    # spec approve
+    p = spec_sub.add_parser("approve", help="SPEC_APPROVEDに遷移")
+    p.add_argument("--pj", "--project", dest="project", required=True)
+    p.add_argument("--force", action="store_true", default=False)
+
+    # spec continue
+    p = spec_sub.add_parser("continue", help="APPROVED → ISSUE_SUGGESTION")
+    p.add_argument("--pj", "--project", dest="project", required=True)
+
+    # spec done
+    p = spec_sub.add_parser("done", help="SPEC_DONE → IDLE")
+    p.add_argument("--pj", "--project", dest="project", required=True)
+
+    # spec retry
+    p = spec_sub.add_parser("retry", help="FAILED → REVIEW")
+    p.add_argument("--pj", "--project", dest="project", required=True)
+
+    # spec resume
+    p = spec_sub.add_parser("resume", help="PAUSED → paused_from")
+    p.add_argument("--pj", "--project", dest="project", required=True)
+
+    # spec extend
+    p = spec_sub.add_parser("extend", help="STALLED → REVISE (MAX増加)")
+    p.add_argument("--pj", "--project", dest="project", required=True)
+    p.add_argument("--cycles", type=int, default=2, help="追加サイクル数 (default: 2)")
+
+    # spec status
+    p = spec_sub.add_parser("status", help="spec mode ステータス表示")
+    p.add_argument("--pj", "--project", dest="project", required=True)
+
     args = parser.parse_args()
     if not args.command:
         parser.print_help()
@@ -1097,6 +1487,7 @@ def main():
         "review-mode": cmd_review_mode,
         "merge-summary": cmd_merge_summary,
         "qrun": cmd_qrun,
+        "spec": cmd_spec,
     }
     cmds[args.command](args)
 

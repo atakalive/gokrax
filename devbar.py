@@ -1027,9 +1027,14 @@ def cmd_spec_start(args):
     if args.skip_review and args.review_only:
         raise SystemExit("--skip-review and --review-only are mutually exclusive")
 
-    # specファイル存在チェック（cwd相対パス）
-    if not Path(args.spec).exists():
-        raise SystemExit(f"Spec file not found: {args.spec}")
+    # specファイル存在チェック（repo_path相対）
+    repo_path = data.get("repo_path", "")
+    if repo_path and not Path(args.spec).is_absolute():
+        spec_resolved = Path(repo_path) / args.spec
+    else:
+        spec_resolved = Path(args.spec)
+    if not spec_resolved.exists():
+        raise SystemExit(f"Spec file not found: {spec_resolved}")
 
     # §2.6 優先順位ルール適用
     auto_continue = args.auto_continue
@@ -1066,7 +1071,7 @@ def cmd_spec_start(args):
             raise SystemExit("spec_mode already active")
         sc = default_spec_config()
         sc.update({
-            "spec_path": args.spec,
+            "spec_path": str(spec_resolved.resolve()),
             "spec_implementer": args.implementer,
             "review_only": review_only,
             "no_queue": no_queue,
@@ -1191,6 +1196,31 @@ def cmd_spec_done(args):
     update_pipeline(path, do_done)
     print(f"{args.project}: SPEC_DONE → IDLE (spec mode ended)")
 
+
+
+
+def cmd_spec_stop(args):
+    """spec modeを強制停止してIDLEに戻す"""
+    path = get_path(args.project)
+    data = load_pipeline(path)
+    if not data.get("spec_mode"):
+        raise SystemExit(f"{args.project}: spec mode is not active")
+
+    old_state = data.get("state", "IDLE")
+
+    def do_stop(data):
+        data["state"] = "IDLE"
+        data["spec_mode"] = False
+        data["spec_config"] = {}
+        data["enabled"] = False
+        add_history(data, old_state, "IDLE", actor="cli:spec-stop")
+
+    update_pipeline(path, do_stop)
+    if not _any_pj_enabled():
+        _stop_loop()
+        print(f"{args.project}: spec mode stopped ({old_state} → IDLE, watchdog disabled, loop stopped)")
+    else:
+        print(f"{args.project}: spec mode stopped ({old_state} → IDLE, watchdog disabled)")
 
 def cmd_spec_retry(args):
     """SPEC_REVIEW_FAILED → SPEC_REVIEW（§4.5）"""
@@ -1326,10 +1356,11 @@ def cmd_spec(args):
         "resume": cmd_spec_resume,
         "extend": cmd_spec_extend,
         "status": cmd_spec_status,
+        "stop": cmd_spec_stop,
     }
     if not args.spec_command:
         raise SystemExit(
-            "usage: devbar spec {start|approve|continue|done|retry|resume|extend|status}"
+            "usage: devbar spec {start|stop|approve|continue|done|retry|resume|extend|status}"
         )
     spec_cmds[args.spec_command](args)
 
@@ -1473,6 +1504,10 @@ def main():
     p.add_argument("--model", default=None)
     p.add_argument("--auto-continue", action="store_true", default=False, dest="auto_continue")
 
+    # spec stop
+    p = spec_sub.add_parser("stop", help="spec modeを強制停止してIDLEに戻す")
+    p.add_argument("--pj", "--project", dest="project", required=True)
+
     # spec approve
     p = spec_sub.add_parser("approve", help="SPEC_APPROVEDに遷移")
     p.add_argument("--pj", "--project", dest="project", required=True)
@@ -1526,3 +1561,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+# --- spec stop (injected) は下のparser登録で追加 ---

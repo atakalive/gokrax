@@ -97,7 +97,7 @@ class TestCmdSpecStart:
         assert data["spec_mode"] is True
         assert data["enabled"] is True
         sc = data["spec_config"]
-        assert sc["spec_path"] == "docs/spec.md"
+        assert sc["spec_path"].endswith("docs/spec.md")
         assert sc["spec_implementer"] == "kaneko"
         assert sc["auto_continue"] is False
         assert sc["review_only"] is False

@@ -213,3 +213,108 @@ tail -f /tmp/devbar-watchdog.log
 # pipeline JSON確認
 cat ~/.openclaw/shared/pipelines/BeamShifter.json | python3 -m json.tool
 ```
+
+---
+
+## Spec Mode（仕様書レビューパイプライン）
+
+specレビュー → 改訂ループ → Issue起票 → キュー生成を自動化する。
+
+### 基本フロー
+
+```bash
+# 1. spec-modeパイプライン開始
+python3 devbar.py spec start --pj TrajOpt \
+  --spec /mnt/s/wsl/work/project/TrajOpt/docs/SPEC.md --implementer kaneko
+
+# --- ここから自動 ---
+# watchdog: SPEC_REVIEW（レビュアーに自動通知）
+# watchdog: P0あり → SPEC_REVISE（implementerに改訂指示）
+# watchdog: 改訂完了 → SPEC_REVIEW（再レビュー）
+# ... REVIEW⇔REVISEループ（max-cycles回まで）
+# watchdog: 全員APPROVE → SPEC_APPROVED
+
+# 2. [M] 確認後、Issue化フェーズに進む
+python3 devbar.py spec continue --pj TrajOpt
+
+# --- 自動 ---
+# ISSUE_SUGGESTION → ISSUE_PLAN → QUEUE_PLAN → SPEC_DONE
+
+# 3. 完了 → IDLEに戻す
+python3 devbar.py spec done --pj TrajOpt
+```
+
+### コマンド一覧
+
+#### `spec start` — spec-modeパイプライン開始
+
+```bash
+python3 devbar.py spec start --pj <PROJECT> --spec <PATH> --implementer <AGENT>
+```
+
+| オプション | 説明 |
+|---|---|
+| `--pj` / `--project` | プロジェクト名（必須） |
+| `--spec` | specファイルのパス（cwd相対、必須） |
+| `--implementer` | 改訂担当エージェントID（必須） |
+| `--review-mode` | full / standard / lite / min |
+| `--max-cycles` | REVIEW⇔REVISEの最大ループ数 |
+| `--model` | CC使用モデル指定 |
+| `--skip-review` | レビュースキップ（即APPROVED） |
+| `--review-only` | レビューだけ行いIssue化しない |
+| `--no-queue` | キュー生成をスキップ |
+| `--auto-continue` | APPROVED後にM確認スキップで自動的にISSUE_SUGGESTIONへ |
+
+#### `spec approve` — 手動でSPEC_APPROVEDに遷移
+
+```bash
+python3 devbar.py spec approve --pj <PROJECT> [--force]
+```
+
+レビューが膠着した場合等に手動でAPPROVE。`--force` でmin_reviews未到達でも強制遷移。
+
+#### `spec continue` — APPROVED → ISSUE_SUGGESTION
+
+```bash
+python3 devbar.py spec continue --pj <PROJECT>
+```
+
+SPEC_APPROVED状態でのみ有効。Issue起票フェーズに進む。
+
+#### `spec extend` — STALLED → REVISE（サイクル上限追加）
+
+```bash
+python3 devbar.py spec extend --pj <PROJECT> [--cycles 2]
+```
+
+max-cyclesに到達してSTALLEDになった場合、サイクル数を追加して続行。
+
+#### `spec retry` — FAILED → REVIEW（やり直し）
+#### `spec resume` — PAUSED → 中断前の状態に復帰
+#### `spec stop` — spec modeを強制停止
+
+```bash
+python3 devbar.py spec stop --pj <PROJECT>
+```
+
+任意の状態からspec-modeを中断してIDLEに戻す。watchdogも無効化される。
+
+#### `spec done` — SPEC_DONE → IDLE
+#### `spec status` — 現在のspec-mode状態表示
+
+### Spec Mode 状態遷移
+
+```
+SPEC_REVIEW ⇔ SPEC_REVISE（max-cyclesまでループ）
+    ↓ 全員APPROVE
+SPEC_APPROVED
+    ↓ spec continue
+ISSUE_SUGGESTION → ISSUE_PLAN → QUEUE_PLAN → SPEC_DONE
+    ↓ spec done
+IDLE
+```
+
+特殊状態:
+- **STALLED**: max-cycles到達。`spec extend` で続行
+- **FAILED**: エラー発生。`spec retry` でREVIEWに戻す
+- **PAUSED**: 手動中断。`spec resume` で復帰

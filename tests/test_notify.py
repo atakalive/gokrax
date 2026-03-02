@@ -17,50 +17,17 @@ sys.path.insert(0, str(ROOT))
 
 class TestGetBotToken:
 
-    def test_file_not_found(self, tmp_path, caplog):
+    def test_returns_config_token(self):
         import notify
-        with patch.object(notify, "GATEWAY_TOKEN_PATH", tmp_path / "nonexistent.json"):
-            with caplog.at_level(logging.ERROR, logger="devbar.notify"):
-                result = notify.get_bot_token()
-        assert result is None
-        assert "Gateway config not found" in caplog.text
-
-    def test_invalid_json(self, tmp_path, caplog):
-        import notify
-        bad_file = tmp_path / "bad.json"
-        bad_file.write_text("{invalid json")
-        with patch.object(notify, "GATEWAY_TOKEN_PATH", bad_file):
-            with caplog.at_level(logging.ERROR, logger="devbar.notify"):
-                result = notify.get_bot_token()
-        assert result is None
-        assert "Invalid JSON" in caplog.text
-
-    def test_key_not_found(self, tmp_path, caplog):
-        import notify
-        cfg = tmp_path / "cfg.json"
-        cfg.write_text(json.dumps({"channels": {}}))
-        with patch.object(notify, "GATEWAY_TOKEN_PATH", cfg):
-            with caplog.at_level(logging.ERROR, logger="devbar.notify"):
-                result = notify.get_bot_token()
-        assert result is None
-        assert "key not found" in caplog.text
-
-    def test_success(self, tmp_path):
-        import notify
-        cfg = tmp_path / "cfg.json"
-        cfg.write_text(json.dumps({
-            "channels": {
-                "discord": {
-                    "accounts": {
-                        "kaneko-bot": {"token": "test-token-123"}
-                    }
-                }
-            }
-        }))
-        with patch.object(notify, "GATEWAY_TOKEN_PATH", cfg):
-            with patch.object(notify, "DISCORD_BOT_ACCOUNT", "kaneko-bot"):
-                result = notify.get_bot_token()
+        with patch.object(notify, "DISCORD_BOT_TOKEN", "test-token-123"):
+            result = notify.get_bot_token()
         assert result == "test-token-123"
+
+    def test_returns_none_when_empty(self):
+        import notify
+        with patch.object(notify, "DISCORD_BOT_TOKEN", None):
+            result = notify.get_bot_token()
+        assert result is None
 
 
 class TestSendToAgent:

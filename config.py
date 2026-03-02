@@ -10,7 +10,7 @@ DRY_RUN: bool = os.environ.get("DEVBAR_DRY_RUN", "").strip() not in ("", "0", "f
 PIPELINES_DIR = Path(os.environ["DEVBAR_PIPELINES_DIR"]) if "DEVBAR_PIPELINES_DIR" in os.environ else Path.home() / ".openclaw/shared/pipelines"
 DEVBAR_CLI = PurePosixPath("/home/ataka/.openclaw/shared/bin/devbar")
 GLAB_BIN = "/home/ataka/bin/glab"
-GATEWAY_TOKEN_PATH = Path.home() / ".openclaw/openclaw.json"
+# GATEWAY_TOKEN_PATH removed — using direct bot token
 LOG_FILE = Path("/tmp/devbar-watchdog.log")
 QUEUE_FILE = PIPELINES_DIR / "devbar-queue.txt"  # Default. Don't delete this line.
 QUEUE_FILE = Path("/mnt/s/wsl/work/project/DevBar/devbar-queue.txt")
@@ -28,7 +28,7 @@ WATCHDOG_LOOP_CRON_ENTRY = (
 
 # Discord
 DISCORD_CHANNEL = "1474050582049329213"  # #dev-bar channel ID
-DISCORD_BOT_ACCOUNT = "kaneko-discord"  # 金子さんの発言として投稿
+DISCORD_BOT_TOKEN = "***REDACTED***"
 
 # CC model
 CC_MODEL_PLAN = "sonnet"     # DESIGN_PLAN フェーズ
@@ -287,7 +287,7 @@ STATE_PHASE_MAP.update({s: "spec" for s in SPEC_STATES})
 # 1-E. spec mode 定数（§3.2）
 MAX_SPEC_REVISE_CYCLES: int = 5
 MIN_VALID_REVIEWS_BY_MODE: dict[str, int] = {
-    "full": 2, "standard": 2, "lite": 1, "min": 1,
+    "full": 3, "standard": 2, "lite": 2, "min": 1,
 }
 SPEC_REVIEW_TIMEOUT_SEC: int = 1800
 SPEC_REVISE_TIMEOUT_SEC: int = 1800

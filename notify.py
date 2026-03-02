@@ -13,7 +13,7 @@ import requests
 
 import config
 from config import (
-    DEVBAR_CLI, GLAB_BIN, DISCORD_CHANNEL, DISCORD_BOT_ACCOUNT, GATEWAY_TOKEN_PATH,
+    DEVBAR_CLI, GLAB_BIN, DISCORD_CHANNEL, DISCORD_BOT_TOKEN,
     AGENTS, REVIEW_MODES, MAX_EMBED_CHARS, GLAB_TIMEOUT,
     AGENT_SEND_TIMEOUT, DISCORD_POST_TIMEOUT, POST_NEW_COMMAND_WAIT_SEC
 )
@@ -121,31 +121,7 @@ def ping_agent(agent_id: str, timeout: int = 20) -> bool:
 
 
 def get_bot_token() -> str | None:
-    """Discord bot token取得。失敗時はログ出力してNone返却。"""
-    import re
-    try:
-        text = GATEWAY_TOKEN_PATH.read_text()
-    except FileNotFoundError:
-        logger.error("Gateway config not found: %s", GATEWAY_TOKEN_PATH)
-        return None
-    except OSError as e:
-        logger.error("Cannot read gateway config: %s", e)
-        return None
-
-    # trailing comma 除去
-    text = re.sub(r',\s*([}\]])', r'\1', text)
-
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError as e:
-        logger.error("Invalid JSON in gateway config: %s", e)
-        return None
-
-    try:
-        return data["channels"]["discord"]["accounts"][DISCORD_BOT_ACCOUNT]["token"]
-    except KeyError as e:
-        logger.error("Discord bot token key not found: %s (account=%s)", e, DISCORD_BOT_ACCOUNT)
-        return None
+    return DISCORD_BOT_TOKEN
 
 
 def post_discord(channel_id: str, content: str, retries: int = 3) -> str | None:

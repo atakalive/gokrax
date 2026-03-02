@@ -282,7 +282,7 @@ def _check_nudge(state: str, data: dict) -> TransitionAction | None:
 _VERDICT_EMOJI = {"APPROVE": "🟢", "P0": "🔴", "P1": "🟡"}
 
 
-def _format_merge_summary(project: str, batch: list, automerge: bool = False) -> str:
+def _format_merge_summary(project: str, batch: list, automerge: bool = False, queue_mode: bool = False) -> str:
     """#dev-bar 投稿用マージサマリーを生成する。
 
     2000文字超は post_discord が自動分割するので、ここでは切り詰めない。
@@ -291,9 +291,11 @@ def _format_merge_summary(project: str, batch: list, automerge: bool = False) ->
         project: プロジェクト名
         batch: バッチアイテム
         automerge: automerge有効時は True (Issue #45)
+        queue_mode: qrun実行時は True (Issue #60)
     """
     from config import MERGE_SUMMARY_FOOTER
-    lines = [f"**[{project}] マージサマリー**\n"]
+    q_prefix = "[Queue]" if queue_mode else ""
+    lines = [f"**{q_prefix}[{project}] マージサマリー**\n"]
     for item in batch:
         num = item["issue"]
         title = item.get("title", "")
@@ -652,6 +654,7 @@ def _start_cc(project: str, batch: list, gitlab: str, repo_path: str, pipeline_p
     data = load_pipeline(pipeline_path)
     plan_model = data.get("cc_plan_model") or CC_MODEL_PLAN
     impl_model = data.get("cc_impl_model") or CC_MODEL_IMPL
+    q_tag = "[Queue]" if data.get("queue_mode") else ""
 
     # keep_ctx_batch: 前バッチの cc_session_id を再利用 (Issue #58)
     prev_session = data.get("cc_session_id") if data.get("keep_ctx_batch") else None
@@ -705,16 +708,16 @@ cd "{repo_path}"
 _notify() {{ local ts=$(date +"%m/%d %H:%M"); python3 -c "import sys; sys.path.insert(0,'{Path(DEVBAR_CLI).resolve().parent}'); from notify import notify_discord; notify_discord(sys.argv[1])" "$1 ($ts)" 2>/dev/null || true; }}
 
 # Phase 1: Plan
-_notify "[{project}] 📋 CC Plan 開始 (model: {plan_model})"
+_notify "{q_tag}[{project}] 📋 CC Plan 開始 (model: {plan_model})"
 claude -p --model "{plan_model}" {"--resume" if prev_session else "--session-id"} "{session_id}" \
   --permission-mode plan --output-format json < "{plan_path}"
-_notify "[{project}] ✅ CC Plan 完了"
+_notify "{q_tag}[{project}] ✅ CC Plan 完了"
 
 # Phase 2: Impl
-_notify "[{project}] 🔨 CC Impl 開始 (model: {impl_model})"
+_notify "{q_tag}[{project}] 🔨 CC Impl 開始 (model: {impl_model})"
 claude -p --model "{impl_model}" --resume "{session_id}" \
   --permission-mode bypassPermissions --output-format json < "{impl_path}"
-_notify "[{project}] ✅ CC Impl 完了"
+_notify "{q_tag}[{project}] ✅ CC Impl 完了"
 
 # コミットハッシュ取得
 HASH=$(git log --oneline -1 --format=%h)
@@ -1742,6 +1745,7 @@ def process(path: Path):
                 "nudge_reviewers": list(action.nudge_reviewers),
                 "batch": list(batch),
                 "old_state": state,
+                "queue_mode": data.get("queue_mode", False),
             })
             return
 
@@ -1772,6 +1776,7 @@ def process(path: Path):
                 "batch": list(batch),
                 "gitlab": data.get("gitlab", f"atakalive/{pj}"),
                 "nudge_count": data[key],
+                "queue_mode": data.get("queue_mode", False),
             })
             return
 
@@ -2027,8 +2032,9 @@ def process(path: Path):
 
             if woken:
                 ts = _datetime.now(JST).strftime("%m/%d %H:%M")
+                q_prefix = "[Queue]" if notification.get("queue_mode") else ""
                 log(f"[{pj}] レビュアーを催促: {', '.join(woken)} ({ts})")
-                notify_discord(f"[{pj}] レビュアーを催促: {', '.join(woken)} ({ts})")
+                notify_discord(f"{q_prefix}[{pj}] レビュアーを催促: {', '.join(woken)} ({ts})")
             return
 
         if action.nudge:
@@ -2062,7 +2068,8 @@ def process(path: Path):
                 nudge_msg += action.extend_notice
             send_to_agent_queued(notification["implementer"], nudge_msg)
             ts = _datetime.now(JST).strftime("%m/%d %H:%M")
-            notify_discord(f"[{pj}] {action.nudge}: 担当者 {notification['implementer']} を催促 ({ts})")
+            q_prefix = "[Queue]" if notification.get("queue_mode") else ""
+            notify_discord(f"{q_prefix}[{pj}] {action.nudge}: 担当者 {notification['implementer']} を催促 ({ts})")
             return
 
         ts = _datetime.now(JST).strftime("%m/%d %H:%M")
@@ -2083,14 +2090,14 @@ def process(path: Path):
                 if p0_reviewers:
                     lines.append(f"#{item['issue']}: {len(p0_reviewers)} P0 ({', '.join(p0_reviewers)})")
             if lines:
-                notify_discord(f"[{pj}] REVISE対象:\n" + "\n".join(lines))
+                notify_discord(f"{q_prefix}[{pj}] REVISE対象:\n" + "\n".join(lines))
 
         # バッチ開始時のみIssue一覧を別メッセージで通知
         if action.new_state == "DESIGN_PLAN":
             batch = notification["batch"]
             if batch:
                 issue_lines = [f"#{i['issue']}: {i.get('title', '')}" for i in batch]
-                notify_discord(f"[{pj}] 対象Issue:\n" + "\n".join(issue_lines))
+                notify_discord(f"{q_prefix}[{pj}] 対象Issue:\n" + "\n".join(issue_lines))
 
         # MERGE_SUMMARY_SENT遷移時: #dev-bar にサマリーを投稿（リトライ付き）
         if action.send_merge_summary:
@@ -2101,7 +2108,7 @@ def process(path: Path):
             path = get_path(pj)
             pipeline_data = load_pipeline(path)
             automerge = pipeline_data.get("automerge", False)
-            content = _format_merge_summary(pj, batch, automerge=automerge)
+            content = _format_merge_summary(pj, batch, automerge=automerge, queue_mode=notification.get("queue_mode", False))
             message_id = post_discord(DISCORD_CHANNEL, content)
             if message_id:
                 # summary_message_id をパイプラインに保存

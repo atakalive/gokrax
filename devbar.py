@@ -938,6 +938,12 @@ def cmd_qrun(args):
         keep_ctx_intra=entry.get("keep_ctx_intra", False),
     )
 
+    # queue_mode を先に設定（cmd_start 内の遷移通知で [Queue] prefix を使うため）
+    path = get_path(project)
+    def _set_queue_mode_early(data):
+        data["queue_mode"] = True
+    update_pipeline(path, _set_queue_mode_early)
+
     # cmd_start 実行 (エラー時は復元)
     try:
         cmd_start(start_args)
@@ -947,10 +953,7 @@ def cmd_qrun(args):
         raise
 
     # 成功: automerge/cc_model をパイプラインに保存
-    path = get_path(project)
-
     def _save_queue_options(data):
-        data["queue_mode"] = True
         if entry.get("automerge"):
             data["automerge"] = True
         if entry.get("cc_plan_model"):

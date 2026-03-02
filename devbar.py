@@ -1345,6 +1345,124 @@ def cmd_spec_status(args):
     print(f"  pipelines_dir: {sc.get('pipelines_dir', '?')}")
 
 
+def cmd_spec_review_submit(args):
+    """spec mode レビュー結果をYAMLファイルから取り込む"""
+    path = get_path(args.project)
+
+    # ファイル読み込み
+    review_path = Path(args.file)
+    if not review_path.is_file():
+        raise SystemExit(f"File not found: {args.file}")
+    raw_text = review_path.read_text(encoding="utf-8")
+
+    # パース（既存の parse_review_yaml を使用 — spec_review.py §5.5）
+    # フェンス付き（```yaml ... ```）→ そのまま解析
+    # フェンスなし（素のYAML）→ フェンスで包んで再試行
+    from spec_review import parse_review_yaml
+    result = parse_review_yaml(raw_text, args.reviewer)
+    if not result.parse_success:
+        result = parse_review_yaml(f"```yaml\n{raw_text}\n```", args.reviewer)
+    if not result.parse_success:
+        raise SystemExit(
+            f"Failed to parse review YAML from {args.file}. "
+            f"Ensure the file contains valid YAML with 'verdict' and 'items' keys."
+        )
+
+    # SIGTERM遅延（cmd_review L636-648 と同パターン）
+    _deferred = False
+    _orig = signal.getsignal(signal.SIGTERM)
+
+    def _defer_sigterm(signum, frame):
+        nonlocal _deferred
+        _deferred = True
+
+    signal.signal(signal.SIGTERM, _defer_sigterm)
+
+    try:
+        # pipeline JSON に書き込み
+        def do_submit(data):
+            state = data.get("state", "IDLE")
+            if state != "SPEC_REVIEW":
+                raise SystemExit(f"Not in SPEC_REVIEW state: {state}")
+
+            sc = data.get("spec_config", {})
+            rr = sc.get("review_requests", {})
+
+            # reviewer が review_requests に存在するか確認
+            if args.reviewer not in rr:
+                raise SystemExit(
+                    f"Reviewer '{args.reviewer}' not in review_requests. "
+                    f"Valid reviewers: {list(rr.keys())}"
+                )
+
+            # 冪等性: 既に received なら上書きせずスキップ
+            cr = sc.setdefault("current_reviews", {})
+            entries = cr.setdefault("entries", {})
+            if args.reviewer in entries and entries[args.reviewer].get("status") == "received":
+                print(f"{args.reviewer}: already submitted, skipping")
+                return
+
+            # items を dict のリストに変換（SpecReviewItem → dict）
+            items_dicts = [
+                {
+                    "id": item.id,
+                    "severity": item.severity,
+                    "section": item.section,
+                    "title": item.title,
+                    "description": item.description,
+                    "suggestion": item.suggestion,
+                    "reviewer": item.reviewer,
+                    "normalized_id": item.normalized_id,
+                }
+                for item in result.items
+            ]
+
+            # current_reviews.entries に書き込み（§3.1 received 不変条件を満たす形式）
+            entries[args.reviewer] = {
+                "status": "received",
+                "verdict": result.verdict,
+                "items": items_dicts,
+                "raw_text": result.raw_text,
+                "parse_success": True,
+            }
+
+            # review_requests のステータスも更新（§5.2: pending → received）
+            rr[args.reviewer]["status"] = "received"
+
+            sc["current_reviews"] = cr
+            data["spec_config"] = sc
+
+        data = update_pipeline(path, do_submit)
+    finally:
+        signal.signal(signal.SIGTERM, _orig)
+        if _deferred:
+            signal.raise_signal(signal.SIGTERM)
+
+    # 結果表示
+    print(f"{args.project}: spec review by {args.reviewer} submitted")
+    print(f"  verdict: {result.verdict}")
+    print(f"  items: {len(result.items)}")
+    for item in result.items:
+        print(f"    {item.normalized_id} [{item.severity}] {item.title}")
+
+    # §12.1: レビュー原文を pipelines_dir にも保存（アーカイブ用）
+    sc = data.get("spec_config", {})
+    pipelines_dir = sc.get("pipelines_dir")
+    if pipelines_dir:
+        from config import JST as _JST
+        spec_name = Path(sc.get("spec_path", "")).stem
+        current_rev = sc.get("current_rev", "1")
+        ts = datetime.now(_JST).strftime("%Y%m%dT%H%M%S")
+        archive_name = f"{ts}_{args.reviewer}_{spec_name}_rev{current_rev}.yaml"
+        archive_path = Path(pipelines_dir) / archive_name
+        try:
+            archive_path.write_text(raw_text, encoding="utf-8")
+            archive_path.chmod(0o600)
+            print(f"  archived: {archive_path}")
+        except OSError as e:
+            print(f"  warning: archive failed: {e}")
+
+
 def cmd_spec(args):
     """spec サブコマンドのディスパッチ"""
     spec_cmds = {
@@ -1357,10 +1475,11 @@ def cmd_spec(args):
         "extend": cmd_spec_extend,
         "status": cmd_spec_status,
         "stop": cmd_spec_stop,
+        "review-submit": cmd_spec_review_submit,
     }
     if not args.spec_command:
         raise SystemExit(
-            "usage: devbar spec {start|stop|approve|continue|done|retry|resume|extend|status}"
+            "usage: devbar spec {start|stop|approve|continue|done|retry|resume|extend|status|review-submit}"
         )
     spec_cmds[args.spec_command](args)
 
@@ -1537,6 +1656,12 @@ def main():
     # spec status
     p = spec_sub.add_parser("status", help="spec mode ステータス表示")
     p.add_argument("--pj", "--project", dest="project", required=True)
+
+    # spec review-submit
+    p = spec_sub.add_parser("review-submit", help="レビュー結果をYAMLファイルから投入")
+    p.add_argument("--pj", "--project", dest="project", required=True)
+    p.add_argument("--reviewer", required=True)
+    p.add_argument("--file", required=True)
 
     args = parser.parse_args()
     if not args.command:

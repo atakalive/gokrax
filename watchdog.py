@@ -950,8 +950,14 @@ items:
     suggestion: "修正案"
 ```
 
-## レビュー結果の保存
-`{pipelines_dir}/{spec_name}_rev{current_rev}.md`"""
+## レビュー結果の投入手順
+1. ワークスペース内にYAMLファイルを保存（パスは任意）
+2. 以下のコマンドで投入:
+```bash
+python3 {DEVBAR_CLI} spec review-submit --pj {project} --reviewer <YOUR_NAME> --file <保存したファイルのパス>
+```
+
+ファイルは素のYAMLでも、上記「出力フォーマット」の ```yaml ... ``` ブロックを含むMarkdownでも可。"""
 
 
 def _build_spec_review_prompt_revision(
@@ -985,8 +991,14 @@ def _build_spec_review_prompt_revision(
 - 重篤度・セクション番号・YAMLフォーマットは前回と同様
 - YAMLブロックは応答内で**1つだけ**
 
-## レビュー結果の保存
-`{pipelines_dir}/{spec_name}_rev{current_rev}.md`"""
+## レビュー結果の投入手順
+1. ワークスペース内にYAMLファイルを保存（パスは任意）
+2. 以下のコマンドで投入:
+```bash
+python3 {DEVBAR_CLI} spec review-submit --pj {project} --reviewer <YOUR_NAME> --file <保存したファイルのパス>
+```
+
+ファイルは素のYAMLでも、上記「出力フォーマット」の ```yaml ... ``` ブロックを含むMarkdownでも可。"""
 
 
 # ---------------------------------------------------------------------------

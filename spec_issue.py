@@ -243,12 +243,20 @@ def build_queue_plan_prompt(spec_config: dict, data: dict) -> str:
 
 - `issue_nums` はカンマ区切り（例: `{project} 51,52,53 full # Phase 1`）
 - 1バッチ内のIssueは並列実装される。依存関係があるIssueは別バッチにすること
-- review_mode は full / standard / lite から選択。
-- コストをかけてでも、Opusで計画・実装するほうががよい場合: `plan=opus` および `impl=opus` を指定可能。
-- `plan=opus` のみも可能。
+- review_mode は full / lite から選択。
+
+実装フェーズで使用するCCモデルは、問題の難易度に応じて選択する。
+- デフォルト: Sonnet （指定不要）
+- コストをかけてでもOpusで計画・実装するほうががよい場合: `plan=opus` および `impl=opus`
+- 計画は難しいが実装は簡単である場合、 `plan=opus` のみ指定してもよい。
+
+コンテキスト引き継ぎは、高コストになるが必要に応じて指定可能。
+- `--keep-ctt-batch` は前バッチのコンテキストを引き継ぐ場合に付与
+- `--keep-ctt-intra` はDESIGNフェーズから実装後CODEレビューまでコンテキストを引き継ぐ場合に付与
+- `--keep-ctx-all` は batch, intra 両方のコンテキストを引き継ぐ場合に付与
+
 - 依存関係がある場合は別バッチに分ける
-- 並列実行可能なIssueは同じ行にまとめる
-- `--keep-context` は前バッチのコンテキストを引き継ぐ場合に付与
+- 並列実行可能で、簡単なIssueは同じ行にまとめる
 
 ## 登録手順
 1. 既存のキューファイル（{queue_file_path}）の末尾にバッチ行を追記する

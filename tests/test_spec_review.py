@@ -229,6 +229,7 @@ class TestShouldContinueReview:
         entries = {
             "pascal": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
             "leibniz": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
+            "dijkstra": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
         }
         assert should_continue_review(self._config(entries), "full") == "approved"
 
@@ -236,6 +237,7 @@ class TestShouldContinueReview:
         entries = {
             "pascal": {"status": "received", "verdict": "P0", "items": [], "parse_success": True},
             "leibniz": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
+            "dijkstra": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
         }
         assert should_continue_review(self._config(entries), "full") == "revise"
 
@@ -243,6 +245,7 @@ class TestShouldContinueReview:
         entries = {
             "pascal": {"status": "received", "verdict": "P1", "items": [], "parse_success": True},
             "leibniz": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
+            "dijkstra": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
         }
         cfg = self._config(entries, revise_count=5, max_cycles=5)
         assert should_continue_review(cfg, "full") == "stalled"
@@ -266,12 +269,13 @@ class TestShouldContinueReview:
             "pascal": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
             "leibniz": {"status": "timeout"},
         }
-        # full requires 2, only 1 received, no parse_fail → failed
+        # full requires 3, only 1 received, no parse_fail → failed
         assert should_continue_review(self._config(entries), "full") == "failed"
 
     def test_lite_mode_one_approve(self):
         entries = {
             "pascal": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
+            "leibniz": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
         }
         assert should_continue_review(self._config(entries), "lite") == "approved"
 
@@ -285,7 +289,7 @@ class TestShouldContinueReview:
             "leibniz": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
         }
         # pascal は降格 → received=1 (leibniz only), parsed_fail=1 (pascal)
-        # full requires 2, received < min_valid, parsed_fail > 0 → paused
+        # full requires 3, received=1 < min_valid, parsed_fail=1 → paused
         assert should_continue_review(self._config(entries), "full") == "paused"
 
     def test_received_sufficient_with_parse_fail(self):
@@ -293,6 +297,7 @@ class TestShouldContinueReview:
         entries = {
             "pascal": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
             "leibniz": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
+            "dijkstra": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
             "hanfei": {"status": "parse_failed"},
         }
         assert should_continue_review(self._config(entries), "full") == "approved"
@@ -302,6 +307,7 @@ class TestShouldContinueReview:
         entries = {
             "pascal": {"status": "received", "verdict": "P1", "items": [], "parse_success": True},
             "leibniz": {"status": "received", "verdict": "P1", "items": [], "parse_success": True},
+            "dijkstra": {"status": "received", "verdict": "P1", "items": [], "parse_success": True},
         }
         cfg = {"current_reviews": {"entries": entries}}
         with pytest.raises(KeyError):

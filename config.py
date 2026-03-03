@@ -93,11 +93,13 @@ TRIAGE_ALLOWED_STATES = ["IDLE", "TRIAGE"]
 
 # エージェント
 AGENTS = {
-    "kaneko":   "agent:kaneko:main",
-    "pascal":   "agent:pascal:main",
-    "leibniz":  "agent:leibniz:main",
-    "hanfei":   "agent:hanfei:main",
-    "dijkstra": "agent:dijkstra:main",
+    "kaneko":   "agent:kaneko:main",    # Opus, Lead
+    "pascal":   "agent:pascal:main",    # Gemini
+    "leibniz":  "agent:leibniz:main",   # ChatGPT
+    "hanfei":   "agent:hanfei:main",    # Qwen
+    "dijkstra": "agent:dijkstra:main",  # Opus
+    "neumann":  "agent:neumann:main",   # Opus, Lead
+    "euler":    "agent:euler:main",     # ChatGPT
 }
 
 # REVIEWERS = ["pascal", "leibniz", "hanfei", "dijkstra"]
@@ -122,6 +124,11 @@ REVIEW_MODES = {
         "min_reviews": 2,
         "grace_period_sec": 300,
     },
+    "lite3": {
+        "members": ["leibniz", "pascal", "euler"],
+        "min_reviews": 3,
+        "grace_period_sec": 0,
+    },
     "lite": {
         "members": ["leibniz", "pascal"],
         "min_reviews": 2,
@@ -141,7 +148,7 @@ REVIEW_MODES = {
 
 # Reviewer tiers: regular, semi, free
 REVIEWER_TIERS: dict[str, list[str]] = {
-    "regular": ["leibniz", "dijkstra"],
+    "regular": ["leibniz", "dijkstra", "euler"],
     "semi": ["pascal"],
     "free": ["hanfei"],
 }

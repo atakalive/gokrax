@@ -383,6 +383,7 @@ devbar spec retry      FAILED → REVIEW
 devbar spec resume     PAUSED → paused_from
 devbar spec extend     STALLED → REVISE (MAX増加、既存指摘で改訂)
 devbar spec status     ステータス表示
+devbar spec stop       停止
 ```
 
 ### 4.2 devbar spec start

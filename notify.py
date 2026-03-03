@@ -22,18 +22,20 @@ logger = logging.getLogger("devbar.notify")
 
 
 def send_to_agent(agent_id: str, message: str, timeout: int = AGENT_SEND_TIMEOUT) -> bool:
-    """openclaw agent CLIでメッセージ送信。
+    """Gateway chat.send経由でメッセージ送信 (gateway-send.js)。
 
-    改行を保持する。idle状態のエージェントへの送信に使う。
-    run中のエージェントにはsend_to_agent_queued()を使うこと。
+    collectキュー（デフォルト）により、run中でもabortせずfollowup turnとして処理される。
+    stdin経由でメッセージを渡すため、ARG_MAX(128KB)制限を回避。
+    chat.sendは改行を保持する。二重送信問題もない。
     """
     if config.DRY_RUN:
         logger.info("[dry-run] send_to_agent skipped (agent=%s)", agent_id)
         return True
+    session_key = f"agent:{agent_id}:main"
     try:
         result = subprocess.run(
-            ["openclaw", "agent", "--agent", agent_id, "--message", message,
-             "--timeout", str(timeout), "--json"],
+            ["node", str(GATEWAY_SEND_SCRIPT), session_key],
+            input=message,
             capture_output=True, text=True, timeout=timeout + 10,
         )
         if result.returncode != 0:
@@ -44,38 +46,15 @@ def send_to_agent(agent_id: str, message: str, timeout: int = AGENT_SEND_TIMEOUT
         logger.warning("agent send timed out (agent=%s, timeout=%ds)", agent_id, timeout)
         return False
     except FileNotFoundError:
-        logger.error("openclaw CLI not found in PATH")
+        logger.error("node not found in PATH")
         return False
 
 
 GATEWAY_SEND_SCRIPT = Path(__file__).resolve().parent / "gateway-send.js"
 
-
 def send_to_agent_queued(agent_id: str, message: str, timeout: int = AGENT_SEND_TIMEOUT) -> bool:
-    """Gateway chat.send 経由でメッセージ送信（collectキュー、run中でもabortしない）。
-
-    chat.sendは改行を消す。催促など短いメッセージ専用。
-    改行が必要なメッセージにはsend_to_agent()を使うこと。
-    """
-    if config.DRY_RUN:
-        logger.info("[dry-run] send_to_agent_queued skipped (agent=%s)", agent_id)
-        return True
-    session_key = f"agent:{agent_id}:main"
-    try:
-        result = subprocess.run(
-            ["node", str(GATEWAY_SEND_SCRIPT), session_key, message],
-            capture_output=True, text=True, timeout=timeout + 10,
-        )
-        if result.returncode != 0:
-            logger.warning("gateway-send failed (rc=%d, agent=%s): %s",
-                          result.returncode, agent_id, result.stderr.strip())
-        return result.returncode == 0
-    except subprocess.TimeoutExpired:
-        logger.warning("gateway-send timed out (agent=%s, timeout=%ds)", agent_id, timeout)
-        return False
-    except FileNotFoundError:
-        logger.error("node not found in PATH")
-        return False
+    """send_to_agent のエイリアス。"""
+    return send_to_agent(agent_id, message, timeout)
 
 
 def ping_agent(agent_id: str, timeout: int = 20) -> bool:

@@ -134,14 +134,15 @@ class TestCheckSpecReview:
 
     def test_all_approve(self):
         """全員 received + APPROVE → SPEC_APPROVED。"""
-        sc = self._base_config(["pascal"])
-        sc["review_requests"]["pascal"]["status"] = "received"
-        sc["review_requests"]["pascal"]["sent_at"] = _now().isoformat()
-        sc["review_requests"]["pascal"]["timeout_at"] = (_now() + timedelta(seconds=1800)).isoformat()
-        sc["current_reviews"]["entries"]["pascal"] = {
-            "verdict": "APPROVE", "items": [], "raw_text": "",
-            "parse_success": True, "status": "received",
-        }
+        sc = self._base_config(["pascal", "leibniz"])
+        for r in ["pascal", "leibniz"]:
+            sc["review_requests"][r]["status"] = "received"
+            sc["review_requests"][r]["sent_at"] = _now().isoformat()
+            sc["review_requests"][r]["timeout_at"] = (_now() + timedelta(seconds=1800)).isoformat()
+            sc["current_reviews"]["entries"][r] = {
+                "verdict": "APPROVE", "items": [], "raw_text": "",
+                "parse_success": True, "status": "received",
+            }
         sc["revise_count"] = 0
         sc["max_revise_cycles"] = 5
         data = {"project": "test", "review_mode": "lite"}
@@ -164,8 +165,8 @@ class TestCheckSpecReview:
 
     def test_p0_triggers_revise(self):
         """P0 あり → SPEC_REVISE。"""
-        sc = self._base_config(["pascal", "leibniz"])
-        for r in ["pascal", "leibniz"]:
+        sc = self._base_config(["pascal", "leibniz", "dijkstra"])
+        for r in ["pascal", "leibniz", "dijkstra"]:
             sc["review_requests"][r]["status"] = "received"
             sc["review_requests"][r]["sent_at"] = _now().isoformat()
         sc["current_reviews"]["entries"]["pascal"] = {
@@ -173,6 +174,10 @@ class TestCheckSpecReview:
             "parse_success": True, "status": "received",
         }
         sc["current_reviews"]["entries"]["leibniz"] = {
+            "verdict": "APPROVE", "items": [], "raw_text": "",
+            "parse_success": True, "status": "received",
+        }
+        sc["current_reviews"]["entries"]["dijkstra"] = {
             "verdict": "APPROVE", "items": [], "raw_text": "",
             "parse_success": True, "status": "received",
         }

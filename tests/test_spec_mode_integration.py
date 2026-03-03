@@ -64,7 +64,7 @@ def _make_spec_config(**overrides):
     return cfg
 
 
-_REVIEWERS = ("pascal", "leibniz")
+_REVIEWERS = ("pascal", "leibniz", "dijkstra")
 
 
 def _pending_review_requests():
@@ -265,7 +265,7 @@ class TestReviewCycleE2E:
         data = _make_pipeline(state="SPEC_REVIEW", spec_mode=True, spec_config=sc)
 
         # 全員 received: pascal=P0, leibniz=APPROVE
-        _set_all_received(sc, {"pascal": "P0", "leibniz": "APPROVE"})
+        _set_all_received(sc, {"pascal": "P0", "leibniz": "APPROVE", "dijkstra": "APPROVE"})
         action = check_transition_spec("SPEC_REVIEW", sc, _now(), data)
         assert action.next_state == "SPEC_REVISE"
         sc = _apply_updates_to_sc(sc, action.pipeline_updates)
@@ -282,7 +282,7 @@ class TestReviewCycleE2E:
         sc = _apply_updates_to_sc(sc, pu)
 
         # 再 SPEC_REVIEW — 全員 APPROVE
-        _set_all_received(sc, {"pascal": "APPROVE", "leibniz": "APPROVE"})
+        _set_all_received(sc, {"pascal": "APPROVE", "leibniz": "APPROVE", "dijkstra": "APPROVE"})
         action = check_transition_spec("SPEC_REVIEW", sc, _now(), data)
         assert action.next_state == "SPEC_APPROVED"
 
@@ -300,7 +300,7 @@ class TestReviewCycleE2E:
             expected_next_rev = str(cycle + 2)
 
             # SPEC_REVIEW — P0
-            _set_all_received(sc, {"pascal": "P0", "leibniz": "APPROVE"})
+            _set_all_received(sc, {"pascal": "P0", "leibniz": "APPROVE", "dijkstra": "APPROVE"})
             action = check_transition_spec("SPEC_REVIEW", sc, _now(), data)
             assert action.next_state == "SPEC_REVISE"
             sc = _apply_updates_to_sc(sc, action.pipeline_updates)
@@ -426,7 +426,7 @@ class TestAbnormalFlowE2E:
         )
         data = _make_pipeline(state="SPEC_REVIEW", spec_mode=True, spec_config=sc)
 
-        _set_all_received(sc, {"pascal": "P1", "leibniz": "APPROVE"})
+        _set_all_received(sc, {"pascal": "P1", "leibniz": "APPROVE", "dijkstra": "APPROVE"})
         result = should_continue_review(sc, "full")
         assert result == "stalled"
 

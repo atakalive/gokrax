@@ -38,7 +38,7 @@ class TestSendToAgent:
             with caplog.at_level(logging.ERROR, logger="devbar.notify"):
                 result = notify.send_to_agent("test-agent", "hello")
         assert result is False
-        assert "openclaw CLI not found" in caplog.text
+        assert "node not found in PATH" in caplog.text
 
     def test_timeout(self, caplog):
         import notify

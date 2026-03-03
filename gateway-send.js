@@ -1,29 +1,53 @@
 #!/usr/bin/env node
 /**
- * gateway-send.js — Gateway chat.send経由でメッセージをcollectキューに積む
+ * gateway-send.js — Gateway chat.send経由でエージェントにメッセージを送る
  * 
- * openclaw agent CLIはrun中のセッションをabortする。
- * chat.sendはcollectキューに積まれるため、run中でも安全。
- * ただしchat.sendは改行を消す。催促など短いメッセージ専用。
+ * collectキュー（デフォルト）により、run中でもabortせずfollowup turnとして処理される。
+ * stdinからメッセージを読み込むため、引数長制限(ARG_MAX 128KB)を回避できる。
+ * chat.sendは改行を保持する。二重送信問題もない（openclaw agent CLI固有の問題）。
  * 
- * Usage: node gateway-send.js <sessionKey> <message>
+ * Usage: node gateway-send.js <sessionKey> [message]
+ * (message省略時はstdinから読み込みます)
  */
 
-const [,, sessionKey, message] = process.argv;
-if (!sessionKey || !message) {
-  console.error('Usage: node gateway-send.js <sessionKey> <message>');
+const args = process.argv.slice(2);
+const sessionKey = args[0];
+const inlineMessage = args[1];
+
+if (!sessionKey) {
+  console.error('Usage: node gateway-send.js <sessionKey> [message]');
   process.exit(1);
 }
 
+async function readStdin() {
+  return new Promise((resolve) => {
+    let data = '';
+    process.stdin.setEncoding('utf8');
+    process.stdin.on('data', chunk => { data += chunk; });
+    process.stdin.on('end', () => resolve(data));
+  });
+}
+
 async function main() {
+  let message = inlineMessage;
+  if (!message) {
+    message = await readStdin();
+  }
+  if (!message) {
+    console.error('No message provided');
+    process.exit(1);
+  }
+
   const fs = await import('fs');
-  const callFile = fs.readdirSync('/usr/lib/node_modules/openclaw/dist/')
-    .filter(f => f.startsWith('call-') && f.endsWith('.js')).sort().pop();
-  const { n: callGateway, s: ADMIN_SCOPE } = await import(`/usr/lib/node_modules/openclaw/dist/${callFile}`);
+  const crypto = await import('crypto');
   const distDir = '/usr/lib/node_modules/openclaw/dist/';
+
+  const callFile = fs.readdirSync(distDir)
+    .filter(f => f.startsWith('call-') && f.endsWith('.js')).sort().pop();
+  const { n: callGateway, c: ADMIN_SCOPE } = await import(`${distDir}${callFile}`);
+
   const mcCandidates = fs.readdirSync(distDir)
     .filter(f => f.startsWith('message-channel-') && f.endsWith('.js'));
-  // Find the file that exports GATEWAY_CLIENT_NAMES as 'h' (export signature varies between builds)
   let mcFile;
   for (const c of mcCandidates) {
     const src = fs.readFileSync(distDir + c, 'utf8');
@@ -31,8 +55,7 @@ async function main() {
   }
   if (!mcFile) throw new Error('No message-channel module found with expected exports');
   const { h: GATEWAY_CLIENT_NAMES, m: GATEWAY_CLIENT_MODES } = await import(`${distDir}${mcFile}`);
-  const crypto = await import('crypto');
-  
+
   try {
     const result = await callGateway({
       method: 'chat.send',
@@ -45,7 +68,7 @@ async function main() {
       clientName: GATEWAY_CLIENT_NAMES.CLI,
       scopes: [ADMIN_SCOPE],
     });
-    
+
     if (result?.error) {
       console.error('chat.send error:', JSON.stringify(result.error));
       process.exit(1);

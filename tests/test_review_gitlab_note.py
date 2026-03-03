@@ -67,6 +67,7 @@ class TestReviewGitlabNoteRetry:
             reviewer="pascal",
             verdict="APPROVE",
             summary="LGTM",
+            force=False,
         )
         with patch("devbar.subprocess.run", side_effect=mock_run):
             with patch("devbar.time.sleep"):
@@ -96,6 +97,7 @@ class TestReviewGitlabNoteRetry:
             reviewer="leibniz",
             verdict="P1",
             summary="minor issue",
+            force=False,
         )
         with patch("devbar.subprocess.run", return_value=fail_result):
             with patch("devbar.time.sleep"):
@@ -112,3 +114,130 @@ class TestReviewGitlabNoteRetry:
         captured = capsys.readouterr()
         assert "⚠" in captured.err
         assert "3 attempts" in captured.err
+
+
+class TestReviewForce:
+
+    def test_force_overwrites_existing_review(self, tmp_pipelines):
+        """--force あり: 既存レビューが新しい verdict/at で上書きされる。"""
+        _make_pipeline(tmp_pipelines)
+
+        import devbar
+
+        ok_result = MagicMock()
+        ok_result.returncode = 0
+        ok_result.stderr = ""
+
+        # 1回目: pascal が P0 を投稿
+        args1 = argparse.Namespace(
+            project="test-pj",
+            issue=1,
+            reviewer="pascal",
+            verdict="P0",
+            summary="",
+            force=False,
+        )
+        with patch("devbar.subprocess.run", return_value=ok_result):
+            with patch("devbar.time.sleep"):
+                with patch("devbar.now_iso", return_value="2026-01-01T00:00:00+09:00"):
+                    devbar.cmd_review(args1)
+
+        path = tmp_pipelines / "test-pj.json"
+        data = json.loads(path.read_text())
+        assert data["batch"][0]["design_reviews"]["pascal"]["verdict"] == "P0"
+        assert data["batch"][0]["design_reviews"]["pascal"]["at"] == "2026-01-01T00:00:00+09:00"
+
+        # 2回目: pascal が APPROVE を --force で上書き
+        args2 = argparse.Namespace(
+            project="test-pj",
+            issue=1,
+            reviewer="pascal",
+            verdict="APPROVE",
+            summary="",
+            force=True,
+        )
+        with patch("devbar.subprocess.run", return_value=ok_result):
+            with patch("devbar.time.sleep"):
+                with patch("devbar.now_iso", return_value="2026-01-01T01:00:00+09:00"):
+                    devbar.cmd_review(args2)
+
+        data = json.loads(path.read_text())
+        assert data["batch"][0]["design_reviews"]["pascal"]["verdict"] == "APPROVE"
+        assert data["batch"][0]["design_reviews"]["pascal"]["at"] == "2026-01-01T01:00:00+09:00"
+
+    def test_without_force_skips_existing_review(self, tmp_pipelines):
+        """--force なし: 既存レビューはスキップされ、GitLab note も投稿されない。"""
+        _make_pipeline(tmp_pipelines)
+
+        import devbar
+
+        ok_result = MagicMock()
+        ok_result.returncode = 0
+        ok_result.stderr = ""
+
+        # 1回目: pascal が P0 を投稿
+        args1 = argparse.Namespace(
+            project="test-pj",
+            issue=1,
+            reviewer="pascal",
+            verdict="P0",
+            summary="",
+            force=False,
+        )
+        with patch("devbar.subprocess.run", return_value=ok_result):
+            with patch("devbar.time.sleep"):
+                devbar.cmd_review(args1)
+
+        # 2回目: pascal が APPROVE を --force なしで投稿（スキップされるはず）
+        call_count = 0
+
+        def mock_run_2nd(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            return ok_result
+
+        args2 = argparse.Namespace(
+            project="test-pj",
+            issue=1,
+            reviewer="pascal",
+            verdict="APPROVE",
+            summary="",
+            force=False,
+        )
+        with patch("devbar.subprocess.run", side_effect=mock_run_2nd):
+            with patch("devbar.time.sleep"):
+                devbar.cmd_review(args2)
+
+        # verdict は P0 のまま（上書きされていない）
+        path = tmp_pipelines / "test-pj.json"
+        data = json.loads(path.read_text())
+        assert data["batch"][0]["design_reviews"]["pascal"]["verdict"] == "P0"
+
+        # スキップ時は GitLab note 投稿（subprocess.run）が呼ばれない
+        assert call_count == 0
+
+    def test_force_on_new_reviewer_works_normally(self, tmp_pipelines):
+        """--force あり + 新規レビュアー: 通常通りレビューが記録される。"""
+        _make_pipeline(tmp_pipelines)
+
+        import devbar
+
+        ok_result = MagicMock()
+        ok_result.returncode = 0
+        ok_result.stderr = ""
+
+        args = argparse.Namespace(
+            project="test-pj",
+            issue=1,
+            reviewer="pascal",
+            verdict="APPROVE",
+            summary="LGTM",
+            force=True,
+        )
+        with patch("devbar.subprocess.run", return_value=ok_result):
+            with patch("devbar.time.sleep"):
+                devbar.cmd_review(args)
+
+        path = tmp_pipelines / "test-pj.json"
+        data = json.loads(path.read_text())
+        assert data["batch"][0]["design_reviews"]["pascal"]["verdict"] == "APPROVE"

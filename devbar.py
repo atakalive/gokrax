@@ -612,8 +612,10 @@ def _post_gitlab_note(gitlab: str, issue_num: int, body: str) -> bool:
 def cmd_review(args):
     """レビュー結果を記録（pipeline JSON + GitLab Issue note）"""
     path = get_path(args.project)
+    _skipped = False
 
     def do_review(data):
+        nonlocal _skipped
         state = data.get("state", "IDLE")
         if state == "DESIGN_REVIEW":
             key = "design_reviews"
@@ -624,10 +626,13 @@ def cmd_review(args):
         issue = find_issue(data.get("batch", []), args.issue)
         if not issue:
             raise SystemExit(f"Issue #{args.issue} not in batch")
-        # 冪等性: 同じレビュアーが既にレビュー済みならスキップ
+        # 冪等性: 同じレビュアーが既にレビュー済みならスキップ（--force で上書き可）
         if args.reviewer in issue.get(key, {}):
-            print(f"#{args.issue}: already reviewed by {args.reviewer}, skipping")
-            return
+            if not args.force:
+                print(f"#{args.issue}: already reviewed by {args.reviewer}, skipping")
+                _skipped = True
+                return
+            print(f"#{args.issue}: overwriting existing review by {args.reviewer} (--force)")
         review_entry = {"verdict": args.verdict, "at": now_iso()}
         if args.summary:
             review_entry["summary"] = args.summary
@@ -648,6 +653,9 @@ def cmd_review(args):
         signal.signal(signal.SIGTERM, _orig)
         if _deferred:
             signal.raise_signal(signal.SIGTERM)
+
+    if _skipped:
+        return
 
     state = data.get("state", "IDLE")
     print(f"{args.project}: #{args.issue} review by {args.reviewer} = {args.verdict}")
@@ -1449,10 +1457,9 @@ def cmd_spec_review_submit(args):
     sc = data.get("spec_config", {})
     pipelines_dir = sc.get("pipelines_dir")
     if pipelines_dir:
-        from config import JST as _JST
         spec_name = Path(sc.get("spec_path", "")).stem
         current_rev = sc.get("current_rev", "1")
-        ts = datetime.now(_JST).strftime("%Y%m%dT%H%M%S")
+        ts = datetime.now(JST).strftime("%Y%m%dT%H%M%S")
         archive_name = f"{ts}_{args.reviewer}_{spec_name}_rev{current_rev}.yaml"
         archive_path = Path(pipelines_dir) / archive_name
         try:
@@ -1551,6 +1558,8 @@ def main():
     p.add_argument("--verdict", required=True, choices=VALID_VERDICTS,
                    help="APPROVE/P0/P1/REJECT")
     p.add_argument("--summary", default="", help="レビューサマリー")
+    p.add_argument("--force", action="store_true", default=False,
+                   help="既存レビューを上書きする")
 
     # flag
     p = sub.add_parser("flag", help="人間（M）による P0/P1 差し込み（任意タイミング）")

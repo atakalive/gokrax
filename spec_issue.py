@@ -34,6 +34,8 @@ def build_issue_suggestion_prompt(spec_config: dict, data: dict) -> str:
 ## 依頼内容
 仕様書を実装可能な単位のIssueに分割し、フェーズごとに整理した提案を作成してください。
 各Issueは独立して実装・レビューできる単位にしてください。
+1 Issue = 1 PR = 1つの明確なゴール。巨大Issueは分割すること。
+既存コードの変更量が多い場合は、リファクタリングと機能追加を別Issueにすること。
 
 ## 出力フォーマット
 ```yaml
@@ -143,7 +145,7 @@ def build_issue_plan_prompt(spec_config: dict, data: dict) -> str:
 
     spec_name = spec_path.replace("/", "_").replace(".", "_") if spec_path else project
 
-    return f"""以下のレビュアー提案を統合して、GitLab Issue を起票してください。
+    return f"""以下のレビュアー提案を統合して、GitLab Issue を起票せよ。
 
 プロジェクト: {project}
 仕様書: {spec_path} (rev{current_rev})
@@ -151,14 +153,17 @@ def build_issue_plan_prompt(spec_config: dict, data: dict) -> str:
 ## レビュアー提案
 {suggestions_text}
 ## 統合指示
-複数レビュアーの提案を統合し、重複を排除して最終的なIssue一覧を決定すること。
-類似または重複するIssueは1つにまとめ、依存関係を整理すること。
+複数レビュアーの提案を統合し、重複を排除して最終的なIssue一覧を決定せよ。
+類似または重複するIssueは1つにまとめ、依存関係を整理せよ。
 
 ## 起票ルール
-- Issue タイトルには `[spec:{spec_name}:S-{{N}}]` プレフィックスを付ける（N は連番）
-- `glab issue list --project {project}` で既存Issueを確認し、重複起票を避けること
-- 実装上の注意事項は本文に ⚠️ 注記として記載すること
-- 各Issueに仕様書参照セクション（spec_refs）を明記すること
+- Issue タイトルには `[spec:{spec_name}:S-{N}]` プレフィックスを付ける（N は連番）。
+- `glab issue list -R {gitlab} -O json` で既存Issueを確認し、重複起票を避けろ。
+- Issueコメントは使用禁止。
+- 各Issueの本文に「期待する振る舞い」と「テスト」セクションを必ず含めろ。
+- 起票コマンド: `glab issue create -R {gitlab} --title "..." --description "..." --label "spec-mode"`
+- 実装上の注意事項は本文に ⚠️ 注記として記載せよ。
+- 各Issueに仕様書参照セクション（spec_refs）を明記せよ。
 
 ## 完了報告フォーマット
 ```yaml
@@ -236,7 +241,11 @@ def build_queue_plan_prompt(spec_config: dict, data: dict) -> str:
 {{project}} {{issue_nums}} full [--keep-context] # 理由
 ```
 
-- `issue_nums` はスペース区切りで複数のIssue番号を並べる（例: `{project} 51 52 53 full # Phase 1`）
+- `issue_nums` はカンマ区切り（例: `{project} 51,52,53 full # Phase 1`）
+- 1バッチ内のIssueは並列実装される。依存関係があるIssueは別バッチにすること
+- review_mode は full / standard / lite から選択。
+- コストをかけてでも、Opusで計画・実装するほうががよい場合: `plan=opus` および `impl=opus` を指定可能。
+- `plan=opus` のみも可能。
 - 依存関係がある場合は別バッチに分ける
 - 並列実行可能なIssueは同じ行にまとめる
 - `--keep-context` は前バッチのコンテキストを引き継ぐ場合に付与

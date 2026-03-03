@@ -2189,10 +2189,8 @@ def process(path: Path):
                 log(f"[{pj}] reset_reviewers SKIPPED (keep_ctx for {action.new_state})")
                 excluded = []
             else:
-                impl = ""
-                if action.new_state == "DESIGN_PLAN":
-                    # DESIGN_PLAN開始時は毎回実装担当もリセット（compaction破損対策）
-                    impl = notification["implementer"]
+                # 実装担当も常にリセット（レビュアーと同タイミングで/new）
+                impl = notification.get("implementer", "")
                 log(f"[{pj}] reset_reviewers triggered: new_state={action.new_state}, impl='{impl}', review_mode={review_mode}")
                 excluded = _reset_reviewers(review_mode, implementer=impl)
 

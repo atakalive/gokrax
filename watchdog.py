@@ -2564,7 +2564,10 @@ def check_discord_commands():
         content_lower = content.strip().lower()
 
         # 5. Route to appropriate handler
-        cmd_word = content_lower.split()[0]
+        parts = content_lower.split()
+        if not parts:
+            continue
+        cmd_word = parts[0]
 
         if cmd_word == "status":
             status = get_status_text(enabled_only=True)
@@ -2590,7 +2593,7 @@ def check_discord_commands():
         # 6. Update state (even in dry-run to test deduplication)
         state["last_command_message_id"] = msg_id
         _save_devbar_state(state)
-        log(f"Processed Discord {content_lower.split()[0]} command (msg_id={msg_id})")
+        log(f"Processed Discord {cmd_word} command (msg_id={msg_id})")
 
 
 def main():

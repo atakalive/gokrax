@@ -483,3 +483,35 @@ class TestDeleteEntry:
         """ファイル不存在 → None"""
         queue_file = tmp_path / "nonexistent.txt"
         assert delete_entry(queue_file, 0) is None
+
+    def test_delete_entry_index_matches_get_active(self, tmp_path):
+        """get_active_entries のインデックスと delete_entry のインデックスが一致する。
+
+        done行・コメント行・空行が混在するキューで、共通化後の整合性を検証する。
+        """
+        queue_file = tmp_path / "queue.txt"
+        queue_file.write_text(
+            "# done: Foo 1\n"
+            "# このコメントは無視される\n"
+            "\n"
+            "Bar 2\n"
+            "# done: Baz 3\n"
+            "Qux 4\n"
+        )
+
+        active = get_active_entries(queue_file)
+        assert len(active) == 2
+        assert active[0]["project"] == "Bar"
+        assert active[0]["index"] == 0
+        assert active[1]["project"] == "Qux"
+        assert active[1]["index"] == 1
+
+        # get_active_entries の index=0 → delete_entry の index=0 が Bar を削除
+        result = delete_entry(queue_file, 0)
+        assert result is not None
+        assert result["project"] == "Bar"
+
+        content = queue_file.read_text()
+        assert "Bar 2" not in content
+        assert "Qux 4\n" in content
+        assert "# done: Foo 1\n" in content

@@ -106,6 +106,29 @@ def parse_queue_line(line: str) -> dict:
     return result
 
 
+def _find_active_lines(lines: list[str]) -> list[tuple[int, dict]]:
+    """全行から active エントリを抽出する。
+
+    Args:
+        lines: ファイルの全行リスト（readlines() の戻り値）
+
+    Returns:
+        list of (line_index, parsed_entry_dict)。
+        done 行（"# done:" prefix）・コメント行・空行はスキップ。
+    """
+    result = []
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("# done:"):
+            continue
+        try:
+            entry = parse_queue_line(line)
+            result.append((i, entry))
+        except ValueError:
+            continue
+    return result
+
+
 def pop_next_queue_entry(queue_path: Path) -> Optional[dict]:
     """キューファイルから次の実行可能エントリをpopする。
 
@@ -281,11 +304,17 @@ def get_active_entries(queue_path: Path) -> list[dict]:
     Returns:
         active エントリのリスト
     """
-    entries = peek_queue(queue_path)
-    active = [e for e in entries if not e.get("done")]
-    for i, e in enumerate(active):
-        e["index"] = i
-    return active
+    if not queue_path.exists():
+        return []
+    with open(queue_path) as f:
+        lines = f.readlines()
+    active = _find_active_lines(lines)
+    result = []
+    for i, (_, entry) in enumerate(active):
+        entry["index"] = i
+        entry["done"] = False
+        result.append(entry)
+    return result
 
 
 def append_entry(queue_path: Path, line: str) -> dict:
@@ -304,14 +333,14 @@ def append_entry(queue_path: Path, line: str) -> dict:
     """
     entry = parse_queue_line(line)  # validate first
     with open(queue_path, "r+") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
         try:
-            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError:
-            raise RuntimeError("Could not acquire lock on queue file")
-        try:
-            content = f.read()
-            if content and not content.endswith("\n"):
-                f.write("\n")
+            f.seek(0, 2)  # seek to end
+            pos = f.tell()
+            if pos > 0:
+                f.seek(pos - 1)
+                if f.read(1) != "\n":
+                    f.write("\n")
             f.write(line.rstrip("\n") + "\n")
             f.flush()
             os.fsync(f.fileno())
@@ -320,7 +349,7 @@ def append_entry(queue_path: Path, line: str) -> dict:
     return entry
 
 
-def delete_entry(queue_path: Path, index) -> Optional[dict]:
+def delete_entry(queue_path: Path, index: int | str) -> Optional[dict]:
     """キューファイルから指定インデックスの active エントリを削除する。
 
     Args:
@@ -334,31 +363,18 @@ def delete_entry(queue_path: Path, index) -> Optional[dict]:
         return None
 
     with open(queue_path, "r+") as f:
-        try:
-            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError:
-            return None
+        fcntl.flock(f, fcntl.LOCK_EX)
         try:
             lines = f.readlines()
-            # Collect active line indices
-            active_line_indices: list[int] = []
-            for i, raw_line in enumerate(lines):
-                stripped = raw_line.strip()
-                if not stripped or stripped.startswith("#"):
-                    continue
-                try:
-                    parse_queue_line(raw_line)
-                    active_line_indices.append(i)
-                except ValueError:
-                    continue
+            active = _find_active_lines(lines)
 
-            if not active_line_indices:
+            if not active:
                 return None
 
             # Resolve target
             if isinstance(index, str):
                 if index in ("last", "-1"):
-                    target_idx = len(active_line_indices) - 1
+                    target_idx = len(active) - 1
                 else:
                     try:
                         target_idx = int(index)
@@ -367,11 +383,10 @@ def delete_entry(queue_path: Path, index) -> Optional[dict]:
             else:
                 target_idx = index
 
-            if target_idx < 0 or target_idx >= len(active_line_indices):
+            if target_idx < 0 or target_idx >= len(active):
                 return None
 
-            line_no = active_line_indices[target_idx]
-            removed_line = lines[line_no]
+            line_no, entry = active[target_idx]
             del lines[line_no]
 
             f.seek(0)
@@ -380,6 +395,6 @@ def delete_entry(queue_path: Path, index) -> Optional[dict]:
             f.flush()
             os.fsync(f.fileno())
 
-            return parse_queue_line(removed_line)
+            return entry
         finally:
             fcntl.flock(f, fcntl.LOCK_UN)

@@ -302,6 +302,55 @@ python3 devbar.py spec stop --pj <PROJECT>
 #### `spec done` — SPEC_DONE → IDLE
 #### `spec status` — 現在のspec-mode状態表示
 
+#### `spec review-submit` — レビュー結果の投入
+
+```bash
+python3 devbar.py spec review-submit --pj <PROJECT> --reviewer <REVIEWER> --file <FILE>
+```
+
+前提: SPEC_REVIEW状態。ファイルはレビュアーのレビュー結果YAML（フェンスあり/なし両対応）。
+素YAMLが入力された場合は自動でフェンスを付与してパースする。
+
+#### `spec revise-submit` — SPEC_REVISE完了報告の投入
+
+```bash
+python3 devbar.py spec revise-submit --pj <PROJECT> --file <FILE>
+```
+
+前提: SPEC_REVISE状態。ファイルはimplementerの改訂完了YAML（フェンスあり/なし両対応）。
+パーサー `parse_revise_response` で検証後、`spec_config._revise_response` にフェンス化して格納。
+素YAMLが入力された場合は自動でフェンスを付与して保存する（watchdog再パースの整合性確保）。
+
+#### `spec issue-submit` — ISSUE_PLAN完了報告の投入
+
+```bash
+python3 devbar.py spec issue-submit --pj <PROJECT> --file <FILE>
+```
+
+前提: ISSUE_PLAN状態。ファイルはimplementerのIssue起票完了YAML（フェンスあり/なし両対応）。
+パーサー `parse_issue_plan_response` で検証後、`spec_config._issue_plan_response` にフェンス化して格納。
+
+#### `spec queue-submit` — QUEUE_PLAN完了報告の投入
+
+```bash
+python3 devbar.py spec queue-submit --pj <PROJECT> --file <FILE>
+```
+
+前提: QUEUE_PLAN状態。ファイルはimplementerのキュー生成完了YAML（フェンスあり/なし両対応）。
+パーサー `parse_queue_plan_response` で検証後、`spec_config._queue_plan_response` にフェンス化して格納。
+
+#### `spec suggestion-submit` — ISSUE_SUGGESTIONレビュアー提案の投入
+
+```bash
+python3 devbar.py spec suggestion-submit --pj <PROJECT> --reviewer <REVIEWER> --file <FILE>
+```
+
+前提: ISSUE_SUGGESTION状態かつプロンプト送信済み(sent\_at!=None)。
+ファイルはレビュアーのIssue分割提案YAML（フェンスあり/なし両対応）。
+パーサー `parse_issue_suggestion_response` で検証後、`current_reviews.entries[REVIEWER]` にフェンス化して格納。
+review\_requestsのstatusはwatchdogが更新するためCLI側では触らない。
+素YAMLが入力された場合は自動でフェンスを付与して保存する。
+
 ### Spec Mode 状態遷移
 
 ```

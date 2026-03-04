@@ -1487,6 +1487,260 @@ def cmd_spec_review_submit(args):
             print(f"  warning: archive failed: {e}")
 
 
+def cmd_spec_revise_submit(args):
+    """SPEC_REVISE: implementer改訂完了報告をファイルから投入"""
+    path = get_path(args.project)
+
+    review_path = Path(args.file)
+    if not review_path.is_file():
+        raise SystemExit(f"File not found: {args.file}")
+    raw_text = review_path.read_text(encoding="utf-8")
+
+    # parse_revise_response は current_rev 必須 → ロック内で一括検証
+
+    _deferred = False
+    _orig = signal.getsignal(signal.SIGTERM)
+
+    def _defer_sigterm(signum, frame):
+        nonlocal _deferred
+        _deferred = True
+
+    signal.signal(signal.SIGTERM, _defer_sigterm)
+
+    try:
+        def do_submit(data):
+            state = data.get("state", "IDLE")
+            if state != "SPEC_REVISE":
+                raise SystemExit(f"Not in SPEC_REVISE state: {state}")
+            sc = data.get("spec_config", {})
+
+            if sc.get("_revise_response"):
+                print(f"{args.project}: revise response already submitted, skipping")
+                return
+
+            from spec_revise import parse_revise_response
+
+            current_rev = str(sc.get("current_rev", "1"))
+
+            canonical_text = raw_text
+            parsed = parse_revise_response(raw_text, current_rev)
+            if parsed is None:
+                fenced = f"```yaml\n{raw_text}\n```"
+                parsed = parse_revise_response(fenced, current_rev)
+                if parsed is not None:
+                    canonical_text = fenced
+            if parsed is None:
+                raise SystemExit(
+                    f"Failed to parse revise response from {args.file}. "
+                    f"Expected YAML with status=done, new_rev, commit (7+ hex), "
+                    f"changes (added_lines/removed_lines)."
+                )
+
+            sc["_revise_response"] = canonical_text
+            data["spec_config"] = sc
+
+        update_pipeline(path, do_submit)
+    finally:
+        signal.signal(signal.SIGTERM, _orig)
+        if _deferred:
+            signal.raise_signal(signal.SIGTERM)
+
+    print(f"{args.project}: spec revise response submitted")
+
+
+def cmd_spec_issue_submit(args):
+    """ISSUE_PLAN: implementerのIssue起票完了報告をファイルから投入"""
+    path = get_path(args.project)
+
+    review_path = Path(args.file)
+    if not review_path.is_file():
+        raise SystemExit(f"File not found: {args.file}")
+    raw_text = review_path.read_text(encoding="utf-8")
+
+    from spec_issue import parse_issue_plan_response
+
+    canonical_text = raw_text
+    parsed = parse_issue_plan_response(raw_text)
+    if parsed is None:
+        fenced = f"```yaml\n{raw_text}\n```"
+        parsed = parse_issue_plan_response(fenced)
+        if parsed is not None:
+            canonical_text = fenced
+    if parsed is None:
+        raise SystemExit(
+            f"Failed to parse issue plan response from {args.file}. "
+            f"Expected YAML with status=done, created_issues=[int, ...]."
+        )
+
+    _deferred = False
+    _orig = signal.getsignal(signal.SIGTERM)
+
+    def _defer_sigterm(signum, frame):
+        nonlocal _deferred
+        _deferred = True
+
+    signal.signal(signal.SIGTERM, _defer_sigterm)
+
+    try:
+        def do_submit(data):
+            state = data.get("state", "IDLE")
+            if state != "ISSUE_PLAN":
+                raise SystemExit(f"Not in ISSUE_PLAN state: {state}")
+            sc = data.get("spec_config", {})
+
+            if sc.get("_issue_plan_response"):
+                print(f"{args.project}: issue plan response already submitted, skipping")
+                return
+
+            sc["_issue_plan_response"] = canonical_text
+            data["spec_config"] = sc
+
+        update_pipeline(path, do_submit)
+    finally:
+        signal.signal(signal.SIGTERM, _orig)
+        if _deferred:
+            signal.raise_signal(signal.SIGTERM)
+
+    print(f"{args.project}: spec issue plan response submitted")
+    print(f"  created_issues: {parsed['created_issues']}")
+
+
+def cmd_spec_queue_submit(args):
+    """QUEUE_PLAN: implementerのキュー生成完了報告をファイルから投入"""
+    path = get_path(args.project)
+
+    review_path = Path(args.file)
+    if not review_path.is_file():
+        raise SystemExit(f"File not found: {args.file}")
+    raw_text = review_path.read_text(encoding="utf-8")
+
+    from spec_issue import parse_queue_plan_response
+
+    canonical_text = raw_text
+    parsed = parse_queue_plan_response(raw_text)
+    if parsed is None:
+        fenced = f"```yaml\n{raw_text}\n```"
+        parsed = parse_queue_plan_response(fenced)
+        if parsed is not None:
+            canonical_text = fenced
+    if parsed is None:
+        raise SystemExit(
+            f"Failed to parse queue plan response from {args.file}. "
+            f"Expected YAML with status=done, batches=int(>=1), queue_file=str."
+        )
+
+    _deferred = False
+    _orig = signal.getsignal(signal.SIGTERM)
+
+    def _defer_sigterm(signum, frame):
+        nonlocal _deferred
+        _deferred = True
+
+    signal.signal(signal.SIGTERM, _defer_sigterm)
+
+    try:
+        def do_submit(data):
+            state = data.get("state", "IDLE")
+            if state != "QUEUE_PLAN":
+                raise SystemExit(f"Not in QUEUE_PLAN state: {state}")
+            sc = data.get("spec_config", {})
+
+            if sc.get("_queue_plan_response"):
+                print(f"{args.project}: queue plan response already submitted, skipping")
+                return
+
+            sc["_queue_plan_response"] = canonical_text
+            data["spec_config"] = sc
+
+        update_pipeline(path, do_submit)
+    finally:
+        signal.signal(signal.SIGTERM, _orig)
+        if _deferred:
+            signal.raise_signal(signal.SIGTERM)
+
+    print(f"{args.project}: spec queue plan response submitted")
+    print(f"  batches: {parsed['batches']}")
+
+
+def cmd_spec_suggestion_submit(args):
+    """ISSUE_SUGGESTION: レビュアーのIssue分割提案をファイルから投入"""
+    path = get_path(args.project)
+
+    review_path = Path(args.file)
+    if not review_path.is_file():
+        raise SystemExit(f"File not found: {args.file}")
+    raw_text = review_path.read_text(encoding="utf-8")
+
+    from spec_issue import parse_issue_suggestion_response
+
+    canonical_text = raw_text
+    parsed = parse_issue_suggestion_response(raw_text)
+    if parsed is None:
+        fenced = f"```yaml\n{raw_text}\n```"
+        parsed = parse_issue_suggestion_response(fenced)
+        if parsed is not None:
+            canonical_text = fenced
+    if parsed is None:
+        raise SystemExit(
+            f"Failed to parse issue suggestion from {args.file}. "
+            f"Expected YAML with phases=[{{name: str, issues: [{{title: str, ...}}]}}]."
+        )
+
+    _deferred = False
+    _orig = signal.getsignal(signal.SIGTERM)
+
+    def _defer_sigterm(signum, frame):
+        nonlocal _deferred
+        _deferred = True
+
+    signal.signal(signal.SIGTERM, _defer_sigterm)
+
+    try:
+        def do_submit(data):
+            state = data.get("state", "IDLE")
+            if state != "ISSUE_SUGGESTION":
+                raise SystemExit(f"Not in ISSUE_SUGGESTION state: {state}")
+            sc = data.get("spec_config", {})
+            rr = sc.get("review_requests", {})
+
+            if args.reviewer not in rr:
+                raise SystemExit(
+                    f"Reviewer '{args.reviewer}' not in review_requests. "
+                    f"Valid reviewers: {list(rr.keys())}"
+                )
+
+            if rr[args.reviewer].get("sent_at") is None:
+                raise SystemExit(
+                    f"Reviewer '{args.reviewer}' has not been sent a prompt yet (sent_at is None). "
+                    f"Wait for watchdog to send the prompt first."
+                )
+
+            cr = sc.setdefault("current_reviews", {})
+            entries = cr.setdefault("entries", {})
+            if args.reviewer in entries and entries[args.reviewer].get("status") == "received":
+                print(f"{args.reviewer}: already submitted, skipping")
+                return
+
+            entries[args.reviewer] = {
+                "status": "received",
+                "raw_text": canonical_text,
+            }
+
+            sc["current_reviews"] = cr
+            data["spec_config"] = sc
+
+        update_pipeline(path, do_submit)
+    finally:
+        signal.signal(signal.SIGTERM, _orig)
+        if _deferred:
+            signal.raise_signal(signal.SIGTERM)
+
+    print(f"{args.project}: spec issue suggestion by {args.reviewer} submitted")
+    print(f"  phases: {len(parsed['phases'])}")
+    for phase in parsed["phases"]:
+        print(f"    {phase['name']}: {len(phase['issues'])} issues")
+
+
 def cmd_spec(args):
     """spec サブコマンドのディスパッチ"""
     spec_cmds = {
@@ -1500,10 +1754,15 @@ def cmd_spec(args):
         "status": cmd_spec_status,
         "stop": cmd_spec_stop,
         "review-submit": cmd_spec_review_submit,
+        "revise-submit": cmd_spec_revise_submit,
+        "issue-submit": cmd_spec_issue_submit,
+        "queue-submit": cmd_spec_queue_submit,
+        "suggestion-submit": cmd_spec_suggestion_submit,
     }
     if not args.spec_command:
         raise SystemExit(
-            "usage: devbar spec {start|stop|approve|continue|done|retry|resume|extend|status|review-submit}"
+            "usage: devbar spec {start|stop|approve|continue|done|retry|resume|extend|status"
+            "|review-submit|revise-submit|issue-submit|queue-submit|suggestion-submit}"
         )
     spec_cmds[args.spec_command](args)
 
@@ -1685,6 +1944,27 @@ def main():
 
     # spec review-submit
     p = spec_sub.add_parser("review-submit", help="レビュー結果をYAMLファイルから投入")
+    p.add_argument("--pj", "--project", dest="project", required=True)
+    p.add_argument("--reviewer", required=True)
+    p.add_argument("--file", required=True)
+
+    # spec revise-submit
+    p = spec_sub.add_parser("revise-submit", help="SPEC_REVISE完了報告をファイルから投入")
+    p.add_argument("--pj", "--project", dest="project", required=True)
+    p.add_argument("--file", required=True)
+
+    # spec issue-submit
+    p = spec_sub.add_parser("issue-submit", help="ISSUE_PLAN完了報告をファイルから投入")
+    p.add_argument("--pj", "--project", dest="project", required=True)
+    p.add_argument("--file", required=True)
+
+    # spec queue-submit
+    p = spec_sub.add_parser("queue-submit", help="QUEUE_PLAN完了報告をファイルから投入")
+    p.add_argument("--pj", "--project", dest="project", required=True)
+    p.add_argument("--file", required=True)
+
+    # spec suggestion-submit
+    p = spec_sub.add_parser("suggestion-submit", help="ISSUE_SUGGESTIONのレビュアー提案をファイルから投入")
     p.add_argument("--pj", "--project", dest="project", required=True)
     p.add_argument("--reviewer", required=True)
     p.add_argument("--file", required=True)

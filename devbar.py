@@ -975,6 +975,96 @@ def cmd_qrun(args):
     print(f"[qrun] {project}: started (automerge={automerge_flag})")
 
 
+def get_qstatus_text(entries: list[dict]) -> str:
+    """active エントリのフォーマット済み文字列を返す。"""
+    lines = []
+    for e in entries:
+        idx = e.get("index", 0)
+        parts = [e["project"], e["issues"]]
+        if e.get("mode"):
+            parts.append(e["mode"])
+        if e.get("automerge"):
+            parts.append("automerge")
+        if e.get("cc_plan_model"):
+            parts.append(f"plan={e['cc_plan_model']}")
+        if e.get("cc_impl_model"):
+            parts.append(f"impl={e['cc_impl_model']}")
+        if e.get("keep_ctx_batch") and e.get("keep_ctx_intra"):
+            parts.append("keep-ctx-all")
+        elif e.get("keep_ctx_batch"):
+            parts.append("keep-ctx-batch")
+        elif e.get("keep_ctx_intra"):
+            parts.append("keep-ctx-intra")
+        lines.append(f"[{idx}] {' '.join(parts)}")
+    return "\n".join(lines)
+
+
+def cmd_qstatus(args):
+    """キューの有効エントリを表示"""
+    from task_queue import get_active_entries
+    from config import QUEUE_FILE
+
+    queue_path = Path(args.queue) if args.queue else QUEUE_FILE
+    entries = get_active_entries(queue_path)
+    if not entries:
+        print("Queue empty")
+        return
+    print(get_qstatus_text(entries))
+
+
+def cmd_qadd(args):
+    """キューに1行追加"""
+    from task_queue import append_entry, get_active_entries
+    from config import QUEUE_FILE
+
+    queue_path = Path(args.queue) if args.queue else QUEUE_FILE
+    line = " ".join(args.entry)
+    try:
+        entry = append_entry(queue_path, line)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # 追加後の状態表示
+    entries = get_active_entries(queue_path)
+    print(f"Added: {line}")
+    print(get_qstatus_text(entries))
+
+
+def cmd_qdel(args):
+    """キューから1行削除"""
+    from task_queue import delete_entry, get_active_entries
+    from config import QUEUE_FILE
+
+    queue_path = Path(args.queue) if args.queue else QUEUE_FILE
+    target = args.target  # "last", "-1", or integer string
+
+    # Parse target
+    if target in ("last", "-1"):
+        idx = "last"
+    else:
+        try:
+            idx = int(target)
+        except ValueError:
+            print(f"Error: invalid target '{target}' (use integer or 'last')", file=sys.stderr)
+            sys.exit(1)
+
+    result = delete_entry(queue_path, idx)
+    if result is None:
+        print("Error: target not found or queue empty", file=sys.stderr)
+        sys.exit(1)
+
+    # 削除後の状態表示
+    entries = get_active_entries(queue_path)
+    orig = result.get("original_line", "?")
+    print(f"Deleted: {orig}")
+    if entries:
+        print("Current Queue:")
+        print(get_qstatus_text(entries))
+    else:
+        print("Queue empty")
+
+
 # === Spec Mode Commands ===
 
 def _reset_review_requests(spec_config: dict) -> None:
@@ -1890,6 +1980,20 @@ def main():
     p.add_argument("--queue", type=Path, help="キューファイルパス (default: devbar-queue.txt)")
     p.add_argument("--dry-run", action="store_true", help="実行せず内容のみ表示")
 
+    # qstatus
+    p = sub.add_parser("qstatus", help="キューの有効エントリを表示")
+    p.add_argument("--queue", type=Path, help="キューファイルパス")
+
+    # qadd
+    p = sub.add_parser("qadd", help="キューに1行追加")
+    p.add_argument("entry", nargs="+", help="追加するエントリ (例: BeamShifter 33,34 lite automerge)")
+    p.add_argument("--queue", type=Path, help="キューファイルパス")
+
+    # qdel
+    p = sub.add_parser("qdel", help="キューから1行削除")
+    p.add_argument("target", help="削除対象 (インデックス番号 or 'last')")
+    p.add_argument("--queue", type=Path, help="キューファイルパス")
+
     # spec
     spec_parser = sub.add_parser("spec", help="Spec mode commands")
     spec_sub = spec_parser.add_subparsers(dest="spec_command")
@@ -1985,6 +2089,9 @@ def main():
         "review-mode": cmd_review_mode,
         "merge-summary": cmd_merge_summary,
         "qrun": cmd_qrun,
+        "qstatus": cmd_qstatus,
+        "qadd": cmd_qadd,
+        "qdel": cmd_qdel,
         "spec": cmd_spec,
     }
     cmds[args.command](args)

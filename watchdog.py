@@ -2420,13 +2420,109 @@ def _handle_qrun(msg_id: str):
     log(f"[qrun] {success_msg} (msg_id={msg_id})")
 
 
+def _handle_qstatus(msg_id: str):
+    from config import DISCORD_CHANNEL, QUEUE_FILE
+    from notify import post_discord
+    from task_queue import get_active_entries
+    from devbar import get_qstatus_text
+    import config
+
+    if config.DRY_RUN:
+        log(f"[dry-run] Discord qstatus command skipped (msg_id={msg_id})")
+        return
+
+    entries = get_active_entries(QUEUE_FILE)
+    if not entries:
+        post_discord(DISCORD_CHANNEL, "Queue empty")
+    else:
+        text = get_qstatus_text(entries)
+        post_discord(DISCORD_CHANNEL, f"```\n{text}\n```")
+    log(f"Processed Discord qstatus command (msg_id={msg_id})")
+
+
+def _handle_qadd(msg_id: str, content: str):
+    from config import DISCORD_CHANNEL, QUEUE_FILE
+    from notify import post_discord
+    from task_queue import append_entry, get_active_entries
+    from devbar import get_qstatus_text
+    import config
+
+    if config.DRY_RUN:
+        log(f"[dry-run] Discord qadd command skipped (msg_id={msg_id})")
+        return
+
+    # "qadd BeamShifter 33,34 lite automerge" → "BeamShifter 33,34 lite automerge"
+    parts = content.strip().split(None, 1)
+    if len(parts) < 2:
+        post_discord(DISCORD_CHANNEL, "qadd: 引数が必要です (例: qadd BeamShifter 33,34 lite automerge)")
+        return
+
+    line = parts[1]
+    try:
+        append_entry(QUEUE_FILE, line)
+    except ValueError as e:
+        post_discord(DISCORD_CHANNEL, f"qadd: エラー: {e}")
+        log(f"[qadd] Error: {e} (msg_id={msg_id})")
+        return
+
+    entries = get_active_entries(QUEUE_FILE)
+    text = get_qstatus_text(entries)
+    post_discord(DISCORD_CHANNEL, f"Added: {line}\n```\n{text}\n```")
+    log(f"Processed Discord qadd command (msg_id={msg_id})")
+
+
+def _handle_qdel(msg_id: str, content: str):
+    from config import DISCORD_CHANNEL, QUEUE_FILE
+    from notify import post_discord
+    from task_queue import delete_entry, get_active_entries
+    from devbar import get_qstatus_text
+    import config
+
+    if config.DRY_RUN:
+        log(f"[dry-run] Discord qdel command skipped (msg_id={msg_id})")
+        return
+
+    parts = content.strip().split()
+    if len(parts) < 2:
+        post_discord(DISCORD_CHANNEL, "qdel: 引数が必要です (例: qdel last / qdel 2)")
+        return
+
+    target = parts[1]
+    if target in ("last", "-1"):
+        idx = "last"
+    else:
+        try:
+            idx = int(target)
+        except ValueError:
+            post_discord(DISCORD_CHANNEL, f"qdel: 無効な引数 '{target}' (数値 or 'last')")
+            return
+
+    result = delete_entry(QUEUE_FILE, idx)
+    if result is None:
+        post_discord(DISCORD_CHANNEL, "qdel: 対象が見つからないか、キューが空です")
+        log(f"[qdel] Target not found (msg_id={msg_id})")
+        return
+
+    orig = result.get("original_line", "?")
+    entries = get_active_entries(QUEUE_FILE)
+    if entries:
+        text = get_qstatus_text(entries)
+        post_discord(DISCORD_CHANNEL, f"Deleted: {orig}\n```\n{text}\n```")
+    else:
+        post_discord(DISCORD_CHANNEL, f"Deleted: {orig}\nQueue empty")
+    log(f"Processed Discord qdel command (msg_id={msg_id})")
+
+
+DISCORD_COMMANDS = ("status", "qrun", "qstatus", "qadd", "qdel")
+
+
 def check_discord_commands():
-    """Check #dev-bar for 'status' and 'qrun' commands from M and respond.
+    """Check #dev-bar for commands from M and respond.
 
     Process flow:
     1. Load last_command_message_id from devbar-state.json
     2. Fetch latest 10 messages from #dev-bar
-    3. Filter: author is M, not bot, content starts with "status" or "qrun"
+    3. Filter: author is M, not bot, first word in DISCORD_COMMANDS
     4. Filter: message_id > last_command_message_id
     5. Process in chronological order (oldest → newest)
     6. For each: handle command, update last_command_message_id
@@ -2453,10 +2549,11 @@ def check_discord_commands():
         msg_id = msg.get("id")
 
         content_lower = content.strip().lower()
-        # Filter: from M, not from bot, starts with "status" or "qrun"
+        cmd_word = content_lower.split()[0] if content_lower else ""
+        # Filter: from M, not from bot, first word is a known command
         if (author_id == M_DISCORD_USER_ID and
             author_id != BOT_USER_ID and
-            (content_lower.startswith("status") or content_lower.startswith("qrun")) and
+            cmd_word in DISCORD_COMMANDS and
             msg_id and int(msg_id) > int(last_id)):
             candidates.append(msg)
 
@@ -2467,7 +2564,9 @@ def check_discord_commands():
         content_lower = content.strip().lower()
 
         # 5. Route to appropriate handler
-        if content_lower.startswith("status"):
+        cmd_word = content_lower.split()[0]
+
+        if cmd_word == "status":
             status = get_status_text(enabled_only=True)
             response = f"```\n{status}\n```"
 
@@ -2476,8 +2575,17 @@ def check_discord_commands():
             else:
                 post_discord(DISCORD_CHANNEL, response)
 
-        elif content_lower.startswith("qrun"):
+        elif cmd_word == "qrun":
             _handle_qrun(msg_id)
+
+        elif cmd_word == "qstatus":
+            _handle_qstatus(msg_id)
+
+        elif cmd_word == "qadd":
+            _handle_qadd(msg_id, content)
+
+        elif cmd_word == "qdel":
+            _handle_qdel(msg_id, content)
 
         # 6. Update state (even in dry-run to test deduplication)
         state["last_command_message_id"] = msg_id

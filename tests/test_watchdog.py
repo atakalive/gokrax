@@ -1367,8 +1367,8 @@ class TestDiscordStatusCommand:
         # Should not reprocess
         mock_post.assert_not_called()
 
-    def test_startswith_status(self, tmp_path, monkeypatch):
-        """'statusABC' triggers, 'hogestatus' doesn't."""
+    def test_exact_word_match(self, tmp_path, monkeypatch):
+        """'statusABC' and 'hogestatus' don't trigger (exact word match)."""
         from config import M_DISCORD_USER_ID
         import watchdog
 
@@ -1386,8 +1386,8 @@ class TestDiscordStatusCommand:
              patch("notify.post_discord") as mock_post:
             watchdog.check_discord_commands()
 
-        # Only 'statusABC' should trigger
-        assert mock_post.call_count == 1
+        # Neither should trigger (exact word match, not startswith)
+        assert mock_post.call_count == 0
 
     def test_enabled_only_in_output(self, tmp_path, monkeypatch):
         """Only enabled [ON] projects shown in response."""

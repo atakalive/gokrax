@@ -268,3 +268,118 @@ def peek_queue(queue_path: Path) -> list[dict]:
         entries.append(entry)
 
     return entries
+
+
+def get_active_entries(queue_path: Path) -> list[dict]:
+    """キューファイルの有効（done=False）エントリを返す。
+
+    各エントリに index キー（0始まり連番）を追加する。
+
+    Args:
+        queue_path: キューファイルのパス
+
+    Returns:
+        active エントリのリスト
+    """
+    entries = peek_queue(queue_path)
+    active = [e for e in entries if not e.get("done")]
+    for i, e in enumerate(active):
+        e["index"] = i
+    return active
+
+
+def append_entry(queue_path: Path, line: str) -> dict:
+    """キューファイルの末尾に1行追加する。
+
+    Args:
+        queue_path: キューファイルのパス
+        line: 追加する行（parse_queue_line でバリデーション）
+
+    Returns:
+        パース結果の dict
+
+    Raises:
+        ValueError: 行が不正な場合
+        FileNotFoundError: キューファイルが存在しない場合
+    """
+    entry = parse_queue_line(line)  # validate first
+    with open(queue_path, "r+") as f:
+        try:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            raise RuntimeError("Could not acquire lock on queue file")
+        try:
+            content = f.read()
+            if content and not content.endswith("\n"):
+                f.write("\n")
+            f.write(line.rstrip("\n") + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
+    return entry
+
+
+def delete_entry(queue_path: Path, index) -> Optional[dict]:
+    """キューファイルから指定インデックスの active エントリを削除する。
+
+    Args:
+        queue_path: キューファイルのパス
+        index: int (0始まり) または str ("last" / "-1")
+
+    Returns:
+        削除したエントリの dict、範囲外や空キューなら None
+    """
+    if not queue_path.exists():
+        return None
+
+    with open(queue_path, "r+") as f:
+        try:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            return None
+        try:
+            lines = f.readlines()
+            # Collect active line indices
+            active_line_indices: list[int] = []
+            for i, raw_line in enumerate(lines):
+                stripped = raw_line.strip()
+                if not stripped or stripped.startswith("#"):
+                    continue
+                try:
+                    parse_queue_line(raw_line)
+                    active_line_indices.append(i)
+                except ValueError:
+                    continue
+
+            if not active_line_indices:
+                return None
+
+            # Resolve target
+            if isinstance(index, str):
+                if index in ("last", "-1"):
+                    target_idx = len(active_line_indices) - 1
+                else:
+                    try:
+                        target_idx = int(index)
+                    except ValueError:
+                        return None
+            else:
+                target_idx = index
+
+            if target_idx < 0 or target_idx >= len(active_line_indices):
+                return None
+
+            line_no = active_line_indices[target_idx]
+            removed_line = lines[line_no]
+            del lines[line_no]
+
+            f.seek(0)
+            f.truncate()
+            f.writelines(lines)
+            f.flush()
+            os.fsync(f.fileno())
+
+            return parse_queue_line(removed_line)
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)

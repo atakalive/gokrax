@@ -11,7 +11,10 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from task_queue import parse_queue_line, pop_next_queue_entry, restore_queue_entry, peek_queue
+from task_queue import (
+    parse_queue_line, pop_next_queue_entry, restore_queue_entry, peek_queue,
+    get_active_entries, append_entry, delete_entry,
+)
 
 
 class TestParseQueueLine:
@@ -330,3 +333,153 @@ class TestPeekQueue:
         assert len(entries) == 2
         assert entries[0]["project"] == "Foo"
         assert entries[1]["project"] == "Bar"
+
+
+class TestGetActiveEntries:
+    """get_active_entries() のテスト"""
+
+    def test_filters_done_entries(self, tmp_path):
+        """done 行を除外し、index が 0 始まり連番"""
+        queue_file = tmp_path / "queue.txt"
+        queue_file.write_text("Foo 1\n# done: Bar 2\nBaz 3 automerge\n")
+
+        entries = get_active_entries(queue_file)
+        assert len(entries) == 2
+        assert entries[0]["project"] == "Foo"
+        assert entries[0]["index"] == 0
+        assert entries[1]["project"] == "Baz"
+        assert entries[1]["index"] == 1
+        assert entries[1]["automerge"] is True
+
+    def test_empty_queue(self, tmp_path):
+        """空キュー → 空リスト"""
+        queue_file = tmp_path / "queue.txt"
+        queue_file.write_text("")
+        assert get_active_entries(queue_file) == []
+
+    def test_all_done(self, tmp_path):
+        """全行 done → 空リスト"""
+        queue_file = tmp_path / "queue.txt"
+        queue_file.write_text("# done: Foo 1\n# done: Bar 2\n")
+        assert get_active_entries(queue_file) == []
+
+    def test_file_not_exist(self, tmp_path):
+        """ファイル不存在 → 空リスト"""
+        queue_file = tmp_path / "nonexistent.txt"
+        assert get_active_entries(queue_file) == []
+
+
+class TestAppendEntry:
+    """append_entry() のテスト"""
+
+    def test_append_normal(self, tmp_path):
+        """正常ケース: 行が末尾に追加される"""
+        queue_file = tmp_path / "queue.txt"
+        queue_file.write_text("Foo 1\n")
+
+        result = append_entry(queue_file, "Bar 2 automerge")
+        assert result["project"] == "Bar"
+        assert result["issues"] == "2"
+        assert result["automerge"] is True
+
+        content = queue_file.read_text()
+        assert content == "Foo 1\nBar 2 automerge\n"
+
+    def test_append_validation_error(self, tmp_path):
+        """不正行で ValueError"""
+        queue_file = tmp_path / "queue.txt"
+        queue_file.write_text("Foo 1\n")
+
+        with pytest.raises(ValueError):
+            append_entry(queue_file, "# comment")
+
+        # ファイル内容が変わっていないこと
+        assert queue_file.read_text() == "Foo 1\n"
+
+    def test_append_no_trailing_newline(self, tmp_path):
+        """末尾改行なしファイルでも改行が補われる"""
+        queue_file = tmp_path / "queue.txt"
+        queue_file.write_text("Foo 1")  # no trailing newline
+
+        append_entry(queue_file, "Bar 2")
+        content = queue_file.read_text()
+        assert content == "Foo 1\nBar 2\n"
+
+    def test_append_file_not_exist(self, tmp_path):
+        """ファイル不存在 → FileNotFoundError"""
+        queue_file = tmp_path / "nonexistent.txt"
+        with pytest.raises(FileNotFoundError):
+            append_entry(queue_file, "Foo 1")
+
+
+class TestDeleteEntry:
+    """delete_entry() のテスト"""
+
+    def test_delete_first(self, tmp_path):
+        """index=0 で先頭 active 行を削除"""
+        queue_file = tmp_path / "queue.txt"
+        queue_file.write_text("Foo 1\nBar 2\nBaz 3\n")
+
+        result = delete_entry(queue_file, 0)
+        assert result is not None
+        assert result["project"] == "Foo"
+
+        content = queue_file.read_text()
+        assert "Foo 1" not in content
+        assert "Bar 2\n" in content
+        assert "Baz 3\n" in content
+
+    def test_delete_last_keyword(self, tmp_path):
+        """index='last' で最後の active 行を削除"""
+        queue_file = tmp_path / "queue.txt"
+        queue_file.write_text("Foo 1\nBar 2\nBaz 3\n")
+
+        result = delete_entry(queue_file, "last")
+        assert result is not None
+        assert result["project"] == "Baz"
+
+        content = queue_file.read_text()
+        assert "Foo 1\n" in content
+        assert "Bar 2\n" in content
+        assert "Baz 3" not in content
+
+    def test_delete_minus_one(self, tmp_path):
+        """index='-1' で最後の active 行を削除"""
+        queue_file = tmp_path / "queue.txt"
+        queue_file.write_text("Foo 1\nBar 2\n")
+
+        result = delete_entry(queue_file, "-1")
+        assert result is not None
+        assert result["project"] == "Bar"
+
+    def test_delete_out_of_range(self, tmp_path):
+        """範囲外 → None"""
+        queue_file = tmp_path / "queue.txt"
+        queue_file.write_text("Foo 1\n")
+
+        assert delete_entry(queue_file, 5) is None
+
+    def test_delete_empty_queue(self, tmp_path):
+        """空キュー → None"""
+        queue_file = tmp_path / "queue.txt"
+        queue_file.write_text("")
+        assert delete_entry(queue_file, 0) is None
+
+    def test_delete_skips_done_lines(self, tmp_path):
+        """done 行はインデックス対象外"""
+        queue_file = tmp_path / "queue.txt"
+        queue_file.write_text("# done: Foo 1\nBar 2\nBaz 3\n")
+
+        # index=0 は Bar (Foo は done なのでスキップ)
+        result = delete_entry(queue_file, 0)
+        assert result is not None
+        assert result["project"] == "Bar"
+
+        content = queue_file.read_text()
+        assert "# done: Foo 1\n" in content
+        assert "Baz 3\n" in content
+
+    def test_delete_file_not_exist(self, tmp_path):
+        """ファイル不存在 → None"""
+        queue_file = tmp_path / "nonexistent.txt"
+        assert delete_entry(queue_file, 0) is None

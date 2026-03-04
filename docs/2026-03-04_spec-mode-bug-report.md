@@ -2,7 +2,7 @@
 
 **Date:** 2026-03-04
 **対象:** spec-mode-spec_rev7.md (v7.0) vs 実装コード (commit 0daf387)
-**調査者:** Dijkstra (Opus)
+**調査者:** CC-Opus
 
 ---
 

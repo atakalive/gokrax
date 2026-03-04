@@ -144,6 +144,7 @@ def build_issue_plan_prompt(spec_config: dict, data: dict) -> str:
         suggestions_text += "\n"
 
     spec_name = spec_path.replace("/", "_").replace(".", "_") if spec_path else project
+    gitlab = data.get("gitlab", f"atakalive/{project}")
 
     return f"""以下のレビュアー提案を統合して、GitLab Issue を起票せよ。
 
@@ -157,7 +158,7 @@ def build_issue_plan_prompt(spec_config: dict, data: dict) -> str:
 類似または重複するIssueは1つにまとめ、依存関係を整理せよ。
 
 ## 起票ルール
-- Issue タイトルには `[spec:{spec_name}:S-{N}]` プレフィックスを付ける（N は連番）。
+- Issue タイトルには `[spec:{spec_name}:S-{{N}}]` プレフィックスを付ける（N は連番）。
 - `glab issue list -R {gitlab} -O json` で既存Issueを確認し、重複起票を避けろ。
 - Issueコメントは使用禁止。
 - 各Issueの本文に「期待する振る舞い」と「テスト」セクションを必ず含めろ。

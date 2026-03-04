@@ -1183,6 +1183,19 @@ def cmd_spec_continue(args):
         raise SystemExit(f"Cannot continue: state is {data['state']} (expected SPEC_APPROVED)")
 
     def do_continue(data):
+        sc = data.setdefault("spec_config", {})
+        # C1: review_requests を全員 pending にリセット
+        rr = sc.get("review_requests", {})
+        for reviewer in rr:
+            rr[reviewer] = {
+                "status": "pending",
+                "sent_at": None,
+                "timeout_at": None,
+                "last_nudge_at": None,
+                "response": None,
+            }
+        # A3: history 記録
+        add_history(data, "SPEC_APPROVED", "ISSUE_SUGGESTION", actor="cli")
         data["state"] = "ISSUE_SUGGESTION"
 
     update_pipeline(path, do_continue)
@@ -1436,6 +1449,10 @@ def cmd_spec_review_submit(args):
 
             # review_requests のステータスも更新（§5.2: pending → received）
             rr[args.reviewer]["status"] = "received"
+
+            # I1: reviewed_rev を設定（§3.1 準拠）
+            if "reviewed_rev" not in cr:
+                cr["reviewed_rev"] = sc.get("current_rev", "?")
 
             sc["current_reviews"] = cr
             data["spec_config"] = sc

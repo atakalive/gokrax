@@ -109,6 +109,15 @@ def _apply_updates_to_sc(sc: dict, updates: dict | None) -> dict:
         cr = sc.setdefault("current_reviews", {})
         entries = cr.setdefault("entries", {})
         entries.update(cr_patch)
+    # _review_history_append: review_history に append
+    rh_entry = pu.pop("_review_history_append", None)
+    if rh_entry is not None:
+        sc.setdefault("review_history", []).append(rh_entry)
+    # _reviewed_rev: current_reviews.reviewed_rev を設定
+    reviewed_rev = pu.pop("_reviewed_rev", None)
+    if reviewed_rev is not None:
+        cr = sc.setdefault("current_reviews", {})
+        cr["reviewed_rev"] = reviewed_rev
     sc.update(pu)
     return sc
 
@@ -185,8 +194,8 @@ class TestNormalFlowE2E:
         assert action.next_state == "ISSUE_SUGGESTION"
 
         # --- tick 1: ISSUE_SUGGESTION — 送信 ---
-        # review_requests をリセット
-        sc["review_requests"] = _pending_review_requests()
+        # SPEC_APPROVED→ISSUE_SUGGESTION の pipeline_updates で review_requests がリセットされる
+        sc = _apply_updates_to_sc(sc, action.pipeline_updates)
         action = check_transition_spec("ISSUE_SUGGESTION", sc, _now(), data)
         assert action.send_to is not None
         sc = _apply_updates_to_sc(sc, action.pipeline_updates)
@@ -834,3 +843,150 @@ class TestLastChangesVerification:
         )
         assert "abc1234" in prompt
         assert "+50" in prompt
+
+
+# ===========================================================================
+# 8. TestApprovedTransitionFix — Issue #66: SPEC_APPROVED→ISSUE_SUGGESTION 遷移修正
+# ===========================================================================
+
+class TestApprovedTransitionFix:
+
+    def test_spec_e2e_approved_resets_review_requests(self):
+        """7c: SPEC_REVIEW→SPEC_APPROVED→ISSUE_SUGGESTION で review_requests リセット・アーカイブ・current_reviews クリアを確認"""
+        sc = _make_spec_config(
+            spec_path="docs/test-spec.md",
+            spec_implementer="kaneko",
+            auto_continue=True,
+            review_requests=_pending_review_requests(),
+        )
+        data = _make_pipeline(state="SPEC_REVIEW", spec_mode=True, spec_config=sc)
+
+        # tick1: 送信
+        action = check_transition_spec("SPEC_REVIEW", sc, _now(), data)
+        sc = _apply_updates_to_sc(sc, action.pipeline_updates)
+
+        # tick2: 全員 APPROVE → SPEC_APPROVED
+        _set_all_received(sc)
+        action = check_transition_spec("SPEC_REVIEW", sc, _now(), data)
+        assert action.next_state == "SPEC_APPROVED"
+        pu = action.pipeline_updates or {}
+        # A1: _review_history_append が含まれる
+        assert "_review_history_append" in pu
+        # A4: current_reviews クリアが含まれる
+        assert pu.get("current_reviews") == {}
+        sc = _apply_updates_to_sc(sc, action.pipeline_updates)
+
+        # review_history にエントリが1件追加されている
+        assert len(sc.get("review_history", [])) == 1
+        # current_reviews がクリアされている
+        assert sc.get("current_reviews") == {}
+
+        # SPEC_APPROVED → auto_continue → ISSUE_SUGGESTION
+        action = check_transition_spec("SPEC_APPROVED", sc, _now(), data)
+        assert action.next_state == "ISSUE_SUGGESTION"
+        pu = action.pipeline_updates or {}
+        # C1: review_requests_patch で全員 pending にリセット
+        rr_patch = pu.get("review_requests_patch", {})
+        assert set(rr_patch.keys()) == set(_REVIEWERS)
+        for r in _REVIEWERS:
+            assert rr_patch[r]["status"] == "pending"
+            assert rr_patch[r]["sent_at"] is None
+        sc = _apply_updates_to_sc(sc, action.pipeline_updates)
+
+        # 適用後の状態確認
+        for r in _REVIEWERS:
+            assert sc["review_requests"][r]["status"] == "pending"
+        assert sc.get("current_reviews") == {}
+        assert len(sc.get("review_history", [])) == 1
+
+        # 冪等性: SPEC_APPROVED で再度 check_transition_spec → _review_history_append なし
+        # (_check_spec_review は呼ばれず、auto_continue の review_requests_patch のみ)
+        action2 = check_transition_spec("SPEC_APPROVED", sc, _now(), data)
+        pu2 = action2.pipeline_updates or {}
+        assert "_review_history_append" not in pu2
+
+    def test_cmd_spec_continue_resets_and_records_history(self, tmp_pipelines):
+        """7d: cmd_spec_continue が review_requests をリセットし history を記録する"""
+        import json
+        from pipeline_io import get_path, load_pipeline
+
+        # SPEC_APPROVED 状態で review_requests が全員 received なパイプラインを作成
+        rr = {
+            r: {
+                "status": "received",
+                "sent_at": "2026-03-01T12:00:00+09:00",
+                "timeout_at": "2026-03-01T12:30:00+09:00",
+                "last_nudge_at": None,
+                "response": None,
+            }
+            for r in _REVIEWERS
+        }
+        sc = _make_spec_config(
+            spec_path="docs/test-spec.md",
+            spec_implementer="kaneko",
+            review_requests=rr,
+            current_reviews={},
+        )
+        data = _make_pipeline(state="SPEC_APPROVED", spec_mode=True, spec_config=sc)
+        path = get_path("test-pj")
+        write_pipeline(path, data)
+
+        args = _args(project="test-pj")
+        from devbar import cmd_spec_continue
+        cmd_spec_continue(args)
+
+        result = load_pipeline(path)
+        assert result["state"] == "ISSUE_SUGGESTION"
+        # C1: review_requests が全員 pending にリセット
+        rr_result = result["spec_config"]["review_requests"]
+        for r in _REVIEWERS:
+            assert rr_result[r]["status"] == "pending"
+            assert rr_result[r]["sent_at"] is None
+        # A3: history に遷移エントリが記録されている
+        history = result.get("history", [])
+        assert any(
+            h.get("from") == "SPEC_APPROVED" and h.get("to") == "ISSUE_SUGGESTION"
+            for h in history
+        )
+
+    def test_reviewed_rev_set_by_review_submit(self, tmp_pipelines):
+        """7e: cmd_spec_review_submit 後に current_reviews.reviewed_rev がセットされる"""
+        import tempfile
+        from pipeline_io import get_path, load_pipeline
+
+        rr = {
+            r: {
+                "status": "pending",
+                "sent_at": "2026-03-01T12:00:00+09:00",
+                "timeout_at": "2026-03-02T12:00:00+09:00",
+                "last_nudge_at": None,
+                "response": None,
+            }
+            for r in _REVIEWERS
+        }
+        sc = _make_spec_config(
+            spec_path="docs/test-spec.md",
+            spec_implementer="kaneko",
+            current_rev="2",
+            review_requests=rr,
+            current_reviews={},
+        )
+        data = _make_pipeline(state="SPEC_REVIEW", spec_mode=True, spec_config=sc)
+        path = get_path("test-pj")
+        write_pipeline(path, data)
+
+        review_yaml = (
+            "verdict: APPROVE\n"
+            "items: []\n"
+        )
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            f.write(review_yaml)
+            review_file = f.name
+
+        args = _args(project="test-pj", reviewer="pascal", file=review_file)
+        from devbar import cmd_spec_review_submit
+        cmd_spec_review_submit(args)
+
+        result = load_pipeline(path)
+        cr = result["spec_config"].get("current_reviews", {})
+        assert cr.get("reviewed_rev") == "2"

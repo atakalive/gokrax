@@ -1074,6 +1074,8 @@ def _check_spec_review(
         updates["review_requests_patch"] = rr_patch
     if cr_patch:
         updates["current_reviews_patch"] = cr_patch
+    if not current_reviews.get("reviewed_rev"):
+        updates["_reviewed_rev"] = current_rev
 
     if all_complete:
         # should_continue_review() 用に patch 適用後の仮 spec_config を構築
@@ -1100,6 +1102,13 @@ def _check_spec_review(
         mi_count = sev_counts["minor"]
         s_count  = sev_counts["suggestion"]
         p1_plus  = c_count + m_count
+
+        if result == "approved":
+            # A1: current_reviews を review_history にアーカイブ
+            history_entry = build_review_history_entry(effective_sc, now)
+            updates["_review_history_append"] = history_entry
+            # A4: current_reviews をクリア（entries 残留防止）
+            updates["current_reviews"] = {}
 
         result_map = {
             "approved": ("SPEC_APPROVED", spec_notify_approved(project, current_rev)),
@@ -1554,9 +1563,22 @@ def check_transition_spec(
                 discord_notify=spec_notify_done(project),
             )
         if spec_config.get("auto_continue"):
+            reset_patch = {
+                r: {
+                    "status": "pending",
+                    "sent_at": None,
+                    "timeout_at": None,
+                    "last_nudge_at": None,
+                    "response": None,
+                }
+                for r in spec_config.get("review_requests", {})
+            }
             return SpecTransitionAction(
                 next_state="ISSUE_SUGGESTION",
                 discord_notify=spec_notify_approved_auto(project, spec_config.get("current_rev", "?")),
+                pipeline_updates={
+                    "review_requests_patch": reset_patch,
+                },
             )
         # デフォルト: M確認待ち（通知は遷移元で発火済み）
         return SpecTransitionAction(next_state=None)
@@ -1668,6 +1690,15 @@ def _apply_spec_action(
                 cr = sc.setdefault("current_reviews", {})
                 entries = cr.setdefault("entries", {})
                 entries.update(cr_patch)
+            # _review_history_append: review_history に entry を append（上書きではなく追記）
+            rh_entry = pu.pop("_review_history_append", None)
+            if rh_entry is not None:
+                sc.setdefault("review_history", []).append(rh_entry)
+            # _reviewed_rev: current_reviews のトップレベルに reviewed_rev を設定
+            reviewed_rev = pu.pop("_reviewed_rev", None)
+            if reviewed_rev is not None:
+                cr = sc.setdefault("current_reviews", {})
+                cr["reviewed_rev"] = reviewed_rev
             # 残りのフィールドは直接 update
             sc.update(pu)
             data["spec_config"] = sc

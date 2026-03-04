@@ -205,7 +205,9 @@ def should_continue_review(
             parsed_fail[k] = v
         # timeout は received にも parsed_fail にも含まれない
 
-    min_valid = MIN_VALID_REVIEWS_BY_MODE.get(review_mode, 2)
+    if review_mode not in MIN_VALID_REVIEWS_BY_MODE:
+        raise ValueError(f"Unknown review_mode: {review_mode!r}")
+    min_valid = MIN_VALID_REVIEWS_BY_MODE[review_mode]
 
     # 1. 全員タイムアウト（received=0, parsed_fail=0）
     if len(received) == 0 and len(parsed_fail) == 0:

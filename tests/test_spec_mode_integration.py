@@ -502,6 +502,79 @@ class TestAbnormalFlowE2E:
         assert action.next_state == "SPEC_PAUSED"
         assert action.pipeline_updates["paused_from"] == "SPEC_REVISE"
 
+    def test_full_mode_one_timeout_approved(self):
+        """fullモード 3人中1人 timeout → approved（#65 C3）"""
+        sc = _make_spec_config(
+            spec_path="docs/test-spec.md",
+            spec_implementer="kaneko",
+            review_requests=_pending_review_requests(),
+            current_reviews={
+                "reviewed_rev": "1",
+                "entries": {
+                    "pascal": _received_entry("APPROVE"),
+                    "leibniz": _received_entry("APPROVE"),
+                    "dijkstra": {"verdict": None, "items": [], "raw_text": None,
+                                 "parse_success": False, "status": "timeout"},
+                },
+            },
+        )
+        result = should_continue_review(sc, "full")
+        assert result == "approved"
+
+    def test_lite_mode_one_timeout_approved(self):
+        """liteモード 2人中1人 timeout → approved（#65 C3）"""
+        sc = _make_spec_config(
+            spec_path="docs/test-spec.md",
+            spec_implementer="kaneko",
+            review_requests={
+                "leibniz": {"status": "pending", "sent_at": None, "timeout_at": None,
+                            "last_nudge_at": None, "response": None},
+                "pascal": {"status": "pending", "sent_at": None, "timeout_at": None,
+                           "last_nudge_at": None, "response": None},
+            },
+            current_reviews={
+                "reviewed_rev": "1",
+                "entries": {
+                    "leibniz": _received_entry("APPROVE"),
+                    "pascal": {"verdict": None, "items": [], "raw_text": None,
+                               "parse_success": False, "status": "timeout"},
+                },
+            },
+        )
+        result = should_continue_review(sc, "lite")
+        assert result == "approved"
+
+    def test_full_mode_two_timeout_failed(self):
+        """fullモード 3人中2人 timeout → failed（#65 C3 境界）"""
+        sc = _make_spec_config(
+            spec_path="docs/test-spec.md",
+            spec_implementer="kaneko",
+            review_requests=_pending_review_requests(),
+            current_reviews={
+                "reviewed_rev": "1",
+                "entries": {
+                    "pascal": _received_entry("APPROVE"),
+                    "leibniz": {"verdict": None, "items": [], "raw_text": None,
+                                "parse_success": False, "status": "timeout"},
+                    "dijkstra": {"verdict": None, "items": [], "raw_text": None,
+                                 "parse_success": False, "status": "timeout"},
+                },
+            },
+        )
+        result = should_continue_review(sc, "full")
+        assert result == "failed"
+
+    def test_unknown_review_mode_raises(self):
+        """未知 review_mode → ValueError（#65 A5）"""
+        sc = _make_spec_config(
+            spec_path="docs/test-spec.md",
+            spec_implementer="kaneko",
+            review_requests=_pending_review_requests(),
+            current_reviews={"reviewed_rev": "1", "entries": {}},
+        )
+        with pytest.raises(ValueError, match="Unknown review_mode"):
+            should_continue_review(sc, "nonexistent")
+
 
 # ===========================================================================
 # 4. TestDCL — Double-Check Locking テスト

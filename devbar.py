@@ -1348,7 +1348,7 @@ def cmd_spec_status(args):
     print(f"  reviewers: {', '.join(reviewer_parts)}")
 
     review_mode = data.get("review_mode", "full")
-    min_valid = MIN_VALID_REVIEWS_BY_MODE.get(review_mode, 2)
+    min_valid = MIN_VALID_REVIEWS_BY_MODE.get(review_mode, 0)
     print(f"  min_valid: {min_valid} ({review_mode} mode)")
     print(f"  pipelines_dir: {sc.get('pipelines_dir', '?')}")
 

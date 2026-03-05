@@ -283,6 +283,12 @@ queue_file: "{queue_file_path}"
 ```
 
 ※ batches は追記したバッチ行数（1以上の整数）
+
+## 提出方法
+完了報告を YAML ファイルに保存し、以下のコマンドで投入してください:
+```
+python3 /home/ataka/.openclaw/shared/bin/devbar spec queue-submit --pj {project} --file <YAMLファイルパス>
+```
 """
 
 

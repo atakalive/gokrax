@@ -129,6 +129,11 @@ REVIEW_MODES = {
         "min_reviews": 3,
         "grace_period_sec": 0,
     },
+    "lite3_woGoogle": {
+        "members": ["leibniz", "euler", "dijkstra"],
+        "min_reviews": 3,
+        "grace_period_sec": 0,
+    },
     "lite": {
         "members": ["leibniz", "pascal"],
         "min_reviews": 2,
@@ -294,7 +299,7 @@ STATE_PHASE_MAP.update({s: "spec" for s in SPEC_STATES})
 # 1-E. spec mode 定数（§3.2）
 MAX_SPEC_REVISE_CYCLES: int = 5
 MIN_VALID_REVIEWS_BY_MODE: dict[str, int] = {
-    "full": 2, "standard": 2, "lite": 1, "min": 1, "lite3": 2, "skip": 0,
+    "full": 2, "standard": 2, "lite": 1, "min": 1, "lite3": 2, "lite3_woGoogle": 2, "skip": 0,
 }
 SPEC_REVIEW_TIMEOUT_SEC: int = 1800
 SPEC_REVISE_TIMEOUT_SEC: int = 1800

@@ -182,6 +182,12 @@ created_issues:
 ```
 
 ※ created_issues は起票したIssue番号（整数）のリスト
+
+## 提出方法
+完了報告を YAML ファイルに保存し、以下のコマンドで投入してください:
+```
+python3 /home/ataka/.openclaw/shared/bin/devbar spec issue-submit --pj {project} --file <YAMLファイルパス>
+```
 """
 
 

@@ -511,6 +511,42 @@ class TestAbnormalFlowE2E:
         assert action.next_state == "SPEC_PAUSED"
         assert action.pipeline_updates["paused_from"] == "SPEC_REVISE"
 
+    def test_spec_revise_sends_to_implementer_on_first_tick(self):
+        """SPEC_REVISE 初回 tick で implementer に send_to が発行される (#72)"""
+        p0_items = [
+            {
+                "id": "p0-1", "severity": "P0", "section": "§2",
+                "title": "致命的な問題", "description": "説明", "suggestion": "提案",
+                "reviewer": "pascal", "normalized_id": "pascal:p0-1",
+            }
+        ]
+        sc = _make_spec_config(
+            spec_path="docs/test-spec.md",
+            spec_implementer="kaneko",
+            review_requests=_pending_review_requests(),
+            current_reviews={
+                "reviewed_rev": "1",
+                "entries": {
+                    "pascal": _received_entry("P0", items=p0_items),
+                    "leibniz": _received_entry("APPROVE"),
+                    "dijkstra": _received_entry("APPROVE"),
+                },
+            },
+        )
+        data = _make_pipeline(state="SPEC_REVISE", spec_mode=True, spec_config=sc)
+
+        # 初回 tick: _revise_sent 未設定 → send_to が発行される
+        action = _check_spec_revise(sc, _now(), data)
+        assert action.next_state is None
+        assert action.send_to is not None
+        assert "kaneko" in action.send_to
+        assert action.pipeline_updates.get("_revise_sent") is not None
+
+        # 2回目 tick: _revise_sent がセット済み → send_to は出ない（冪等）
+        sc = _apply_updates_to_sc(sc, action.pipeline_updates)
+        action2 = _check_spec_revise(sc, _now(), data)
+        assert action2.send_to is None
+
     def test_full_mode_one_timeout_approved(self):
         """fullモード 3人中1人 timeout → approved（#65 C3）"""
         sc = _make_spec_config(

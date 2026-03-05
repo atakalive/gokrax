@@ -1312,7 +1312,7 @@ def _check_issue_suggestion(
 
         if status == "pending" and req.get("sent_at") is None:
             # 未送信 → Issue分割提案プロンプト生成
-            prompt = build_issue_suggestion_prompt(spec_config, data)
+            prompt = build_issue_suggestion_prompt(spec_config, data, reviewer=reviewer)
             send_to[reviewer] = prompt
             rr_patch[reviewer] = {
                 "sent_at": now.isoformat(),

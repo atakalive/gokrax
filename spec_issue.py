@@ -21,7 +21,7 @@ _YAML_BLOCK_RE = re.compile(
 # 1-A. build_issue_suggestion_prompt（§7）
 # ---------------------------------------------------------------------------
 
-def build_issue_suggestion_prompt(spec_config: dict, data: dict) -> str:
+def build_issue_suggestion_prompt(spec_config: dict, data: dict, reviewer: str = "") -> str:
     """ISSUE_SUGGESTION フェーズ: レビュアー向けIssue分割提案プロンプトを生成する（§7）。"""
     project = data.get("project", "")
     spec_path = spec_config.get("spec_path", "")
@@ -74,6 +74,12 @@ phases:
 - depends_on には同フェーズ内または前フェーズのIssueタイトルを列挙
 - files は変更予定ファイルのリスト（既存 or 新規）
 - spec_refs は対応する仕様書セクション番号のリスト
+
+## 提出方法
+提案を YAML ファイルに保存し、以下のコマンドで投入してください:
+```
+python3 /home/ataka/.openclaw/shared/bin/devbar spec suggestion-submit --pj {project} --reviewer {reviewer} --file <YAMLファイルパス>
+```
 """
 
 

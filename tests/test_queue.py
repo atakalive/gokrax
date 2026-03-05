@@ -162,6 +162,23 @@ class TestParseQueueLine:
         assert result["keep_ctx_batch"] is False
         assert result["keep_ctx_intra"] is False
 
+    def test_p1_fix(self):
+        """p1-fix トークン"""
+        result = parse_queue_line("Foo 1 p1-fix")
+        assert result["p1_fix"] is True
+
+    def test_p1_fix_with_mode(self):
+        """p1-fix + MODE + 他オプション"""
+        result = parse_queue_line("BeamShifter 43,44 full p1-fix automerge")
+        assert result["p1_fix"] is True
+        assert result["mode"] == "full"
+        assert result["automerge"] is True
+
+    def test_no_p1_fix_default(self):
+        """p1-fix 省略時は False"""
+        result = parse_queue_line("Foo 1")
+        assert result["p1_fix"] is False
+
 
 class TestPopNextQueueEntry:
     """pop_next_queue_entry() のテスト"""

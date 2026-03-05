@@ -403,7 +403,13 @@ def cmd_start(args):
                 data["keep_ctx_intra"] = True
         update_pipeline(path, do_mode)
 
-    # 6. DESIGN_PLANに遷移
+    # 6. p1_fix フラグ保存
+    if getattr(args, "p1_fix", False):
+        def do_p1_fix(data):
+            data["p1_fix"] = True
+        update_pipeline(path, do_p1_fix)
+
+    # 7. DESIGN_PLANに遷移
     transition_args = argparse.Namespace(
         project=args.project,
         to="DESIGN_PLAN",
@@ -413,13 +419,13 @@ def cmd_start(args):
     )
     cmd_transition(transition_args)
 
-    # 7. watchdog有効化 + loop起動
+    # 8. watchdog有効化 + loop起動
     def do_enable(data):
         data["enabled"] = True
     update_pipeline(path, do_enable)
     _start_loop()
 
-    # 8. 完了メッセージ
+    # 9. 完了メッセージ
     issues_str = ", ".join(f"#{n}" for n in issue_nums)
     print(f"{args.project}: started with issues [{issues_str}] → DESIGN_PLAN (watchdog enabled)")
 
@@ -913,6 +919,8 @@ def cmd_qrun(args):
             opts = []
             if e.get("automerge"):
                 opts.append("automerge")
+            if e.get("p1_fix"):
+                opts.append("p1-fix")
             if e.get("cc_plan_model"):
                 opts.append(f"plan={e['cc_plan_model']}")
             if e.get("cc_impl_model"):
@@ -944,6 +952,7 @@ def cmd_qrun(args):
         mode=mode,
         keep_ctx_batch=entry.get("keep_ctx_batch", False),
         keep_ctx_intra=entry.get("keep_ctx_intra", False),
+        p1_fix=entry.get("p1_fix", False),
     )
 
     # queue_mode を先に設定（cmd_start 内の遷移通知で [Queue] prefix を使うため）
@@ -964,6 +973,8 @@ def cmd_qrun(args):
     def _save_queue_options(data):
         if entry.get("automerge"):
             data["automerge"] = True
+        if entry.get("p1_fix"):
+            data["p1_fix"] = True
         if entry.get("cc_plan_model"):
             data["cc_plan_model"] = entry["cc_plan_model"]
         if entry.get("cc_impl_model"):
@@ -985,6 +996,8 @@ def get_qstatus_text(entries: list[dict]) -> str:
             parts.append(e["mode"])
         if e.get("automerge"):
             parts.append("automerge")
+        if e.get("p1_fix"):
+            parts.append("p1-fix")
         if e.get("cc_plan_model"):
             parts.append(f"plan={e['cc_plan_model']}")
         if e.get("cc_impl_model"):
@@ -1917,6 +1930,7 @@ def main():
     p.add_argument("--keep-ctx-batch", action="store_true", default=False, dest="keep_ctx_batch")
     p.add_argument("--keep-ctx-intra", action="store_true", default=False, dest="keep_ctx_intra")
     p.add_argument("--keep-ctx-all", action="store_true", default=False, dest="keep_ctx_all")
+    p.add_argument("--p1-fix", action="store_true", default=False, dest="p1_fix")
 
     # triage
     p = sub.add_parser("triage", help="指定Issueをバッチに投入")

@@ -297,9 +297,9 @@ for _state, _targets in SPEC_TRANSITIONS.items():
 STATE_PHASE_MAP.update({s: "spec" for s in SPEC_STATES})
 
 # 1-E. spec mode 定数（§3.2）
-MAX_SPEC_REVISE_CYCLES: int = 5
+MAX_SPEC_REVISE_CYCLES: int = 10
 MIN_VALID_REVIEWS_BY_MODE: dict[str, int] = {
-    "full": 2, "standard": 2, "lite": 1, "min": 1, "lite3": 2, "lite3_woGoogle": 2, "skip": 0,
+    "full": 3, "standard": 2, "lite": 2, "min": 1, "lite3": 3, "lite3_woGoogle": 3, "skip": 0,
 }
 SPEC_REVIEW_TIMEOUT_SEC: int = 1800
 SPEC_REVISE_TIMEOUT_SEC: int = 1800

@@ -57,6 +57,7 @@ from spec_review import (
     should_continue_review, _reset_review_requests,
     parse_review_yaml, validate_received_entry,
     merge_reviews, format_merged_report, build_review_history_entry,
+    SpecReviewItem, SpecReviewResult,
 )
 from spec_issue import (
     build_issue_suggestion_prompt,
@@ -1148,7 +1149,7 @@ def _check_spec_revise(
 ) -> SpecTransitionAction:
     """SPEC_REVISE: タイムアウト検出。純粋関数（spec_config を mutate しない）。"""
     # --- implementer 応答チェック（S-5 追加） ---
-    from spec_revise import parse_revise_response, build_revise_completion_updates
+    from spec_revise import parse_revise_response, build_revise_completion_updates, build_revise_prompt
 
     project = data.get("project", "")
     revise_response = spec_config.get("_revise_response")
@@ -1179,6 +1180,7 @@ def _check_spec_revise(
         # 改訂完了 → SPEC_REVIEW へ遷移
         updates = build_revise_completion_updates(spec_config, parsed, now)
         updates["_revise_response"] = None  # 消費済みクリア（Leibniz P0-1）
+        updates["_revise_sent"] = None       # 送信記録クリア
         current_rev = parsed.get("new_rev", "?")
         reviewer_count = len(spec_config.get("review_requests", {}))
         revise_msg = spec_notify_revise_done(project, current_rev, parsed.get("commit", ""))
@@ -1188,9 +1190,52 @@ def _check_spec_revise(
             discord_notify=f"{revise_msg}\n{review_msg}",
             pipeline_updates=updates,
         )
-    # --- ここまで S-5 追加。以下は既存のタイムアウトチェック ---
+    # --- ここまで S-5 追加。以下は implementer 送信 + タイムアウトチェック ---
 
-    # タイムアウト起点: _revise_retry_at（リトライ後）or history（初回）
+    # implementer への初回リバイス依頼送信（§6.1）
+    implementer = spec_config.get("spec_implementer", "")
+    revise_sent = spec_config.get("_revise_sent")
+    if not revise_sent and implementer:
+        # current_reviews.entries からレビュー指摘を整形
+        current_reviews = spec_config.get("current_reviews", {})
+        entries = current_reviews.get("entries", {})
+        reviews_for_merge = []
+        for reviewer, entry in entries.items():
+            if not isinstance(entry, dict) or entry.get("status") != "received":
+                continue
+            items_raw = entry.get("items", []) or []
+            review_items = []
+            for it in items_raw:
+                if isinstance(it, dict):
+                    review_items.append(SpecReviewItem(
+                        id=it.get("id", ""),
+                        severity=it.get("severity", "minor"),
+                        section=it.get("section", ""),
+                        title=it.get("title", ""),
+                        description=it.get("description", ""),
+                        suggestion=it.get("suggestion", ""),
+                        reviewer=reviewer,
+                        normalized_id=it.get("normalized_id", f"{reviewer}:{it.get('id', '')}"),
+                    ))
+            reviews_for_merge.append(SpecReviewResult(
+                reviewer=reviewer,
+                verdict=entry.get("verdict", ""),
+                items=review_items,
+                raw_text="",
+                parse_success=True,
+            ))
+        if reviews_for_merge:
+            merged = merge_reviews(reviews_for_merge)
+            current_rev = spec_config.get("current_rev", "1")
+            merged_md = format_merged_report(merged, current_rev)
+            prompt = build_revise_prompt(spec_config, merged_md, data)
+            return SpecTransitionAction(
+                next_state=None,
+                send_to={implementer: prompt},
+                pipeline_updates={"_revise_sent": now.isoformat()},
+            )
+
+    # タイムアウト起点: _revise_retry_at（リトライ後）or _revise_sent or history（初回）
     retry_at_str = spec_config.get("_revise_retry_at")
     if retry_at_str:
         try:
@@ -1199,6 +1244,12 @@ def _check_spec_revise(
             baseline = None
     else:
         baseline = None
+
+    if baseline is None and revise_sent:
+        try:
+            baseline = _datetime.fromisoformat(revise_sent)
+        except (ValueError, TypeError):
+            baseline = None
 
     if baseline is None:
         baseline = _get_state_entered_at(data, "SPEC_REVISE")

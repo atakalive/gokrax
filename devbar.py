@@ -1115,6 +1115,23 @@ def _archive_current_reviews(spec_config: dict) -> None:
 def cmd_spec_start(args):
     """spec modeパイプライン開始（§4.2, §2.5, §2.6, §3.3）"""
     path = get_path(args.project)
+    if not path.exists():
+        # パイプライン JSON が未作成 → 自動 init
+        PIPELINES_DIR.mkdir(parents=True, exist_ok=True)
+        data = {
+            "project": args.project,
+            "gitlab": f"atakalive/{args.project}",
+            "repo_path": "",
+            "state": "IDLE",
+            "enabled": False,
+            "implementer": args.implementer or "kaneko",
+            "batch": [],
+            "history": [],
+            "created_at": now_iso(),
+            "updated_at": now_iso(),
+        }
+        save_pipeline(path, data)
+        print(f"Auto-initialized: {path}")
     data = load_pipeline(path)
     # 事前チェック（早期エラー用、本番チェックはdo_start内flock内で再実行）
     if data.get("state", "IDLE") != "IDLE":

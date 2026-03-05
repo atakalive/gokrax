@@ -1118,10 +1118,13 @@ def cmd_spec_start(args):
     if not path.exists():
         # パイプライン JSON が未作成 → 自動 init
         PIPELINES_DIR.mkdir(parents=True, exist_ok=True)
+        # repo_path を推測: /mnt/s/wsl/work/project/<project>
+        default_repo = f"/mnt/s/wsl/work/project/{args.project}"
+        repo_path = default_repo if Path(default_repo).is_dir() else ""
         data = {
             "project": args.project,
             "gitlab": f"atakalive/{args.project}",
-            "repo_path": "",
+            "repo_path": repo_path,
             "state": "IDLE",
             "enabled": False,
             "implementer": args.implementer or "kaneko",
@@ -1131,7 +1134,7 @@ def cmd_spec_start(args):
             "updated_at": now_iso(),
         }
         save_pipeline(path, data)
-        print(f"Auto-initialized: {path}")
+        print(f"Auto-initialized: {path} (repo_path={repo_path})")
     data = load_pipeline(path)
     # 事前チェック（早期エラー用、本番チェックはdo_start内flock内で再実行）
     if data.get("state", "IDLE") != "IDLE":

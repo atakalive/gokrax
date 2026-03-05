@@ -26,7 +26,9 @@ def build_issue_suggestion_prompt(spec_config: dict, data: dict, reviewer: str =
     project = data.get("project", "")
     spec_path = spec_config.get("spec_path", "")
     current_rev = spec_config.get("current_rev", "1")
-    return f"""承認された仕様書に基づき、GitLab Issue への分割提案を行ってください。
+    return f"""【指示】このタスクは中断せず最後まで一気に完了してください。途中で確認を求めないこと。
+
+承認された仕様書に基づき、GitLab Issue への分割提案を行ってください。
 
 プロジェクト: {project}
 仕様書: {spec_path} (rev{current_rev})
@@ -80,7 +82,8 @@ phases:
 ```
 python3 /home/ataka/.openclaw/shared/bin/devbar spec suggestion-submit --pj {project} --reviewer {reviewer} --file <YAMLファイルパス>
 ```
-"""
+
+【重要】提案作成・提出まで、中断せず一気に完了すること。"""
 
 
 # ---------------------------------------------------------------------------
@@ -152,7 +155,9 @@ def build_issue_plan_prompt(spec_config: dict, data: dict) -> str:
     spec_name = spec_path.replace("/", "_").replace(".", "_") if spec_path else project
     gitlab = data.get("gitlab", f"atakalive/{project}")
 
-    return f"""以下のレビュアー提案を統合して、GitLab Issue を起票せよ。
+    return f"""【指示】このタスクは中断せず最後まで一気に完了してください。途中で確認を求めないこと。
+
+以下のレビュアー提案を統合して、GitLab Issue を起票せよ。
 
 プロジェクト: {project}
 仕様書: {spec_path} (rev{current_rev})
@@ -188,7 +193,8 @@ created_issues:
 ```
 python3 /home/ataka/.openclaw/shared/bin/devbar spec issue-submit --pj {project} --file <YAMLファイルパス>
 ```
-"""
+
+【重要】Issue起票・完了報告の提出まで、中断せず一気に完了すること。"""
 
 
 # ---------------------------------------------------------------------------
@@ -242,7 +248,9 @@ def build_queue_plan_prompt(spec_config: dict, data: dict) -> str:
 
     issues_text = " ".join(str(n) for n in created_issues)
 
-    return f"""起票済みIssueをバッチ実行キューに登録してください。
+    return f"""【指示】このタスクは中断せず最後まで一気に完了してください。途中で確認を求めないこと。
+
+起票済みIssueをバッチ実行キューに登録してください。
 
 プロジェクト: {project}
 仕様書: {spec_path}
@@ -256,20 +264,21 @@ def build_queue_plan_prompt(spec_config: dict, data: dict) -> str:
 
 - `issue_nums` はカンマ区切り（例: `{project} 51,52,53 full # Phase 1`）
 - 1バッチ内のIssueは並列実装される。依存関係があるIssueは別バッチにすること
-- review_mode は full / lite から選択。
+- review_mode は full / lite から選択。とても簡単で間違いそうにない場合、lite でよい。
 
-実装フェーズで使用するCCモデルは、問題の難易度に応じて選択する。
+### 実装フェーズで使用するCCモデルは、問題の難易度に応じて選択する。
 - デフォルト: Sonnet （指定不要）
-- コストをかけてでもOpusで計画・実装するほうががよい場合: `plan=opus` および `impl=opus`
-- 計画は難しいが実装は簡単である場合、 `plan=opus` のみ指定してもよい。
+- 計画は難しいが実装はSonnetで十分な場合、`plan=opus` のみ指定。
+- Opusで計画・実装まで行うほうが良い場合: `plan=opus` および `impl=opus`
 
-コンテキスト引き継ぎは、高コストになるが必要に応じて指定可能。
-- `--keep-ctt-batch` は前バッチのコンテキストを引き継ぐ場合に付与
-- `--keep-ctt-intra` はDESIGNフェーズから実装後CODEレビューまでコンテキストを引き継ぐ場合に付与
-- `--keep-ctx-all` は batch, intra 両方のコンテキストを引き継ぐ場合に付与
+### コンテキスト引き継ぎは、必要に応じて指定可能。実装作業は、DESIGN_REVIEW->IMPLEMENTATION->CODE_REVIEW と進行する。
+- `--keep-ctx-intra` はDESIGNレビュー -> CODEレビューの間でコンテキストを引き継ぐ場合に付与
+- `--keep-ctx-batch` は前バッチのCODEレビュー -> 次バッチのDESIGNレビューにコンテキストを引き継ぐ場合に付与
+- `--keep-ctx-all` は batch, intra 両方のコンテキストを引き継ぐ場合に付与（つまりコンテキストリセット無し）
 
 - 依存関係がある場合は別バッチに分ける
 - 並列実行可能で、簡単なIssueは同じ行にまとめる
+- 難しいタスクではコスト節約しすぎないこと。メリハリをつける。
 
 ## 登録手順
 1. 既存のキューファイル（{queue_file_path}）の末尾にバッチ行を追記する
@@ -289,7 +298,8 @@ queue_file: "{queue_file_path}"
 ```
 python3 /home/ataka/.openclaw/shared/bin/devbar spec queue-submit --pj {project} --file <YAMLファイルパス>
 ```
-"""
+
+【重要】キュー登録・完了報告の提出まで、中断せず一気に完了すること。"""
 
 
 # ---------------------------------------------------------------------------

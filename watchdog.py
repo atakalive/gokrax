@@ -926,7 +926,9 @@ def _build_spec_review_prompt_initial(
     """初回レビュー依頼プロンプト（§5.1）。"""
     pipelines_dir = spec_config.get("pipelines_dir") or str(PIPELINES_DIR)
     spec_name = Path(spec_path).stem
-    return f"""以下の仕様書をレビューしてください。**やりすぎレビュー**を依頼します。
+    return f"""【指示】このタスクは中断せず最後まで一気に完了してください。途中で確認を求めないこと。
+
+以下の仕様書をレビューしてください。**やりすぎレビュー**を依頼します。
 
 プロジェクト: {project}
 仕様書: {spec_path} (rev{current_rev})
@@ -958,7 +960,9 @@ items:
 python3 {DEVBAR_CLI} spec review-submit --pj {project} --reviewer <YOUR_NAME> --file <保存したファイルのパス>
 ```
 
-ファイルは素のYAMLでも、上記「出力フォーマット」の ```yaml ... ``` ブロックを含むMarkdownでも可。"""
+ファイルは素のYAMLでも、上記「出力フォーマット」の ```yaml ... ``` ブロックを含むMarkdownでも可。
+
+【重要】レビュー完了・結果の提出まで、中断せず一気に完了すること。"""
 
 
 def _build_spec_review_prompt_revision(
@@ -976,7 +980,9 @@ def _build_spec_review_prompt_revision(
     added = last_changes.get("added_lines", "?")
     removed = last_changes.get("removed_lines", "?")
     changelog = last_changes.get("changelog_summary", "変更履歴なし")
-    return f"""以下の仕様書の改訂版をレビューしてください。
+    return f"""【指示】このタスクは中断せず最後まで一気に完了してください。途中で確認を求めないこと。
+
+以下の仕様書の改訂版をレビューしてください。
 
 プロジェクト: {project}
 仕様書: {spec_path} (rev{current_rev})
@@ -999,7 +1005,9 @@ def _build_spec_review_prompt_revision(
 python3 {DEVBAR_CLI} spec review-submit --pj {project} --reviewer <YOUR_NAME> --file <保存したファイルのパス>
 ```
 
-ファイルは素のYAMLでも、上記「出力フォーマット」の ```yaml ... ``` ブロックを含むMarkdownでも可。"""
+ファイルは素のYAMLでも、上記「出力フォーマット」の ```yaml ... ``` ブロックを含むMarkdownでも可。
+
+【重要】レビュー完了・結果の提出まで、中断せず一気に完了すること。"""
 
 
 # ---------------------------------------------------------------------------

@@ -31,7 +31,9 @@ def build_revise_prompt(
     project = data.get("project", "")
     spec_path = spec_config.get("spec_path", "")
     current_rev = spec_config.get("current_rev", "1")
-    return f"""以下の仕様書を改訂してください。
+    return f"""【指示】このタスクは中断せず最後まで一気に完了してください。途中で確認を求めないこと。
+
+以下の仕様書を改訂してください。
 
 プロジェクト: {project}
 仕様書: {spec_path} (rev{current_rev})
@@ -64,7 +66,8 @@ changes:
 ```
 python3 /home/ataka/.openclaw/shared/bin/devbar spec revise-submit --pj {project} --file <YAMLファイルパス>
 ```
-"""
+
+【重要】改訂・コミット・完了報告の提出まで、中断せず一気に完了すること。"""
 
 
 # ---------------------------------------------------------------------------
@@ -77,7 +80,9 @@ def build_self_review_prompt(spec_config: dict, data: dict) -> str:
     spec_path = spec_config.get("spec_path", "")
     new_rev = spec_config.get("current_rev", "1")
     last_commit = spec_config.get("last_commit", "unknown")
-    return f"""改訂された仕様書のクロスチェックを依頼します。
+    return f"""【指示】このタスクは中断せず最後まで一気に完了してください。途中で確認を求めないこと。
+
+改訂された仕様書のクロスチェックを依頼します。
 
 プロジェクト: {project}
 仕様書: {spec_path} (rev{new_rev})
@@ -88,7 +93,9 @@ def build_self_review_prompt(spec_config: dict, data: dict) -> str:
 2. 新たな矛盾やregressionが発生していないか
 3. 擬似コードの型・引数整合性
 
-変更箇所に問題がなければ `status: clean`、修正が必要なら `status: issues_found` + 指摘リストをYAMLで。"""
+変更箇所に問題がなければ `status: clean`、修正が必要なら `status: issues_found` + 指摘リストをYAMLで。
+
+【重要】チェック完了まで中断せず一気に完了すること。"""
 
 
 # ---------------------------------------------------------------------------

@@ -1451,9 +1451,12 @@ def _check_issue_plan(
         # 成功: no_queue チェック
         n = len(parsed["created_issues"])
         next_state = "SPEC_DONE" if spec_config.get("no_queue") else "QUEUE_PLAN"
+        notify_msg = spec_notify_issue_plan_done(project, n)
+        if next_state == "SPEC_DONE":
+            notify_msg = f"{notify_msg}\n{spec_notify_done(project)}"
         return SpecTransitionAction(
             next_state=next_state,
-            discord_notify=spec_notify_issue_plan_done(project, n),
+            discord_notify=notify_msg,
             pipeline_updates={
                 "created_issues": parsed["created_issues"],
                 "_issue_plan_response": None,
@@ -1530,9 +1533,10 @@ def _check_queue_plan(
                 pipeline_updates={"paused_from": "QUEUE_PLAN"},
             )
         batches = parsed["batches"]
+        done_msg = f"{spec_notify_queue_plan_done(project, batches)}\n{spec_notify_done(project)}"
         return SpecTransitionAction(
             next_state="SPEC_DONE",
-            discord_notify=spec_notify_queue_plan_done(project, batches),
+            discord_notify=done_msg,
             pipeline_updates={
                 "_queue_plan_response": None,
                 "_queue_plan_sent": None,

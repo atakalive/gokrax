@@ -57,7 +57,14 @@ changes:
   deferred_items: ["dijkstra:m-4", ...]
   deferred_reasons:
     "dijkstra:m-4": "理由"
-```"""
+```
+
+## 提出方法
+完了報告を YAML ファイルに保存し、以下のコマンドで投入してください:
+```
+python3 /home/ataka/.openclaw/shared/bin/devbar spec revise-submit --pj {project} --file <YAMLファイルパス>
+```
+"""
 
 
 # ---------------------------------------------------------------------------

@@ -50,9 +50,11 @@ class TestBuildSelfReviewPrompt:
     def test_contains_check_items(self):
         sc = {"spec_path": "docs/spec.md", "current_rev": "3", "last_commit": "abc123"}
         prompt = build_self_review_prompt(sc, {"project": "devbar"})
-        assert "クロスチェック" in prompt
-        assert "reflected_items" in prompt
+        # 新チェックリスト方式: デフォルト4項目が含まれること
+        assert "reflected_items_match" in prompt
+        assert "no_new_contradictions" in prompt
         assert "abc123" in prompt
+        assert "self-review-submit" in prompt
 
 
 # --- get_self_review_agent ---
@@ -127,32 +129,78 @@ class TestParseReviseResponse:
         assert parse_revise_response(text, "1") is None
 
 
-# --- parse_self_review_response ---
+# --- parse_self_review_response --- (チェックリスト方式 #77)
+
+def _all_yes_yaml():
+    return """\
+```yaml
+checklist:
+  - id: "reflected_items_match"
+    result: "Yes"
+    evidence: "OK"
+  - id: "no_new_contradictions"
+    result: "Yes"
+    evidence: "OK"
+  - id: "pseudocode_consistency"
+    result: "Yes"
+    evidence: "OK"
+  - id: "deferred_reasons_valid"
+    result: "Yes"
+    evidence: "OK"
+```
+"""
+
 
 class TestParseSelfReviewResponse:
     def test_clean_yaml(self):
-        text = '```yaml\nstatus: clean\n```'
-        assert parse_self_review_response(text) == "clean"
+        """全 Yes → verdict: clean"""
+        result = parse_self_review_response(_all_yes_yaml())
+        assert result["verdict"] == "clean"
+        assert result["items"] == []
 
     def test_issues_found_yaml(self):
-        text = '```yaml\nstatus: issues_found\nitems:\n  - "bug"\n```'
-        assert parse_self_review_response(text) == "issues_found"
+        """1件 No → verdict: issues_found"""
+        text = """\
+```yaml
+checklist:
+  - id: "reflected_items_match"
+    result: "No"
+    evidence: "見つからない"
+  - id: "no_new_contradictions"
+    result: "Yes"
+    evidence: "OK"
+  - id: "pseudocode_consistency"
+    result: "Yes"
+    evidence: "OK"
+  - id: "deferred_reasons_valid"
+    result: "Yes"
+    evidence: "OK"
+```
+"""
+        result = parse_self_review_response(text)
+        assert result["verdict"] == "issues_found"
+        assert len(result["items"]) == 1
+        assert result["items"][0]["id"] == "reflected_items_match"
 
     def test_clean_inline(self):
-        text = "All good. status: clean"
-        assert parse_self_review_response(text) == "clean"
+        """テキストのみ（YAMLブロックなし）→ parse_failed（テキストフォールバック廃止）"""
+        result = parse_self_review_response("All good. status: clean")
+        assert result["verdict"] == "parse_failed"
 
     def test_issues_found_inline(self):
-        text = "Found problems. issues_found in section 3."
-        assert parse_self_review_response(text) == "issues_found"
+        """テキストのみ（YAMLブロックなし）→ parse_failed"""
+        result = parse_self_review_response("Found problems. issues_found in section 3.")
+        assert result["verdict"] == "parse_failed"
 
     def test_unknown(self):
-        text = "I have no idea what format to use"
-        assert parse_self_review_response(text) == "parse_failed"
+        """不明テキスト → parse_failed"""
+        result = parse_self_review_response("I have no idea what format to use")
+        assert result["verdict"] == "parse_failed"
 
     def test_malformed_yaml(self):
-        text = '```yaml\n: : :\n```'
-        assert parse_self_review_response(text) == "parse_failed"
+        """不正YAML → parse_failed"""
+        result = parse_self_review_response('```yaml\n: : :\n```')
+        assert result["verdict"] == "parse_failed"
 
 
 # --- verify_git_diff ---

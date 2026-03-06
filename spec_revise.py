@@ -19,6 +19,30 @@ import yaml
 
 
 # ---------------------------------------------------------------------------
+# 定数
+# ---------------------------------------------------------------------------
+
+DEFAULT_SELF_REVIEW_CHECKLIST: list[dict] = [
+    {
+        "id": "reflected_items_match",
+        "question": "revise 報告の reflected_items が仕様書本文に実際に反映されているか",
+    },
+    {
+        "id": "no_new_contradictions",
+        "question": "今回の変更で新たな矛盾が発生していないか",
+    },
+    {
+        "id": "pseudocode_consistency",
+        "question": "擬似コードの型・引数・関数名が本文の説明と一致しているか",
+    },
+    {
+        "id": "deferred_reasons_valid",
+        "question": "deferred_items に理由が明記されているか",
+    },
+]
+
+
+# ---------------------------------------------------------------------------
 # 1-A. build_revise_prompt
 # ---------------------------------------------------------------------------
 
@@ -74,26 +98,67 @@ python3 /home/ataka/.openclaw/shared/bin/devbar spec revise-submit --pj {project
 # 1-B. build_self_review_prompt
 # ---------------------------------------------------------------------------
 
-def build_self_review_prompt(spec_config: dict, data: dict) -> str:
-    """セルフレビュー パス2 の依頼プロンプト（§6.2）。"""
+def build_self_review_prompt(
+    spec_config: dict,
+    data: dict,
+    checklist: list[dict] | None = None,
+) -> str:
+    """セルフレビュー依頼プロンプト（チェックリスト方式）。
+
+    Args:
+        spec_config: 現在の spec_config
+        data: pipeline data（project 等）
+        checklist: チェックリスト定義。None の場合は DEFAULT_SELF_REVIEW_CHECKLIST を使用。
+                   spec_config に self_review_checklist キーがあればそちらを優先。
+    """
     project = data.get("project", "")
     spec_path = spec_config.get("spec_path", "")
     new_rev = spec_config.get("current_rev", "1")
     last_commit = spec_config.get("last_commit", "unknown")
+
+    if checklist is None:
+        checklist = spec_config.get("self_review_checklist", DEFAULT_SELF_REVIEW_CHECKLIST)
+
+    checklist_lines = []
+    for item in checklist:
+        checklist_lines.append(f'- **{item["id"]}**: {item["question"]}')
+    checklist_text = "\n".join(checklist_lines)
+
+    # YAML 回答フォーマット例
+    example_items = []
+    for item in checklist:
+        example_items.append(
+            f'  - id: "{item["id"]}"\n'
+            f'    result: "Yes"\n'
+            f'    evidence: "（確認内容を記述）"'
+        )
+    example_yaml = "checklist:\n" + "\n".join(example_items)
+
     return f"""【指示】このタスクは中断せず最後まで一気に完了してください。途中で確認を求めないこと。
 
-改訂された仕様書のクロスチェックを依頼します。
+改訂された仕様書のセルフレビューを依頼します。
 
 プロジェクト: {project}
 仕様書: {spec_path} (rev{new_rev})
 前回commit: {last_commit}
 
 ## チェック項目
-1. 変更履歴のreflected_itemsが本文に実際に反映されているか
-2. 新たな矛盾やregressionが発生していないか
-3. 擬似コードの型・引数整合性
+{checklist_text}
 
-変更箇所に問題がなければ `status: clean`、修正が必要なら `status: issues_found` + 指摘リストをYAMLで。
+## 回答フォーマット
+以下のYAMLで回答してください。各項目の result は "Yes" または "No" のみ有効です。
+
+```yaml
+{example_yaml}
+```
+
+result が "No" の場合は evidence に具体的な問題箇所を記述してください。
+
+## 提出方法
+チェック結果を YAML ファイルに保存し、以下のコマンドで投入してください:
+python3 /home/ataka/.openclaw/shared/bin/devbar spec self-review-submit --pj {project} --file <YAMLファイルパス>
+
+※ YAMLブロック（```yaml ... ```）で囲うことを推奨します。囲わなくても CLI が自動でフェンスを補完しますが、確実なパースのため囲ってください。
 
 【重要】チェック完了まで中断せず一気に完了すること。"""
 
@@ -181,34 +246,81 @@ def parse_revise_response(raw_text: str, current_rev: str = "1") -> dict | None:
 # 1-E. parse_self_review_response
 # ---------------------------------------------------------------------------
 
-def parse_self_review_response(raw_text: str) -> str:
-    """セルフレビュー応答をパースする。
+def parse_self_review_response(
+    raw_text: str,
+    expected_ids: list[str] | None = None,
+) -> dict:
+    """セルフレビュー応答をパースする（チェックリスト方式）。
+
+    Args:
+        raw_text: エージェントからの応答テキスト
+        expected_ids: 期待するチェックリストID一覧。None の場合は
+                      DEFAULT_SELF_REVIEW_CHECKLIST の id を使用。
 
     Returns:
-        "clean" | "issues_found" | "parse_failed"
+        {
+            "verdict": "clean" | "issues_found" | "parse_failed",
+            "items": [  # verdict が "issues_found" の場合のみ有効
+                {"id": "...", "result": "No", "evidence": "..."},
+                ...
+            ]
+        }
     """
     import re
+
+    _fail: dict = {"verdict": "parse_failed", "items": []}
+
+    # YAML ブロック抽出（テキストフォールバックなし）
     match = re.search(r"```ya?ml\s*\n(.*?)```", raw_text, re.DOTALL)
     if not match:
-        # YAML ブロックなし → テキスト内に "clean" / "issues_found" を探す
-        lower = raw_text.lower()
-        if "status: clean" in lower or "status:clean" in lower:
-            return "clean"
-        if "issues_found" in lower:
-            return "issues_found"
-        return "parse_failed"
+        return _fail
+
     try:
         data = yaml.safe_load(match.group(1))
     except yaml.YAMLError:
-        return "parse_failed"
+        return _fail
+
     if not isinstance(data, dict):
-        return "parse_failed"
-    status = str(data.get("status", "")).strip().lower()
-    if status == "clean":
-        return "clean"
-    if status == "issues_found":
-        return "issues_found"
-    return "parse_failed"
+        return _fail
+
+    items_raw = data.get("checklist")
+    if not isinstance(items_raw, list):
+        return _fail
+
+    # expected_ids 決定
+    if expected_ids is None:
+        expected_ids = [c["id"] for c in DEFAULT_SELF_REVIEW_CHECKLIST]
+
+    # ID 集合の完全一致チェック
+    response_ids = [item.get("id") for item in items_raw if isinstance(item, dict)]
+    if set(response_ids) != set(expected_ids):
+        return _fail
+
+    # 重複 ID チェック
+    if len(response_ids) != len(set(response_ids)):
+        return _fail
+
+    # 各項目を検証
+    no_items = []
+    for item in items_raw:
+        if not isinstance(item, dict):
+            return _fail
+        result_raw = str(item.get("result", "")).strip().lower()
+        if result_raw not in ("yes", "no"):
+            return _fail
+        evidence = item.get("evidence", "")
+        if not isinstance(evidence, str):
+            return _fail
+        if result_raw == "no":
+            no_items.append({
+                "id": item["id"],
+                "result": "No",
+                "evidence": evidence,
+            })
+
+    if no_items:
+        return {"verdict": "issues_found", "items": no_items}
+    return {"verdict": "clean", "items": []}
 
 
 # ---------------------------------------------------------------------------

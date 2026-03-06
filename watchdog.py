@@ -394,7 +394,7 @@ def get_notification_for_state(
             f"1. {fix_label}を読み、Issue本文を修正する（glab issue update）\n"
             f"2. devbar に完了報告:\n"
             f"   python3 {DEVBAR_CLI} design-revise --pj {project} --issue N [N...]\n\n"
-            f"複数レビュアーから同一のP1指摘がある場合、その指摘は正しい可能性が高いため修正せよ。\n"
+            f"複数レビュアーから同一のP2/Suggestionがある場合、その指摘は正しい可能性が高いため修正せよ。\n"
             f"レビュアー指摘と設計判断が相違する場合は、新規Issueを立てて設計判断を議論する場所を用意せよ。\n"
             f"[お願い] 仕事は中断せず、完了まで一気にやること。"
         )
@@ -415,7 +415,7 @@ def get_notification_for_state(
             f"2. git commit する\n"
             f"3. devbar に完了報告:\n"
             f"   python3 {DEVBAR_CLI} code-revise --pj {project} --issue N [N...] --hash <commit>\n\n"
-            f"複数レビュアーから同一のP1指摘がある場合、その指摘は正しい可能性が高いため修正せよ。\n"
+            f"複数レビュアーから同一のP2/Suggestionがある場合、その指摘は正しい可能性が高いため修正せよ。\n"
             f"--hash <commit> を忘れずに添付して送信すること。\n"
             f"レビュアー指摘と設計判断が相違する場合は、新規Issueを立てて設計判断を議論する場所を用意せよ。\n"
             f"[お願い] 仕事は中断せず、完了まで一気にやること。"
@@ -1292,10 +1292,156 @@ def _check_spec_revise(
     data: dict,
 ) -> SpecTransitionAction:
     """SPEC_REVISE: タイムアウト検出。純粋関数（spec_config を mutate しない）。"""
-    # --- implementer 応答チェック（S-5 追加） ---
-    from spec_revise import parse_revise_response, build_revise_completion_updates, build_revise_prompt
+    from spec_revise import (
+        parse_revise_response, build_revise_completion_updates, build_revise_prompt,
+        get_self_review_agent, build_self_review_prompt, parse_self_review_response,
+        DEFAULT_SELF_REVIEW_CHECKLIST,
+    )
+    from notify import spec_notify_self_review_failed
 
     project = data.get("project", "")
+
+    # -----------------------------------------------------------------------
+    # (A) self_review 応答あり → パースして判定
+    # -----------------------------------------------------------------------
+    self_review_response = spec_config.get("_self_review_response")
+    if self_review_response:
+        expected_ids = spec_config.get("_self_review_expected_ids")
+        result = parse_self_review_response(self_review_response, expected_ids=expected_ids)
+        verdict = result["verdict"]
+
+        if verdict == "clean":
+            # self_review 通過 → SPEC_REVIEW へ遷移
+            pending = dict(spec_config.get("_self_review_pending_updates") or {})
+            pending["_self_review_sent"] = None
+            pending["_self_review_response"] = None
+            pending["_self_review_pass"] = 0
+            pending["_self_review_pending_updates"] = None
+            pending["_self_review_expected_ids"] = None
+            pending["_revise_sent"] = None  # 遷移完了。(E) 抑止不要になるのでクリア
+            current_rev = pending.get("current_rev", spec_config.get("current_rev", "?"))
+            reviewer_count = len(spec_config.get("review_requests", {}))
+            revise_msg = spec_notify_revise_done(project, current_rev, pending.get("last_commit", ""))
+            review_msg = spec_notify_review_start(project, current_rev, reviewer_count)
+            return SpecTransitionAction(
+                next_state="SPEC_REVIEW",
+                discord_notify=f"{revise_msg}\n{review_msg}",
+                pipeline_updates=pending,
+            )
+
+        elif verdict == "issues_found":
+            # 差し戻し: implementer に No 項目を通知して再 revise
+            # _self_review_pass はインクリメントしない（機械的失敗ではない）
+            failed_items = result["items"]
+            implementer = spec_config.get("spec_implementer", "")
+            feedback_lines = ["セルフレビューで以下の問題が検出されました。修正して再度 revise-submit してください:\n"]
+            for item in failed_items:
+                feedback_lines.append(f"- **{item['id']}**: {item.get('evidence', '(証拠なし)')}")
+            feedback_msg = "\n".join(feedback_lines)
+            return SpecTransitionAction(
+                next_state=None,  # SPEC_REVISE のまま
+                send_to={implementer: feedback_msg} if implementer else None,
+                discord_notify=spec_notify_self_review_failed(project, len(failed_items)),
+                pipeline_updates={
+                    # self_review 関連フィールドを全クリア（self_review フェーズ終了）
+                    "_self_review_sent": None,
+                    "_self_review_response": None,
+                    "_self_review_pass": 0,
+                    "_self_review_pending_updates": None,  # 破棄（再 revise で再計算）
+                    "_self_review_expected_ids": None,
+                    # _revise_sent を now に更新:
+                    # (1) (E) 二重送信防止 (2) (D) タイムアウト基準リセット
+                    "_revise_sent": now.isoformat(),
+                    # _revise_response をクリアして再 revise-submit を受付可能にする
+                    "_revise_response": None,
+                },
+            )
+
+        else:  # parse_failed
+            current_pass = spec_config.get("_self_review_pass", 0)
+            if current_pass + 1 >= SPEC_REVISE_SELF_REVIEW_PASSES:
+                return SpecTransitionAction(
+                    next_state="SPEC_PAUSED",
+                    discord_notify=spec_notify_paused(
+                        project,
+                        f"セルフレビューのパース失敗が{current_pass + 1}回に到達。人間の介入が必要です",
+                    ),
+                    pipeline_updates={
+                        "paused_from": "SPEC_REVISE",
+                        "_self_review_sent": None,
+                        "_self_review_response": None,
+                        "_self_review_pass": 0,
+                        "_self_review_expected_ids": None,
+                        # _self_review_pending_updates は保持（PAUSED解除後に再利用可能）
+                    },
+                )
+            # リトライ: 再送信
+            agent = get_self_review_agent(spec_config)
+            prompt = build_self_review_prompt(spec_config, data)
+            return SpecTransitionAction(
+                next_state=None,
+                send_to={agent: prompt},
+                pipeline_updates={
+                    "_self_review_sent": now.isoformat(),
+                    "_self_review_response": None,
+                    "_self_review_pass": current_pass + 1,
+                },
+            )
+
+    # -----------------------------------------------------------------------
+    # (B) self_review 送信済み & 応答なし → タイムアウトチェック
+    # -----------------------------------------------------------------------
+    self_review_sent = spec_config.get("_self_review_sent")
+    if self_review_sent:
+        # SPEC_REVIEW_TIMEOUT_SEC を流用（self_review 専用タイムアウトは不要。運用上同一SLA）
+        try:
+            baseline = _datetime.fromisoformat(self_review_sent)
+            elapsed = (now - baseline).total_seconds()
+        except (ValueError, TypeError):
+            return SpecTransitionAction(next_state=None)
+
+        if elapsed < SPEC_REVIEW_TIMEOUT_SEC:
+            return SpecTransitionAction(next_state=None)  # まだ待つ
+
+        # タイムアウト → 機械的失敗としてリトライ or SPEC_PAUSED
+        current_pass = spec_config.get("_self_review_pass", 0)
+        if current_pass + 1 >= SPEC_REVISE_SELF_REVIEW_PASSES:
+            return SpecTransitionAction(
+                next_state="SPEC_PAUSED",
+                discord_notify=spec_notify_paused(
+                    project,
+                    f"セルフレビュータイムアウトが{current_pass + 1}回に到達。人間の介入が必要です",
+                ),
+                pipeline_updates={
+                    "paused_from": "SPEC_REVISE",
+                    "_self_review_sent": None,
+                    "_self_review_response": None,
+                    "_self_review_pass": 0,
+                    "_self_review_expected_ids": None,
+                    # _self_review_pending_updates は保持（PAUSED解除後に再利用可能）
+                },
+            )
+        # リトライ
+        agent = get_self_review_agent(spec_config)
+        prompt = build_self_review_prompt(spec_config, data)
+        return SpecTransitionAction(
+            next_state=None,
+            send_to={agent: prompt},
+            discord_notify=spec_notify_failure(
+                project,
+                "セルフレビュータイムアウト",
+                f"retry {current_pass + 1}/{SPEC_REVISE_SELF_REVIEW_PASSES}",
+            ),
+            pipeline_updates={
+                "_self_review_sent": now.isoformat(),
+                "_self_review_response": None,
+                "_self_review_pass": current_pass + 1,
+            },
+        )
+
+    # -----------------------------------------------------------------------
+    # (C) implementer 改訂完了報告あり → self_review フェーズ開始
+    # -----------------------------------------------------------------------
     revise_response = spec_config.get("_revise_response")
     if revise_response:
         parsed = parse_revise_response(revise_response, spec_config.get("current_rev", "1"))
@@ -1321,18 +1467,27 @@ def _check_spec_revise(
                 pipeline_updates={"paused_from": "SPEC_REVISE", "_revise_response": None},
             )
 
-        # 改訂完了 → SPEC_REVIEW へ遷移
+        # 改訂完了 → self_review フェーズ開始
         updates = build_revise_completion_updates(spec_config, parsed, now)
-        updates["_revise_response"] = None  # 消費済みクリア（Leibniz P0-1）
-        updates["_revise_sent"] = None       # 送信記録クリア
-        current_rev = parsed.get("new_rev", "?")
-        reviewer_count = len(spec_config.get("review_requests", {}))
-        revise_msg = spec_notify_revise_done(project, current_rev, parsed.get("commit", ""))
-        review_msg = spec_notify_review_start(project, current_rev, reviewer_count)
+        updates["_revise_response"] = None  # 消費済みクリア
+        # 注意: _revise_sent は維持する（クリアしない）。
+        # issues_found で差し戻し後、(E) の初回送信が誤発火するのを防ぐため。
+        checklist = spec_config.get("self_review_checklist", DEFAULT_SELF_REVIEW_CHECKLIST)
+        expected_ids = [c["id"] for c in checklist]
+        agent = get_self_review_agent(spec_config)
+        prompt = build_self_review_prompt(spec_config, data, checklist=checklist)
         return SpecTransitionAction(
-            next_state="SPEC_REVIEW",
-            discord_notify=f"{revise_msg}\n{review_msg}",
-            pipeline_updates=updates,
+            next_state=None,  # SPEC_REVISE のまま
+            send_to={agent: prompt},
+            pipeline_updates={
+                "_revise_response": None,
+                # _revise_sent は維持（クリアしない）
+                "_self_review_sent": now.isoformat(),
+                "_self_review_response": None,  # 過去残骸の誤判定防止（明示的クリア）
+                "_self_review_pass": 0,
+                "_self_review_pending_updates": updates,  # 遷移用データを保存
+                "_self_review_expected_ids": expected_ids,  # parse 時の ID 検証用
+            },
         )
     # --- ここまで S-5 追加。以下は implementer 送信 + タイムアウトチェック ---
 

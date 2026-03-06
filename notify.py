@@ -546,3 +546,8 @@ def spec_notify_failure(project: str, kind: str, detail: str = "") -> str:
     """失敗系通知（汎用）。kind: "YAMLパース失敗", "送信失敗", "git push失敗", "Issue起票失敗" 等。"""
     suffix = f" — {detail}" if detail else ""
     return f"[Spec] ❌ {project}: {kind}{suffix}"
+
+
+def spec_notify_self_review_failed(project: str, failed_count: int) -> str:
+    """セルフレビュー差し戻し通知。"""
+    return f"🔁 [{project}] セルフレビュー: {failed_count}件の問題検出。implementer に差し戻し"

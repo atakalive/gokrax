@@ -1747,6 +1747,60 @@ def cmd_spec_revise_submit(args):
     print(f"{args.project}: spec revise response submitted")
 
 
+def cmd_spec_self_review_submit(args):
+    """SPEC_REVISE: セルフレビュー結果をファイルから投入"""
+    path = get_path(args.project)
+
+    review_path = Path(args.file)
+    if not review_path.is_file():
+        raise SystemExit(f"File not found: {args.file}")
+    raw_text = review_path.read_text(encoding="utf-8")
+
+    from spec_revise import parse_self_review_response
+
+    # パース検証（フェンス補完パターン）
+    canonical_text = raw_text
+    result = parse_self_review_response(raw_text)
+    if result["verdict"] == "parse_failed":
+        # フェンスで包んでリトライ
+        fenced = f"```yaml\n{raw_text}\n```"
+        result2 = parse_self_review_response(fenced)
+        if result2["verdict"] != "parse_failed":
+            canonical_text = fenced
+    # parse_failed でも格納する（watchdog 側でリトライ処理するため）
+
+    _deferred = False
+    _orig = signal.getsignal(signal.SIGTERM)
+
+    def _defer_sigterm(signum, frame):
+        nonlocal _deferred
+        _deferred = True
+
+    signal.signal(signal.SIGTERM, _defer_sigterm)
+
+    try:
+        def do_submit(data):
+            state = data.get("state", "IDLE")
+            if state != "SPEC_REVISE":
+                raise SystemExit(f"Not in SPEC_REVISE state: {state}")
+            sc = data.get("spec_config", {})
+            if not sc.get("_self_review_sent"):
+                raise SystemExit("Self-review not requested (no _self_review_sent)")
+            if sc.get("_self_review_response"):
+                print(f"{args.project}: self-review response already submitted, skipping")
+                return
+            sc["_self_review_response"] = canonical_text
+            data["spec_config"] = sc
+
+        update_pipeline(path, do_submit)
+    finally:
+        signal.signal(signal.SIGTERM, _orig)
+        if _deferred:
+            signal.raise_signal(signal.SIGTERM)
+
+    print(f"{args.project}: spec self-review response submitted")
+
+
 def cmd_spec_issue_submit(args):
     """ISSUE_PLAN: implementerのIssue起票完了報告をファイルから投入"""
     path = get_path(args.project)
@@ -1954,6 +2008,7 @@ def cmd_spec(args):
         "stop": cmd_spec_stop,
         "review-submit": cmd_spec_review_submit,
         "revise-submit": cmd_spec_revise_submit,
+        "self-review-submit": cmd_spec_self_review_submit,
         "issue-submit": cmd_spec_issue_submit,
         "queue-submit": cmd_spec_queue_submit,
         "suggestion-submit": cmd_spec_suggestion_submit,
@@ -1961,7 +2016,7 @@ def cmd_spec(args):
     if not args.spec_command:
         raise SystemExit(
             "usage: devbar spec {start|stop|approve|continue|done|retry|resume|extend|status"
-            "|review-submit|revise-submit|issue-submit|queue-submit|suggestion-submit}"
+            "|review-submit|revise-submit|self-review-submit|issue-submit|queue-submit|suggestion-submit}"
         )
     spec_cmds[args.spec_command](args)
 
@@ -2164,6 +2219,11 @@ def main():
 
     # spec revise-submit
     p = spec_sub.add_parser("revise-submit", help="SPEC_REVISE完了報告をファイルから投入")
+    p.add_argument("--pj", "--project", dest="project", required=True)
+    p.add_argument("--file", required=True)
+
+    # spec self-review-submit
+    p = spec_sub.add_parser("self-review-submit", help="セルフレビュー結果をファイルから投入")
     p.add_argument("--pj", "--project", dest="project", required=True)
     p.add_argument("--file", required=True)
 

@@ -158,6 +158,45 @@ def _revise_yaml(new_rev="2", commit="abc1234", added=50, removed=10):
     )
 
 
+def _self_review_clean_yaml():
+    """セルフレビュー全 Yes の YAML（#77 チェックリスト方式）。"""
+    return """\
+```yaml
+checklist:
+  - id: "reflected_items_match"
+    result: "Yes"
+    evidence: "OK"
+  - id: "no_new_contradictions"
+    result: "Yes"
+    evidence: "OK"
+  - id: "pseudocode_consistency"
+    result: "Yes"
+    evidence: "OK"
+  - id: "deferred_reasons_valid"
+    result: "Yes"
+    evidence: "OK"
+```
+"""
+
+
+def _simulate_revise_complete(sc: dict, data: dict) -> tuple[dict, object]:
+    """SPEC_REVISE の revise_response → self_review clean → SPEC_REVIEW の2ステップを模倣。
+
+    Returns:
+        (updated_sc, final_action) — final_action.next_state == "SPEC_REVIEW"
+    """
+    # Step1: revise_response パース → self_review 開始
+    action1 = _check_spec_revise(sc, _now(), data)
+    sc = _apply_updates_to_sc(sc, action1.pipeline_updates)
+    assert action1.next_state is None, f"Expected None, got {action1.next_state}"
+    assert sc.get("_self_review_sent") is not None
+
+    # Step2: self_review clean 応答 → SPEC_REVIEW 遷移
+    sc["_self_review_response"] = _self_review_clean_yaml()
+    action2 = _check_spec_revise(sc, _now(), data)
+    return _apply_updates_to_sc(sc, action2.pipeline_updates), action2
+
+
 # ===========================================================================
 # 1. TestNormalFlowE2E — 正常フロー E2E
 # ===========================================================================
@@ -279,16 +318,15 @@ class TestReviewCycleE2E:
         assert action.next_state == "SPEC_REVISE"
         sc = _apply_updates_to_sc(sc, action.pipeline_updates)
 
-        # SPEC_REVISE — implementer 完了報告
+        # SPEC_REVISE — implementer 完了報告 → self_review clean → SPEC_REVIEW
         sc["_revise_response"] = _revise_yaml("2", "abc1234", 50, 10)
-        action = check_transition_spec("SPEC_REVISE", sc, _now(), data)
+        sc, action = _simulate_revise_complete(sc, data)
         assert action.next_state == "SPEC_REVIEW"
         assert action.discord_notify is not None
         pu = action.pipeline_updates
         assert pu["current_rev"] == "2"
         assert pu["rev_index"] == 2
         assert pu["revise_count"] == 1
-        sc = _apply_updates_to_sc(sc, pu)
 
         # 再 SPEC_REVIEW — 全員 APPROVE
         _set_all_received(sc, {"pascal": "APPROVE", "leibniz": "APPROVE", "dijkstra": "APPROVE"})
@@ -314,17 +352,16 @@ class TestReviewCycleE2E:
             assert action.next_state == "SPEC_REVISE"
             sc = _apply_updates_to_sc(sc, action.pipeline_updates)
 
-            # SPEC_REVISE — complete (commit は 7+ hex 文字)
+            # SPEC_REVISE — complete → self_review clean → SPEC_REVIEW
             sc["_revise_response"] = _revise_yaml(
                 expected_next_rev, f"aaa{cycle:04x}bb", 10, 5
             )
-            action = check_transition_spec("SPEC_REVISE", sc, _now(), data)
+            sc, action = _simulate_revise_complete(sc, data)
             assert action.next_state == "SPEC_REVIEW"
             pu = action.pipeline_updates
             assert pu["current_rev"] == expected_next_rev
             assert pu["rev_index"] == cycle + 2
             assert pu["revise_count"] == cycle + 1
-            sc = _apply_updates_to_sc(sc, pu)
 
             # review_history が蓄積
             assert len(sc.get("review_history", [])) == cycle + 1
@@ -846,7 +883,7 @@ class TestCurrentReviewsStructure:
 class TestLastChangesVerification:
 
     def test_last_changes_stored_after_revise(self):
-        """SPEC_REVISE 完了後に last_changes が pipeline_updates に含まれる"""
+        """SPEC_REVISE 完了後に last_changes が SPEC_REVIEW 遷移の pipeline_updates に含まれる"""
         sc = _make_spec_config(
             spec_path="docs/test-spec.md",
             spec_implementer="kaneko",
@@ -855,12 +892,21 @@ class TestLastChangesVerification:
         )
         data = _make_pipeline(state="SPEC_REVISE", spec_mode=True, spec_config=sc)
 
-        action = check_transition_spec("SPEC_REVISE", sc, _now(), data)
-        assert action.next_state == "SPEC_REVIEW"
-        assert "last_changes" in action.pipeline_updates
-        lc = action.pipeline_updates["last_changes"]
+        # (C) revise_response → self_review 開始: last_changes は pending_updates に入る
+        action_c = check_transition_spec("SPEC_REVISE", sc, _now(), data)
+        assert action_c.next_state is None
+        pending = action_c.pipeline_updates.get("_self_review_pending_updates", {})
+        assert "last_changes" in pending
+        lc = pending["last_changes"]
         assert lc["added_lines"] == 50
         assert lc["removed_lines"] == 10
+
+        # (A) self_review clean → SPEC_REVIEW: pending が適用されて pipeline_updates に含まれる
+        sc = _apply_updates_to_sc(sc, action_c.pipeline_updates)
+        sc["_self_review_response"] = _self_review_clean_yaml()
+        action_a = check_transition_spec("SPEC_REVISE", sc, _now(), data)
+        assert action_a.next_state == "SPEC_REVIEW"
+        assert "last_changes" in action_a.pipeline_updates
 
         # build_revise_completion_updates 単体確認
         from spec_revise import parse_revise_response

@@ -236,6 +236,24 @@ class TestCmdReviewDisputeResolution:
         with pytest.raises(SystemExit):
             devbar.cmd_review(_review_args())
 
+    def test_wrong_phase_dispute_raises(self, tmp_pipelines):
+        """design dispute が CODE_REVISE では解決されないこと"""
+        dispute = {
+            "reviewer": "pascal", "status": "pending", "phase": "design",
+            "reason": "理由", "filed_at": "2025-01-01T00:00:00+09:00",
+            "filed_verdict": "P0",
+        }
+        _make_pipeline(tmp_pipelines, state="CODE_REVISE",
+                       extra_issue_fields={
+                           "disputes": [dispute],
+                           "code_reviews": {
+                               "pascal": {"verdict": "P0", "at": "2025-01-01T00:00:00+09:00"},
+                           },
+                       })
+        import devbar
+        with pytest.raises(SystemExit, match="dispute pending"):
+            devbar.cmd_review(_review_args(verdict="APPROVE"))
+
     def test_review_recorded_after_dispute_resolution(self, tmp_pipelines):
         """dispute 解決後、review エントリが記録されること"""
         self._make_revise_pipeline_with_dispute(tmp_pipelines)
@@ -249,7 +267,7 @@ class TestCmdReviewDisputeResolution:
         assert review.get("verdict") == "APPROVE"
 
     def test_requires_force_flag(self, tmp_pipelines):
-        """--force なしでは既存レビューがスキップされること"""
+        """--force なしでは SystemExit になり、dispute status も変わらないこと"""
         dispute = {
             "reviewer": "pascal", "status": "pending", "phase": "design",
             "reason": "理由", "filed_at": "2025-01-01T00:00:00+09:00",
@@ -257,15 +275,16 @@ class TestCmdReviewDisputeResolution:
         }
         _make_pipeline(tmp_pipelines, extra_issue_fields={"disputes": [dispute]})
         import devbar
-        with patch("devbar.subprocess.run") as mock_run:
-            mock_run.return_value.returncode = 0
-            # --force=False: already reviewed by pascal → skip
+        with pytest.raises(SystemExit):
             devbar.cmd_review(_review_args(verdict="APPROVE", force=False))
 
         data = _read_pipeline(tmp_pipelines / "test-pj.json")
-        # review が元の P0 のまま（スキップされた）
+        # review が元の P0 のまま
         review = data["batch"][0]["design_reviews"].get("pascal", {})
         assert review.get("verdict") == "P0"
+        # dispute status も pending のまま（変更されていない）
+        disp = data["batch"][0].get("disputes", [{}])[0]
+        assert disp.get("status") == "pending"
 
 
 # ---------------------------------------------------------------------------

@@ -634,13 +634,21 @@ def cmd_review(args):
             key = "code_reviews"
         elif state in ("DESIGN_REVISE", "CODE_REVISE"):
             key = "design_reviews" if "DESIGN" in state else "code_reviews"
+            phase = "design" if "DESIGN" in state else "code"
             # REVISE 中は dispute pending のレビュアーからのみ受け付ける
             issue = find_issue(data.get("batch", []), args.issue)
             if not issue:
                 raise SystemExit(f"Issue #{args.issue} not in batch")
+            # --force 必須（既存レビューの上書きが必要）
+            if not args.force:
+                raise SystemExit(
+                    "REVISE 中の dispute レビューには --force が必須です"
+                )
             pending_dispute = None
             for d in issue.get("disputes", []):
-                if d.get("reviewer") == args.reviewer and d.get("status") == "pending":
+                if (d.get("reviewer") == args.reviewer
+                        and d.get("status") == "pending"
+                        and d.get("phase") == phase):
                     pending_dispute = d
                     break
             if pending_dispute is None:
@@ -793,7 +801,7 @@ def cmd_dispute(args):
     gitlab = data.get("gitlab", f"atakalive/{args.project}")
     note_body = (
         f"[dispute] #{args.issue}: {args.reviewer} の判定に異議申し立て\n\n"
-        f"理由: {args.reason}"
+        f"理由: {args.reason.strip()}"
     )
     _post_gitlab_note(gitlab, args.issue, note_body)
 

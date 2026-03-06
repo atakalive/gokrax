@@ -2942,8 +2942,7 @@ def _handle_qrun(msg_id: str):
 
     def _save_queue_options(data):
         data["queue_mode"] = True
-        if entry.get("automerge"):
-            data["automerge"] = True
+        data["automerge"] = entry.get("automerge", True)
         if entry.get("cc_plan_model"):
             data["cc_plan_model"] = entry["cc_plan_model"]
         if entry.get("cc_impl_model"):
@@ -2952,7 +2951,7 @@ def _handle_qrun(msg_id: str):
     update_pipeline(path, _save_queue_options)
 
     # Post success to Discord
-    automerge_flag = entry.get("automerge", False)
+    automerge_flag = entry.get("automerge", True)
     success_msg = f"qrun: {project} started (issues={issues}, automerge={automerge_flag})"
     post_discord(DISCORD_CHANNEL, success_msg)
     log(f"[qrun] {success_msg} (msg_id={msg_id})")
@@ -2990,10 +2989,10 @@ def _handle_qadd(msg_id: str, content: str):
         log(f"[dry-run] Discord qadd command skipped (msg_id={msg_id})")
         return
 
-    # "qadd BeamShifter 33,34 lite automerge" → "BeamShifter 33,34 lite automerge"
+    # "qadd BeamShifter 33,34 lite no-automerge" → "BeamShifter 33,34 lite no-automerge"
     parts = content.strip().split(None, 1)
     if len(parts) < 2:
-        post_discord(DISCORD_CHANNEL, "qadd: 引数が必要です (例: qadd BeamShifter 33,34 lite automerge)")
+        post_discord(DISCORD_CHANNEL, "qadd: 引数が必要です (例: qadd BeamShifter 33,34 lite no-automerge)")
         return
 
     line = parts[1]

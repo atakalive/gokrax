@@ -944,8 +944,8 @@ def cmd_qrun(args):
             done = " [DONE]" if e.get("done") else ""
             mode = f" mode={e['mode']}" if e.get("mode") else ""
             opts = []
-            if e.get("automerge"):
-                opts.append("automerge")
+            if not e.get("automerge", True):
+                opts.append("no-automerge")
             if e.get("p2_fix"):
                 opts.append("p2-fix")
             if e.get("cc_plan_model"):
@@ -998,8 +998,7 @@ def cmd_qrun(args):
 
     # 成功: automerge/cc_model をパイプラインに保存
     def _save_queue_options(data):
-        if entry.get("automerge"):
-            data["automerge"] = True
+        data["automerge"] = entry.get("automerge", True)
         if entry.get("p2_fix"):
             data["p2_fix"] = True
         if entry.get("cc_plan_model"):
@@ -1009,7 +1008,7 @@ def cmd_qrun(args):
 
     update_pipeline(path, _save_queue_options)
 
-    automerge_flag = entry.get("automerge", False)
+    automerge_flag = entry.get("automerge", True)
     print(f"[qrun] {project}: started (automerge={automerge_flag})")
 
 
@@ -1068,8 +1067,8 @@ def get_qstatus_text(entries: list[dict], running: "dict | None" = None) -> str:
         parts = [e["project"], e["issues"]]
         if e.get("mode"):
             parts.append(e["mode"])
-        if e.get("automerge"):
-            parts.append("automerge")
+        if not e.get("automerge", True):
+            parts.append("no-automerge")
         if e.get("p2_fix"):
             parts.append("p2-fix")
         if e.get("cc_plan_model"):
@@ -2185,7 +2184,7 @@ def main():
 
     # qadd
     p = sub.add_parser("qadd", help="キューに1行追加")
-    p.add_argument("entry", nargs="+", help="追加するエントリ (例: BeamShifter 33,34 lite automerge)")
+    p.add_argument("entry", nargs="+", help="追加するエントリ (例: BeamShifter 33,34 lite no-automerge)")
     p.add_argument("--queue", type=Path, help="キューファイルパス")
 
     # qdel

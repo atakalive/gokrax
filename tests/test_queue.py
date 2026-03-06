@@ -41,7 +41,7 @@ class TestParseQueueLine:
         assert result["project"] == "BeamShifter"
         assert result["issues"] == "all"
         assert result["mode"] is None
-        assert result["automerge"] is False
+        assert result["automerge"] is True
         assert result["keep_ctx_batch"] is False
         assert result["keep_ctx_intra"] is False
         assert result["cc_plan_model"] is None
@@ -105,6 +105,20 @@ class TestParseQueueLine:
         assert result is not None
         assert result["automerge"] is True
         assert result["mode"] is None
+
+    def test_no_automerge_token(self):
+        """no-automerge トークン → automerge=False"""
+        result = parse_queue_line("Foo 1 no-automerge")
+        assert result is not None
+        assert result["automerge"] is False
+        assert result["mode"] is None
+
+    def test_automerge_and_no_automerge_conflict(self):
+        """automerge + no-automerge 同時指定 → ValueError"""
+        with pytest.raises(ValueError, match="cannot be used together"):
+            parse_queue_line("Foo 1 automerge no-automerge")
+        with pytest.raises(ValueError, match="cannot be used together"):
+            parse_queue_line("Foo 1 no-automerge automerge")
 
     def test_valid_plan_model_only(self):
         """plan=MODEL のみ"""

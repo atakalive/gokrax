@@ -74,7 +74,7 @@ def parse_queue_line(line: str) -> dict:
         "project": project,
         "issues": issues,
         "mode": None,
-        "automerge": False,
+        "automerge": True,
         "keep_ctx_batch": False,
         "keep_ctx_intra": False,
         "p2_fix": False,
@@ -85,7 +85,15 @@ def parse_queue_line(line: str) -> dict:
 
     for token in tokens[2:]:
         if token == "automerge":
+            if result.get("_seen_no_automerge"):
+                raise ValueError("automerge and no-automerge cannot be used together")
             result["automerge"] = True
+            result["_seen_automerge"] = True
+        elif token == "no-automerge":
+            if result.get("_seen_automerge"):
+                raise ValueError("automerge and no-automerge cannot be used together")
+            result["automerge"] = False
+            result["_seen_no_automerge"] = True
         elif token == "keep-ctx-batch":
             result["keep_ctx_batch"] = True
         elif token == "keep-ctx-intra":
@@ -106,6 +114,8 @@ def parse_queue_line(line: str) -> dict:
         else:
             raise ValueError(f"Unknown token in queue line: {token!r}")
 
+    result.pop("_seen_automerge", None)
+    result.pop("_seen_no_automerge", None)
     return result
 
 

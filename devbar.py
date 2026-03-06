@@ -388,9 +388,10 @@ def cmd_start(args):
         args.keep_ctx_batch = True
         args.keep_ctx_intra = True
 
-    # 5. review_mode / keep_ctx 設定（遷移前に設定して/newの宛先に反映させる）
+    # 5. review_mode / keep_ctx / p1_fix 設定（遷移前に設定して/newの宛先に反映させる）
     has_keep_ctx = getattr(args, "keep_ctx_batch", False) or getattr(args, "keep_ctx_intra", False)
-    if getattr(args, "mode", None) or has_keep_ctx:
+    has_p1_fix = getattr(args, "p1_fix", False)
+    if getattr(args, "mode", None) or has_keep_ctx or has_p1_fix:
         from watchdog import REVIEW_MODES
         if getattr(args, "mode", None) and args.mode not in REVIEW_MODES:
             raise SystemExit(f"Invalid mode: {args.mode} (valid: {list(REVIEW_MODES)})")
@@ -401,13 +402,10 @@ def cmd_start(args):
                 data["keep_ctx_batch"] = True
             if getattr(args, "keep_ctx_intra", False):
                 data["keep_ctx_intra"] = True
+            if getattr(args, "p1_fix", False):
+                data["p1_fix"] = True
         update_pipeline(path, do_mode)
 
-    # 6. p1_fix フラグ保存
-    if getattr(args, "p1_fix", False):
-        def do_p1_fix(data):
-            data["p1_fix"] = True
-        update_pipeline(path, do_p1_fix)
 
     # 7. DESIGN_PLANに遷移
     transition_args = argparse.Namespace(
@@ -459,8 +457,9 @@ def cmd_transition(args):
             # Reset REVISE cycle counters when returning to IDLE (Issue #29)
             data.pop("design_revise_count", None)
             data.pop("code_revise_count", None)
-            # Clear queue options (Issue #45)
+            # Clear queue options (Issue #45, #71)
             data.pop("automerge", None)
+            data.pop("p1_fix", None)
             data.pop("cc_plan_model", None)
             data.pop("cc_impl_model", None)
             data.pop("keep_context", None)      # 旧フラグ（後方互換クリーンアップ）
@@ -487,7 +486,7 @@ def cmd_transition(args):
         repo_path = data.get("repo_path", "")
         review_mode = data.get("review_mode", "standard")
 
-        notif = get_notification_for_state(target, pj, batch, gitlab, implementer)
+        notif = get_notification_for_state(target, pj, batch, gitlab, implementer, p1_fix=data.get("p1_fix", False))
         prefix = "（再開）" if resume else ""
 
         pending = {}

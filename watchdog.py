@@ -372,12 +372,13 @@ def get_notification_for_state(
         p1_note = ""
         if p1_fix:
             p1_note = "\n⚠️ --p1-fix モード: P1 指摘も全件修正が必要です。P0 がなくても P1 が残っていれば再度 REVISE に差し戻されます。\n"
+        fix_label = "P0/P1指摘" if p1_fix else "P0指摘"
         msg = (
             f"[devbar] {project}: 設計修正フェーズ\n"
             f"対象Issue: {issues_str}\n"
             f"{p1_note}"
             f"【手順】\n"
-            f"1. P0指摘を読み、Issue本文を修正する（glab issue update）\n"
+            f"1. {fix_label}を読み、Issue本文を修正する（glab issue update）\n"
             f"2. devbar に完了報告:\n"
             f"   python3 {DEVBAR_CLI} design-revise --pj {project} --issue N [N...]\n\n"
             f"複数レビュアーから同一のP1指摘がある場合、その指摘は正しい可能性が高いため修正せよ。\n"
@@ -391,12 +392,13 @@ def get_notification_for_state(
         p1_note = ""
         if p1_fix:
             p1_note = "\n⚠️ --p1-fix モード: P1 指摘も全件修正が必要です。P0 がなくても P1 が残っていれば再度 REVISE に差し戻されます。\n"
+        fix_label = "P0/P1指摘" if p1_fix else "P0指摘"
         msg = (
             f"[devbar] {project}: コード修正フェーズ\n"
             f"対象Issue: {issues_str}\n"
             f"{p1_note}"
             f"【手順】\n"
-            f"1. P0指摘を読み、コードを修正する\n"
+            f"1. {fix_label}を読み、コードを修正する\n"
             f"2. git commit する\n"
             f"3. devbar に完了報告:\n"
             f"   python3 {DEVBAR_CLI} code-revise --pj {project} --issue N [N...] --hash <commit>\n\n"
@@ -453,7 +455,7 @@ def _resolve_review_outcome(
 
         return TransitionAction(
             new_state=revise_state,
-            impl_msg=get_notification_for_state(revise_state, project=pj, batch=batch).impl_msg,
+            impl_msg=get_notification_for_state(revise_state, project=pj, batch=batch, p1_fix=p1_fix).impl_msg,
         )
 
     # P0 なし + p1_fix 有効 + P1 あり → REVISE（max_revise_cycles フォールバック付き）
@@ -1966,8 +1968,9 @@ def process(path: Path):
             # Reset REVISE cycle counters (Issue #29)
             data.pop("design_revise_count", None)
             data.pop("code_revise_count", None)
-            # Clear queue options (Issue #45)
+            # Clear queue options (Issue #45, #71)
             data.pop("automerge", None)
+            data.pop("p1_fix", None)
             data.pop("cc_plan_model", None)
             data.pop("cc_impl_model", None)
             data.pop("keep_context", None)      # 旧フラグ（後方互換クリーンアップ）

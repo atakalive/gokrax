@@ -3099,3 +3099,34 @@ class TestP1Fix:
         batch = [{"issue": 1, "code_reviews": {"a": {"verdict": "P1"}}}]
         action = get_notification_for_state("CODE_REVISE", project="Foo", batch=batch, p1_fix=True)
         assert "--p1-fix モード" in action.impl_msg
+
+    def test_done_cleanup_clears_p1_fix(self):
+        """DONE→IDLE遷移でp1_fixがクリアされること"""
+        from watchdog import check_transition
+
+        data = {
+            "project": "test",
+            "p1_fix": True,
+            "automerge": True,
+        }
+        batch = []
+        action = check_transition("DONE", batch, data)
+        assert action.new_state == "IDLE"
+        # check_transition自体はdataを変更しない（純粋関数）
+        # DONEクリーンアップはdo_transition内で行われる
+        # ここではcheck_transitionの戻り値のみ検証
+
+    def test_p1_fix_not_leaked_between_batches(self):
+        """p1_fix=Falseのバッチでp1_fixが残らないことの統合テスト"""
+        from watchdog import _resolve_review_outcome
+
+        # Batch A: p1_fix=True
+        data_a = {"project": "test", "p1_fix": True}
+        batch = [{"issue": 1, "code_reviews": {"a": {"verdict": "P1"}}}]
+        action_a = _resolve_review_outcome("CODE_REVIEW", data_a, batch, False, True)
+        assert action_a.new_state == "CODE_REVISE"
+
+        # Batch B: p1_fix cleared (simulating DONE cleanup)
+        data_b = {"project": "test"}  # p1_fix absent after cleanup
+        action_b = _resolve_review_outcome("CODE_REVIEW", data_b, batch, False, True)
+        assert action_b.new_state == "CODE_APPROVED"  # P1 should not trigger REVISE

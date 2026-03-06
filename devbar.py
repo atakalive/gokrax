@@ -1243,6 +1243,26 @@ def cmd_spec_start(args):
     if not spec_resolved.exists():
         raise SystemExit(f"Spec file not found: {spec_resolved}")
 
+    # spec_path から revN を自動推定
+    from spec_revise import extract_rev_from_path
+    detected_rev = extract_rev_from_path(str(spec_resolved))
+
+    if args.rev is not None:
+        if args.rev < 1:
+            raise SystemExit("--rev must be >= 1")
+        if detected_rev is not None and detected_rev != args.rev:
+            raise SystemExit(
+                f"--rev={args.rev} conflicts with spec file name "
+                f"(detected rev{detected_rev} from {spec_resolved.name})"
+            )
+        if detected_rev is None and args.rev > 1:
+            raise SystemExit(
+                f"--rev={args.rev} requires spec file with '-rev{args.rev}' suffix. "
+                f"Got: {spec_resolved.name}"
+            )
+
+    effective_rev: int = args.rev if args.rev is not None else (detected_rev if detected_rev is not None else 1)
+
     # §2.6 優先順位ルール適用
     auto_continue = args.auto_continue
     review_only = args.review_only
@@ -1289,6 +1309,8 @@ def cmd_spec_start(args):
             "review_requests": review_requests,
             "pipelines_dir": pipelines_dir,
         })
+        sc["current_rev"] = str(effective_rev)
+        sc["rev_index"] = effective_rev
         data["spec_mode"] = True
         data["state"] = "SPEC_APPROVED" if skip_review else "SPEC_REVIEW"
         data["enabled"] = True
@@ -1303,7 +1325,7 @@ def cmd_spec_start(args):
     if not skip_review:
         reviewer_count = len(review_requests)
         try:
-            notify_discord(spec_notify_review_start(args.project, "1", reviewer_count))
+            notify_discord(spec_notify_review_start(args.project, str(effective_rev), reviewer_count))
         except Exception:
             logger.warning("Failed to send review_start notification")
     print(f"{args.project}: spec mode started (spec={args.spec}) → {target}")
@@ -2187,6 +2209,8 @@ def main():
                    choices=["full", "standard", "lite", "min"])
     p.add_argument("--model", default=None)
     p.add_argument("--auto-continue", action="store_true", default=False, dest="auto_continue")
+    p.add_argument("--rev", type=int, default=None,
+                   help="current_revの初期値（デフォルト: 1）")
 
     # spec stop
     p = spec_sub.add_parser("stop", help="spec modeを強制停止してIDLEに戻す")

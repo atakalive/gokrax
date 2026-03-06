@@ -1515,7 +1515,9 @@ def _check_spec_revise(
         checklist = spec_config.get("self_review_checklist", DEFAULT_SELF_REVIEW_CHECKLIST)
         expected_ids = [c["id"] for c in checklist]
         agent = get_self_review_agent(spec_config)
-        prompt = build_self_review_prompt(spec_config, data, checklist=checklist)
+        # self_review プロンプトには更新後の config を使用（rev/spec_path を反映）
+        merged_cfg = {**spec_config, **updates}
+        prompt = build_self_review_prompt(merged_cfg, data, checklist=checklist)
         return SpecTransitionAction(
             next_state=None,  # SPEC_REVISE のまま
             send_to={agent: prompt},

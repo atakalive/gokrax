@@ -1,6 +1,7 @@
 """spec_revise.py — SPEC_REVISE フェーズ: 改訂依頼・セルフレビュー・完了検知"""
 from __future__ import annotations
 
+import re
 import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -43,6 +44,52 @@ DEFAULT_SELF_REVIEW_CHECKLIST: list[dict] = [
 
 
 # ---------------------------------------------------------------------------
+# ユーティリティ: revN ファイル名操作
+# ---------------------------------------------------------------------------
+
+def make_rev_path(spec_path: str, new_rev: int) -> str:
+    """spec_path のファイル名に -revN サフィックスを付与/更新して返す。
+
+    Args:
+        spec_path: 元の仕様書パス（絶対パス）。空文字列は ValueError。
+        new_rev: 新しい revision 番号（正の整数）。
+
+    Returns:
+        -revN サフィックスを付与/更新した新しいパス文字列。
+
+    Raises:
+        ValueError: spec_path が空文字列の場合。
+
+    例:
+      make_rev_path("/abs/docs/foo-spec.md", 2) -> "/abs/docs/foo-spec-rev2.md"
+      make_rev_path("/abs/docs/foo-spec-rev3.md", 4) -> "/abs/docs/foo-spec-rev4.md"
+    """
+    if not spec_path:
+        raise ValueError("spec_path must not be empty")
+    p = Path(spec_path)
+    stem = re.sub(r"-rev\d+$", "", p.stem)
+    return str(p.with_name(f"{stem}-rev{new_rev}{p.suffix}"))
+
+
+def extract_rev_from_path(spec_path: str) -> int | None:
+    """spec_path のファイル名から -revN の N を抽出する。
+
+    Returns:
+        revN の N（int、1以上）。-revN サフィックスがないか N < 1 なら None。
+
+    例:
+      extract_rev_from_path("/abs/docs/foo-spec-rev4.md") -> 4
+      extract_rev_from_path("/abs/docs/foo-spec.md") -> None
+      extract_rev_from_path("/abs/docs/foo-spec-rev0.md") -> None
+    """
+    m = re.search(r"-rev(\d+)$", Path(spec_path).stem)
+    if not m:
+        return None
+    n = int(m.group(1))
+    return n if n >= 1 else None
+
+
+# ---------------------------------------------------------------------------
 # 1-A. build_revise_prompt
 # ---------------------------------------------------------------------------
 
@@ -55,26 +102,36 @@ def build_revise_prompt(
     project = data.get("project", "")
     spec_path = spec_config.get("spec_path", "")
     current_rev = spec_config.get("current_rev", "1")
+    rev_index = spec_config.get("rev_index", 1)
+    next_rev = rev_index + 1
+    new_spec_path = make_rev_path(spec_path, next_rev) if spec_path else ""
     return f"""【指示】このタスクは中断せず最後まで一気に完了してください。途中で確認を求めないこと。
 
 以下の仕様書を改訂してください。
 
 プロジェクト: {project}
-仕様書: {spec_path} (rev{current_rev})
+仕様書（現行）: {spec_path} (rev{current_rev})
+改訂先ファイル: {new_spec_path} (rev{next_rev})
+
+## 改訂手順
+1. 現行仕様書 `{spec_path}` をコピーして `{new_spec_path}` を作成
+2. `{new_spec_path}` を編集（改訂内容を反映）
+3. `{new_spec_path}` を git add + commit
+4. 完了報告を投入
 
 ## レビュー統合レポート
 {merged_report_md}
 
 ## 改訂ルール
 - 変更履歴テーブルに1行追加
-- `[v{{new_rev}}] 指摘元ID: 説明` 形式で全件列挙
-- 擬似コード中 `# [v{{new_rev}}] Pascal C-1: 説明` で変更理由記載
+- `[v{{next_rev}}] 指摘元ID: 説明` 形式で全件列挙
+- 擬似コード中 `# [v{{next_rev}}] Pascal C-1: 説明` で変更理由記載
 - deferred（保留）する指摘には理由を明記
 
 ## 完了報告フォーマット
 ```yaml
 status: done
-new_rev: "<現在のrev+1の数値文字列>"
+new_rev: "{next_rev}"
 commit: "<7文字以上のgit commit hash>"
 changes:
   added_lines: <number>
@@ -411,6 +468,8 @@ def build_revise_completion_updates(
         pipeline_updates dict
     """
     changes = revise_data.get("changes", {})
+    new_rev_int = int(revise_data["new_rev"])
+    new_spec_path = make_rev_path(spec_config.get("spec_path", ""), new_rev_int)
 
     # review_history エントリ生成（§12.2）
     history_entry = build_review_history_entry(spec_config, now)
@@ -431,9 +490,10 @@ def build_revise_completion_updates(
         }
 
     return {
+        "spec_path": new_spec_path,
         "last_commit": revise_data["commit"],
         "current_rev": str(revise_data["new_rev"]),
-        "rev_index": spec_config.get("rev_index", 1) + 1,
+        "rev_index": new_rev_int,  # new_rev から直接算出（drift 防止）
         "last_changes": changes,
         "revise_count": spec_config.get("revise_count", 0) + 1,
         "review_history": review_history,

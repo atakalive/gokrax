@@ -14,6 +14,8 @@ from spec_revise import (
     build_revise_prompt,
     build_self_review_prompt,
     get_self_review_agent,
+    make_rev_path,
+    extract_rev_from_path,
     parse_revise_response,
     parse_self_review_response,
     verify_git_diff,
@@ -240,6 +242,7 @@ class TestVerifyGitDiff:
 class TestBuildReviseCompletionUpdates:
     def test_basic(self):
         sc = {
+            "spec_path": "/repo/docs/foo-spec-rev2.md",
             "current_rev": "2",
             "rev_index": 2,
             "revise_count": 1,
@@ -275,6 +278,7 @@ class TestBuildReviseCompletionUpdates:
 
     def test_preserves_existing_history(self):
         sc = {
+            "spec_path": "/repo/docs/foo-spec-rev1.md",
             "current_rev": "1", "rev_index": 1, "revise_count": 0,
             "review_history": [{"rev": "0", "timestamp": "old"}],
             "current_reviews": {"entries": {}},
@@ -285,6 +289,7 @@ class TestBuildReviseCompletionUpdates:
 
     def test_does_not_mutate_spec_config(self):
         sc = {
+            "spec_path": "/repo/docs/foo-spec-rev1.md",
             "current_rev": "1", "rev_index": 1, "revise_count": 0,
             "review_history": [], "current_reviews": {"entries": {}},
         }
@@ -292,3 +297,75 @@ class TestBuildReviseCompletionUpdates:
         build_revise_completion_updates(sc, revise_data, _now())
         assert sc["current_rev"] == "1"  # 変更されていない
         assert sc["revise_count"] == 0
+
+
+# ---------------------------------------------------------------------------
+# make_rev_path のテスト
+# ---------------------------------------------------------------------------
+
+class TestMakeRevPath:
+    def test_basic(self):
+        assert make_rev_path("/repo/docs/foo-spec.md", 2) == "/repo/docs/foo-spec-rev2.md"
+
+    def test_replace_existing(self):
+        assert make_rev_path("/repo/docs/foo-spec-rev3.md", 4) == "/repo/docs/foo-spec-rev4.md"
+
+    def test_no_extension(self):
+        assert make_rev_path("/repo/docs/foo-spec", 1) == "/repo/docs/foo-spec-rev1"
+
+    def test_absolute(self):
+        assert make_rev_path("/abs/path/spec.md", 5) == "/abs/path/spec-rev5.md"
+
+    def test_rev_in_middle(self):
+        """stem に -rev が prefix として含まれるが末尾 -revN ではないケース"""
+        assert make_rev_path("/repo/docs/foo-rev-notes.md", 2) == "/repo/docs/foo-rev-notes-rev2.md"
+
+    def test_empty_raises(self):
+        with pytest.raises(ValueError):
+            make_rev_path("", 1)
+
+
+# ---------------------------------------------------------------------------
+# extract_rev_from_path のテスト
+# ---------------------------------------------------------------------------
+
+class TestExtractRevFromPath:
+    def test_found(self):
+        assert extract_rev_from_path("/repo/docs/foo-spec-rev4.md") == 4
+
+    def test_not_found(self):
+        assert extract_rev_from_path("/repo/docs/foo-spec.md") is None
+
+    def test_rev_in_middle(self):
+        assert extract_rev_from_path("/repo/docs/foo-rev-notes.md") is None
+
+    def test_rev0_returns_none(self):
+        """rev0 は None として扱う（rev >= 1 の方針）"""
+        assert extract_rev_from_path("/repo/docs/foo-spec-rev0.md") is None
+
+
+# ---------------------------------------------------------------------------
+# build_revise_completion_updates の spec_path + rev_index テスト
+# ---------------------------------------------------------------------------
+
+class TestBuildReviseCompletionUpdatesSpecPath:
+    def test_updates_spec_path_and_rev_index(self):
+        spec_config = {
+            "spec_path": "/repo/docs/testgen-surface-spec.md",
+            "current_rev": "1",
+            "rev_index": 1,
+            "revise_count": 0,
+            "review_history": [],
+            "review_requests": {},
+            "current_reviews": {"entries": {}},
+        }
+        revise_data = {
+            "new_rev": "2",
+            "commit": "abc1234",
+            "changes": {"added_lines": 10, "removed_lines": 3,
+                        "reflected_items": [], "deferred_items": []},
+        }
+        result = build_revise_completion_updates(spec_config, revise_data, _now())
+        assert result["spec_path"] == "/repo/docs/testgen-surface-spec-rev2.md"
+        assert result["current_rev"] == "2"
+        assert result["rev_index"] == 2  # new_rev から直接算出

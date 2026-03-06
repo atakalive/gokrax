@@ -487,6 +487,7 @@ changes:
         sc = _make_spec_config(
             spec_implementer="kaneko",
             self_review_agent="pascal",
+            spec_path="/repo/docs/test-spec.md",
             current_rev="1",
             review_requests={
                 "pascal": {"status": "pending", "sent_at": None, "timeout_at": None,
@@ -519,6 +520,7 @@ changes:
         sc = _make_spec_config(
             spec_implementer="kaneko",
             self_review_agent="pascal",
+            spec_path="/repo/docs/test-spec.md",
             current_rev="1",
             review_requests={
                 "pascal": {"status": "pending", "sent_at": None, "timeout_at": None,
@@ -551,6 +553,7 @@ changes:
         sc = _make_spec_config(
             spec_implementer="kaneko",
             self_review_agent="pascal",
+            spec_path="/repo/docs/test-spec.md",
             current_rev="1",
             self_review_checklist=custom,
             review_requests={

@@ -1508,7 +1508,15 @@ def _check_spec_revise(
             )
 
         # 改訂完了 → self_review フェーズ開始
-        updates = build_revise_completion_updates(spec_config, parsed, now)
+        try:
+            updates = build_revise_completion_updates(spec_config, parsed, now)
+        except ValueError as e:
+            logging.error("build_revise_completion_updates failed: %s", e)
+            return SpecTransitionAction(
+                next_state="SPEC_PAUSED",
+                discord_notify=f"⚠️ {project}: revise completion failed: {e}",
+                pipeline_updates={"paused_from": "SPEC_REVISE", "_revise_response": None},
+            )
         updates["_revise_response"] = None  # 消費済みクリア
         # 注意: _revise_sent は維持する（クリアしない）。
         # issues_found で差し戻し後、(E) の初回送信が誤発火するのを防ぐため。

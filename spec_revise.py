@@ -101,10 +101,12 @@ def build_revise_prompt(
     """改訂依頼プロンプトを生成する（§6.1）。"""
     project = data.get("project", "")
     spec_path = spec_config.get("spec_path", "")
+    if not spec_path:
+        raise ValueError("spec_config['spec_path'] is empty; cannot build revise prompt")
     current_rev = spec_config.get("current_rev", "1")
     rev_index = spec_config.get("rev_index", 1)
     next_rev = rev_index + 1
-    new_spec_path = make_rev_path(spec_path, next_rev) if spec_path else ""
+    new_spec_path = make_rev_path(spec_path, next_rev)
     return f"""【指示】このタスクは中断せず最後まで一気に完了してください。途中で確認を求めないこと。
 
 以下の仕様書を改訂してください。
@@ -124,8 +126,8 @@ def build_revise_prompt(
 
 ## 改訂ルール
 - 変更履歴テーブルに1行追加
-- `[v{{next_rev}}] 指摘元ID: 説明` 形式で全件列挙
-- 擬似コード中 `# [v{{next_rev}}] Pascal C-1: 説明` で変更理由記載
+- `[v{next_rev}] 指摘元ID: 説明` 形式で全件列挙
+- 擬似コード中 `# [v{next_rev}] Pascal C-1: 説明` で変更理由記載
 - deferred（保留）する指摘には理由を明記
 
 ## 完了報告フォーマット
@@ -469,7 +471,12 @@ def build_revise_completion_updates(
     """
     changes = revise_data.get("changes", {})
     new_rev_int = int(revise_data["new_rev"])
-    new_spec_path = make_rev_path(spec_config.get("spec_path", ""), new_rev_int)
+    spec_path = spec_config.get("spec_path", "")
+    if not spec_path:
+        raise ValueError(
+            "spec_config['spec_path'] is empty; cannot build revise completion updates"
+        )
+    new_spec_path = make_rev_path(spec_path, new_rev_int)
 
     # review_history エントリ生成（§12.2）
     history_entry = build_review_history_entry(spec_config, now)

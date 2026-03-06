@@ -45,6 +45,20 @@ class TestBuildRevisePrompt:
         assert "status: done" in prompt
         assert "new_rev" in prompt
 
+    def test_empty_spec_path_raises(self):
+        """spec_path 空文字 → ValueError（Leibniz P1-2 / Pascal P1）"""
+        sc = {"spec_path": "", "current_rev": "1"}
+        with pytest.raises(ValueError, match="spec_path"):
+            build_revise_prompt(sc, "", {"project": "test"})
+
+    def test_next_rev_expanded_in_rules(self):
+        """改訂ルールの [vN] がf-string展開されること（Leibniz P1-1）"""
+        sc = {"spec_path": "docs/spec.md", "current_rev": "2", "rev_index": 2}
+        prompt = build_revise_prompt(sc, "", {"project": "test"})
+        # next_rev = rev_index + 1 = 3
+        assert "[v3]" in prompt
+        assert "{{next_rev}}" not in prompt  # 二重波括弧が残っていないこと
+
 
 # --- build_self_review_prompt ---
 
@@ -347,6 +361,20 @@ class TestExtractRevFromPath:
 # ---------------------------------------------------------------------------
 # build_revise_completion_updates の spec_path + rev_index テスト
 # ---------------------------------------------------------------------------
+
+class TestBuildReviseCompletionUpdatesEmptySpecPath:
+    def test_empty_spec_path_raises(self):
+        """spec_path 空文字 → ValueError（Pascal P1 / Leibniz P1-2）"""
+        sc = {
+            "spec_path": "",
+            "current_rev": "1", "rev_index": 1, "revise_count": 0,
+            "review_history": [], "current_reviews": {"entries": {}},
+        }
+        revise_data = {"new_rev": "2", "commit": "abc1234",
+                       "changes": {"added_lines": 1, "removed_lines": 0}}
+        with pytest.raises(ValueError, match="spec_path"):
+            build_revise_completion_updates(sc, revise_data, _now())
+
 
 class TestBuildReviseCompletionUpdatesSpecPath:
     def test_updates_spec_path_and_rev_index(self):

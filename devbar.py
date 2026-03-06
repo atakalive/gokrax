@@ -1247,21 +1247,22 @@ def cmd_spec_start(args):
     from spec_revise import extract_rev_from_path
     detected_rev = extract_rev_from_path(str(spec_resolved))
 
-    if args.rev is not None:
-        if args.rev < 1:
+    rev_arg: int | None = getattr(args, "rev", None)
+    if rev_arg is not None:
+        if rev_arg < 1:
             raise SystemExit("--rev must be >= 1")
-        if detected_rev is not None and detected_rev != args.rev:
+        if detected_rev is not None and detected_rev != rev_arg:
             raise SystemExit(
-                f"--rev={args.rev} conflicts with spec file name "
+                f"--rev={rev_arg} conflicts with spec file name "
                 f"(detected rev{detected_rev} from {spec_resolved.name})"
             )
-        if detected_rev is None and args.rev > 1:
+        if detected_rev is None and rev_arg > 1:
             raise SystemExit(
-                f"--rev={args.rev} requires spec file with '-rev{args.rev}' suffix. "
+                f"--rev={rev_arg} requires spec file with '-rev{rev_arg}' suffix. "
                 f"Got: {spec_resolved.name}"
             )
 
-    effective_rev: int = args.rev if args.rev is not None else (detected_rev if detected_rev is not None else 1)
+    effective_rev: int = rev_arg if rev_arg is not None else (detected_rev if detected_rev is not None else 1)
 
     # §2.6 優先順位ルール適用
     auto_continue = args.auto_continue

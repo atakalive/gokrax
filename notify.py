@@ -264,6 +264,17 @@ def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
             continue
         if not send_to_agent(r, msg):
             logger.warning("Failed to send review request to %s", r)
+            continue
+        # メトリクス記録（Issue #81）
+        from pipeline_io import append_metric
+        phase = "code" if "CODE" in state else "design"
+        review_key = "code_reviews" if "CODE" in state else "design_reviews"
+        for i in batch:
+            existing = i.get(review_key, {}).get(r, {})
+            if existing.get("verdict", "").upper() == "APPROVE":
+                continue
+            append_metric("review_request", pj=project, issue=i["issue"],
+                          phase=phase, reviewer=r)
 
 
 def notify_discord(message: str):

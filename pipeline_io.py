@@ -154,6 +154,34 @@ def find_issue(batch: list, issue_num: int) -> dict | None:
 
 
 # ---------------------------------------------------------------------------
+# メトリクス JSONL — Issue #81
+# ---------------------------------------------------------------------------
+
+import logging as _logging
+
+_metrics_logger = _logging.getLogger("devbar.metrics")
+
+
+def append_metric(event: str, **fields) -> None:
+    """メトリクスイベントを JSONL ファイルに追記する。
+
+    os.open(O_APPEND|O_CREAT|O_WRONLY) + os.write で行単位の原子性を確保。
+    書き込み失敗時は logger.warning で記録し、例外は発生させない（best-effort）。
+    """
+    from config import METRICS_FILE
+    record = {"ts": now_iso(), "event": event, **fields}
+    line = json.dumps(record, ensure_ascii=False) + "\n"
+    try:
+        fd = os.open(str(METRICS_FILE), os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o644)
+        try:
+            os.write(fd, line.encode("utf-8"))
+        finally:
+            os.close(fd)
+    except OSError as e:
+        _metrics_logger.warning("metrics write failed: %s", e)
+
+
+# ---------------------------------------------------------------------------
 # spec mode 基盤 — Issue #49
 # ---------------------------------------------------------------------------
 

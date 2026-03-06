@@ -665,6 +665,31 @@ def cmd_review(args):
     state = data.get("state", "IDLE")
     print(f"{args.project}: #{args.issue} review by {args.reviewer} = {args.verdict}")
 
+    # メトリクス記録（Issue #81）
+    from pipeline_io import append_metric
+    from datetime import timezone
+    phase = "code" if "CODE" in state else "design"
+    cycle_key = "design_revise_count" if "DESIGN" in state else "code_revise_count"
+    revise_cycle = data.get(cycle_key, 0)
+    latency_sec = None
+    for entry in reversed(data.get("history", [])):
+        if entry.get("to") == state:
+            try:
+                _JST = timezone(timedelta(hours=9))
+                entered_at = datetime.fromisoformat(entry["at"])
+                if entered_at.tzinfo is None:
+                    entered_at = entered_at.replace(tzinfo=_JST)
+                now = datetime.now(_JST)
+                latency_sec = round((now - entered_at).total_seconds())
+                if latency_sec < 0:
+                    latency_sec = None
+            except (KeyError, ValueError, TypeError):
+                pass
+            break
+    append_metric("review_response", pj=args.project, issue=args.issue,
+                  phase=phase, reviewer=args.reviewer, verdict=args.verdict,
+                  latency_sec=latency_sec, revise_cycle=revise_cycle)
+
     # GitLab Issue note に自動投稿
     gitlab = data.get("gitlab", f"atakalive/{args.project}")
     phase = "設計" if "DESIGN" in state else "コード"

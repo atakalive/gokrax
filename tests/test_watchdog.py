@@ -3358,3 +3358,109 @@ class TestVerdictObligation:
         data_b = {"project": "test"}
         action_b = _resolve_review_outcome("CODE_REVIEW", data_b, batch, False, False, True)
         assert action_b.new_state == "CODE_APPROVED"
+
+
+# ── TestHandleQadd (Issue #85) ───────────────────────────────────────────────
+
+class TestHandleQadd:
+    """_handle_qadd() 複数行対応のテスト"""
+
+    def _run(self, content, queue_file, monkeypatch):
+        import config
+        monkeypatch.setattr(config, "QUEUE_FILE", queue_file)
+        monkeypatch.setattr(config, "DISCORD_CHANNEL", "test-channel")
+        monkeypatch.setattr(config, "DRY_RUN", False)
+        from watchdog import _handle_qadd
+        with patch("notify.post_discord") as mock_post:
+            _handle_qadd("msg-001", content)
+        return mock_post
+
+    def test_single_line_backward_compat(self, tmp_path, monkeypatch):
+        """1行の qadd → 従来通り1件追加"""
+        queue_file = tmp_path / "queue.txt"
+        queue_file.write_text("")
+
+        mock_post = self._run("qadd Foo 1 full", queue_file, monkeypatch)
+
+        content = queue_file.read_text()
+        assert "Foo 1 full" in content
+        mock_post.assert_called_once()
+        assert "Added 1 entries" in mock_post.call_args[0][1]
+
+    def test_multi_line_all_added(self, tmp_path, monkeypatch):
+        """複数行の qadd → 全件追加"""
+        queue_file = tmp_path / "queue.txt"
+        queue_file.write_text("")
+
+        content = "qadd Foo 1 full\nBar 2 lite\nBaz 3"
+        mock_post = self._run(content, queue_file, monkeypatch)
+
+        text = queue_file.read_text()
+        assert "Foo 1 full" in text
+        assert "Bar 2 lite" in text
+        assert "Baz 3" in text
+        assert "Added 3 entries" in mock_post.call_args[0][1]
+
+    def test_validation_error_aborts_all(self, tmp_path, monkeypatch):
+        """2行目にバリデーションエラー → 全体中止・0件追加"""
+        queue_file = tmp_path / "queue.txt"
+        queue_file.write_text("")
+
+        content = "qadd Foo 1 full\nINVALID_NO_ISSUE"
+        mock_post = self._run(content, queue_file, monkeypatch)
+
+        assert queue_file.read_text() == ""
+        msg = mock_post.call_args[0][1]
+        assert "エラー" in msg
+
+    def test_no_args_sends_error(self, tmp_path, monkeypatch):
+        """引数なし → エラーメッセージ"""
+        queue_file = tmp_path / "queue.txt"
+        queue_file.write_text("")
+
+        mock_post = self._run("qadd", queue_file, monkeypatch)
+
+        assert queue_file.read_text() == ""
+        msg = mock_post.call_args[0][1]
+        assert "引数が必要" in msg
+
+
+# ── TestGetNotificationForStateComment (Issue #88) ───────────────────────────
+
+class TestGetNotificationForStateComment:
+    """get_notification_for_state() の comment 引数テスト"""
+
+    def test_design_plan_no_comment(self):
+        """comment なし → Mからの要望 が含まれない"""
+        from watchdog import get_notification_for_state
+        batch = [{"issue": 1, "design_ready": False}]
+        action = get_notification_for_state("DESIGN_PLAN", project="Foo", batch=batch)
+        assert "Mからの要望" not in action.impl_msg
+
+    def test_design_plan_with_comment(self):
+        """comment あり → Mからの要望 が含まれる"""
+        from watchdog import get_notification_for_state
+        batch = [{"issue": 1, "design_ready": False}]
+        action = get_notification_for_state("DESIGN_PLAN", project="Foo", batch=batch, comment="APIの互換性に注意")
+        assert "Mからの要望: APIの互換性に注意" in action.impl_msg
+
+    def test_design_revise_with_comment(self):
+        """DESIGN_REVISE + comment → Mからの要望 が含まれる"""
+        from watchdog import get_notification_for_state
+        batch = [{"issue": 1, "design_reviews": {"r1": {"verdict": "P0", "summary": "x"}}}]
+        action = get_notification_for_state("DESIGN_REVISE", project="Foo", batch=batch, comment="注意点")
+        assert "Mからの要望: 注意点" in action.impl_msg
+
+    def test_code_revise_with_comment(self):
+        """CODE_REVISE + comment → Mからの要望 が含まれる"""
+        from watchdog import get_notification_for_state
+        batch = [{"issue": 1, "code_reviews": {"r1": {"verdict": "P0", "summary": "x"}}}]
+        action = get_notification_for_state("CODE_REVISE", project="Foo", batch=batch, comment="コード注意")
+        assert "Mからの要望: コード注意" in action.impl_msg
+
+    def test_empty_comment_not_shown(self):
+        """comment="" → Mからの要望 が含まれない"""
+        from watchdog import get_notification_for_state
+        batch = [{"issue": 1, "design_ready": False}]
+        action = get_notification_for_state("DESIGN_PLAN", project="Foo", batch=batch, comment="")
+        assert "Mからの要望" not in action.impl_msg

@@ -16,6 +16,18 @@ from pipeline_io import load_pipeline, get_path
 from config import REVIEW_MODES
 
 
+def sanitize_comment(raw: str) -> str | None:
+    """コメント文字列をサニタイズして返す。空なら None。"""
+    s = raw.strip()
+    # 改行を半角スペースに正規化
+    s = s.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
+    # Discord @メンション抑止: @ を @\u200b に置換（@everyone/@here 等の誤爆防止）
+    s = s.replace("@", "@\u200b")
+    # Markdown コードブロック崩れ抑止: ``` を `\u200b`` に置換
+    s = s.replace("```", "`\u200b``")
+    return s if s else None
+
+
 def parse_queue_line(line: str) -> dict:
     """キュー行を1行パースする。
 
@@ -80,11 +92,23 @@ def parse_queue_line(line: str) -> dict:
         "p2_fix": False,
         "cc_plan_model": None,
         "cc_impl_model": None,
+        "comment": None,
         "original_line": line.rstrip("\n"),
     }
 
-    for token in tokens[2:]:
-        if token == "automerge":
+    i = 2
+    while i < len(tokens):
+        token = tokens[i]
+        if token.startswith("comment="):
+            if result["comment"] is not None:
+                raise ValueError("Duplicate comment= token")
+            # comment= 以降の残り全てを結合（貪欲パース）
+            comment_parts = [token.split("=", 1)[1]]
+            comment_parts.extend(tokens[i + 1:])
+            raw_comment = " ".join(comment_parts)
+            result["comment"] = sanitize_comment(raw_comment)
+            break  # comment= 以降は全てコメントなのでループ終了
+        elif token == "automerge":
             if result.get("_seen_no_automerge"):
                 raise ValueError("automerge and no-automerge cannot be used together")
             result["automerge"] = True
@@ -113,6 +137,7 @@ def parse_queue_line(line: str) -> dict:
             result["mode"] = token
         else:
             raise ValueError(f"Unknown token in queue line: {token!r}")
+        i += 1
 
     result.pop("_seen_automerge", None)
     result.pop("_seen_no_automerge", None)

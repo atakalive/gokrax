@@ -353,6 +353,7 @@ def get_notification_for_state(
     gitlab: str = "",
     implementer: str = "",
     p2_fix: bool = False,
+    comment: str = "",
 ) -> TransitionAction:
     """全状態の通知メッセージを一元管理。
 
@@ -365,12 +366,15 @@ def get_notification_for_state(
     if state in ("DESIGN_REVIEW", "CODE_REVIEW"):
         return TransitionAction(send_review=True)
 
+    comment_line = f"Mからの要望: {comment}\n" if comment else ""
+
     if state == "DESIGN_PLAN":
         issues_str = ", ".join(
             f"#{i['issue']}" for i in batch if not i.get("design_ready")
         ) or "（全Issue）"
         msg = (
             f"[devbar] {project}: 設計確認フェーズ\n"
+            f"{comment_line}"
             f"対象Issue: {issues_str}\n"
             f"Claude Codeが確実に実装できる粒度まで、**対象Issue本文の説明を修正せよ** (glab issue update)。\n"
             f"コメントによる補足は禁止する。\n"
@@ -388,6 +392,7 @@ def get_notification_for_state(
         fix_label = "P0/P1/P2指摘" if p2_fix else "P0/P1指摘"
         msg = (
             f"[devbar] {project}: 設計修正フェーズ\n"
+            f"{comment_line}"
             f"対象Issue: {issues_str}\n"
             f"{p2_note}"
             f"【手順】\n"
@@ -411,6 +416,7 @@ def get_notification_for_state(
         fix_label = "P0/P1/P2指摘" if p2_fix else "P0/P1指摘"
         msg = (
             f"[devbar] {project}: コード修正フェーズ\n"
+            f"{comment_line}"
             f"対象Issue: {issues_str}\n"
             f"{p2_note}"
             f"【手順】\n"
@@ -450,6 +456,7 @@ def get_notification_for_state(
 def _resolve_review_outcome(
     state: str, data: dict | None, batch: list,
     has_p0: bool, has_p1: bool, has_p2: bool,
+    comment: str = "",
 ) -> TransitionAction:
     """min_reviews 到達後の遷移先を決定する。APPROVED or REVISE or BLOCKED.
 
@@ -484,12 +491,12 @@ def _resolve_review_outcome(
             # P0 なし + P1 のみ → フォールバック APPROVE（P1 は免除される）
             return TransitionAction(
                 new_state=appr,
-                impl_msg=get_notification_for_state(appr, project=pj, batch=batch).impl_msg,
+                impl_msg=get_notification_for_state(appr, project=pj, batch=batch, comment=comment).impl_msg,
             )
 
         return TransitionAction(
             new_state=revise_state,
-            impl_msg=get_notification_for_state(revise_state, project=pj, batch=batch, p2_fix=p2_fix).impl_msg,
+            impl_msg=get_notification_for_state(revise_state, project=pj, batch=batch, p2_fix=p2_fix, comment=comment).impl_msg,
         )
 
     # P0/P1 なし + p2_fix 有効 + P2 あり → REVISE（max_revise_cycles フォールバック付き）
@@ -502,18 +509,18 @@ def _resolve_review_outcome(
             # フォールバック: P0/P1 がないので APPROVE する
             return TransitionAction(
                 new_state=appr,
-                impl_msg=get_notification_for_state(appr, project=pj, batch=batch).impl_msg,
+                impl_msg=get_notification_for_state(appr, project=pj, batch=batch, comment=comment).impl_msg,
             )
 
         return TransitionAction(
             new_state=revise_state,
-            impl_msg=get_notification_for_state(revise_state, project=pj, batch=batch, p2_fix=True).impl_msg,
+            impl_msg=get_notification_for_state(revise_state, project=pj, batch=batch, p2_fix=True, comment=comment).impl_msg,
         )
 
     # P0/P1/P2 なし or (P2 ありだが p2_fix 無効) → APPROVE
     return TransitionAction(
         new_state=appr,
-        impl_msg=get_notification_for_state(appr, project=pj, batch=batch).impl_msg,
+        impl_msg=get_notification_for_state(appr, project=pj, batch=batch, comment=comment).impl_msg,
     )
 
 
@@ -634,7 +641,8 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
             if should_transition:
                 if data:
                     data.pop(met_key, None)
-                return _resolve_review_outcome(state, data, batch, has_p0, has_p1, has_p2)
+                comment = data.get("comment", "") if data else ""
+                return _resolve_review_outcome(state, data, batch, has_p0, has_p1, has_p2, comment=comment)
 
         # Not enough reviews yet
         # 1. タイムアウト判定（BLOCKEDのみ早期リターン）
@@ -799,8 +807,12 @@ def _start_cc(project: str, batch: list, gitlab: str, repo_path: str, pipeline_p
     closes = " ".join(f"Closes #{n}" for n in issue_nums)
     issue_args = " ".join(str(n) for n in issue_nums)
 
+    comment = data.get("comment", "")
+    comment_line = f"Mからの要望: {comment}\n\n" if comment else ""
     plan_prompt = (
-        f"以下のIssueを実装する計画を立ててください。\n\n{issues_block}\n\n"
+        f"以下のIssueを実装する計画を立ててください。\n"
+        f"{comment_line}"
+        f"\n{issues_block}\n\n"
         f"コミットメッセージに {closes} を必ず含めること。"
     )
     impl_prompt = f"計画OK。実装して commit して。コミットメッセージに {closes} を必ず含めること。"
@@ -1014,6 +1026,7 @@ def _recover_pending_notifications(pj: str, pending: dict, data: dict) -> None:
                 review_mode=info.get("review_mode", "standard"),
                 excluded=excluded,
                 base_commit=info.get("base_commit"),
+                comment=data.get("comment", ""),
             )
             clear_pending_notification(pj, "review")
         except Exception as e:
@@ -2467,6 +2480,7 @@ def process(path: Path):
             data.pop("keep_ctx_batch", None)
             data.pop("keep_ctx_intra", None)
             data.pop("queue_mode", None)
+            data.pop("comment", None)
 
         # IDLE→DESIGN_PLAN: Reset REVISE cycle counters (Issue #29)
         if state == "IDLE" and action.new_state == "DESIGN_PLAN":
@@ -2882,6 +2896,7 @@ def process(path: Path):
                 prev_reviews=prev_reviews,
                 excluded=excluded,
                 base_commit=base_commit,
+                comment=pipeline_data.get("comment", ""),
             )
             clear_pending_notification(pj, "review")
         if action.run_cc:
@@ -3058,7 +3073,7 @@ def _handle_qstatus(msg_id: str):
 def _handle_qadd(msg_id: str, content: str):
     from config import DISCORD_CHANNEL, QUEUE_FILE
     from notify import post_discord
-    from task_queue import append_entry, get_active_entries
+    from task_queue import append_entry, get_active_entries, parse_queue_line
     from devbar import get_qstatus_text, _get_running_info
     import config
 
@@ -3066,25 +3081,47 @@ def _handle_qadd(msg_id: str, content: str):
         log(f"[dry-run] Discord qadd command skipped (msg_id={msg_id})")
         return
 
-    # "qadd BeamShifter 33,34 lite no-automerge" → "BeamShifter 33,34 lite no-automerge"
-    parts = content.strip().split(None, 1)
-    if len(parts) < 2:
+    # 1行目: "qadd PROJECT ISSUES [OPTIONS...]" → "PROJECT ISSUES [OPTIONS...]"
+    # 2行目以降: そのまま（PROJECT から始まる）
+    raw_lines = content.strip().split("\n")
+    first_line_parts = raw_lines[0].strip().split(None, 1)
+    if len(first_line_parts) < 2:
         post_discord(DISCORD_CHANNEL, "qadd: 引数が必要です (例: qadd BeamShifter 33,34 lite no-automerge)")
         return
 
-    line = parts[1]
-    try:
-        append_entry(QUEUE_FILE, line)
-    except ValueError as e:
-        post_discord(DISCORD_CHANNEL, f"qadd: エラー: {e}")
-        log(f"[qadd] Error: {e} (msg_id={msg_id})")
+    lines = [first_line_parts[1]]  # 1行目の "qadd" を除去した残り
+    lines.extend(l.strip() for l in raw_lines[1:] if l.strip() and not l.strip().startswith("#"))
+
+    if not lines:
+        post_discord(DISCORD_CHANNEL, "qadd: 引数が必要です")
         return
+
+    # 全行バリデーション
+    for i, line in enumerate(lines, 1):
+        try:
+            parse_queue_line(line)
+        except ValueError as e:
+            post_discord(DISCORD_CHANNEL, f"qadd: 行{i} エラー: {e}")
+            log(f"[qadd] Validation error line {i}: {e} (msg_id={msg_id})")
+            return
+
+    # バリデーション通過後に追加
+    added = []
+    for line in lines:
+        try:
+            append_entry(QUEUE_FILE, line)
+            added.append(line)
+        except ValueError as e:
+            post_discord(DISCORD_CHANNEL, f"qadd: エラー: {e}")
+            log(f"[qadd] Error: {e} (msg_id={msg_id})")
+            return
 
     entries = get_active_entries(QUEUE_FILE)
     running = _get_running_info()
     text = get_qstatus_text(entries, running=running)
-    post_discord(DISCORD_CHANNEL, f"Added: {line}\n```\n{text}\n```")
-    log(f"Processed Discord qadd command (msg_id={msg_id})")
+    added_text = "\n".join(f"  {a}" for a in added)
+    post_discord(DISCORD_CHANNEL, f"Added {len(added)} entries:\n{added_text}\n```\n{text}\n```")
+    log(f"Processed Discord qadd command ({len(added)} entries, msg_id={msg_id})")
 
 
 def _handle_qdel(msg_id: str, content: str):

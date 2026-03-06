@@ -391,10 +391,11 @@ def cmd_start(args):
         args.keep_ctx_batch = True
         args.keep_ctx_intra = True
 
-    # 5. review_mode / keep_ctx / p2_fix 設定（遷移前に設定して/newの宛先に反映させる）
+    # 5. review_mode / keep_ctx / p2_fix / comment 設定（遷移前に設定して/newの宛先に反映させる）
     has_keep_ctx = getattr(args, "keep_ctx_batch", False) or getattr(args, "keep_ctx_intra", False)
     has_p2_fix = getattr(args, "p2_fix", False)
-    if getattr(args, "mode", None) or has_keep_ctx or has_p2_fix:
+    has_comment = bool(getattr(args, "comment", None))
+    if getattr(args, "mode", None) or has_keep_ctx or has_p2_fix or has_comment:
         from watchdog import REVIEW_MODES
         if getattr(args, "mode", None) and args.mode not in REVIEW_MODES:
             raise SystemExit(f"Invalid mode: {args.mode} (valid: {list(REVIEW_MODES)})")
@@ -407,6 +408,11 @@ def cmd_start(args):
                 data["keep_ctx_intra"] = True
             if getattr(args, "p2_fix", False):
                 data["p2_fix"] = True
+            if getattr(args, "comment", None):
+                from task_queue import sanitize_comment
+                sanitized = sanitize_comment(args.comment)
+                if sanitized:
+                    data["comment"] = sanitized
         update_pipeline(path, do_mode)
 
 
@@ -469,6 +475,7 @@ def cmd_transition(args):
             data.pop("keep_context", None)      # 旧フラグ（後方互換クリーンアップ）
             data.pop("keep_ctx_batch", None)
             data.pop("keep_ctx_intra", None)
+            data.pop("comment", None)
         elif target == "DESIGN_PLAN":
             # Reset REVISE cycle counters when starting new batch (Issue #29)
             data.pop("design_revise_count", None)
@@ -492,7 +499,8 @@ def cmd_transition(args):
 
         # p1_fix → p2_fix 昇格（後方互換）
         p2_fix = data.get("p2_fix", False) or data.get("p1_fix", False)
-        notif = get_notification_for_state(target, pj, batch, gitlab, implementer, p2_fix=p2_fix)
+        comment = data.get("comment", "")
+        notif = get_notification_for_state(target, pj, batch, gitlab, implementer, p2_fix=p2_fix, comment=comment)
         prefix = "（再開）" if resume else ""
 
         pending = {}
@@ -1063,6 +1071,8 @@ def cmd_qrun(args):
                 opts.append("keep-ctx-batch")
             elif e.get("keep_ctx_intra"):
                 opts.append("keep-ctx-intra")
+            if e.get("comment"):
+                opts.append(f"comment={e['comment']}")
             opts_str = " " + " ".join(opts) if opts else ""
             print(f"{e['project']} {e['issues']}{mode}{opts_str}{done}")
         return
@@ -1085,6 +1095,7 @@ def cmd_qrun(args):
         keep_ctx_batch=entry.get("keep_ctx_batch", False),
         keep_ctx_intra=entry.get("keep_ctx_intra", False),
         p2_fix=entry.get("p2_fix", False),
+        comment=entry.get("comment") or None,
     )
 
     # queue_mode を先に設定（cmd_start 内の遷移通知で [Queue] prefix を使うため）
@@ -1101,7 +1112,7 @@ def cmd_qrun(args):
         print(f"[qrun] Failed to start {project}: {e}", file=sys.stderr)
         raise
 
-    # 成功: automerge/cc_model をパイプラインに保存
+    # 成功: automerge/cc_model/comment をパイプラインに保存
     def _save_queue_options(data):
         data["automerge"] = entry.get("automerge", True)
         if entry.get("p2_fix"):
@@ -1110,6 +1121,8 @@ def cmd_qrun(args):
             data["cc_plan_model"] = entry["cc_plan_model"]
         if entry.get("cc_impl_model"):
             data["cc_impl_model"] = entry["cc_impl_model"]
+        if entry.get("comment"):
+            data["comment"] = entry["comment"]
 
     update_pipeline(path, _save_queue_options)
 
@@ -1205,22 +1218,54 @@ def cmd_qstatus(args):
 
 
 def cmd_qadd(args):
-    """キューに1行追加"""
-    from task_queue import append_entry, get_active_entries
+    """キューに1行以上追加"""
+    from task_queue import append_entry, get_active_entries, parse_queue_line
     from config import QUEUE_FILE
 
     queue_path = Path(args.queue) if args.queue else QUEUE_FILE
-    line = " ".join(args.entry)
-    try:
-        entry = append_entry(queue_path, line)
-    except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
+
+    # 入力ソース決定
+    if getattr(args, "file", None):
+        if args.entry or getattr(args, "from_stdin", False):
+            raise SystemExit("--file と位置引数/--stdin は排他です")
+        lines = args.file.read_text().splitlines()
+    elif getattr(args, "from_stdin", False):
+        if args.entry:
+            raise SystemExit("--stdin と位置引数は排他です")
+        lines = sys.stdin.read().splitlines()
+    elif args.entry:
+        lines = [" ".join(args.entry)]
+    else:
+        raise SystemExit("追加するエントリを指定してください（位置引数 or --file or --stdin）")
+
+    # 空行・コメント行を除外
+    lines = [l.strip() for l in lines if l.strip() and not l.strip().startswith("#")]
+
+    if not lines:
+        raise SystemExit("追加するエントリがありません")
+
+    # 全行をバリデーション（1行でもエラーなら全体を中止）
+    for i, line in enumerate(lines, 1):
+        try:
+            parse_queue_line(line)
+        except ValueError as e:
+            raise SystemExit(f"行 {i}: {e}")
+
+    # バリデーション通過後に追加
+    added = []
+    for line in lines:
+        try:
+            append_entry(queue_path, line)
+            added.append(line)
+        except ValueError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
 
     # 追加後の状態表示
     entries = get_active_entries(queue_path)
     running = _get_running_info()
-    print(f"Added: {line}")
+    for a in added:
+        print(f"Added: {a}")
     print(get_qstatus_text(entries, running=running))
 
 
@@ -2200,6 +2245,7 @@ def main():
     p.add_argument("--keep-ctx-intra", action="store_true", default=False, dest="keep_ctx_intra")
     p.add_argument("--keep-ctx-all", action="store_true", default=False, dest="keep_ctx_all")
     p.add_argument("--p2-fix", action="store_true", default=False, dest="p2_fix")
+    p.add_argument("--comment", default=None, help="バッチ全体への注意事項（プロンプトに挿入される）")
 
     # triage
     p = sub.add_parser("triage", help="指定Issueをバッチに投入")
@@ -2295,8 +2341,10 @@ def main():
     p.add_argument("--queue", type=Path, help="キューファイルパス")
 
     # qadd
-    p = sub.add_parser("qadd", help="キューに1行追加")
-    p.add_argument("entry", nargs="+", help="追加するエントリ (例: BeamShifter 33,34 lite no-automerge)")
+    p = sub.add_parser("qadd", help="キューに1行以上追加")
+    p.add_argument("entry", nargs="*", help="追加するエントリ (例: BeamShifter 33,34 lite no-automerge)")
+    p.add_argument("--file", type=Path, dest="file", help="エントリファイルパス（1行1エントリ）")
+    p.add_argument("--stdin", action="store_true", dest="from_stdin", help="stdinから複数行を読み込む")
     p.add_argument("--queue", type=Path, help="キューファイルパス")
 
     # qdel

@@ -13,7 +13,7 @@ sys.path.insert(0, str(ROOT))
 
 from task_queue import (
     parse_queue_line, pop_next_queue_entry, restore_queue_entry, peek_queue,
-    get_active_entries, append_entry, delete_entry,
+    get_active_entries, append_entry, delete_entry, sanitize_comment,
 )
 
 
@@ -665,3 +665,208 @@ class TestGetRunningInfo:
         assert result is not None
         assert result["project"] == "AAA"  # sorted 順で aaa が先
         assert any("Multiple active pipelines" in r.message for r in caplog.records)
+
+
+# ── TestSanitizeComment (Issue #88) ──────────────────────────────────────────
+
+class TestSanitizeComment:
+    """sanitize_comment() のテスト"""
+
+    def test_strips_whitespace(self):
+        """前後の空白を除去"""
+        assert sanitize_comment("  テスト  ") == "テスト"
+
+    def test_newline_to_space(self):
+        """改行を半角スペースに正規化"""
+        assert sanitize_comment("行1\n行2\r\n行3") == "行1 行2 行3"
+
+    def test_at_mention_suppression(self):
+        """@メンション抑止"""
+        result = sanitize_comment("@everyone 注意")
+        assert "@\u200beveryone 注意" == result
+
+    def test_markdown_code_block_suppression(self):
+        """Markdownコードブロック崩れ抑止"""
+        result = sanitize_comment("コード```例```")
+        assert "```" not in result
+        assert "`\u200b``" in result
+
+    def test_empty_returns_none(self):
+        """空文字列 → None"""
+        assert sanitize_comment("  ") is None
+        assert sanitize_comment("") is None
+
+    def test_mixed_sanitize(self):
+        """複数サニタイズの組み合わせ"""
+        result = sanitize_comment("@here```\n混合")
+        assert "@\u200bhere" in result
+        assert "`\u200b``" in result
+        assert "\n" not in result
+
+
+# ── TestParseQueueLineComment (Issue #88) ────────────────────────────────────
+
+class TestParseQueueLineComment:
+    """parse_queue_line() の comment= トークンテスト"""
+
+    def test_no_comment_default_none(self):
+        """comment= なし → comment が None"""
+        result = parse_queue_line("Foo 1")
+        assert result["comment"] is None
+
+    def test_comment_basic(self):
+        """comment=テスト → サニタイズ済み文字列"""
+        result = parse_queue_line("Foo 1 comment=テスト")
+        assert result["comment"] == "テスト"
+
+    def test_comment_greedy(self):
+        """comment= は残りの行全体を消費する（貪欲パース）"""
+        result = parse_queue_line("Foo 1 lite comment=数学的正しさを 重視せよ")
+        assert result["mode"] == "lite"
+        assert result["comment"] == "数学的正しさを 重視せよ"
+
+    def test_comment_empty_value(self):
+        """comment= 以降が空 → None"""
+        result = parse_queue_line("Foo 1 comment=")
+        assert result["comment"] is None
+
+    def test_comment_before_other_tokens_ignored(self):
+        """comment= の前のトークンは正しくパースされる"""
+        result = parse_queue_line("Foo 1 full automerge comment=注意")
+        assert result["mode"] == "full"
+        assert result["automerge"] is True
+        assert result["comment"] == "注意"
+
+    def test_comment_with_at_sanitized(self):
+        """comment= 内の @メンションはサニタイズされる"""
+        result = parse_queue_line("Foo 1 comment=@everyone テスト")
+        assert result["comment"] == "@\u200beveryone テスト"
+
+
+# ── TestCmdQadd (Issue #85) ──────────────────────────────────────────────────
+
+class TestCmdQadd:
+    """cmd_qadd() のテスト"""
+
+    def _make_args(self, entry=None, file=None, from_stdin=False, queue=None):
+        import argparse
+        ns = argparse.Namespace(
+            entry=entry or [],
+            file=file,
+            from_stdin=from_stdin,
+            queue=queue,
+        )
+        return ns
+
+    def test_positional_single_line(self, tmp_path, monkeypatch):
+        """従来の位置引数1行指定 → 正常追加（後方互換）"""
+        import config
+        queue_file = tmp_path / "queue.txt"
+        queue_file.write_text("")
+        monkeypatch.setattr(config, "QUEUE_FILE", queue_file)
+
+        from devbar import cmd_qadd
+        args = self._make_args(entry=["Foo", "1", "full", "automerge"])
+        cmd_qadd(args)
+
+        content = queue_file.read_text()
+        assert "Foo 1 full automerge" in content
+
+    def test_file_multiple_entries(self, tmp_path, monkeypatch):
+        """--file で3行ファイル → 3エントリ追加"""
+        import config
+        queue_file = tmp_path / "queue.txt"
+        queue_file.write_text("")
+        monkeypatch.setattr(config, "QUEUE_FILE", queue_file)
+
+        entries_file = tmp_path / "entries.txt"
+        entries_file.write_text("Foo 1 full\nBar 2 lite\nBaz 3\n")
+
+        from devbar import cmd_qadd
+        args = self._make_args(file=entries_file)
+        cmd_qadd(args)
+
+        content = queue_file.read_text()
+        assert "Foo 1 full" in content
+        assert "Bar 2 lite" in content
+        assert "Baz 3" in content
+
+    def test_stdin_multiple_entries(self, tmp_path, monkeypatch):
+        """--stdin で2行入力 → 2エントリ追加"""
+        import config, io
+        queue_file = tmp_path / "queue.txt"
+        queue_file.write_text("")
+        monkeypatch.setattr(config, "QUEUE_FILE", queue_file)
+        monkeypatch.setattr("sys.stdin", io.StringIO("Foo 1 full\nBar 2 lite\n"))
+
+        from devbar import cmd_qadd
+        args = self._make_args(from_stdin=True)
+        cmd_qadd(args)
+
+        content = queue_file.read_text()
+        assert "Foo 1 full" in content
+        assert "Bar 2 lite" in content
+
+    def test_file_validation_error_aborts_all(self, tmp_path, monkeypatch):
+        """バリデーションエラー行があると全体中止・0件追加"""
+        import config
+        queue_file = tmp_path / "queue.txt"
+        queue_file.write_text("")
+        monkeypatch.setattr(config, "QUEUE_FILE", queue_file)
+
+        entries_file = tmp_path / "entries.txt"
+        entries_file.write_text("Foo 1 full\nINVALID_NO_ISSUE\nBar 2 lite\n")
+
+        from devbar import cmd_qadd
+        args = self._make_args(file=entries_file)
+        with pytest.raises(SystemExit):
+            cmd_qadd(args)
+
+        # ファイルが変更されていないこと
+        assert queue_file.read_text() == ""
+
+    def test_file_and_positional_mutually_exclusive(self, tmp_path, monkeypatch):
+        """--file と位置引数の同時指定 → SystemExit"""
+        import config
+        queue_file = tmp_path / "queue.txt"
+        queue_file.write_text("")
+        monkeypatch.setattr(config, "QUEUE_FILE", queue_file)
+
+        entries_file = tmp_path / "entries.txt"
+        entries_file.write_text("Foo 1\n")
+
+        from devbar import cmd_qadd
+        args = self._make_args(entry=["Foo", "1"], file=entries_file)
+        with pytest.raises(SystemExit):
+            cmd_qadd(args)
+
+    def test_no_args_exits(self, tmp_path, monkeypatch):
+        """引数なし → SystemExit"""
+        import config
+        queue_file = tmp_path / "queue.txt"
+        queue_file.write_text("")
+        monkeypatch.setattr(config, "QUEUE_FILE", queue_file)
+
+        from devbar import cmd_qadd
+        args = self._make_args()
+        with pytest.raises(SystemExit):
+            cmd_qadd(args)
+
+    def test_file_skips_empty_and_comment_lines(self, tmp_path, monkeypatch):
+        """空行・コメント行はスキップ"""
+        import config
+        queue_file = tmp_path / "queue.txt"
+        queue_file.write_text("")
+        monkeypatch.setattr(config, "QUEUE_FILE", queue_file)
+
+        entries_file = tmp_path / "entries.txt"
+        entries_file.write_text("# comment\n\nFoo 1 full\n  \nBar 2 lite\n")
+
+        from devbar import cmd_qadd
+        args = self._make_args(file=entries_file)
+        cmd_qadd(args)
+
+        content = queue_file.read_text()
+        assert "Foo 1 full" in content
+        assert "Bar 2 lite" in content
+        assert "#" not in content

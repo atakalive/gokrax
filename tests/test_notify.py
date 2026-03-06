@@ -592,3 +592,50 @@ class TestBaseCommitDiff:
         # format_review_request が base_commit="abc123" で呼ばれたことを検証
         for call in mock_fmt.call_args_list:
             assert call.kwargs.get("base_commit") == "abc123"
+
+
+# ── TestFormatReviewRequestComment (Issue #88) ───────────────────────────────
+
+class TestFormatReviewRequestComment:
+    """format_review_request() の comment 引数テスト"""
+
+    def _make_batch(self):
+        return [{
+            "issue": 1, "title": "test issue", "commit": None,
+            "design_reviews": {}, "code_reviews": {},
+        }]
+
+    def test_no_comment_no_mention(self):
+        """comment="" → Mからの要望 が含まれない"""
+        import notify
+        batch = self._make_batch()
+        with patch("notify.fetch_issue_body", return_value="body"):
+            msg = notify.format_review_request(
+                "proj", "DESIGN_REVIEW", batch, "atakalive/proj", "pascal"
+            )
+        assert "Mからの要望" not in msg
+
+    def test_with_comment_included(self):
+        """comment あり → Mからの要望 が含まれる"""
+        import notify
+        batch = self._make_batch()
+        with patch("notify.fetch_issue_body", return_value="body"):
+            msg = notify.format_review_request(
+                "proj", "DESIGN_REVIEW", batch, "atakalive/proj", "pascal",
+                comment="テスト注意事項"
+            )
+        assert "Mからの要望: テスト注意事項" in msg
+
+    def test_notify_reviewers_passes_comment(self):
+        """notify_reviewers が format_review_request に comment を渡すこと"""
+        import notify
+        batch = self._make_batch()
+        with patch("notify.send_to_agent") as mock_send:
+            with patch("notify.fetch_issue_body", return_value="body"):
+                with patch("notify.format_review_request", return_value="msg") as mock_fmt:
+                    notify.notify_reviewers(
+                        "proj", "DESIGN_REVIEW", batch, "atakalive/proj",
+                        comment="コメントテスト"
+                    )
+        for c in mock_fmt.call_args_list:
+            assert c.kwargs.get("comment") == "コメントテスト"

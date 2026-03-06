@@ -259,7 +259,8 @@ def notify_dispute(
 def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
                      repo_path: str = "", review_mode: str = "standard",
                      prev_reviews: dict = None, excluded: list[str] = None,
-                     base_commit: str | None = None):
+                     base_commit: str | None = None,
+                     comment: str = ""):
     """各レビュアーに個別のメッセージを送信。
 
     review_mode が "skip" の場合は通知をスキップ（自動承認用）。
@@ -293,7 +294,7 @@ def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
             continue  # 既にログ出力済み
         msg = format_review_request(project, state, batch, gitlab, reviewer=r,
                                     repo_path=repo_path, prev_reviews=prev_reviews,
-                                    base_commit=base_commit)
+                                    base_commit=base_commit, comment=comment)
         if not msg:
             logger.info("No pending issues for %s — skipping review request", r)
             continue
@@ -369,7 +370,8 @@ def fetch_discord_replies(channel_id: str, after_message_id: str) -> list[dict]:
 def format_review_request(project: str, state: str, batch: list, gitlab: str,
                           reviewer: str, repo_path: str = "",
                           prev_reviews: dict = None,
-                          base_commit: str | None = None) -> str:
+                          base_commit: str | None = None,
+                          comment: str = "") -> str:
     """レビュー依頼メッセージを生成（データ埋め込み + 20000文字制限）。"""
     if prev_reviews is None:
         prev_reviews = {}
@@ -494,8 +496,9 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
 
     truncate_notice = "\n\n**注意:** 一部のデータが文字数制限により省略されています。" if truncated else ""
 
+    comment_line = f"\nMからの要望: {comment}" if comment else ""
     phase_note = "" if is_code else "\n⚠️ これは設計レビュー DESIGN_REVIEW です。コードやdiffはまだ存在しません。\n"
-    return f"[devbar] {project}: {phase}レビュー依頼{phase_note}\n\n{todo_header}\n\n{guidance}\n\n{body}{completion}{truncate_notice}"
+    return f"[devbar] {project}: {phase}レビュー依頼{comment_line}{phase_note}\n\n{todo_header}\n\n{guidance}\n\n{body}{completion}{truncate_notice}"
 
 
 # ---------------------------------------------------------------------------

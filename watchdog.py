@@ -234,6 +234,8 @@ class SpecTransitionAction:
     discord_notify: str | None = None
     pipeline_updates: dict | None = None  # spec_config への更新差分
     error: str | None = None
+    nudge_reviewers: list[str] | None = None   # 催促が必要なレビュアーリスト。None=催促不要、[]=催促不要（副作用なし）
+    nudge_implementer: bool = False              # implementer 催促フラグ
 
 
 def _get_state_entered_at(data: dict, state: str) -> _datetime | None:
@@ -1228,14 +1230,46 @@ def _check_spec_review(
             send_to=send_to if send_to else None,
         )
 
-    if send_to or updates:
-        return SpecTransitionAction(
-            next_state=None,
-            send_to=send_to if send_to else None,
-            pipeline_updates=updates if updates else None,
-        )
+    # --- 催促ロジック（#76）---
+    # all_complete=False の場合のみここに到達
+    # 猶予期間チェック（entered_at 取得不可時は安全側=催促しない）
+    entered_at = _get_state_entered_at(data, "SPEC_REVIEW")
+    if entered_at is None:
+        if send_to or updates:
+            return SpecTransitionAction(
+                next_state=None,
+                send_to=send_to if send_to else None,
+                pipeline_updates=updates if updates else None,
+            )
+        return SpecTransitionAction(next_state=None)
 
-    return SpecTransitionAction(next_state=None)
+    elapsed = (now - entered_at).total_seconds()
+    if elapsed < NUDGE_GRACE_SEC:
+        if send_to or updates:
+            return SpecTransitionAction(
+                next_state=None,
+                send_to=send_to if send_to else None,
+                pipeline_updates=updates if updates else None,
+            )
+        return SpecTransitionAction(next_state=None)
+
+    # 猶予期間経過 → 未完了レビュアーを特定
+    # 対象: effective_status == "pending" かつ sent_at 設定済み（送信済みだが未応答）
+    # 対象外: "received"（完了済み）/ "timeout"（タイムアウト済み）/ sent_at=None（未送信）
+    pending_reviewers = [
+        reviewer
+        for reviewer, req in review_requests.items()
+        if _effective_status(reviewer) == "pending" and req.get("sent_at") is not None
+    ]
+
+    result_action = SpecTransitionAction(
+        next_state=None,
+        nudge_reviewers=pending_reviewers if pending_reviewers else None,
+        pipeline_updates=updates if updates else None,
+    )
+    if send_to:
+        result_action.send_to = send_to
+    return result_action
 
 
 # ---------------------------------------------------------------------------
@@ -1358,6 +1392,12 @@ def _check_spec_revise(
         return SpecTransitionAction(next_state=None)
 
     elapsed = (now - baseline).total_seconds()
+
+    # --- implementer 催促（#76）---
+    # 猶予期間経過後、タイムアウト到達前の区間で催促
+    if elapsed >= NUDGE_GRACE_SEC and elapsed < SPEC_REVISE_TIMEOUT_SEC:
+        return SpecTransitionAction(next_state=None, nudge_implementer=True)
+
     if elapsed < SPEC_REVISE_TIMEOUT_SEC:
         return SpecTransitionAction(next_state=None)
 
@@ -1803,6 +1843,29 @@ def _cleanup_expired_spec_files(pipelines_dir: str) -> None:
             log(f"[spec] cleanup error: {f.name}: {e}")
 
 
+# ---------------------------------------------------------------------------
+# Spec mode: 催促メッセージ生成（#76）
+# ---------------------------------------------------------------------------
+
+def _build_spec_review_nudge_msg(project: str, current_rev: str, spec_path: str, reviewer: str) -> str:
+    """spec mode レビュアー催促メッセージを生成。"""
+    return (
+        f"[Remind] {project} spec rev{current_rev} のレビューが未完了です。\n"
+        f"仕様書: {spec_path}\n"
+        f"以下のコマンドでレビュー結果を提出してください:\n"
+        f"python3 {DEVBAR_CLI} spec review-submit --pj {project} --reviewer {reviewer} --file <YAMLファイルパス>"
+    )
+
+
+def _build_spec_revise_nudge_msg(project: str, current_rev: str) -> str:
+    """spec mode implementer 催促メッセージを生成。"""
+    return (
+        f"[Remind] {project} spec rev{current_rev} のリバイス作業が未完了です。\n"
+        f"レビュー指摘を反映し、以下のコマンドで完了報告してください:\n"
+        f"python3 {DEVBAR_CLI} spec revise-submit --pj {project} --file <完了報告YAMLファイルパス>"
+    )
+
+
 # Spec mode: _apply_spec_action — DCLパターン（§10.1）
 # ---------------------------------------------------------------------------
 
@@ -1865,7 +1928,8 @@ def _apply_spec_action(
             sc.update(pu)
             data["spec_config"] = sc
 
-        if action2.next_state or action2.pipeline_updates or action2.send_to or action2.discord_notify:
+        if (action2.next_state or action2.pipeline_updates or action2.send_to
+                or action2.discord_notify or action2.nudge_reviewers or action2.nudge_implementer):
             applied = True
             applied_action = action2
 
@@ -1880,6 +1944,76 @@ def _apply_spec_action(
             for agent_id, msg in applied_action.send_to.items():
                 if not send_to_agent_queued(agent_id, msg):
                     notify_discord(spec_notify_failure(pj, "送信失敗", f"agent={agent_id}"))
+        # spec mode レビュアー催促（#76）
+        if applied_action.nudge_reviewers:
+            # 最新の pipeline を再読込（並行プロセス/連続tickでの二重催促防止）
+            fresh_data = load_pipeline(pipeline_path)
+            fresh_sc = fresh_data.get("spec_config", {})
+            pj_fresh = fresh_data.get("project", pipeline_path.stem)
+            project_fresh = fresh_data.get("project", "")
+            current_rev_fresh = fresh_sc.get("current_rev", "1")
+            spec_path_fresh = fresh_sc.get("spec_path", "")
+
+            woken = []
+            for reviewer in applied_action.nudge_reviewers:
+                if not _is_agent_inactive(reviewer):
+                    continue
+                # INACTIVE_THRESHOLD_SEC 以内の再催促をスキップ
+                rr = fresh_sc.get("review_requests", {}).get(reviewer, {})
+                last_nudge = rr.get("last_nudge_at")
+                if last_nudge:
+                    try:
+                        since = (_datetime.now(JST) - _datetime.fromisoformat(last_nudge)).total_seconds()
+                        if since < INACTIVE_THRESHOLD_SEC:
+                            continue
+                    except (ValueError, TypeError):
+                        pass
+
+                nudge_msg = _build_spec_review_nudge_msg(project_fresh, current_rev_fresh, spec_path_fresh, reviewer)
+                if send_to_agent_queued(reviewer, nudge_msg):
+                    woken.append(reviewer)
+
+            if woken:
+                def _set_spec_nudge(data, reviewers=woken):
+                    sc = data.setdefault("spec_config", {})
+                    rr = sc.setdefault("review_requests", {})
+                    for r in reviewers:
+                        rr.setdefault(r, {})["last_nudge_at"] = _datetime.now(JST).isoformat()
+                    data["spec_config"] = sc
+                update_pipeline(pipeline_path, _set_spec_nudge)
+                ts = _datetime.now(JST).strftime("%m/%d %H:%M")
+                notify_discord(f"[Spec][{pj_fresh}] レビュアーを催促: {', '.join(woken)} ({ts})")
+        # spec mode implementer 催促（#76）
+        if applied_action.nudge_implementer:
+            # 最新の pipeline を再読込（二重催促防止）
+            fresh_data = load_pipeline(pipeline_path)
+            fresh_sc = fresh_data.get("spec_config", {})
+            pj_fresh = fresh_data.get("project", pipeline_path.stem)
+            implementer = fresh_sc.get("spec_implementer", "")
+            project_fresh = fresh_data.get("project", "")
+            current_rev_fresh = fresh_sc.get("current_rev", "1")
+
+            if implementer and _is_agent_inactive(implementer):
+                last_nudge = fresh_sc.get("_last_nudge_implementer")
+                should_nudge = True
+                if last_nudge:
+                    try:
+                        since = (_datetime.now(JST) - _datetime.fromisoformat(last_nudge)).total_seconds()
+                        if since < INACTIVE_THRESHOLD_SEC:
+                            should_nudge = False
+                    except (ValueError, TypeError):
+                        pass
+
+                if should_nudge:
+                    nudge_msg = _build_spec_revise_nudge_msg(project_fresh, current_rev_fresh)
+                    if send_to_agent_queued(implementer, nudge_msg):
+                        def _set_impl_nudge(data, impl=implementer):
+                            sc = data.get("spec_config", {})
+                            sc["_last_nudge_implementer"] = _datetime.now(JST).isoformat()
+                            data["spec_config"] = sc
+                        update_pipeline(pipeline_path, _set_impl_nudge)
+                        ts = _datetime.now(JST).strftime("%m/%d %H:%M")
+                        notify_discord(f"[Spec][{pj_fresh}] implementer {implementer} を催促 ({ts})")
         if applied_action.discord_notify:
             notify_discord(applied_action.discord_notify)
         should_cleanup = (
@@ -1921,7 +2055,8 @@ def process(path: Path):
         now = _datetime.now(JST)
         action = check_transition_spec(state, spec_config, now, data)
         # 副作用フィールドが1つでもあれば適用
-        if action.next_state or action.pipeline_updates or action.send_to or action.discord_notify:
+        if (action.next_state or action.pipeline_updates or action.send_to
+                or action.discord_notify or action.nudge_reviewers or action.nudge_implementer):
             action.expected_state = state
             _apply_spec_action(path, action, now, data)
         return

@@ -20,6 +20,8 @@ from watchdog import (
     _apply_spec_action,
     _build_spec_review_prompt_initial,
     _build_spec_review_prompt_revision,
+    _build_spec_review_nudge_msg,
+    _build_spec_revise_nudge_msg,
     _ensure_pipelines_dir,
     _cleanup_expired_spec_files,
 )
@@ -463,3 +465,290 @@ class TestApplySpecActionCleanup:
              patch("watchdog._cleanup_expired_spec_files") as mock_cleanup:
             _apply_spec_action(pj_path, action, _now(), {"spec_config": {"pipelines_dir": pd_str}})
         mock_cleanup.assert_not_called()
+
+
+# --- TestSpecNudge ---
+
+NUDGE_GRACE_SEC = 300
+INACTIVE_THRESHOLD_SEC = 303
+
+
+class TestSpecNudge:
+    """Issue #76: spec mode レビュアー催促機能のテスト。"""
+
+    def _base_sc(self, reviewer="pascal", sent_at_offset=-400):
+        """sent_at 設定済み（猶予期間超過後）の単一レビュアーを持つ spec_config。"""
+        sent_at = (_now() + timedelta(seconds=sent_at_offset)).isoformat()
+        return {
+            "spec_path": "docs/spec.md",
+            "current_rev": "1",
+            "rev_index": 1,
+            "review_requests": {
+                reviewer: {
+                    "status": "pending",
+                    "sent_at": sent_at,
+                    "timeout_at": (_now() + timedelta(seconds=1800)).isoformat(),
+                }
+            },
+            "current_reviews": {"entries": {}},
+            "revise_count": 0,
+            "max_revise_cycles": 5,
+        }
+
+    def _data_with_entered_at(self, entered_at_offset=-400):
+        """SPEC_REVIEW への遷移履歴を持つ data dict。"""
+        entered_at = (_now() + timedelta(seconds=entered_at_offset)).isoformat()
+        return {
+            "project": "test",
+            "review_mode": "lite",
+            "history": [{"from": "SPEC_APPROVED", "to": "SPEC_REVIEW", "at": entered_at}],
+        }
+
+    # --- _check_spec_review 催促テスト ---
+
+    def test_spec_review_nudge_entered_at_none_no_nudge(self):
+        """entered_at 取得不可 → nudge_reviewers=None（安全側フォールバック）。"""
+        sc = self._base_sc()
+        data = {"project": "test", "review_mode": "lite", "history": []}  # history なし
+        action = _check_spec_review(sc, _now(), data)
+        assert action.nudge_reviewers is None
+
+    def test_spec_review_nudge_within_grace_no_nudge(self):
+        """猶予期間内（elapsed < 300s）→ nudge_reviewers=None。"""
+        sc = self._base_sc()
+        entered_at = (_now() - timedelta(seconds=100)).isoformat()
+        data = {
+            "project": "test", "review_mode": "lite",
+            "history": [{"from": "SPEC_APPROVED", "to": "SPEC_REVIEW", "at": entered_at}],
+        }
+        action = _check_spec_review(sc, _now(), data)
+        assert action.nudge_reviewers is None
+
+    def test_spec_review_nudge_after_grace_pending_reviewer(self):
+        """猶予期間後（elapsed ≥ 300s）+ 未完了レビュアーあり → nudge_reviewers にそのレビュアーが含まれる。"""
+        sc = self._base_sc("pascal")
+        data = self._data_with_entered_at(-400)
+        action = _check_spec_review(sc, _now(), data)
+        assert action.nudge_reviewers is not None
+        assert "pascal" in action.nudge_reviewers
+
+    def test_spec_review_nudge_completed_reviewer_excluded(self):
+        """status=received のレビュアー → nudge_reviewers に含まれない。"""
+        sc = self._base_sc("pascal")
+        sc["review_requests"]["pascal"]["status"] = "received"
+        data = self._data_with_entered_at(-400)
+        action = _check_spec_review(sc, _now(), data)
+        # received は all_complete 方向なので next_state が返る可能性を考慮
+        if action.next_state is None:
+            assert action.nudge_reviewers is None or "pascal" not in (action.nudge_reviewers or [])
+
+    def test_spec_review_nudge_timeout_reviewer_excluded(self):
+        """status=timeout のレビュアー → nudge_reviewers に含まれない。"""
+        sc = self._base_sc("pascal")
+        sc["review_requests"]["pascal"]["status"] = "timeout"
+        data = self._data_with_entered_at(-400)
+        action = _check_spec_review(sc, _now(), data)
+        # timeout は all_complete 方向なので next_state が返る可能性を考慮
+        if action.next_state is None:
+            assert action.nudge_reviewers is None or "pascal" not in (action.nudge_reviewers or [])
+
+    def test_spec_review_nudge_unsent_reviewer_excluded(self):
+        """sent_at=None（未送信）のレビュアー → nudge_reviewers に含まれない（初回送信と催促を区別）。"""
+        sc = self._base_sc("pascal")
+        sc["review_requests"]["pascal"]["sent_at"] = None  # 未送信
+        data = self._data_with_entered_at(-400)
+        action = _check_spec_review(sc, _now(), data)
+        assert action.nudge_reviewers is None or "pascal" not in (action.nudge_reviewers or [])
+
+    def test_spec_review_nudge_coexists_with_send_to(self):
+        """一部レビュアーに初回送信しつつ、別レビュアー（sent_at済み）を催促。"""
+        sent_at = (_now() - timedelta(seconds=400)).isoformat()
+        sc = {
+            "spec_path": "docs/spec.md",
+            "current_rev": "1",
+            "rev_index": 1,
+            "review_requests": {
+                "pascal": {"status": "pending", "sent_at": None, "timeout_at": None},   # 未送信
+                "leibniz": {"status": "pending", "sent_at": sent_at,
+                             "timeout_at": (_now() + timedelta(seconds=1800)).isoformat()},  # 送信済み
+            },
+            "current_reviews": {"entries": {}},
+            "revise_count": 0,
+            "max_revise_cycles": 5,
+        }
+        data = self._data_with_entered_at(-400)
+        action = _check_spec_review(sc, _now(), data)
+        # pascal は初回送信 → send_to に含まれる
+        assert action.send_to is not None
+        assert "pascal" in action.send_to
+        # leibniz は催促対象
+        assert action.nudge_reviewers is not None
+        assert "leibniz" in action.nudge_reviewers
+        # leibniz は send_to に含まれない（催促と初回送信は分離）
+        assert "leibniz" not in action.send_to
+
+    # --- _check_spec_revise 催促テスト ---
+
+    def test_spec_revise_nudge_within_grace_no_nudge(self):
+        """猶予期間内（elapsed < 300s）→ nudge_implementer=False。"""
+        sc = {"retry_counts": {}}
+        entered = (_now() - timedelta(seconds=100)).isoformat()
+        data = {"history": [{"from": "SPEC_REVIEW", "to": "SPEC_REVISE", "at": entered}]}
+        action = _check_spec_revise(sc, _now(), data)
+        assert action.nudge_implementer is False
+
+    def test_spec_revise_nudge_after_grace(self):
+        """猶予期間後（elapsed ≥ 300s かつ タイムアウト前）→ nudge_implementer=True。"""
+        sc = {"retry_counts": {}}
+        entered = (_now() - timedelta(seconds=400)).isoformat()
+        data = {"history": [{"from": "SPEC_REVIEW", "to": "SPEC_REVISE", "at": entered}]}
+        action = _check_spec_revise(sc, _now(), data)
+        assert action.nudge_implementer is True
+        assert action.next_state is None
+
+    def test_spec_revise_nudge_baseline_none_no_nudge(self):
+        """baseline=None（history なし）→ nudge_implementer=False（安全側）。"""
+        sc = {"retry_counts": {}}
+        action = _check_spec_revise(sc, _now(), {"history": []})
+        assert action.nudge_implementer is False
+
+    # --- 再催促スキップテスト（_apply_spec_action 相当のロジック） ---
+
+    def test_apply_spec_nudge_skips_within_inactive_threshold(self, tmp_pipelines):
+        """last_nudge_at から < INACTIVE_THRESHOLD_SEC → send_to_agent_queued が呼ばれない。"""
+        import json
+        from datetime import datetime as real_datetime
+        pj_path = tmp_pipelines / "test-pj.json"
+        # nudge コード内の _datetime.now(JST) は実時刻を使うため、
+        # last_nudge_at は実時刻から (INACTIVE_THRESHOLD_SEC - 10) 秒前に設定する
+        recent_nudge = (real_datetime.now(JST) - timedelta(seconds=INACTIVE_THRESHOLD_SEC - 10)).isoformat()
+        pj_data = {
+            "project": "test-pj", "state": "SPEC_REVIEW",
+            "enabled": True, "batch": [],
+            "spec_mode": True,
+            "spec_config": {
+                "current_rev": "1",
+                "spec_path": "docs/spec.md",
+                "review_requests": {
+                    "pascal": {"status": "pending", "sent_at": _now().isoformat(),
+                               "last_nudge_at": recent_nudge},
+                },
+            },
+            "history": [],
+        }
+        pj_path.write_text(json.dumps(pj_data))
+
+        action = SpecTransitionAction(
+            next_state=None,
+            expected_state="SPEC_REVIEW",
+            nudge_reviewers=["pascal"],
+        )
+        # DCL 再チェックでも nudge_reviewers を返すようにする（applied=True が条件）
+        nudge_action = SpecTransitionAction(next_state=None, nudge_reviewers=["pascal"])
+        with patch("watchdog.check_transition_spec", return_value=nudge_action), \
+             patch("watchdog._is_agent_inactive", return_value=True), \
+             patch("watchdog.send_to_agent_queued") as mock_send, \
+             patch("watchdog.notify_discord"):
+            _apply_spec_action(pj_path, action, _now(), pj_data)
+        mock_send.assert_not_called()
+
+    def test_apply_spec_nudge_sends_after_inactive_threshold(self, tmp_pipelines):
+        """last_nudge_at から ≥ INACTIVE_THRESHOLD_SEC → send_to_agent_queued が呼ばれる。"""
+        import json
+        from datetime import datetime as real_datetime
+        pj_path = tmp_pipelines / "test-pj.json"
+        # nudge コード内の _datetime.now(JST) は実時刻を使うため、
+        # last_nudge_at は実時刻から (INACTIVE_THRESHOLD_SEC + 10) 秒前に設定する
+        old_nudge = (real_datetime.now(JST) - timedelta(seconds=INACTIVE_THRESHOLD_SEC + 10)).isoformat()
+        pj_data = {
+            "project": "test-pj", "state": "SPEC_REVIEW",
+            "enabled": True, "batch": [],
+            "spec_mode": True,
+            "spec_config": {
+                "current_rev": "1",
+                "spec_path": "docs/spec.md",
+                "review_requests": {
+                    "pascal": {"status": "pending", "sent_at": _now().isoformat(),
+                               "last_nudge_at": old_nudge},
+                },
+            },
+            "history": [],
+        }
+        pj_path.write_text(json.dumps(pj_data))
+
+        action = SpecTransitionAction(
+            next_state=None,
+            expected_state="SPEC_REVIEW",
+            nudge_reviewers=["pascal"],
+        )
+        # DCL 再チェックでも nudge_reviewers を返すようにする（applied=True が条件）
+        nudge_action = SpecTransitionAction(next_state=None, nudge_reviewers=["pascal"])
+        with patch("watchdog.check_transition_spec", return_value=nudge_action), \
+             patch("watchdog._is_agent_inactive", return_value=True), \
+             patch("watchdog.send_to_agent_queued", return_value=True) as mock_send, \
+             patch("watchdog.notify_discord"):
+            _apply_spec_action(pj_path, action, _now(), pj_data)
+        mock_send.assert_called_once()
+
+    # --- process() 統合テスト ---
+
+    def test_process_spec_review_nudge_triggers_apply(self, tmp_pipelines):
+        """nudge_reviewers がある action が返る場合に _apply_spec_action が呼ばれる。"""
+        import json
+        from watchdog import process
+        pj_path = tmp_pipelines / "test-pj.json"
+        pj_data = {
+            "project": "test-pj", "state": "SPEC_REVIEW",
+            "enabled": True, "batch": [],
+            "spec_mode": True, "spec_config": {},
+            "history": [],
+        }
+        pj_path.write_text(json.dumps(pj_data))
+
+        nudge_action = SpecTransitionAction(
+            next_state=None,
+            nudge_reviewers=["pascal"],
+        )
+        with patch("watchdog.check_transition_spec", return_value=nudge_action), \
+             patch("watchdog._apply_spec_action") as mock_apply:
+            process(pj_path)
+        mock_apply.assert_called_once()
+
+    def test_process_spec_nudge_empty_list_no_apply(self, tmp_pipelines):
+        """nudge_reviewers=[] → _apply_spec_action が呼ばれない。"""
+        import json
+        from watchdog import process
+        pj_path = tmp_pipelines / "test-pj.json"
+        pj_data = {
+            "project": "test-pj", "state": "SPEC_REVIEW",
+            "enabled": True, "batch": [],
+            "spec_mode": True, "spec_config": {},
+            "history": [],
+        }
+        pj_path.write_text(json.dumps(pj_data))
+
+        empty_nudge_action = SpecTransitionAction(
+            next_state=None,
+            nudge_reviewers=[],  # 空リスト = 催促不要
+        )
+        with patch("watchdog.check_transition_spec", return_value=empty_nudge_action), \
+             patch("watchdog._apply_spec_action") as mock_apply:
+            process(pj_path)
+        mock_apply.assert_not_called()
+
+    # --- メッセージ生成テスト ---
+
+    def test_build_spec_review_nudge_msg_contains_command(self):
+        """_build_spec_review_nudge_msg に spec review-submit コマンドが含まれる。"""
+        msg = _build_spec_review_nudge_msg("myproj", "2", "docs/spec.md", "pascal")
+        assert "spec review-submit" in msg
+        assert "myproj" in msg
+        assert "rev2" in msg
+        assert "pascal" in msg
+
+    def test_build_spec_revise_nudge_msg_contains_command(self):
+        """_build_spec_revise_nudge_msg に spec revise-submit コマンドが含まれる。"""
+        msg = _build_spec_revise_nudge_msg("myproj", "3")
+        assert "spec revise-submit" in msg
+        assert "myproj" in msg
+        assert "rev3" in msg

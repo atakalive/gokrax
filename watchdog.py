@@ -895,7 +895,7 @@ def _auto_push_and_close(repo_path: str, gitlab: str, batch: list, project: str)
 
 
 def _check_queue():
-    """キューから次のタスクを起動 (DONE→IDLE後にのみ呼ばれる)。
+    """キューから次のタスクを起動 (DONE→IDLE後、または SPEC_DONE→IDLE後に呼ばれる)。
 
     Issue #45: devbar qrun をサブプロセス経由で呼び出し、循環 import を回避。
     """
@@ -1710,7 +1710,10 @@ def check_transition_spec(
         return _check_issue_plan(spec_config, now, data)
     elif state == "QUEUE_PLAN":
         return _check_queue_plan(spec_config, now, data)
-    elif state in ("SPEC_DONE", "SPEC_STALLED", "SPEC_REVIEW_FAILED", "SPEC_PAUSED"):
+    elif state == "SPEC_DONE":
+        # spec mode 終了 → IDLE 自動遷移。flags reset は _apply_spec_action 内で実施。
+        return SpecTransitionAction(next_state="IDLE")
+    elif state in ("SPEC_STALLED", "SPEC_REVIEW_FAILED", "SPEC_PAUSED"):
         return SpecTransitionAction(next_state=None)  # M操作待ち
     else:
         return SpecTransitionAction(next_state=None)
@@ -1739,7 +1742,7 @@ def _ensure_pipelines_dir(pipelines_dir: str) -> None:
 
 
 _SPEC_REVIEW_FILE_PATTERN = re.compile(r".*_rev\d+\.md$")
-_SPEC_TERMINAL_STATES = {"SPEC_DONE", "SPEC_STALLED", "SPEC_REVIEW_FAILED", "SPEC_PAUSED"}
+_SPEC_TERMINAL_STATES = {"SPEC_STALLED", "SPEC_REVIEW_FAILED", "SPEC_PAUSED"}
 
 
 def _cleanup_expired_spec_files(pipelines_dir: str) -> None:
@@ -1796,6 +1799,10 @@ def _apply_spec_action(
             old_state = data["state"]
             data["state"] = action2.next_state
             add_history(data, old_state, action2.next_state, actor="watchdog")
+            # SPEC_DONE → IDLE: spec mode 終了のクリーンアップ（cmd_spec_done と同等）
+            if old_state == "SPEC_DONE" and action2.next_state == "IDLE":
+                data["spec_mode"] = False
+                data["spec_config"] = {}
 
         # pipeline_updates は常に適用（next_state=None でも）
         if action2.pipeline_updates:
@@ -1842,10 +1849,17 @@ def _apply_spec_action(
                     notify_discord(spec_notify_failure(pj, "送信失敗", f"agent={agent_id}"))
         if applied_action.discord_notify:
             notify_discord(applied_action.discord_notify)
-        if applied_action.next_state in _SPEC_TERMINAL_STATES:
+        should_cleanup = (
+            applied_action.next_state in _SPEC_TERMINAL_STATES
+            or (action.expected_state == "SPEC_DONE" and applied_action.next_state == "IDLE")
+        )
+        if should_cleanup:
             pd = orig_data.get("spec_config", {}).get("pipelines_dir")
             if pd:
                 _cleanup_expired_spec_files(pd)
+        # SPEC_DONE → IDLE 後: キュー次タスクの自動起動（無条件）
+        if action.expected_state == "SPEC_DONE" and applied_action.next_state == "IDLE":
+            _check_queue()
 
 
 def process(path: Path):
@@ -2551,7 +2565,7 @@ def _handle_qstatus(msg_id: str):
     from config import DISCORD_CHANNEL, QUEUE_FILE
     from notify import post_discord
     from task_queue import get_active_entries
-    from devbar import get_qstatus_text
+    from devbar import get_qstatus_text, _get_running_info
     import config
 
     if config.DRY_RUN:
@@ -2559,10 +2573,11 @@ def _handle_qstatus(msg_id: str):
         return
 
     entries = get_active_entries(QUEUE_FILE)
-    if not entries:
+    running = _get_running_info()
+    if not entries and not running:
         post_discord(DISCORD_CHANNEL, "Queue empty")
     else:
-        text = get_qstatus_text(entries)
+        text = get_qstatus_text(entries, running=running)
         post_discord(DISCORD_CHANNEL, f"```\n{text}\n```")
     log(f"Processed Discord qstatus command (msg_id={msg_id})")
 
@@ -2571,7 +2586,7 @@ def _handle_qadd(msg_id: str, content: str):
     from config import DISCORD_CHANNEL, QUEUE_FILE
     from notify import post_discord
     from task_queue import append_entry, get_active_entries
-    from devbar import get_qstatus_text
+    from devbar import get_qstatus_text, _get_running_info
     import config
 
     if config.DRY_RUN:
@@ -2593,7 +2608,8 @@ def _handle_qadd(msg_id: str, content: str):
         return
 
     entries = get_active_entries(QUEUE_FILE)
-    text = get_qstatus_text(entries)
+    running = _get_running_info()
+    text = get_qstatus_text(entries, running=running)
     post_discord(DISCORD_CHANNEL, f"Added: {line}\n```\n{text}\n```")
     log(f"Processed Discord qadd command (msg_id={msg_id})")
 
@@ -2602,7 +2618,7 @@ def _handle_qdel(msg_id: str, content: str):
     from config import DISCORD_CHANNEL, QUEUE_FILE
     from notify import post_discord
     from task_queue import delete_entry, get_active_entries
-    from devbar import get_qstatus_text
+    from devbar import get_qstatus_text, _get_running_info
     import config
 
     if config.DRY_RUN:
@@ -2632,8 +2648,9 @@ def _handle_qdel(msg_id: str, content: str):
 
     orig = result.get("original_line", "?")
     entries = get_active_entries(QUEUE_FILE)
-    if entries:
-        text = get_qstatus_text(entries)
+    running = _get_running_info()
+    if entries or running:
+        text = get_qstatus_text(entries, running=running)
         post_discord(DISCORD_CHANNEL, f"Deleted: {orig}\n```\n{text}\n```")
     else:
         post_discord(DISCORD_CHANNEL, f"Deleted: {orig}\nQueue empty")

@@ -1010,9 +1010,56 @@ def cmd_qrun(args):
     print(f"[qrun] {project}: started (automerge={automerge_flag})")
 
 
-def get_qstatus_text(entries: list[dict]) -> str:
+def _get_running_info() -> "dict | None":
+    """PIPELINES_DIR を走査し、state != "IDLE" のパイプラインの情報を返す。
+
+    複数が active の場合は全件 warning をログに出し、最初の1件（ソート順）を返す。
+    見つからなければ None。
+    """
+    import logging
+    from config import PIPELINES_DIR
+    from pipeline_io import load_pipeline
+
+    candidates = []
+    for p in sorted(PIPELINES_DIR.glob("*.json")):
+        try:
+            data = load_pipeline(p)
+        except Exception:
+            continue
+        if data.get("state", "IDLE") != "IDLE":
+            batch = data.get("batch", [])
+            issue_strs = []
+            if batch and isinstance(batch, list):
+                for item in batch:
+                    if isinstance(item, dict) and "issue" in item:
+                        issue_strs.append(f"#{item['issue']}")
+                    elif isinstance(item, (int, str)):
+                        issue_strs.append(f"#{item}")
+            candidates.append({
+                "project": data.get("project", p.stem),
+                "issues": ",".join(issue_strs),
+                "state": data["state"],
+                "review_mode": data.get("review_mode") or "",
+            })
+
+    if len(candidates) > 1:
+        logging.warning(f"Multiple active pipelines detected: {[c['project'] for c in candidates]}")
+
+    return candidates[0] if candidates else None
+
+
+def get_qstatus_text(entries: list[dict], running: "dict | None" = None) -> str:
     """active エントリのフォーマット済み文字列を返す。"""
     lines = []
+    if running:
+        parts = [running["project"]]
+        if running.get("issues"):
+            parts.append(running["issues"])
+        if running.get("state"):
+            parts.append(running["state"])
+        if running.get("review_mode"):
+            parts.append(running["review_mode"])
+        lines.append(f"[*] {' '.join(parts)}")
     for e in entries:
         idx = e.get("index", 0)
         parts = [e["project"], e["issues"]]
@@ -1043,10 +1090,11 @@ def cmd_qstatus(args):
 
     queue_path = Path(args.queue) if args.queue else QUEUE_FILE
     entries = get_active_entries(queue_path)
-    if not entries:
+    running = _get_running_info()
+    if not entries and not running:
         print("Queue empty")
         return
-    print(get_qstatus_text(entries))
+    print(get_qstatus_text(entries, running=running))
 
 
 def cmd_qadd(args):
@@ -1064,8 +1112,9 @@ def cmd_qadd(args):
 
     # 追加後の状態表示
     entries = get_active_entries(queue_path)
+    running = _get_running_info()
     print(f"Added: {line}")
-    print(get_qstatus_text(entries))
+    print(get_qstatus_text(entries, running=running))
 
 
 def cmd_qdel(args):
@@ -1093,11 +1142,11 @@ def cmd_qdel(args):
 
     # 削除後の状態表示
     entries = get_active_entries(queue_path)
+    running = _get_running_info()
     orig = result.get("original_line", "?")
     print(f"Deleted: {orig}")
-    if entries:
-        print("Current Queue:")
-        print(get_qstatus_text(entries))
+    if entries or running:
+        print(get_qstatus_text(entries, running=running))
     else:
         print("Queue empty")
 

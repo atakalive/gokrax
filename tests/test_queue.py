@@ -532,3 +532,117 @@ class TestDeleteEntry:
         assert "Bar 2" not in content
         assert "Qux 4\n" in content
         assert "# done: Foo 1\n" in content
+
+
+# ===========================================================================
+# Issue #80: get_qstatus_text / _get_running_info テスト
+# ===========================================================================
+
+from devbar import get_qstatus_text, _get_running_info
+
+
+def _make_entry(idx=0, project="Foo", issues="1,2", mode="full", **kwargs):
+    return {"index": idx, "project": project, "issues": issues, "mode": mode, **kwargs}
+
+
+class TestGetQstatusText:
+
+    def test_no_running_no_star_line(self):
+        """running=None の場合 [*] 行が出ない（後方互換）。"""
+        entries = [_make_entry(idx=0, project="Foo", issues="1")]
+        text = get_qstatus_text(entries, running=None)
+        assert "[*]" not in text
+        assert "[0] Foo 1 full" in text
+
+    def test_running_shows_star_line_at_top(self):
+        """running がある場合 [*] 行が先頭に来る。"""
+        entries = [_make_entry(idx=0, project="Bar", issues="2")]
+        running = {"project": "Foo", "issues": "#1,#2", "state": "DESIGN_REVIEW", "review_mode": "full"}
+        text = get_qstatus_text(entries, running=running)
+        lines = text.splitlines()
+        assert lines[0] == "[*] Foo #1,#2 DESIGN_REVIEW full"
+        assert lines[1].startswith("[0]")
+
+    def test_empty_entries_running_only(self):
+        """entries 空でも running があれば [*] 行だけ返す。"""
+        running = {"project": "Foo", "issues": "#1", "state": "IMPLEMENTATION", "review_mode": "standard"}
+        text = get_qstatus_text([], running=running)
+        assert text == "[*] Foo #1 IMPLEMENTATION standard"
+
+    def test_running_issues_empty_string_omitted(self):
+        """running['issues'] が空文字の場合、issues 部分が省略される。"""
+        running = {"project": "Foo", "issues": "", "state": "IDLE_CHECK", "review_mode": "full"}
+        text = get_qstatus_text([], running=running)
+        assert "#" not in text
+        assert "[*] Foo IDLE_CHECK full" == text
+
+    def test_running_issues_none_omitted(self):
+        """running['issues'] が None の場合、issues 部分が省略される。"""
+        running = {"project": "Foo", "issues": None, "state": "IDLE_CHECK", "review_mode": "full"}
+        text = get_qstatus_text([], running=running)
+        assert "[*] Foo IDLE_CHECK full" == text
+
+    def test_running_review_mode_empty_string_omitted(self):
+        """running['review_mode'] が空文字の場合、review_mode 部分が省略される。"""
+        running = {"project": "Foo", "issues": "#1", "state": "DESIGN_REVIEW", "review_mode": ""}
+        text = get_qstatus_text([], running=running)
+        assert text == "[*] Foo #1 DESIGN_REVIEW"
+
+    def test_running_review_mode_none_omitted(self):
+        """running['review_mode'] が None の場合、review_mode 部分が省略される。"""
+        running = {"project": "Foo", "issues": "#1", "state": "DESIGN_REVIEW", "review_mode": None}
+        text = get_qstatus_text([], running=running)
+        assert text == "[*] Foo #1 DESIGN_REVIEW"
+
+    def test_both_empty_returns_empty_string(self):
+        """entries も running も空なら空文字列を返す。"""
+        text = get_qstatus_text([], running=None)
+        assert text == ""
+
+
+class TestGetRunningInfo:
+
+    def test_no_pipelines_returns_none(self, tmp_pipelines):
+        """パイプラインなし → None。"""
+        result = _get_running_info()
+        assert result is None
+
+    def test_idle_pipeline_returns_none(self, tmp_pipelines):
+        """IDLE のパイプラインのみ → None。"""
+        import json
+        p = tmp_pipelines / "proj.json"
+        p.write_text(json.dumps({"project": "Proj", "state": "IDLE", "batch": [], "review_mode": "full"}))
+        result = _get_running_info()
+        assert result is None
+
+    def test_active_pipeline_returns_dict(self, tmp_pipelines):
+        """state != IDLE のパイプライン1件 → dict を返す。"""
+        import json
+        p = tmp_pipelines / "proj.json"
+        batch = [{"issue": 51, "title": "T"}, {"issue": 53, "title": "T2"}]
+        p.write_text(json.dumps({
+            "project": "EMCalibrator", "state": "DESIGN_REVIEW",
+            "batch": batch, "review_mode": "full",
+        }))
+        result = _get_running_info()
+        assert result is not None
+        assert result["project"] == "EMCalibrator"
+        assert result["issues"] == "#51,#53"
+        assert result["state"] == "DESIGN_REVIEW"
+        assert result["review_mode"] == "full"
+
+    def test_multiple_active_returns_first_and_warns(self, tmp_pipelines, caplog):
+        """複数 active → sorted 順で最初を返し、warning ログを出す。"""
+        import json
+        import logging
+        (tmp_pipelines / "aaa.json").write_text(json.dumps(
+            {"project": "AAA", "state": "IMPLEMENTATION", "batch": [], "review_mode": ""}
+        ))
+        (tmp_pipelines / "bbb.json").write_text(json.dumps(
+            {"project": "BBB", "state": "CODE_REVIEW", "batch": [], "review_mode": ""}
+        ))
+        with caplog.at_level(logging.WARNING):
+            result = _get_running_info()
+        assert result is not None
+        assert result["project"] == "AAA"  # sorted 順で aaa が先
+        assert any("Multiple active pipelines" in r.message for r in caplog.records)

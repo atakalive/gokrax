@@ -252,9 +252,9 @@ class TestNormalFlowE2E:
         assert action.next_state == "SPEC_DONE"
         assert action.discord_notify is not None
 
-        # --- SPEC_DONE — terminal ---
+        # --- SPEC_DONE — IDLE 自動遷移（Issue #78）---
         action = check_transition_spec("SPEC_DONE", sc, _now(), data)
-        assert action.next_state is None
+        assert action.next_state == "IDLE"
 
 
 # ===========================================================================
@@ -1026,3 +1026,89 @@ class TestApprovedTransitionFix:
         result = load_pipeline(path)
         cr = result["spec_config"].get("current_reviews", {})
         assert cr.get("reviewed_rev") == "2"
+
+
+# ===========================================================================
+# 8. TestSpecDoneAutoTransition — Issue #78: SPEC_DONE → IDLE 自動遷移
+# ===========================================================================
+
+class TestSpecDoneAutoTransition:
+    """SPEC_DONE → IDLE 自動遷移の検証（Issue #78）。"""
+
+    def test_check_transition_spec_done_returns_idle(self):
+        """check_transition_spec("SPEC_DONE") は next_state="IDLE" を返す。"""
+        sc = _make_spec_config(spec_path="docs/test-spec.md", spec_implementer="kaneko")
+        data = _make_pipeline(state="SPEC_DONE", spec_mode=True, spec_config=sc)
+        action = check_transition_spec("SPEC_DONE", sc, _now(), data)
+        assert action.next_state == "IDLE"
+
+    @pytest.mark.parametrize("state", ["SPEC_STALLED", "SPEC_REVIEW_FAILED", "SPEC_PAUSED"])
+    def test_check_transition_terminal_states_return_none(self, state):
+        """他の terminal states は next_state=None のまま（M操作待ち）。"""
+        sc = _make_spec_config(spec_path="docs/test-spec.md", spec_implementer="kaneko")
+        data = _make_pipeline(state=state, spec_mode=True, spec_config=sc)
+        action = check_transition_spec(state, sc, _now(), data)
+        assert action.next_state is None
+
+    def test_spec_done_not_in_terminal_states(self):
+        """_SPEC_TERMINAL_STATES に SPEC_DONE が含まれない。"""
+        from watchdog import _SPEC_TERMINAL_STATES
+        assert "SPEC_DONE" not in _SPEC_TERMINAL_STATES
+        assert "SPEC_STALLED" in _SPEC_TERMINAL_STATES
+        assert "SPEC_REVIEW_FAILED" in _SPEC_TERMINAL_STATES
+        assert "SPEC_PAUSED" in _SPEC_TERMINAL_STATES
+
+    def test_apply_spec_action_spec_done_to_idle(self, tmp_pipelines):
+        """_apply_spec_action 経由で SPEC_DONE → IDLE: state/spec_mode/spec_config がクリアされる。"""
+        from pipeline_io import get_path, load_pipeline
+
+        sc = _make_spec_config(spec_path="docs/test-spec.md", spec_implementer="kaneko")
+        pj_data = _make_pipeline(state="SPEC_DONE", spec_mode=True, spec_config=sc)
+        path = get_path("test-pj")
+        write_pipeline(path, pj_data)
+
+        action = SpecTransitionAction(next_state="IDLE", expected_state="SPEC_DONE")
+        with patch("watchdog._check_queue"):
+            _apply_spec_action(path, action, _now(), pj_data)
+
+        result = load_pipeline(path)
+        assert result["state"] == "IDLE"
+        assert result["spec_mode"] is False
+        assert result["spec_config"] == {}
+
+    def test_apply_spec_action_spec_done_history_recorded_once(self, tmp_pipelines):
+        """SPEC_DONE → IDLE 遷移時、history に actor=watchdog で1回だけ記録される。"""
+        from pipeline_io import get_path, load_pipeline
+
+        sc = _make_spec_config(spec_path="docs/test-spec.md", spec_implementer="kaneko")
+        pj_data = _make_pipeline(state="SPEC_DONE", spec_mode=True, spec_config=sc)
+        path = get_path("test-pj")
+        write_pipeline(path, pj_data)
+
+        action = SpecTransitionAction(next_state="IDLE", expected_state="SPEC_DONE")
+        with patch("watchdog._check_queue"):
+            _apply_spec_action(path, action, _now(), pj_data)
+
+        result = load_pipeline(path)
+        watchdog_history = [
+            h for h in result.get("history", [])
+            if h.get("actor") == "watchdog"
+            and h.get("from") == "SPEC_DONE"
+            and h.get("to") == "IDLE"
+        ]
+        assert len(watchdog_history) == 1, "add_history は SPEC_DONE→IDLE で1回だけ呼ばれること"
+
+    def test_apply_spec_action_spec_done_calls_check_queue(self, tmp_pipelines):
+        """SPEC_DONE → IDLE 遷移後に _check_queue() が無条件で呼ばれる。"""
+        from pipeline_io import get_path
+
+        sc = _make_spec_config(spec_path="docs/test-spec.md", spec_implementer="kaneko")
+        pj_data = _make_pipeline(state="SPEC_DONE", spec_mode=True, spec_config=sc)
+        path = get_path("test-pj")
+        write_pipeline(path, pj_data)
+
+        action = SpecTransitionAction(next_state="IDLE", expected_state="SPEC_DONE")
+        with patch("watchdog._check_queue") as mock_check_queue:
+            _apply_spec_action(path, action, _now(), pj_data)
+
+        mock_check_queue.assert_called_once()

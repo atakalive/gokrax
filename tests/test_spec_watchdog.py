@@ -752,3 +752,88 @@ class TestSpecNudge:
         assert "spec revise-submit" in msg
         assert "myproj" in msg
         assert "rev3" in msg
+
+    # --- datetime parse 失敗時の安全側フォールバック ---
+
+    def test_apply_spec_nudge_reviewer_invalid_last_nudge_skips(self, tmp_pipelines):
+        """last_nudge_at が不正な文字列 → parse 失敗 → 催促をスキップ（安全側）。"""
+        import json
+        pj_path = tmp_pipelines / "test-pj.json"
+        pj_data = {
+            "project": "test-pj", "state": "SPEC_REVIEW",
+            "enabled": True, "batch": [],
+            "spec_mode": True,
+            "spec_config": {
+                "current_rev": "1",
+                "spec_path": "docs/spec.md",
+                "review_requests": {
+                    "pascal": {"status": "pending", "sent_at": _now().isoformat(),
+                               "last_nudge_at": "INVALID-DATETIME"},
+                },
+            },
+            "history": [],
+        }
+        pj_path.write_text(json.dumps(pj_data))
+
+        action = SpecTransitionAction(
+            next_state=None,
+            expected_state="SPEC_REVIEW",
+            nudge_reviewers=["pascal"],
+        )
+        nudge_action = SpecTransitionAction(next_state=None, nudge_reviewers=["pascal"])
+        with patch("watchdog.check_transition_spec", return_value=nudge_action), \
+             patch("watchdog._is_agent_inactive", return_value=True), \
+             patch("watchdog.send_to_agent_queued") as mock_send, \
+             patch("watchdog.notify_discord"):
+            _apply_spec_action(pj_path, action, _now(), pj_data)
+        mock_send.assert_not_called()
+
+    def test_apply_spec_nudge_implementer_invalid_last_nudge_skips(self, tmp_pipelines):
+        """_last_nudge_implementer が不正な文字列 → parse 失敗 → 催促をスキップ（安全側）。"""
+        import json
+        pj_path = tmp_pipelines / "test-pj.json"
+        pj_data = {
+            "project": "test-pj", "state": "SPEC_REVISE",
+            "enabled": True, "batch": [],
+            "spec_mode": True,
+            "spec_config": {
+                "current_rev": "1",
+                "spec_implementer": "kaneko",
+                "_last_nudge_implementer": "INVALID-DATETIME",
+            },
+            "history": [],
+        }
+        pj_path.write_text(json.dumps(pj_data))
+
+        action = SpecTransitionAction(
+            next_state=None,
+            expected_state="SPEC_REVISE",
+            nudge_implementer=True,
+        )
+        nudge_action = SpecTransitionAction(next_state=None, nudge_implementer=True)
+        with patch("watchdog.check_transition_spec", return_value=nudge_action), \
+             patch("watchdog._is_agent_inactive", return_value=True), \
+             patch("watchdog.send_to_agent_queued") as mock_send, \
+             patch("watchdog.notify_discord"):
+            _apply_spec_action(pj_path, action, _now(), pj_data)
+        mock_send.assert_not_called()
+
+    def test_spec_review_nudge_naive_entered_at_no_nudge(self):
+        """entered_at が naive datetime（tzinfo なし）→ TypeError → nudge_reviewers=None。"""
+        sc = self._base_sc("pascal")
+        # naive datetime を history に設定（tzinfo なし）
+        naive_entered = "2026-03-06T12:00:00"  # no tz
+        data = {
+            "project": "test", "review_mode": "lite",
+            "history": [{"from": "SPEC_APPROVED", "to": "SPEC_REVIEW", "at": naive_entered}],
+        }
+        action = _check_spec_review(sc, _now(), data)
+        assert action.nudge_reviewers is None
+
+    def test_spec_revise_nudge_naive_baseline_no_nudge(self):
+        """baseline が naive datetime → TypeError → nudge_implementer=False。"""
+        sc = {"retry_counts": {}}
+        naive_entered = "2026-03-06T12:00:00"  # no tz
+        data = {"history": [{"from": "SPEC_REVIEW", "to": "SPEC_REVISE", "at": naive_entered}]}
+        action = _check_spec_revise(sc, _now(), data)
+        assert action.nudge_implementer is False

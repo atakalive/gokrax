@@ -1243,7 +1243,17 @@ def _check_spec_review(
             )
         return SpecTransitionAction(next_state=None)
 
-    elapsed = (now - entered_at).total_seconds()
+    try:
+        elapsed = (now - entered_at).total_seconds()
+    except TypeError:
+        # naive datetime との減算失敗 → 安全側=催促しない
+        if send_to or updates:
+            return SpecTransitionAction(
+                next_state=None,
+                send_to=send_to if send_to else None,
+                pipeline_updates=updates if updates else None,
+            )
+        return SpecTransitionAction(next_state=None)
     if elapsed < NUDGE_GRACE_SEC:
         if send_to or updates:
             return SpecTransitionAction(
@@ -1391,7 +1401,11 @@ def _check_spec_revise(
     if baseline is None:
         return SpecTransitionAction(next_state=None)
 
-    elapsed = (now - baseline).total_seconds()
+    try:
+        elapsed = (now - baseline).total_seconds()
+    except TypeError:
+        # naive datetime との減算失敗 → 安全側=催促しない
+        return SpecTransitionAction(next_state=None)
 
     # --- implementer 催促（#76）---
     # 猶予期間経過後、タイムアウト到達前の区間で催促
@@ -1967,7 +1981,7 @@ def _apply_spec_action(
                         if since < INACTIVE_THRESHOLD_SEC:
                             continue
                     except (ValueError, TypeError):
-                        pass
+                        continue  # parse 失敗時は安全側=催促しない
 
                 nudge_msg = _build_spec_review_nudge_msg(project_fresh, current_rev_fresh, spec_path_fresh, reviewer)
                 if send_to_agent_queued(reviewer, nudge_msg):
@@ -2002,7 +2016,7 @@ def _apply_spec_action(
                         if since < INACTIVE_THRESHOLD_SEC:
                             should_nudge = False
                     except (ValueError, TypeError):
-                        pass
+                        should_nudge = False  # parse 失敗時は安全側=催促しない
 
                 if should_nudge:
                     nudge_msg = _build_spec_revise_nudge_msg(project_fresh, current_rev_fresh)

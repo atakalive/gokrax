@@ -1758,13 +1758,24 @@ def cmd_spec_self_review_submit(args):
 
     from spec_revise import parse_self_review_response
 
+    # まず pipeline から expected_ids を読む（Euler P0-2: カスタムチェックリスト対応）
+    expected_ids_from_pipeline = None
+    try:
+        import json as _json
+        with open(path, encoding="utf-8") as _f:
+            _pdata = _json.load(_f)
+        sc_pre = _pdata.get("spec_config", {})
+        expected_ids_from_pipeline = sc_pre.get("_self_review_expected_ids")
+    except Exception:
+        pass  # 読めなくても後続で処理
+
     # パース検証（フェンス補完パターン）
     canonical_text = raw_text
-    result = parse_self_review_response(raw_text)
+    result = parse_self_review_response(raw_text, expected_ids=expected_ids_from_pipeline)
     if result["verdict"] == "parse_failed":
         # フェンスで包んでリトライ
         fenced = f"```yaml\n{raw_text}\n```"
-        result2 = parse_self_review_response(fenced)
+        result2 = parse_self_review_response(fenced, expected_ids=expected_ids_from_pipeline)
         if result2["verdict"] != "parse_failed":
             canonical_text = fenced
     # parse_failed でも格納する（watchdog 側でリトライ処理するため）

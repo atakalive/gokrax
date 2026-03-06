@@ -1312,7 +1312,18 @@ def _check_spec_revise(
 
         if verdict == "clean":
             # self_review 通過 → SPEC_REVIEW へ遷移
-            pending = dict(spec_config.get("_self_review_pending_updates") or {})
+            # pending 欠落はフェイルセーフ（Euler Major）
+            raw_pending = spec_config.get("_self_review_pending_updates")
+            if not isinstance(raw_pending, dict):
+                return SpecTransitionAction(
+                    next_state="SPEC_PAUSED",
+                    discord_notify=spec_notify_paused(
+                        project,
+                        "セルフレビュー通過したが _self_review_pending_updates が欠落/不正。人間の介入が必要です",
+                    ),
+                    pipeline_updates={"paused_from": "SPEC_REVISE"},
+                )
+            pending = dict(raw_pending)
             pending["_self_review_sent"] = None
             pending["_self_review_response"] = None
             pending["_self_review_pass"] = 0
@@ -1352,6 +1363,8 @@ def _check_spec_revise(
                     # _revise_sent を now に更新:
                     # (1) (E) 二重送信防止 (2) (D) タイムアウト基準リセット
                     "_revise_sent": now.isoformat(),
+                    # _revise_retry_at クリア: 古いタイムアウト基準が残るのを防ぐ（Euler P0-1）
+                    "_revise_retry_at": None,
                     # _revise_response をクリアして再 revise-submit を受付可能にする
                     "_revise_response": None,
                 },
@@ -1398,7 +1411,34 @@ def _check_spec_revise(
             baseline = _datetime.fromisoformat(self_review_sent)
             elapsed = (now - baseline).total_seconds()
         except (ValueError, TypeError):
-            return SpecTransitionAction(next_state=None)
+            # 日付パース失敗 → 機械的失敗として扱う（Euler Minor-B: 永久待ち防止）
+            current_pass = spec_config.get("_self_review_pass", 0)
+            if current_pass + 1 >= SPEC_REVISE_SELF_REVIEW_PASSES:
+                return SpecTransitionAction(
+                    next_state="SPEC_PAUSED",
+                    discord_notify=spec_notify_paused(
+                        project,
+                        f"セルフレビュー _self_review_sent 日付パース失敗 + パス{current_pass + 1}回到達",
+                    ),
+                    pipeline_updates={
+                        "paused_from": "SPEC_REVISE",
+                        "_self_review_sent": None,
+                        "_self_review_response": None,
+                        "_self_review_pass": 0,
+                        "_self_review_expected_ids": None,
+                    },
+                )
+            agent = get_self_review_agent(spec_config)
+            prompt = build_self_review_prompt(spec_config, data)
+            return SpecTransitionAction(
+                next_state=None,
+                send_to={agent: prompt},
+                pipeline_updates={
+                    "_self_review_sent": now.isoformat(),
+                    "_self_review_response": None,
+                    "_self_review_pass": current_pass + 1,
+                },
+            )
 
         if elapsed < SPEC_REVIEW_TIMEOUT_SEC:
             return SpecTransitionAction(next_state=None)  # まだ待つ

@@ -659,3 +659,149 @@ checklist:
         stored = data["spec_config"]["_self_review_response"]
         # フェンスで補完されて格納されていること
         assert stored.startswith("```yaml\n")
+
+
+# ---------------------------------------------------------------------------
+# P0 修正テスト (#77 code revise)
+# ---------------------------------------------------------------------------
+
+class TestP0Fixes:
+    """#77 コードレビュー P0 修正の検証。"""
+
+    def test_parse_self_review_unhashable_id(self):
+        """Leibniz P0: unhashable id (list/dict) で parse_failed になること。"""
+        yaml_text = """\
+```yaml
+checklist:
+  - id: ["reflected_items_match"]
+    result: "Yes"
+    evidence: "OK"
+  - id: "no_new_contradictions"
+    result: "Yes"
+    evidence: "OK"
+  - id: "pseudocode_consistency"
+    result: "Yes"
+    evidence: "OK"
+  - id: "deferred_reasons_valid"
+    result: "Yes"
+    evidence: "OK"
+```
+"""
+        result = parse_self_review_response(yaml_text)
+        assert result["verdict"] == "parse_failed"
+
+    def test_parse_self_review_dict_id(self):
+        """Leibniz P0: dict id で parse_failed になること。"""
+        yaml_text = """\
+```yaml
+checklist:
+  - id: {key: "val"}
+    result: "Yes"
+    evidence: "OK"
+  - id: "no_new_contradictions"
+    result: "Yes"
+    evidence: "OK"
+  - id: "pseudocode_consistency"
+    result: "Yes"
+    evidence: "OK"
+  - id: "deferred_reasons_valid"
+    result: "Yes"
+    evidence: "OK"
+```
+"""
+        result = parse_self_review_response(yaml_text)
+        assert result["verdict"] == "parse_failed"
+
+    def test_parse_self_review_int_id(self):
+        """非文字列 id (int) で parse_failed になること。"""
+        yaml_text = """\
+```yaml
+checklist:
+  - id: 42
+    result: "Yes"
+    evidence: "OK"
+  - id: "no_new_contradictions"
+    result: "Yes"
+    evidence: "OK"
+  - id: "pseudocode_consistency"
+    result: "Yes"
+    evidence: "OK"
+  - id: "deferred_reasons_valid"
+    result: "Yes"
+    evidence: "OK"
+```
+"""
+        result = parse_self_review_response(yaml_text)
+        assert result["verdict"] == "parse_failed"
+
+    def test_issues_found_clears_revise_retry_at(self):
+        """Euler P0-1: issues_found で _revise_retry_at がクリアされること。"""
+        sc = _make_spec_config(
+            _self_review_response=_default_yaml_one_no(),
+            _self_review_sent=_now().isoformat(),
+            _self_review_pass=0,
+            _self_review_pending_updates={"current_rev": "2"},
+            _self_review_expected_ids=None,
+            _revise_retry_at="2026-02-28T10:00:00+09:00",
+            _revise_sent="2026-02-28T10:00:00+09:00",
+            spec_implementer="neumann",
+        )
+        result = _check_spec_revise(sc, _now(), _make_pipeline(spec_config=sc))
+        assert result.next_state is None  # SPEC_REVISE のまま
+        assert result.pipeline_updates.get("_revise_retry_at") is None
+        assert "_revise_retry_at" in result.pipeline_updates  # 明示的に None が入っている
+
+    def test_clean_with_missing_pending_updates_pauses(self):
+        """Euler Major: _self_review_pending_updates 欠落で SPEC_PAUSED。"""
+        sc = _make_spec_config(
+            _self_review_response=_default_yaml_all_yes(),
+            _self_review_sent=_now().isoformat(),
+            _self_review_pass=0,
+            _self_review_pending_updates=None,  # 欠落
+            _self_review_expected_ids=None,
+        )
+        result = _check_spec_revise(sc, _now(), _make_pipeline(spec_config=sc))
+        assert result.next_state == "SPEC_PAUSED"
+        assert "pending_updates" in (result.discord_notify or "").lower() or "欠落" in (result.discord_notify or "")
+
+    def test_clean_with_non_dict_pending_updates_pauses(self):
+        """Euler Major: _self_review_pending_updates が非dict で SPEC_PAUSED。"""
+        sc = _make_spec_config(
+            _self_review_response=_default_yaml_all_yes(),
+            _self_review_sent=_now().isoformat(),
+            _self_review_pass=0,
+            _self_review_pending_updates="corrupted string",
+            _self_review_expected_ids=None,
+        )
+        result = _check_spec_revise(sc, _now(), _make_pipeline(spec_config=sc))
+        assert result.next_state == "SPEC_PAUSED"
+
+    def test_self_review_sent_bad_iso_retries(self):
+        """Euler Minor-B: _self_review_sent の日付パース失敗で永久待ちにならず、リトライする。"""
+        sc = _make_spec_config(
+            _self_review_sent="not-a-date",
+            _self_review_response=None,
+            _self_review_pass=0,
+            _self_review_pending_updates={"current_rev": "2"},
+            _self_review_expected_ids=None,
+            spec_implementer="neumann",
+        )
+        result = _check_spec_revise(sc, _now(), _make_pipeline(spec_config=sc))
+        # リトライ（next_state=None, send_to あり, pass インクリメント）
+        assert result.next_state is None
+        assert result.send_to is not None
+        assert result.pipeline_updates.get("_self_review_pass") == 1
+
+    def test_self_review_sent_bad_iso_max_pauses(self):
+        """Euler Minor-B: パース失敗 + max pass で SPEC_PAUSED。"""
+        from config import SPEC_REVISE_SELF_REVIEW_PASSES
+        sc = _make_spec_config(
+            _self_review_sent="not-a-date",
+            _self_review_response=None,
+            _self_review_pass=SPEC_REVISE_SELF_REVIEW_PASSES - 1,
+            _self_review_pending_updates={"current_rev": "2"},
+            _self_review_expected_ids=None,
+            spec_implementer="neumann",
+        )
+        result = _check_spec_revise(sc, _now(), _make_pipeline(spec_config=sc))
+        assert result.next_state == "SPEC_PAUSED"

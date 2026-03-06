@@ -291,9 +291,20 @@ def parse_self_review_response(
     if expected_ids is None:
         expected_ids = [c["id"] for c in DEFAULT_SELF_REVIEW_CHECKLIST]
 
-    # ID 集合の完全一致チェック
-    response_ids = [item.get("id") for item in items_raw if isinstance(item, dict)]
-    if set(response_ids) != set(expected_ids):
+    # ID 集合の完全一致チェック（unhashable id 防御: Leibniz P0）
+    response_ids = []
+    for item in items_raw:
+        if not isinstance(item, dict):
+            return _fail
+        rid = item.get("id")
+        if not isinstance(rid, str):
+            return _fail
+        response_ids.append(rid)
+
+    try:
+        if set(response_ids) != set(expected_ids):
+            return _fail
+    except TypeError:
         return _fail
 
     # 重複 ID チェック

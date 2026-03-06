@@ -2961,7 +2961,7 @@ class TestFlag:
             "flags": [{"verdict": "P1", "phase": "design", "by": "M"}]
         }]
 
-        count, has_p0, _has_p1 = count_reviews(batch, "design_reviews")
+        count, has_p0, _has_p1, _has_p2 = count_reviews(batch, "design_reviews")
         assert count == 1  # Only the APPROVE review counts
 
     def test_p0_flag_triggers_design_revise(self):
@@ -3116,139 +3116,245 @@ class TestFlag:
         assert flags[1]["verdict"] == "P0"
 
 
-class TestP1Fix:
-    """--p1-fix モードのテスト"""
+class TestVerdictObligation:
+    """P1義務化 + P2-fix モードのテスト"""
 
-    def test_count_reviews_returns_has_p1(self):
-        """count_reviews が P1 有無を3値目で返す"""
+    # --- count_reviews ---
+
+    def test_count_reviews_returns_4_tuple(self):
+        """count_reviews が (min_n, has_p0, has_p1, has_p2) の 4-tuple を返す"""
         from watchdog import count_reviews
 
         batch = [{
             "issue": 1,
-            "design_reviews": {"a": {"verdict": "P1"}, "b": {"verdict": "APPROVE"}},
+            "design_reviews": {
+                "a": {"verdict": "P1"},
+                "b": {"verdict": "P2"},
+                "c": {"verdict": "APPROVE"},
+            },
         }]
-        count, has_p0, has_p1 = count_reviews(batch, "design_reviews")
-        assert count == 2
+        count, has_p0, has_p1, has_p2 = count_reviews(batch, "design_reviews")
+        assert count == 3
         assert has_p0 is False
         assert has_p1 is True
+        assert has_p2 is True
 
-    def test_count_reviews_no_p1(self):
-        """P1 なしの場合 has_p1=False"""
+    def test_count_reviews_no_p1_no_p2(self):
+        """P1/P2 なしの場合"""
         from watchdog import count_reviews
 
         batch = [{
             "issue": 1,
             "design_reviews": {"a": {"verdict": "APPROVE"}},
         }]
-        count, has_p0, has_p1 = count_reviews(batch, "design_reviews")
+        count, has_p0, has_p1, has_p2 = count_reviews(batch, "design_reviews")
         assert has_p1 is False
+        assert has_p2 is False
 
-    def test_resolve_review_outcome_p1_fix_false_default(self):
-        """p1_fix=False（デフォルト）: P1あり → APPROVE"""
+    # --- P1 義務化テスト ---
+
+    def test_resolve_review_outcome_p1_always_revise(self):
+        """P1あり → REVISE（デフォルト動作、p2_fixなし）"""
         from watchdog import _resolve_review_outcome
 
         batch = [{"issue": 1, "design_reviews": {"a": {"verdict": "P1"}}}]
-        data = {"project": "Foo"}
-        action = _resolve_review_outcome("DESIGN_REVIEW", data, batch, has_p0=False, has_p1=True)
-        assert action.new_state == "DESIGN_APPROVED"
-
-    def test_resolve_review_outcome_p1_fix_true_p1_present(self):
-        """p1_fix=True + P1あり + cycle < max → REVISE"""
-        from watchdog import _resolve_review_outcome
-
-        batch = [{"issue": 1, "design_reviews": {"a": {"verdict": "P1"}}}]
-        data = {"project": "Foo", "p1_fix": True, "design_revise_count": 0}
-        action = _resolve_review_outcome("DESIGN_REVIEW", data, batch, has_p0=False, has_p1=True)
+        data = {"project": "Foo", "design_revise_count": 0}
+        action = _resolve_review_outcome("DESIGN_REVIEW", data, batch, has_p0=False, has_p1=True, has_p2=False)
         assert action.new_state == "DESIGN_REVISE"
 
-    def test_resolve_review_outcome_p1_fix_true_p1_present_code(self):
-        """p1_fix=True + P1あり (CODE) → CODE_REVISE"""
+    def test_resolve_review_outcome_p1_always_revise_code(self):
+        """P1あり (CODE) → CODE_REVISE"""
         from watchdog import _resolve_review_outcome
 
         batch = [{"issue": 1, "code_reviews": {"a": {"verdict": "P1"}}}]
-        data = {"project": "Foo", "p1_fix": True, "code_revise_count": 0}
-        action = _resolve_review_outcome("CODE_REVIEW", data, batch, has_p0=False, has_p1=True)
+        data = {"project": "Foo", "code_revise_count": 0}
+        action = _resolve_review_outcome("CODE_REVIEW", data, batch, has_p0=False, has_p1=True, has_p2=False)
         assert action.new_state == "CODE_REVISE"
 
-    def test_resolve_review_outcome_p1_fix_max_cycles_fallback(self):
-        """p1_fix=True + P1あり + cycle >= max → APPROVE（フォールバック）"""
+    def test_resolve_review_outcome_p1_max_cycles_approve(self):
+        """P1あり + max cycles → APPROVE（フォールバック）"""
         from watchdog import _resolve_review_outcome
         from config import MAX_REVISE_CYCLES
 
         batch = [{"issue": 1, "design_reviews": {"a": {"verdict": "P1"}}}]
-        data = {"project": "Foo", "p1_fix": True, "design_revise_count": MAX_REVISE_CYCLES}
-        action = _resolve_review_outcome("DESIGN_REVIEW", data, batch, has_p0=False, has_p1=True)
+        data = {"project": "Foo", "design_revise_count": MAX_REVISE_CYCLES}
+        action = _resolve_review_outcome("DESIGN_REVIEW", data, batch, has_p0=False, has_p1=True, has_p2=False)
         assert action.new_state == "DESIGN_APPROVED"
 
-    def test_resolve_review_outcome_p1_fix_no_p1(self):
-        """p1_fix=True + P1なし → APPROVE"""
+    def test_resolve_review_outcome_p0_max_cycles_blocked(self):
+        """P0あり + max cycles → BLOCKED（従来通り）"""
+        from watchdog import _resolve_review_outcome
+        from config import MAX_REVISE_CYCLES
+
+        batch = [{"issue": 1, "design_reviews": {"a": {"verdict": "P0"}}}]
+        data = {"project": "Foo", "design_revise_count": MAX_REVISE_CYCLES}
+        action = _resolve_review_outcome("DESIGN_REVIEW", data, batch, has_p0=True, has_p1=False, has_p2=False)
+        assert action.new_state == "BLOCKED"
+
+    # --- P2-fix テスト ---
+
+    def test_resolve_review_outcome_p2_fix_false_default(self):
+        """p2_fix=False + P2あり → APPROVE"""
+        from watchdog import _resolve_review_outcome
+
+        batch = [{"issue": 1, "design_reviews": {"a": {"verdict": "P2"}}}]
+        data = {"project": "Foo"}
+        action = _resolve_review_outcome("DESIGN_REVIEW", data, batch, has_p0=False, has_p1=False, has_p2=True)
+        assert action.new_state == "DESIGN_APPROVED"
+
+    def test_resolve_review_outcome_p2_fix_true_p2_present(self):
+        """p2_fix=True + P2あり + cycle < max → REVISE"""
+        from watchdog import _resolve_review_outcome
+
+        batch = [{"issue": 1, "design_reviews": {"a": {"verdict": "P2"}}}]
+        data = {"project": "Foo", "p2_fix": True, "design_revise_count": 0}
+        action = _resolve_review_outcome("DESIGN_REVIEW", data, batch, has_p0=False, has_p1=False, has_p2=True)
+        assert action.new_state == "DESIGN_REVISE"
+
+    def test_resolve_review_outcome_p2_fix_max_cycles_fallback(self):
+        """p2_fix=True + P2あり + cycle >= max → APPROVE（フォールバック）"""
+        from watchdog import _resolve_review_outcome
+        from config import MAX_REVISE_CYCLES
+
+        batch = [{"issue": 1, "design_reviews": {"a": {"verdict": "P2"}}}]
+        data = {"project": "Foo", "p2_fix": True, "design_revise_count": MAX_REVISE_CYCLES}
+        action = _resolve_review_outcome("DESIGN_REVIEW", data, batch, has_p0=False, has_p1=False, has_p2=True)
+        assert action.new_state == "DESIGN_APPROVED"
+
+    def test_resolve_review_outcome_p2_fix_no_p2(self):
+        """p2_fix=True + P2なし → APPROVE"""
         from watchdog import _resolve_review_outcome
 
         batch = [{"issue": 1, "design_reviews": {"a": {"verdict": "APPROVE"}}}]
-        data = {"project": "Foo", "p1_fix": True}
-        action = _resolve_review_outcome("DESIGN_REVIEW", data, batch, has_p0=False, has_p1=False)
+        data = {"project": "Foo", "p2_fix": True}
+        action = _resolve_review_outcome("DESIGN_REVIEW", data, batch, has_p0=False, has_p1=False, has_p2=False)
         assert action.new_state == "DESIGN_APPROVED"
 
-    def test_resolve_review_outcome_p1_fix_with_p0(self):
-        """p1_fix=True + P0あり → REVISE（既存動作と同じ）"""
+    def test_resolve_review_outcome_p0_with_p2_fix(self):
+        """p2_fix=True + P0あり → REVISE（既存動作と同じ）"""
         from watchdog import _resolve_review_outcome
 
         batch = [{"issue": 1, "design_reviews": {"a": {"verdict": "P0"}}}]
-        data = {"project": "Foo", "p1_fix": True, "design_revise_count": 0}
-        action = _resolve_review_outcome("DESIGN_REVIEW", data, batch, has_p0=True, has_p1=False)
+        data = {"project": "Foo", "p2_fix": True, "design_revise_count": 0}
+        action = _resolve_review_outcome("DESIGN_REVIEW", data, batch, has_p0=True, has_p1=False, has_p2=False)
         assert action.new_state == "DESIGN_REVISE"
 
-    def test_revise_notification_includes_p1_fix_warning(self):
-        """p1_fix=True の REVISE 通知に警告文が含まれる"""
+    # --- _resolve_review_outcome 引数テスト ---
+
+    def test_resolve_review_outcome_requires_has_p1_and_has_p2(self):
+        """has_p1/has_p2 省略時に TypeError"""
+        from watchdog import _resolve_review_outcome
+        import pytest
+
+        batch = [{"issue": 1}]
+        data = {"project": "Foo"}
+        with pytest.raises(TypeError):
+            _resolve_review_outcome("DESIGN_REVIEW", data, batch, has_p0=False)
+
+    # --- REVISE 完了判定テスト ---
+
+    def test_revise_gate_requires_p1_revised(self):
+        """P1 issue が revised=False → 遷移しない"""
+        from watchdog import check_transition
+
+        batch = [{
+            "issue": 1,
+            "design_reviews": {"a": {"verdict": "P1"}},
+            "design_revised": False,
+        }]
+        action = check_transition("DESIGN_REVISE", batch)
+        assert action.new_state is None
+
+    def test_revise_gate_p2_not_required_without_flag(self):
+        """P2 issue が revised=False + p2_fix=False → 遷移する"""
+        from watchdog import check_transition
+
+        batch = [{
+            "issue": 1,
+            "design_reviews": {"a": {"verdict": "P2"}},
+            "design_revised": False,
+        }]
+        data = {"project": "test"}
+        action = check_transition("DESIGN_REVISE", batch, data)
+        assert action.new_state == "DESIGN_REVIEW"
+
+    def test_revise_gate_p2_required_with_flag(self):
+        """P2 issue が revised=False + p2_fix=True → 遷移しない"""
+        from watchdog import check_transition
+
+        batch = [{
+            "issue": 1,
+            "design_reviews": {"a": {"verdict": "P2"}},
+            "design_revised": False,
+        }]
+        data = {"project": "test", "p2_fix": True}
+        action = check_transition("DESIGN_REVISE", batch, data)
+        assert action.new_state is None
+
+    # --- 通知テスト ---
+
+    def test_revise_notification_includes_p2_fix_warning(self):
+        """p2_fix=True の REVISE 通知に警告文が含まれる"""
         from watchdog import get_notification_for_state
 
-        batch = [{"issue": 1, "design_reviews": {"a": {"verdict": "P1"}}}]
-        action = get_notification_for_state("DESIGN_REVISE", project="Foo", batch=batch, p1_fix=True)
-        assert "--p1-fix モード" in action.impl_msg
+        batch = [{"issue": 1, "design_reviews": {"a": {"verdict": "P2"}}}]
+        action = get_notification_for_state("DESIGN_REVISE", project="Foo", batch=batch, p2_fix=True)
+        assert "--p2-fix モード" in action.impl_msg
 
-    def test_revise_notification_no_p1_fix_warning_by_default(self):
-        """p1_fix=False の REVISE 通知に警告文なし"""
+    def test_revise_notification_default_shows_p0_p1(self):
+        """デフォルトの fix_label が P0/P1指摘"""
         from watchdog import get_notification_for_state
 
         batch = [{"issue": 1, "design_reviews": {"a": {"verdict": "P0"}}}]
         action = get_notification_for_state("DESIGN_REVISE", project="Foo", batch=batch)
-        assert "--p1-fix モード" not in action.impl_msg
+        assert "P0/P1指摘" in action.impl_msg
+        assert "--p2-fix モード" not in action.impl_msg
 
-    def test_revise_notification_code_revise_p1_fix(self):
-        """CODE_REVISE + p1_fix=True の通知に警告文が含まれる"""
+    def test_revise_notification_code_revise_p2_fix(self):
+        """CODE_REVISE + p2_fix=True の通知に警告文が含まれる"""
         from watchdog import get_notification_for_state
 
-        batch = [{"issue": 1, "code_reviews": {"a": {"verdict": "P1"}}}]
-        action = get_notification_for_state("CODE_REVISE", project="Foo", batch=batch, p1_fix=True)
-        assert "--p1-fix モード" in action.impl_msg
+        batch = [{"issue": 1, "code_reviews": {"a": {"verdict": "P2"}}}]
+        action = get_notification_for_state("CODE_REVISE", project="Foo", batch=batch, p2_fix=True)
+        assert "--p2-fix モード" in action.impl_msg
 
-    def test_done_cleanup_clears_p1_fix(self):
-        """DONE→IDLE遷移でp1_fixがクリアされること"""
+    # --- クリーンアップテスト ---
+
+    def test_done_cleanup_clears_p2_fix(self):
+        """DONE→IDLE遷移でp2_fixがクリアされること"""
         from watchdog import check_transition
 
         data = {
             "project": "test",
-            "p1_fix": True,
+            "p2_fix": True,
             "automerge": True,
         }
         batch = []
         action = check_transition("DONE", batch, data)
         assert action.new_state == "IDLE"
-        # check_transition自体はdataを変更しない（純粋関数）
-        # DONEクリーンアップはdo_transition内で行われる
-        # ここではcheck_transitionの戻り値のみ検証
 
-    def test_p1_fix_not_leaked_between_batches(self):
-        """p1_fix=Falseのバッチでp1_fixが残らないことの統合テスト"""
+    # --- 後方互換テスト ---
+
+    def test_p1_fix_backward_compat_in_resolve(self):
+        """pipeline JSON に p1_fix=True が残っていた場合、p2_fix=True として昇格動作する"""
         from watchdog import _resolve_review_outcome
 
-        # Batch A: p1_fix=True
-        data_a = {"project": "test", "p1_fix": True}
-        batch = [{"issue": 1, "code_reviews": {"a": {"verdict": "P1"}}}]
-        action_a = _resolve_review_outcome("CODE_REVIEW", data_a, batch, False, True)
+        batch = [{"issue": 1, "design_reviews": {"a": {"verdict": "P2"}}}]
+        data = {"project": "Foo", "p1_fix": True, "design_revise_count": 0}
+        action = _resolve_review_outcome("DESIGN_REVIEW", data, batch, has_p0=False, has_p1=False, has_p2=True)
+        assert action.new_state == "DESIGN_REVISE"
+
+    def test_p2_fix_not_leaked_between_batches(self):
+        """p2_fix=Falseのバッチでp2_fixが残らないことの統合テスト"""
+        from watchdog import _resolve_review_outcome
+
+        # Batch A: p2_fix=True + P2 → REVISE
+        data_a = {"project": "test", "p2_fix": True, "code_revise_count": 0}
+        batch = [{"issue": 1, "code_reviews": {"a": {"verdict": "P2"}}}]
+        action_a = _resolve_review_outcome("CODE_REVIEW", data_a, batch, False, False, True)
         assert action_a.new_state == "CODE_REVISE"
 
-        # Batch B: p1_fix cleared (simulating DONE cleanup)
-        data_b = {"project": "test"}  # p1_fix absent after cleanup
-        action_b = _resolve_review_outcome("CODE_REVIEW", data_b, batch, False, True)
-        assert action_b.new_state == "CODE_APPROVED"  # P1 should not trigger REVISE
+        # Batch B: p2_fix cleared → P2 is ignored
+        data_b = {"project": "test"}
+        action_b = _resolve_review_outcome("CODE_REVIEW", data_b, batch, False, False, True)
+        assert action_b.new_state == "CODE_APPROVED"

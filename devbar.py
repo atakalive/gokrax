@@ -388,10 +388,10 @@ def cmd_start(args):
         args.keep_ctx_batch = True
         args.keep_ctx_intra = True
 
-    # 5. review_mode / keep_ctx / p1_fix 設定（遷移前に設定して/newの宛先に反映させる）
+    # 5. review_mode / keep_ctx / p2_fix 設定（遷移前に設定して/newの宛先に反映させる）
     has_keep_ctx = getattr(args, "keep_ctx_batch", False) or getattr(args, "keep_ctx_intra", False)
-    has_p1_fix = getattr(args, "p1_fix", False)
-    if getattr(args, "mode", None) or has_keep_ctx or has_p1_fix:
+    has_p2_fix = getattr(args, "p2_fix", False)
+    if getattr(args, "mode", None) or has_keep_ctx or has_p2_fix:
         from watchdog import REVIEW_MODES
         if getattr(args, "mode", None) and args.mode not in REVIEW_MODES:
             raise SystemExit(f"Invalid mode: {args.mode} (valid: {list(REVIEW_MODES)})")
@@ -402,8 +402,8 @@ def cmd_start(args):
                 data["keep_ctx_batch"] = True
             if getattr(args, "keep_ctx_intra", False):
                 data["keep_ctx_intra"] = True
-            if getattr(args, "p1_fix", False):
-                data["p1_fix"] = True
+            if getattr(args, "p2_fix", False):
+                data["p2_fix"] = True
         update_pipeline(path, do_mode)
 
 
@@ -459,7 +459,8 @@ def cmd_transition(args):
             data.pop("code_revise_count", None)
             # Clear queue options (Issue #45, #71)
             data.pop("automerge", None)
-            data.pop("p1_fix", None)
+            data.pop("p2_fix", None)
+            data.pop("p1_fix", None)      # 旧フラグ（後方互換クリーンアップ）
             data.pop("cc_plan_model", None)
             data.pop("cc_impl_model", None)
             data.pop("keep_context", None)      # 旧フラグ（後方互換クリーンアップ）
@@ -486,7 +487,7 @@ def cmd_transition(args):
         repo_path = data.get("repo_path", "")
         review_mode = data.get("review_mode", "standard")
 
-        notif = get_notification_for_state(target, pj, batch, gitlab, implementer, p1_fix=data.get("p1_fix", False))
+        notif = get_notification_for_state(target, pj, batch, gitlab, implementer, p2_fix=data.get("p2_fix", False))
         prefix = "（再開）" if resume else ""
 
         pending = {}
@@ -943,8 +944,8 @@ def cmd_qrun(args):
             opts = []
             if e.get("automerge"):
                 opts.append("automerge")
-            if e.get("p1_fix"):
-                opts.append("p1-fix")
+            if e.get("p2_fix"):
+                opts.append("p2-fix")
             if e.get("cc_plan_model"):
                 opts.append(f"plan={e['cc_plan_model']}")
             if e.get("cc_impl_model"):
@@ -976,7 +977,7 @@ def cmd_qrun(args):
         mode=mode,
         keep_ctx_batch=entry.get("keep_ctx_batch", False),
         keep_ctx_intra=entry.get("keep_ctx_intra", False),
-        p1_fix=entry.get("p1_fix", False),
+        p2_fix=entry.get("p2_fix", False),
     )
 
     # queue_mode を先に設定（cmd_start 内の遷移通知で [Queue] prefix を使うため）
@@ -997,8 +998,8 @@ def cmd_qrun(args):
     def _save_queue_options(data):
         if entry.get("automerge"):
             data["automerge"] = True
-        if entry.get("p1_fix"):
-            data["p1_fix"] = True
+        if entry.get("p2_fix"):
+            data["p2_fix"] = True
         if entry.get("cc_plan_model"):
             data["cc_plan_model"] = entry["cc_plan_model"]
         if entry.get("cc_impl_model"):
@@ -1067,8 +1068,8 @@ def get_qstatus_text(entries: list[dict], running: "dict | None" = None) -> str:
             parts.append(e["mode"])
         if e.get("automerge"):
             parts.append("automerge")
-        if e.get("p1_fix"):
-            parts.append("p1-fix")
+        if e.get("p2_fix"):
+            parts.append("p2-fix")
         if e.get("cc_plan_model"):
             parts.append(f"plan={e['cc_plan_model']}")
         if e.get("cc_impl_model"):
@@ -2003,7 +2004,7 @@ def main():
     p.add_argument("--keep-ctx-batch", action="store_true", default=False, dest="keep_ctx_batch")
     p.add_argument("--keep-ctx-intra", action="store_true", default=False, dest="keep_ctx_intra")
     p.add_argument("--keep-ctx-all", action="store_true", default=False, dest="keep_ctx_all")
-    p.add_argument("--p1-fix", action="store_true", default=False, dest="p1_fix")
+    p.add_argument("--p2-fix", action="store_true", default=False, dest="p2_fix")
 
     # triage
     p = sub.add_parser("triage", help="指定Issueをバッチに投入")

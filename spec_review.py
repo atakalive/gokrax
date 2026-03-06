@@ -52,7 +52,7 @@ class SpecReviewItem:
 @dataclass
 class SpecReviewResult:
     reviewer: str
-    verdict: str               # "APPROVE"|"P0"|"P1" (parse_success=False時は "")
+    verdict: str               # "APPROVE"|"P0"|"P1"|"P2" (parse_success=False時は "")
     items: list[SpecReviewItem]
     raw_text: str
     parse_success: bool
@@ -63,7 +63,7 @@ class MergedReviewReport:
     reviews: list[SpecReviewResult]
     all_items: list[SpecReviewItem]   # 重篤度順ソート済み
     summary: dict[str, int]           # {"critical": n, "major": n, ...}
-    highest_verdict: str              # "APPROVE"|"P0"|"P1"
+    highest_verdict: str              # "APPROVE"|"P0"|"P1"|"P2"
 
 
 # ---------------------------------------------------------------------------
@@ -159,11 +159,11 @@ def validate_received_entry(entry: dict) -> bool:
     """current_reviews.entries[reviewer] の不変条件を検査する。
 
     received 状態で以下が満たされなければ False:
-    - verdict ∈ {"APPROVE", "P0", "P1"} かつ None でない
+    - verdict ∈ {"APPROVE", "P0", "P1", "P2"} かつ None でない
     - items が list
     - parse_success が True
     """
-    if entry.get("verdict") not in ("APPROVE", "P0", "P1"):
+    if entry.get("verdict") not in ("APPROVE", "P0", "P1", "P2"):
         return False
     if not isinstance(entry.get("items"), list):
         return False
@@ -221,7 +221,7 @@ def should_continue_review(
 
     # 3. 有効レビューで判定（received >= min_valid: parsed_fail は無視して続行）
     has_p1 = any(
-        v.get("verdict") in ("P0", "P1") for v in received.values()
+        v.get("verdict") in ("P0", "P1", "P2") for v in received.values()
     )
     if not has_p1:
         return "approved"
@@ -278,8 +278,8 @@ def merge_reviews(reviews: list[SpecReviewResult]) -> MergedReviewReport:
         if item.severity in summary:
             summary[item.severity] += 1
 
-    # highest_verdict: P0 > P1 > APPROVE（verdict="" は無視）
-    verdict_priority = {"P0": 0, "P1": 1, "APPROVE": 2}
+    # highest_verdict: P0 > P1 > P2 > APPROVE（verdict="" は無視）
+    verdict_priority = {"P0": 0, "P1": 1, "P2": 2, "APPROVE": 3}
     highest = "APPROVE"
     for r in reviews:
         if verdict_priority.get(r.verdict, 99) < verdict_priority.get(highest, 99):

@@ -146,7 +146,7 @@ def _is_ok_reply(content: str) -> bool:
 
 
 def count_reviews(batch: list, key: str) -> tuple:
-    """(最小レビュー数, P0有無, P1有無)"""
+    """(最小レビュー数, P0有無, P1有無, P2有無)"""
     min_n = min((len(i.get(key, {})) for i in batch), default=0)
     has_p0 = any(
         r.get("verdict", "").upper() in ("REJECT", "P0")
@@ -156,11 +156,18 @@ def count_reviews(batch: list, key: str) -> tuple:
         r.get("verdict", "").upper() == "P1"
         for i in batch for r in i.get(key, {}).values()
     )
-    return min_n, has_p0, has_p1
+    has_p2 = any(
+        r.get("verdict", "").upper() == "P2"
+        for i in batch for r in i.get(key, {}).values()
+    )
+    return min_n, has_p0, has_p1, has_p2
 
 
-def _revise_target_issues(batch: list, review_key: str, revised_key: str, p1_fix: bool = False) -> str:
-    """REVISE対象Issueを文字列化。P0/REJECTが付いた未修正Issueを明示。"""
+def _revise_target_issues(batch: list, review_key: str, revised_key: str, p2_fix: bool = False) -> str:
+    """REVISE対象Issueを文字列化。P0/REJECT/P1が付いた未修正Issueを明示。p2_fix時はP2も含む。
+
+    対象が特定できない場合（flag差し込み等）は全Issueをフォールバックで返す。
+    """
     targets = []
     for i in batch:
         if i.get(revised_key):
@@ -174,7 +181,11 @@ def _revise_target_issues(batch: list, review_key: str, revised_key: str, p1_fix
             r.get("verdict", "").upper() == "P1"
             for r in reviews.values()
         )
-        if has_p0 or (p1_fix and has_p1):
+        has_p2 = any(
+            r.get("verdict", "").upper() == "P2"
+            for r in reviews.values()
+        )
+        if has_p0 or has_p1 or (p2_fix and has_p2):
             targets.append(f"#{i['issue']}")
     return ", ".join(targets) if targets else ", ".join(f"#{i['issue']}" for i in batch)
 
@@ -188,7 +199,7 @@ def clear_reviews(batch: list, key: str, revised_key: str):
         reviews = issue.get(key, {})
         to_clear = [
             reviewer for reviewer, r in reviews.items()
-            if r.get("verdict", "").upper() in ("REJECT", "P0", "P1")
+            if r.get("verdict", "").upper() in ("REJECT", "P0", "P1", "P2")
         ]
         for reviewer in to_clear:
             del reviews[reviewer]
@@ -288,7 +299,7 @@ def _check_nudge(state: str, data: dict) -> TransitionAction | None:
     return nudge
 
 
-_VERDICT_EMOJI = {"APPROVE": "🟢", "P0": "🔴", "P1": "🟡"}
+_VERDICT_EMOJI = {"APPROVE": "🟢", "P0": "🔴", "P1": "🟡", "P2": "🔵"}
 
 
 def _format_merge_summary(project: str, batch: list, automerge: bool = False, queue_mode: bool = False) -> str:
@@ -339,7 +350,7 @@ def get_notification_for_state(
     batch: list | None = None,
     gitlab: str = "",
     implementer: str = "",
-    p1_fix: bool = False,
+    p2_fix: bool = False,
 ) -> TransitionAction:
     """全状態の通知メッセージを一元管理。
 
@@ -368,15 +379,15 @@ def get_notification_for_state(
         return TransitionAction(impl_msg=msg, reset_reviewers=True)
 
     if state == "DESIGN_REVISE":
-        issues_str = _revise_target_issues(batch, "design_reviews", "design_revised", p1_fix=p1_fix)
-        p1_note = ""
-        if p1_fix:
-            p1_note = "\n⚠️ --p1-fix モード: P1 指摘も全件修正が必要です。P0 がなくても P1 が残っていれば再度 REVISE に差し戻されます。\n"
-        fix_label = "P0/P1指摘" if p1_fix else "P0指摘"
+        issues_str = _revise_target_issues(batch, "design_reviews", "design_revised", p2_fix=p2_fix)
+        p2_note = ""
+        if p2_fix:
+            p2_note = "\n⚠️ --p2-fix モード: P2 指摘も全件修正が必要です。P0/P1 がなくても P2 が残っていれば再度 REVISE に差し戻されます。\n"
+        fix_label = "P0/P1/P2指摘" if p2_fix else "P0/P1指摘"
         msg = (
             f"[devbar] {project}: 設計修正フェーズ\n"
             f"対象Issue: {issues_str}\n"
-            f"{p1_note}"
+            f"{p2_note}"
             f"【手順】\n"
             f"1. {fix_label}を読み、Issue本文を修正する（glab issue update）\n"
             f"2. devbar に完了報告:\n"
@@ -388,15 +399,15 @@ def get_notification_for_state(
         return TransitionAction(impl_msg=msg)
 
     if state == "CODE_REVISE":
-        issues_str = _revise_target_issues(batch, "code_reviews", "code_revised", p1_fix=p1_fix)
-        p1_note = ""
-        if p1_fix:
-            p1_note = "\n⚠️ --p1-fix モード: P1 指摘も全件修正が必要です。P0 がなくても P1 が残っていれば再度 REVISE に差し戻されます。\n"
-        fix_label = "P0/P1指摘" if p1_fix else "P0指摘"
+        issues_str = _revise_target_issues(batch, "code_reviews", "code_revised", p2_fix=p2_fix)
+        p2_note = ""
+        if p2_fix:
+            p2_note = "\n⚠️ --p2-fix モード: P2 指摘も全件修正が必要です。P0/P1 がなくても P2 が残っていれば再度 REVISE に差し戻されます。\n"
+        fix_label = "P0/P1/P2指摘" if p2_fix else "P0/P1指摘"
         msg = (
             f"[devbar] {project}: コード修正フェーズ\n"
             f"対象Issue: {issues_str}\n"
-            f"{p1_note}"
+            f"{p2_note}"
             f"【手順】\n"
             f"1. {fix_label}を読み、コードを修正する\n"
             f"2. git commit する\n"
@@ -429,43 +440,40 @@ def get_notification_for_state(
 
 
 def _resolve_review_outcome(
-    state: str, data: dict | None, batch: list, has_p0: bool, has_p1: bool = False,
+    state: str, data: dict | None, batch: list,
+    has_p0: bool, has_p1: bool, has_p2: bool,
 ) -> TransitionAction:
-    """min_reviews 到達後の遷移先を決定する。APPROVED or REVISE or BLOCKED."""
+    """min_reviews 到達後の遷移先を決定する。APPROVED or REVISE or BLOCKED.
+
+    義務レベル:
+    - P0: 常に義務。max cycles → BLOCKED。
+    - P1: 常に義務。max cycles → APPROVE フォールバック（免除）。
+    - P2: p2_fix 有効時のみ義務。max cycles → APPROVE フォールバック（免除）。
+    """
     appr = "DESIGN_APPROVED" if "DESIGN" in state else "CODE_APPROVED"
     revise_state = "DESIGN_REVISE" if "DESIGN" in state else "CODE_REVISE"
     pj = data.get("project", "") if data else ""
-    p1_fix = data.get("p1_fix", False) if data else False
+    # p1_fix → p2_fix 昇格（後方互換）
+    p2_fix = (data.get("p2_fix", False) or data.get("p1_fix", False)) if data else False
 
-    # P0 あり → 既存ロジック（REVISE or BLOCKED）
-    if has_p0:
+    # P0 or P1 あり → REVISE or BLOCKED/フォールバック
+    if has_p0 or has_p1:
         from config import MAX_REVISE_CYCLES
         counter_key = "design_revise_count" if "DESIGN" in state else "code_revise_count"
         current_count = data.get(counter_key, 0) if data else 0
 
         if current_count >= MAX_REVISE_CYCLES:
-            phase = "設計" if "DESIGN" in state else "コード"
-            return TransitionAction(
-                new_state="BLOCKED",
-                impl_msg=(
-                    f"{phase}レビューサイクルが上限（{MAX_REVISE_CYCLES}回）に達しました。\n"
-                    f"P0の指摘が解消されていません。手動で対応してください。DiscordでMに報告してください。"
-                ),
-            )
-
-        return TransitionAction(
-            new_state=revise_state,
-            impl_msg=get_notification_for_state(revise_state, project=pj, batch=batch, p1_fix=p1_fix).impl_msg,
-        )
-
-    # P0 なし + p1_fix 有効 + P1 あり → REVISE（max_revise_cycles フォールバック付き）
-    if p1_fix and has_p1:
-        from config import MAX_REVISE_CYCLES
-        counter_key = "design_revise_count" if "DESIGN" in state else "code_revise_count"
-        current_count = data.get(counter_key, 0) if data else 0
-
-        if current_count >= MAX_REVISE_CYCLES:
-            # フォールバック: P0 がないので APPROVE する
+            # P0 あり → BLOCKED（P0 は免除されない）
+            if has_p0:
+                phase = "設計" if "DESIGN" in state else "コード"
+                return TransitionAction(
+                    new_state="BLOCKED",
+                    impl_msg=(
+                        f"{phase}レビューサイクルが上限（{MAX_REVISE_CYCLES}回）に達しました。\n"
+                        f"P0の指摘が解消されていません。手動で対応してください。DiscordでMに報告してください。"
+                    ),
+                )
+            # P0 なし + P1 のみ → フォールバック APPROVE（P1 は免除される）
             return TransitionAction(
                 new_state=appr,
                 impl_msg=get_notification_for_state(appr, project=pj, batch=batch).impl_msg,
@@ -473,10 +481,28 @@ def _resolve_review_outcome(
 
         return TransitionAction(
             new_state=revise_state,
-            impl_msg=get_notification_for_state(revise_state, project=pj, batch=batch, p1_fix=True).impl_msg,
+            impl_msg=get_notification_for_state(revise_state, project=pj, batch=batch, p2_fix=p2_fix).impl_msg,
         )
 
-    # P0 なし + (p1_fix 無効 or P1 なし) → APPROVE
+    # P0/P1 なし + p2_fix 有効 + P2 あり → REVISE（max_revise_cycles フォールバック付き）
+    if p2_fix and has_p2:
+        from config import MAX_REVISE_CYCLES
+        counter_key = "design_revise_count" if "DESIGN" in state else "code_revise_count"
+        current_count = data.get(counter_key, 0) if data else 0
+
+        if current_count >= MAX_REVISE_CYCLES:
+            # フォールバック: P0/P1 がないので APPROVE する
+            return TransitionAction(
+                new_state=appr,
+                impl_msg=get_notification_for_state(appr, project=pj, batch=batch).impl_msg,
+            )
+
+        return TransitionAction(
+            new_state=revise_state,
+            impl_msg=get_notification_for_state(revise_state, project=pj, batch=batch, p2_fix=True).impl_msg,
+        )
+
+    # P0/P1/P2 なし or (P2 ありだが p2_fix 無効) → APPROVE
     return TransitionAction(
         new_state=appr,
         impl_msg=get_notification_for_state(appr, project=pj, batch=batch).impl_msg,
@@ -543,7 +569,7 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
         effective_count = len(mode_config["members"]) - len(excluded)
         grace_sec = mode_config.get("grace_period_sec", 0)
 
-        count, has_p0, has_p1 = count_reviews(batch, key)
+        count, has_p0, has_p1, has_p2 = count_reviews(batch, key)
 
         # Check for unresolved P0 flags (flag P0 → immediate REVISE)
         flag_phase = STATE_PHASE_MAP.get(state)
@@ -600,7 +626,7 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
             if should_transition:
                 if data:
                     data.pop(met_key, None)
-                return _resolve_review_outcome(state, data, batch, has_p0, has_p1)
+                return _resolve_review_outcome(state, data, batch, has_p0, has_p1, has_p2)
 
         # Not enough reviews yet
         # 1. タイムアウト判定（BLOCKEDのみ早期リターン）
@@ -637,14 +663,13 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
         review_key = "design_reviews" if "DESIGN" in state else "code_reviews"
         revised_key = "design_revised" if "DESIGN" in state else "code_revised"
         review_state = "DESIGN_REVIEW" if "DESIGN" in state else "CODE_REVIEW"
+        # p1_fix → p2_fix 昇格（後方互換）
+        p2_fix = (data.get("p2_fix", False) or data.get("p1_fix", False)) if data else False
 
-        # Issue #37 fix: Only P0/REJECT issues need the revised flag
-        # Empty/missing review dict → conservatively require revised flag
         all_done = True
         for issue in batch:
             reviews = issue.get(review_key, {})
             if not reviews:
-                # No reviews recorded: conservatively require revised
                 if not issue.get(revised_key):
                     all_done = False
                     break
@@ -654,15 +679,23 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
                 r.get("verdict", "").upper() in ("REJECT", "P0")
                 for r in reviews.values()
             )
+            has_p1 = any(
+                r.get("verdict", "").upper() == "P1"
+                for r in reviews.values()
+            )
+            has_p2 = any(
+                r.get("verdict", "").upper() == "P2"
+                for r in reviews.values()
+            )
 
-            # Only P0/REJECT issues need the revised flag
-            if has_p0 and not issue.get(revised_key):
+            needs_revision = has_p0 or has_p1 or (p2_fix and has_p2)
+            if needs_revision and not issue.get(revised_key):
                 all_done = False
                 break
 
         if all_done:
             log(
-                f"[REVISE] all P0/REJECT issues revised, transitioning to {review_state}"
+                f"[REVISE] all issues with P0/P1{'/P2' if p2_fix else ''} revised, transitioning to {review_state}"
             )
             return TransitionAction(new_state=review_state, send_review=True)
 
@@ -1002,7 +1035,7 @@ def _build_spec_review_prompt_initial(
 
 ## 出力フォーマット
 ```yaml
-verdict: APPROVE | P0 | P1
+verdict: APPROVE | P0 | P1 | P2
 items:
   - id: C-1
     severity: critical | major | minor | suggestion
@@ -2003,7 +2036,8 @@ def process(path: Path):
             data.pop("code_revise_count", None)
             # Clear queue options (Issue #45, #71)
             data.pop("automerge", None)
-            data.pop("p1_fix", None)
+            data.pop("p2_fix", None)
+            data.pop("p1_fix", None)      # 旧フラグ（後方互換クリーンアップ）
             data.pop("cc_plan_model", None)
             data.pop("cc_impl_model", None)
             data.pop("keep_context", None)      # 旧フラグ（後方互換クリーンアップ）
@@ -2034,7 +2068,7 @@ def process(path: Path):
                 reviews = issue.get(key, {})
                 cleared = {
                     r: dict(v) for r, v in reviews.items()
-                    if v.get("verdict", "").upper() in ("REJECT", "P0", "P1")
+                    if v.get("verdict", "").upper() in ("REJECT", "P0", "P1", "P2")
                 }
                 if cleared:
                     prev_reviews[issue["issue"]] = cleared

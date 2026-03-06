@@ -42,8 +42,8 @@ MAX_BATCH = 5
 MAX_HISTORY = 100
 MIN_REVIEWS = 3
 MAX_REVISE_CYCLES = 3  # REVISE→REVIEWの最大サイクル数
-VALID_VERDICTS = ["APPROVE", "P0", "P1", "REJECT"]
-VALID_FLAG_VERDICTS = ["P0", "P1"]
+VALID_VERDICTS = ["APPROVE", "P0", "P1", "P2", "REJECT"]
+VALID_FLAG_VERDICTS = ["P0", "P1", "P2"]
 
 # State→phase mapping (used by flag command)
 STATE_PHASE_MAP: dict[str, str] = {
@@ -252,7 +252,7 @@ def review_command(project: str, issue: int, reviewer: str) -> str:
         f' --project {project}'
         f' --issue {issue}'
         f' --reviewer {reviewer}'
-        f' --verdict <APPROVE/P0/P1>'
+        f' --verdict <APPROVE/P0/P1/P2>'
         f' --summary "..."'
     )
 

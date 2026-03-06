@@ -423,7 +423,7 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
         pending_issues.append(f"□ #{num}: {title}")
         pending_cmds.append(
             f"python3 {DEVBAR_CLI} review --project {project} --issue {num} "
-            f"--reviewer {reviewer} --verdict <APPROVE|P0|P1> "
+            f"--reviewer {reviewer} --verdict <APPROVE|P0|P1|P2> "
             f"--summary $'レビュー本文\n2行目\n3行目..'"
         )
 

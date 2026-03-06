@@ -77,7 +77,7 @@ def parse_queue_line(line: str) -> dict:
         "automerge": False,
         "keep_ctx_batch": False,
         "keep_ctx_intra": False,
-        "p1_fix": False,
+        "p2_fix": False,
         "cc_plan_model": None,
         "cc_impl_model": None,
         "original_line": line.rstrip("\n"),
@@ -95,8 +95,8 @@ def parse_queue_line(line: str) -> dict:
             result["keep_ctx_intra"] = True
         elif token.startswith("plan="):
             result["cc_plan_model"] = token.split("=", 1)[1]
-        elif token == "p1-fix":
-            result["p1_fix"] = True
+        elif token in ("p1-fix", "p2-fix"):
+            result["p2_fix"] = True
         elif token.startswith("impl="):
             result["cc_impl_model"] = token.split("=", 1)[1]
         elif token in REVIEW_MODES:

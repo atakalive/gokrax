@@ -51,9 +51,9 @@ class TestCheckTransitionSpec:
         assert action.next_state == "SPEC_PAUSED"
         assert action.error is not None
 
-    def test_spec_done_no_action(self):
+    def test_spec_done_transitions_to_idle(self):
         action = check_transition_spec("SPEC_DONE", {}, _now(), {})
-        assert action.next_state is None
+        assert action.next_state == "IDLE"
 
     def test_spec_stalled_no_action(self):
         action = check_transition_spec("SPEC_STALLED", {}, _now(), {})
@@ -406,11 +406,12 @@ class TestApplySpecActionCleanup:
         return pj_path
 
     def test_cleanup_called_on_terminal_states(self, tmp_path):
-        """SPEC_DONE / SPEC_STALLED / SPEC_REVIEW_FAILED / SPEC_PAUSED で cleanup が呼ばれる。
+        """SPEC_STALLED / SPEC_REVIEW_FAILED / SPEC_PAUSED で cleanup が呼ばれる。
 
+        SPEC_DONE は terminal ではなく IDLE への中間遷移。
         DCLパターンのため check_transition_spec をモックして終端状態を返させる。
         """
-        terminal_states = ["SPEC_DONE", "SPEC_STALLED", "SPEC_REVIEW_FAILED", "SPEC_PAUSED"]
+        terminal_states = ["SPEC_STALLED", "SPEC_REVIEW_FAILED", "SPEC_PAUSED"]
         pd_str = str(tmp_path / "pd")
         orig_data = {"spec_config": {"pipelines_dir": pd_str}}
         for state in terminal_states:
@@ -428,6 +429,24 @@ class TestApplySpecActionCleanup:
             assert mock_cleanup.call_count == 1, \
                 f"cleanup not called for terminal state {state}"
             assert mock_cleanup.call_args[0][0] == pd_str
+
+    def test_cleanup_called_on_spec_done_to_idle(self, tmp_path):
+        """SPEC_DONE → IDLE 遷移で cleanup が呼ばれる。"""
+        pd_str = str(tmp_path / "pd")
+        pj_path = self._make_pipeline(tmp_path, "SPEC_DONE", pd_str)
+        action = SpecTransitionAction(
+            next_state="IDLE",
+            expected_state="SPEC_DONE",
+        )
+        mocked_action = SpecTransitionAction(next_state="IDLE")
+        with patch("watchdog.check_transition_spec", return_value=mocked_action), \
+             patch("watchdog.send_to_agent_queued"), \
+             patch("watchdog.notify_discord"), \
+             patch("watchdog._cleanup_expired_spec_files") as mock_cleanup, \
+             patch("watchdog._check_queue"):
+            _apply_spec_action(pj_path, action, _now(), {"spec_config": {"pipelines_dir": pd_str}})
+        assert mock_cleanup.call_count == 1
+        assert mock_cleanup.call_args[0][0] == pd_str
 
     def test_cleanup_not_called_on_non_terminal(self, tmp_path):
         """非終端状態遷移では cleanup が呼ばれない。"""

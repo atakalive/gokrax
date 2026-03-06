@@ -548,18 +548,23 @@ class TestAbnormalFlowE2E:
         assert action2.send_to is None
 
     def test_full_mode_one_timeout_approved(self):
-        """fullモード 3人中1人 timeout → approved（#65 C3）"""
+        """fullモード 4人中1人 timeout → approved（min_valid=3, #65 C3）"""
         sc = _make_spec_config(
             spec_path="docs/test-spec.md",
             spec_implementer="kaneko",
-            review_requests=_pending_review_requests(),
+            review_requests={
+                r: {"status": "pending", "sent_at": None, "timeout_at": None,
+                    "last_nudge_at": None, "response": None}
+                for r in ("pascal", "leibniz", "dijkstra", "euler")
+            },
             current_reviews={
                 "reviewed_rev": "1",
                 "entries": {
                     "pascal": _received_entry("APPROVE"),
                     "leibniz": _received_entry("APPROVE"),
-                    "dijkstra": {"verdict": None, "items": [], "raw_text": None,
-                                 "parse_success": False, "status": "timeout"},
+                    "dijkstra": _received_entry("APPROVE"),
+                    "euler": {"verdict": None, "items": [], "raw_text": None,
+                              "parse_success": False, "status": "timeout"},
                 },
             },
         )
@@ -567,22 +572,22 @@ class TestAbnormalFlowE2E:
         assert result == "approved"
 
     def test_lite_mode_one_timeout_approved(self):
-        """liteモード 2人中1人 timeout → approved（#65 C3）"""
+        """liteモード 3人中1人 timeout → approved（min_valid=2, #65 C3）"""
         sc = _make_spec_config(
             spec_path="docs/test-spec.md",
             spec_implementer="kaneko",
             review_requests={
-                "leibniz": {"status": "pending", "sent_at": None, "timeout_at": None,
-                            "last_nudge_at": None, "response": None},
-                "pascal": {"status": "pending", "sent_at": None, "timeout_at": None,
-                           "last_nudge_at": None, "response": None},
+                r: {"status": "pending", "sent_at": None, "timeout_at": None,
+                    "last_nudge_at": None, "response": None}
+                for r in ("leibniz", "pascal", "dijkstra")
             },
             current_reviews={
                 "reviewed_rev": "1",
                 "entries": {
                     "leibniz": _received_entry("APPROVE"),
-                    "pascal": {"verdict": None, "items": [], "raw_text": None,
-                               "parse_success": False, "status": "timeout"},
+                    "pascal": _received_entry("APPROVE"),
+                    "dijkstra": {"verdict": None, "items": [], "raw_text": None,
+                                 "parse_success": False, "status": "timeout"},
                 },
             },
         )

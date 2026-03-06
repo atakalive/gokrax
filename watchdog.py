@@ -51,7 +51,7 @@ from notify import (
     spec_notify_revise_commit_failed, spec_notify_revise_no_changes,
     spec_notify_issue_plan_done, spec_notify_queue_plan_done,
     spec_notify_done, spec_notify_failure,
-
+    notify_dispute,
 )
 from spec_review import (
     should_continue_review, _reset_review_requests,
@@ -396,6 +396,9 @@ def get_notification_for_state(
             f"   python3 {DEVBAR_CLI} design-revise --pj {project} --issue N [N...]\n\n"
             f"複数レビュアーから同一のP2/Suggestionがある場合、その指摘は正しい可能性が高いため修正せよ。\n"
             f"レビュアー指摘と設計判断が相違する場合は、新規Issueを立てて設計判断を議論する場所を用意せよ。\n"
+            f"※ P0/P1指摘に誤りがあると確信した場合、revise完了前に異議を申し立てることができます:\n"
+            f"python3 {DEVBAR_CLI} dispute --pj {project} --issue N --reviewer REVIEWER --reason \"理由\"\n"
+            f"理由は詳細に、子供でも理解できる粒度で記載してください。disputeが認められた場合、該当P0/P1は取り下げられます。\n"
             f"[お願い] 仕事は中断せず、完了まで一気にやること。"
         )
         return TransitionAction(impl_msg=msg)
@@ -418,6 +421,9 @@ def get_notification_for_state(
             f"複数レビュアーから同一のP2/Suggestionがある場合、その指摘は正しい可能性が高いため修正せよ。\n"
             f"--hash <commit> を忘れずに添付して送信すること。\n"
             f"レビュアー指摘と設計判断が相違する場合は、新規Issueを立てて設計判断を議論する場所を用意せよ。\n"
+            f"※ P0/P1指摘に誤りがあると確信した場合、revise完了前に異議を申し立てることができます:\n"
+            f"python3 {DEVBAR_CLI} dispute --pj {project} --issue N --reviewer REVIEWER --reason \"理由\"\n"
+            f"理由は詳細に、子供でも理解できる粒度で記載してください。disputeが認められた場合、該当P0/P1は取り下げられます。\n"
             f"[お願い] 仕事は中断せず、完了まで一気にやること。"
         )
         return TransitionAction(impl_msg=msg)
@@ -667,6 +673,27 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
         review_state = "DESIGN_REVIEW" if "DESIGN" in state else "CODE_REVIEW"
         # p1_fix → p2_fix 昇格（後方互換）
         p2_fix = (data.get("p2_fix", False) or data.get("p1_fix", False)) if data else False
+
+        # --- dispute 通知キューイング (Issue #86) ---
+        phase = "design" if "DESIGN" in state else "code"
+        if data is not None:
+            for issue in batch:
+                for disp in issue.get("disputes", []):
+                    if disp.get("status") == "pending" and disp.get("phase") == phase:
+                        reviewer = disp.get("reviewer", "")
+                        notif_key = (
+                            f"dispute_{issue['issue']}_{reviewer}_{disp.get('filed_at', '')}"
+                        )
+                        pn = data.setdefault("pending_notifications", {})
+                        if notif_key not in pn:
+                            pn[notif_key] = {
+                                "type": "dispute",
+                                "issue": issue["issue"],
+                                "reviewer": reviewer,
+                                "reason": disp.get("reason", ""),
+                                "filed_at": disp.get("filed_at", ""),
+                                "queued_at": now_iso(),
+                            }
 
         all_done = True
         for issue in batch:
@@ -2268,6 +2295,48 @@ def process(path: Path):
     batch = data.get("batch", [])
     pj = data.get("project", path.stem)
 
+    # === Issue #86: dispute 通知送信 ===
+    # pending_notifications (アンダースコアなし) の dispute エントリを処理する。
+    # _pending_notifications と異なり早期 return しない（通常フローを継続）。
+    dispute_pn = data.get("pending_notifications", {})
+    if dispute_pn:
+        pj_dn = data.get("project", path.stem)
+        gitlab_dn = data.get("gitlab", f"atakalive/{pj_dn}")
+        cleared_keys = []
+        sent_keys = []
+        for dn_key, dn_info in list(dispute_pn.items()):
+            if dn_info.get("type") != "dispute":
+                continue
+            # still pending チェック: 解決済みなら送信スキップ
+            dn_issue = find_issue(batch, dn_info.get("issue", 0))
+            still_pending = False
+            if dn_issue:
+                for d in dn_issue.get("disputes", []):
+                    if (d.get("reviewer") == dn_info.get("reviewer")
+                            and d.get("status") == "pending"
+                            and d.get("filed_at") == dn_info.get("filed_at")):
+                        still_pending = True
+                        break
+            if not still_pending:
+                cleared_keys.append(dn_key)
+                continue
+            if notify_dispute(
+                pj_dn, dn_info["issue"], dn_info["reviewer"],
+                dn_info.get("reason", ""), gitlab_dn,
+            ):
+                sent_keys.append(dn_key)
+            else:
+                log(f"[{pj_dn}] WARNING: dispute notification failed: {dn_key}")
+        remove_keys = cleared_keys + sent_keys
+        if remove_keys:
+            def _clear_dn(d, keys=remove_keys):
+                pn = d.get("pending_notifications", {})
+                for k in keys:
+                    pn.pop(k, None)
+                if not pn:
+                    d.pop("pending_notifications", None)
+            update_pipeline(path, _clear_dn)
+
     # spec mode: batch空を許容し、専用ロジックに委譲
     if data.get("spec_mode") and state in SPEC_STATES:
         spec_config = data.get("spec_config", {})
@@ -2448,6 +2517,14 @@ def process(path: Path):
             else:
                 data.pop("code_min_reviews_met_at", None)
                 log(f"[{pj}] cleared code_min_reviews_met_at")
+
+            # dispute 通知のクリーンアップ (Issue #86)
+            pn = data.get("pending_notifications", {})
+            dispute_keys = [k for k in pn if k.startswith("dispute_")]
+            for k in dispute_keys:
+                del pn[k]
+            if not pn:
+                data.pop("pending_notifications", None)
 
         # DESIGN_REVIEW → DESIGN_APPROVED: 無応答レビュアーを excluded に追加 (Issue #44)
         if state == "DESIGN_REVIEW" and action.new_state == "DESIGN_APPROVED":

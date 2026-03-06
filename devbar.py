@@ -33,6 +33,9 @@ from pipeline_io import (
 from watchdog import get_notification_for_state
 import os
 
+# Verdict severity for dispute resolution (Issue #86)
+VERDICT_SEVERITY = {"REJECT": 3, "P0": 3, "P1": 2, "P2": 1, "APPROVE": 0}
+
 
 # === Watchdog Loop Management ===
 
@@ -629,6 +632,27 @@ def cmd_review(args):
             key = "design_reviews"
         elif state == "CODE_REVIEW":
             key = "code_reviews"
+        elif state in ("DESIGN_REVISE", "CODE_REVISE"):
+            key = "design_reviews" if "DESIGN" in state else "code_reviews"
+            # REVISE 中は dispute pending のレビュアーからのみ受け付ける
+            issue = find_issue(data.get("batch", []), args.issue)
+            if not issue:
+                raise SystemExit(f"Issue #{args.issue} not in batch")
+            pending_dispute = None
+            for d in issue.get("disputes", []):
+                if d.get("reviewer") == args.reviewer and d.get("status") == "pending":
+                    pending_dispute = d
+                    break
+            if pending_dispute is None:
+                raise SystemExit(
+                    f"REVISE 中のレビュー更新は dispute pending 時のみ可能 "
+                    f"(#{args.issue}, {args.reviewer})"
+                )
+            # dispute 解決: severity 比較で accepted/rejected を判定
+            new_sev = VERDICT_SEVERITY.get(args.verdict.upper(), 0)
+            filed_sev = VERDICT_SEVERITY.get(pending_dispute.get("filed_verdict", "P0"), 3)
+            pending_dispute["status"] = "accepted" if new_sev < filed_sev else "rejected"
+            pending_dispute["resolved_at"] = now_iso()
         else:
             raise SystemExit(f"Not in review state: {state}")
         issue = find_issue(data.get("batch", []), args.issue)
@@ -699,6 +723,79 @@ def cmd_review(args):
     note_body = f"[{args.reviewer}] {args.verdict} ({phase}レビュー)\n\n{args.summary or ''}"
     if _post_gitlab_note(gitlab, args.issue, note_body):
         print("  → GitLab issue note posted")
+
+
+def cmd_dispute(args):
+    """REVISE中のP0/P1判定に対して異議を申し立てる（dispute）"""
+    path = get_path(args.project)
+
+    def do_dispute(data):
+        state = data.get("state", "IDLE")
+        if state not in ("DESIGN_REVISE", "CODE_REVISE"):
+            raise SystemExit(f"dispute は REVISE 状態でのみ実行可能 (現在: {state})")
+
+        issue = find_issue(data.get("batch", []), args.issue)
+        if not issue:
+            raise SystemExit(f"Issue #{args.issue} not in batch")
+
+        if args.reviewer not in ALLOWED_REVIEWERS:
+            raise SystemExit(f"Unknown reviewer: {args.reviewer}")
+
+        review_key = "design_reviews" if "DESIGN" in state else "code_reviews"
+        reviewer_review = issue.get(review_key, {}).get(args.reviewer, {})
+        verdict = reviewer_review.get("verdict", "").upper()
+        if verdict not in ("P0", "P1"):
+            raise SystemExit(
+                f"#{args.issue}: {args.reviewer} の verdict は {verdict or '(なし)'} — "
+                f"P0/P1 のみ dispute 可能"
+            )
+
+        disputes = issue.setdefault("disputes", [])
+        has_pending = any(
+            d.get("reviewer") == args.reviewer and d.get("status") == "pending"
+            for d in disputes
+        )
+        if has_pending:
+            raise SystemExit(
+                f"#{args.issue}: {args.reviewer} への dispute は既に pending"
+            )
+
+        if not args.reason.strip():
+            raise SystemExit("--reason は空にできません")
+
+        phase = "design" if "DESIGN" in state else "code"
+        disputes.append({
+            "reviewer": args.reviewer,
+            "reason": args.reason.strip(),
+            "status": "pending",
+            "filed_at": now_iso(),
+            "filed_verdict": verdict,
+            "phase": phase,
+        })
+
+    _deferred = False
+    _orig = signal.getsignal(signal.SIGTERM)
+
+    def _defer_sigterm(signum, frame):
+        nonlocal _deferred
+        _deferred = True
+
+    signal.signal(signal.SIGTERM, _defer_sigterm)
+    try:
+        data = update_pipeline(path, do_dispute)
+    finally:
+        signal.signal(signal.SIGTERM, _orig)
+        if _deferred:
+            signal.raise_signal(signal.SIGTERM)
+
+    print(f"{args.project}: #{args.issue} dispute filed against {args.reviewer}")
+
+    gitlab = data.get("gitlab", f"atakalive/{args.project}")
+    note_body = (
+        f"[dispute] #{args.issue}: {args.reviewer} の判定に異議申し立て\n\n"
+        f"理由: {args.reason}"
+    )
+    _post_gitlab_note(gitlab, args.issue, note_body)
 
 
 def cmd_flag(args):
@@ -2133,6 +2230,13 @@ def main():
                    help="P0 (blocks progress) or P1 (informational)")
     p.add_argument("--summary", default="", help="フラグの説明")
 
+    # dispute
+    p = sub.add_parser("dispute", help="REVISE中のP0/P1判定に異議を申し立て")
+    p.add_argument("--pj", "--project", dest="project", required=True)
+    p.add_argument("--issue", type=int, required=True)
+    p.add_argument("--reviewer", required=True, choices=ALLOWED_REVIEWERS)
+    p.add_argument("--reason", required=True, help="異議の理由")
+
     # commit
     p = sub.add_parser("commit", help="実装完了: commitハッシュをバッチに記録")
     p.add_argument("--pj", "--project", dest="project", required=True)
@@ -2288,7 +2392,7 @@ def main():
         "enable": cmd_enable, "disable": cmd_disable,
         "extend": cmd_extend, "start": cmd_start,
         "triage": cmd_triage, "transition": cmd_transition,
-        "review": cmd_review, "flag": cmd_flag, "commit": cmd_commit,
+        "review": cmd_review, "flag": cmd_flag, "dispute": cmd_dispute, "commit": cmd_commit,
         "cc-start": cmd_cc_start, "plan-done": cmd_plan_done,
         "design-revise": cmd_design_revise, "code-revise": cmd_code_revise,
         "review-mode": cmd_review_mode,

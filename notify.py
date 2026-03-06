@@ -221,6 +221,41 @@ def notify_implementer(agent_id: str, message: str):
     send_to_agent(agent_id, message)
 
 
+def notify_dispute(
+    project: str,
+    issue_num: int,
+    reviewer: str,
+    reason: str,
+    gitlab: str = "",
+) -> bool:
+    """dispute 通知をレビュアーに送信。"""
+    if reviewer not in AGENTS:
+        logger.warning("notify_dispute: unknown reviewer %s", reviewer)
+        return False
+    msg = (
+        f"【異議申し立て】\n"
+        f"{project} #{issue_num} のあなたの P0/P1 判定に対して実装者から異議が出ました。\n\n"
+        f"理由: {reason}\n\n"
+        f"再評価した上で、以下のいずれかのコマンドで判定を報告してください:\n\n"
+        f"# 判定を変更する場合:\n"
+        f"python3 {DEVBAR_CLI} review --pj {project} --issue {issue_num} "
+        f"--reviewer {reviewer} --verdict APPROVE --force\n"
+        f"python3 {DEVBAR_CLI} review --pj {project} --issue {issue_num} "
+        f"--reviewer {reviewer} --verdict P2 --summary \"理由\" --force\n"
+        f"python3 {DEVBAR_CLI} review --pj {project} --issue {issue_num} "
+        f"--reviewer {reviewer} --verdict P1 --summary \"理由\" --force\n\n"
+        f"# 現在の判定を維持する場合:\n"
+        f"python3 {DEVBAR_CLI} review --pj {project} --issue {issue_num} "
+        f"--reviewer {reviewer} --verdict P0 --summary \"維持理由\" --force\n"
+        f"python3 {DEVBAR_CLI} review --pj {project} --issue {issue_num} "
+        f"--reviewer {reviewer} --verdict P1 --summary \"維持理由\" --force\n\n"
+        f"※ --force は必須です（既存レビューの上書きに必要）。\n"
+        f"※ 維持する場合も必ずコマンドで明示してください。\n"
+        f"※ あなたの現在の verdict に合った --verdict を使ってください。"
+    )
+    return send_to_agent(reviewer, msg)
+
+
 def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
                      repo_path: str = "", review_mode: str = "standard",
                      prev_reviews: dict = None, excluded: list[str] = None,

@@ -487,7 +487,9 @@ def cmd_transition(args):
         repo_path = data.get("repo_path", "")
         review_mode = data.get("review_mode", "standard")
 
-        notif = get_notification_for_state(target, pj, batch, gitlab, implementer, p2_fix=data.get("p2_fix", False))
+        # p1_fix → p2_fix 昇格（後方互換）
+        p2_fix = data.get("p2_fix", False) or data.get("p1_fix", False)
+        notif = get_notification_for_state(target, pj, batch, gitlab, implementer, p2_fix=p2_fix)
         prefix = "（再開）" if resume else ""
 
         pending = {}

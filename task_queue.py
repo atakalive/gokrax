@@ -38,6 +38,7 @@ def parse_queue_line(line: str) -> dict:
         automerge        — M承認待ちスキップ
         plan=MODEL       — CC Plan段階のモデル指定
         impl=MODEL       — CC Implementation段階のモデル指定
+        comment=TEXT     — バッチへの注意事項（末尾専用: comment= 以降の全テキストがコメントになる）
 
     Args:
         line: キューファイルの1行

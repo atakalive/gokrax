@@ -2342,7 +2342,7 @@ def main():
 
     # qadd
     p = sub.add_parser("qadd", help="キューに1行以上追加")
-    p.add_argument("entry", nargs="*", help="追加するエントリ (例: BeamShifter 33,34 lite no-automerge)")
+    p.add_argument("entry", nargs="*", help="追加するエントリ (例: BeamShifter 33,34 lite no-automerge comment=注意事項) ※comment=は末尾専用")
     p.add_argument("--file", type=Path, dest="file", help="エントリファイルパス（1行1エントリ）")
     p.add_argument("--stdin", action="store_true", dest="from_stdin", help="stdinから複数行を読み込む")
     p.add_argument("--queue", type=Path, help="キューファイルパス")

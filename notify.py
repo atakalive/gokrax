@@ -186,20 +186,28 @@ def fetch_issue_body(issue_num: int, gitlab: str) -> str | None:
         return None
 
 
-def _fetch_commit_diff(commit: str, repo_path: str) -> str | None:
-    """git show でコミットdiffを取得。"""
+def _fetch_commit_diff(commit: str, repo_path: str, base_commit: str | None = None) -> str | None:
+    """git diff/show でコミットdiffを取得。
+
+    base_commit が指定されている場合は累積diff (git diff base..commit) を使用。
+    未指定の場合は従来通り git show commit を使用。
+    """
     try:
+        if base_commit:
+            cmd = ["git", "-C", repo_path, "diff", f"{base_commit}..{commit}"]
+        else:
+            cmd = ["git", "-C", repo_path, "show", commit]
         result = subprocess.run(
-            ["git", "-C", repo_path, "show", commit],
+            cmd,
             capture_output=True, text=True, timeout=30, check=False,
         )
         if result.returncode != 0:
-            logger.warning("git show failed (commit=%s, rc=%d): %s",
-                          commit, result.returncode, result.stderr.strip())
+            logger.warning("git diff/show failed (commit=%s, base=%s, rc=%d): %s",
+                          commit, base_commit, result.returncode, result.stderr.strip())
             return None
         return result.stdout
     except subprocess.TimeoutExpired:
-        logger.warning("git show timed out (commit=%s)", commit)
+        logger.warning("git diff/show timed out (commit=%s, base=%s)", commit, base_commit)
         return None
     except FileNotFoundError:
         logger.error("git binary not found in PATH")
@@ -215,7 +223,8 @@ def notify_implementer(agent_id: str, message: str):
 
 def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
                      repo_path: str = "", review_mode: str = "standard",
-                     prev_reviews: dict = None, excluded: list[str] = None):
+                     prev_reviews: dict = None, excluded: list[str] = None,
+                     base_commit: str | None = None):
     """各レビュアーに個別のメッセージを送信。
 
     review_mode が "skip" の場合は通知をスキップ（自動承認用）。
@@ -248,7 +257,8 @@ def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
         if r not in AGENTS:
             continue  # 既にログ出力済み
         msg = format_review_request(project, state, batch, gitlab, reviewer=r,
-                                    repo_path=repo_path, prev_reviews=prev_reviews)
+                                    repo_path=repo_path, prev_reviews=prev_reviews,
+                                    base_commit=base_commit)
         if not msg:
             logger.info("No pending issues for %s — skipping review request", r)
             continue
@@ -312,7 +322,8 @@ def fetch_discord_replies(channel_id: str, after_message_id: str) -> list[dict]:
 
 def format_review_request(project: str, state: str, batch: list, gitlab: str,
                           reviewer: str, repo_path: str = "",
-                          prev_reviews: dict = None) -> str:
+                          prev_reviews: dict = None,
+                          base_commit: str | None = None) -> str:
     """レビュー依頼メッセージを生成（データ埋め込み + 20000文字制限）。"""
     if prev_reviews is None:
         prev_reviews = {}
@@ -358,7 +369,7 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
 
         # コードレビュー: git diff埋め込み
         if is_code and commit and repo_path:
-            diff = _fetch_commit_diff(commit, repo_path)
+            diff = _fetch_commit_diff(commit, repo_path, base_commit=base_commit)
             if diff:
                 section_parts.append(f"**変更内容:**\n```diff\n{diff}\n```\n")
             else:

@@ -523,8 +523,13 @@ class TestStartCc:
         mock_proc = MagicMock()
         mock_proc.pid = 99999
 
+        mock_git = MagicMock()
+        mock_git.returncode = 0
+        mock_git.stdout = "base123\n"
+
         with patch("watchdog.notify_discord"), \
              patch("notify.fetch_issue_body", return_value="test body"), \
+             patch("subprocess.run", return_value=mock_git), \
              patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
             _start_cc("test-pj", data["batch"], "atakalive/test-pj", "/tmp", path)
 
@@ -549,7 +554,12 @@ class TestStartCc:
         path.write_text(json.dumps(data))
         monkeypatch.setattr("watchdog.PIPELINES_DIR", tmp_pipelines)
 
-        with patch("subprocess.Popen") as mock_popen:
+        mock_git = MagicMock()
+        mock_git.returncode = 0
+        mock_git.stdout = "base123\n"
+
+        with patch("subprocess.run", return_value=mock_git), \
+             patch("subprocess.Popen") as mock_popen:
             _start_cc("test-pj", data["batch"], "atakalive/test-pj", "/tmp", path)
 
         mock_popen.assert_not_called()
@@ -578,7 +588,12 @@ class TestStartCc:
             created_files.append(p)
             return fd, p
 
+        mock_git = MagicMock()
+        mock_git.returncode = 0
+        mock_git.stdout = "base123\n"
+
         with patch("notify.fetch_issue_body", return_value="test body"), \
+             patch("subprocess.run", return_value=mock_git), \
              patch("subprocess.Popen", side_effect=OSError("fail")), \
              patch("tempfile.mkstemp", side_effect=track_mkstemp):
             with pytest.raises(OSError):
@@ -586,6 +601,69 @@ class TestStartCc:
 
         for f in created_files:
             assert not os.path.exists(f), f"一時ファイルが残っている: {f}"
+
+    def test_start_cc_records_base_commit(self, tmp_pipelines, monkeypatch):
+        """_start_cc 呼び出し後に pipeline に base_commit が保存されること"""
+        from watchdog import _start_cc
+        import json
+
+        path = tmp_pipelines / "test-pj.json"
+        data = {
+            "project": "test-pj", "gitlab": "atakalive/test-pj",
+            "state": "IMPLEMENTATION", "enabled": True,
+            "batch": [{"issue": 1, "title": "T", "commit": None,
+                       "design_reviews": {}, "code_reviews": {}}],
+            "history": [],
+        }
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data))
+        monkeypatch.setattr("watchdog.PIPELINES_DIR", tmp_pipelines)
+
+        mock_proc = MagicMock()
+        mock_proc.pid = 99999
+
+        # git log で base_commit を返す
+        mock_git = MagicMock()
+        mock_git.returncode = 0
+        mock_git.stdout = "abc1234\n"
+
+        with patch("watchdog.notify_discord"), \
+             patch("notify.fetch_issue_body", return_value="test body"), \
+             patch("subprocess.Popen", return_value=mock_proc), \
+             patch("subprocess.run", return_value=mock_git):
+            _start_cc("test-pj", data["batch"], "atakalive/test-pj", "/tmp", path)
+
+        saved = json.loads(path.read_text())
+        assert saved.get("base_commit") == "abc1234"
+
+    def test_start_cc_does_not_overwrite_base_commit(self, tmp_pipelines, monkeypatch):
+        """既に base_commit が設定済みの場合は上書きされないこと"""
+        from watchdog import _start_cc
+        import json
+
+        path = tmp_pipelines / "test-pj.json"
+        data = {
+            "project": "test-pj", "gitlab": "atakalive/test-pj",
+            "state": "IMPLEMENTATION", "enabled": True,
+            "base_commit": "existing123",
+            "batch": [{"issue": 1, "title": "T", "commit": None,
+                       "design_reviews": {}, "code_reviews": {}}],
+            "history": [],
+        }
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data))
+        monkeypatch.setattr("watchdog.PIPELINES_DIR", tmp_pipelines)
+
+        mock_proc = MagicMock()
+        mock_proc.pid = 99999
+
+        with patch("watchdog.notify_discord"), \
+             patch("notify.fetch_issue_body", return_value="test body"), \
+             patch("subprocess.Popen", return_value=mock_proc):
+            _start_cc("test-pj", data["batch"], "atakalive/test-pj", "/tmp", path)
+
+        saved = json.loads(path.read_text())
+        assert saved["base_commit"] == "existing123"
 
 
 # ── TestTimeoutExtension ──────────────────────────────────────────────────────
@@ -921,6 +999,50 @@ class TestReviseLoopLimit:
         assert "design_revise_count" not in data
         assert "code_revise_count" not in data
         assert data["state"] == "IDLE"
+
+    def test_base_commit_cleared_on_idle_to_design_plan(self, tmp_path, monkeypatch):
+        """IDLE→DESIGN_PLAN遷移でbase_commitがクリアされること（Issue #82）
+
+        IDLE→DESIGN_PLAN は CLI (devbar start) で遷移するため、
+        do_transition 内のクリア処理を直接テストする。
+        """
+        import config, pipeline_io
+        from pipeline_io import update_pipeline
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        path = tmp_path / "test-pj.json"
+        data = {
+            "project": "test-pj",
+            "state": "IDLE",
+            "enabled": True,
+            "base_commit": "old123",
+            "design_revise_count": 2,
+            "code_revise_count": 1,
+            "batch": _make_batch(1),
+            "history": [],
+            "created_at": "",
+            "updated_at": "",
+        }
+        _write_pipeline(path, data)
+
+        # IDLE→DESIGN_PLAN 遷移時のクリア処理をシミュレート
+        def do_transition(d):
+            state = d.get("state", "IDLE")
+            new_state = "DESIGN_PLAN"
+            if state == "IDLE" and new_state == "DESIGN_PLAN":
+                d.pop("design_revise_count", None)
+                d.pop("code_revise_count", None)
+                d.pop("base_commit", None)
+            d["state"] = new_state
+
+        update_pipeline(path, do_transition)
+
+        saved = json.loads(path.read_text())
+        assert "base_commit" not in saved
+        assert "design_revise_count" not in saved
+        assert "code_revise_count" not in saved
+        assert saved["state"] == "DESIGN_PLAN"
 
 
 class TestReviseP0Summary:

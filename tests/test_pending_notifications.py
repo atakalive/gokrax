@@ -523,3 +523,73 @@ class TestRecoveryFailurePreservesPending:
         result = _read_pipeline(path)
         assert "_pending_notifications" in result
         assert "review" in result["_pending_notifications"]
+
+
+class TestBaseCommitInPending:
+    """base_commit の pending notification 伝播テスト（Issue #82）"""
+
+    def test_recovery_passes_base_commit(self, tmp_path, monkeypatch):
+        """pending.review に base_commit が含まれていれば notify_reviewers に渡されること"""
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        path = tmp_path / "test-pj.json"
+        data = _base_pipeline(
+            state="CODE_REVIEW",
+            batch=_make_batch(1, commit="def456"),
+            base_commit="abc123",
+            _pending_notifications={
+                "review": {
+                    "new_state": "CODE_REVIEW",
+                    "batch": _make_batch(1, commit="def456"),
+                    "gitlab": "atakalive/test-pj",
+                    "repo_path": "/repo",
+                    "review_mode": "standard",
+                    "base_commit": "abc123",
+                },
+            },
+        )
+        _write_pipeline(path, data)
+
+        from watchdog import process
+
+        mock_review = MagicMock()
+        with patch("watchdog.notify_reviewers", mock_review), \
+             patch("watchdog.notify_discord"):
+            process(path)
+
+        mock_review.assert_called_once()
+        _, kwargs = mock_review.call_args
+        assert kwargs.get("base_commit") == "abc123"
+
+    def test_recovery_passes_none_when_base_commit_missing(self, tmp_path, monkeypatch):
+        """pending.review に base_commit がなければ None が渡されること"""
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        path = tmp_path / "test-pj.json"
+        data = _base_pipeline(
+            state="CODE_REVIEW",
+            batch=_make_batch(1),
+            _pending_notifications={
+                "review": {
+                    "new_state": "CODE_REVIEW",
+                    "batch": _make_batch(1),
+                    "gitlab": "atakalive/test-pj",
+                    "repo_path": "",
+                    "review_mode": "standard",
+                },
+            },
+        )
+        _write_pipeline(path, data)
+
+        from watchdog import process
+
+        mock_review = MagicMock()
+        with patch("watchdog.notify_reviewers", mock_review), \
+             patch("watchdog.notify_discord"):
+            process(path)
+
+        mock_review.assert_called_once()
+        _, kwargs = mock_review.call_args
+        assert kwargs.get("base_commit") is None

@@ -693,6 +693,24 @@ def _start_cc(project: str, batch: list, gitlab: str, repo_path: str, pipeline_p
 
     # CC モデル指定を pipeline JSON から読み取る (Issue #45)
     data = load_pipeline(pipeline_path)
+
+    # base_commit が未設定の場合のみ記録（REVISE→再IMPL で上書きしない）
+    if not data.get("base_commit") and repo_path:
+        try:
+            result = _sub.run(
+                ["git", "-C", repo_path, "log", "--format=%h", "-1"],
+                capture_output=True, text=True, timeout=10, check=False,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                base = result.stdout.strip()
+                def _set_base(d):
+                    if not d.get("base_commit"):
+                        d["base_commit"] = base
+                update_pipeline(pipeline_path, _set_base)
+                log(f"[{project}] base_commit recorded: {base}")
+        except Exception as e:
+            log(f"[{project}] WARNING: failed to record base_commit: {e}")
+
     plan_model = data.get("cc_plan_model") or CC_MODEL_PLAN
     impl_model = data.get("cc_impl_model") or CC_MODEL_IMPL
     q_tag = "[Queue]" if data.get("queue_mode") else ""
@@ -933,6 +951,7 @@ def _recover_pending_notifications(pj: str, pending: dict, data: dict) -> None:
                 repo_path=info.get("repo_path", ""),
                 review_mode=info.get("review_mode", "standard"),
                 excluded=excluded,
+                base_commit=info.get("base_commit"),
             )
             clear_pending_notification(pj, "review")
         except Exception as e:
@@ -1982,6 +2001,7 @@ def process(path: Path):
         if state == "IDLE" and action.new_state == "DESIGN_PLAN":
             data.pop("design_revise_count", None)
             data.pop("code_revise_count", None)
+            data.pop("base_commit", None)
 
         # REVIEW→REVISE: Increment cycle counter (Issue #29)
         if state in ("DESIGN_REVIEW", "CODE_REVIEW") and action.new_state in ("DESIGN_REVISE", "CODE_REVISE"):
@@ -2098,6 +2118,7 @@ def process(path: Path):
                 "gitlab": data.get("gitlab", f"atakalive/{pj}"),
                 "repo_path": data.get("repo_path", ""),
                 "review_mode": data.get("review_mode", "standard"),
+                "base_commit": data.get("base_commit"),
             }
         if action.send_merge_summary:
             pending["merge_summary"] = True
@@ -2365,12 +2386,14 @@ def process(path: Path):
             pipeline_data = load_pipeline(get_path(pj))
             excluded = pipeline_data.get("excluded_reviewers", [])
 
+            base_commit = pipeline_data.get("base_commit")
             notify_reviewers(
                 pj, action.new_state, notification["batch"], notification["gitlab"],
                 repo_path=notification.get("repo_path", ""),
                 review_mode=review_mode,
                 prev_reviews=prev_reviews,
                 excluded=excluded,
+                base_commit=base_commit,
             )
             clear_pending_notification(pj, "review")
         if action.run_cc:

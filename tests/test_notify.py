@@ -333,7 +333,7 @@ class TestFetchCommitDiff:
             with caplog.at_level(logging.WARNING, logger="devbar.notify"):
                 result = notify._fetch_commit_diff("abc123", "/repo")
         assert result is None
-        assert "git show failed" in caplog.text
+        assert "git diff/show failed" in caplog.text
 
 
 class TestFormatReviewRequestEmbedded:
@@ -531,3 +531,64 @@ class TestPrevReviews:
             )
 
         assert "前回の" not in msg
+
+
+class TestBaseCommitDiff:
+    """base_commit を使った累積diff取得テスト（Issue #82）"""
+
+    def test_fetch_commit_diff_with_base_commit(self):
+        """base_commit 指定時に git diff base..commit が実行されること"""
+        import notify
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "diff --git a/file.py b/file.py\n+cumulative change"
+        with patch("notify.subprocess.run", return_value=mock_result) as mock_run:
+            result = notify._fetch_commit_diff("def456", "/repo", base_commit="abc123")
+        assert result == mock_result.stdout
+        cmd = mock_run.call_args[0][0]
+        assert cmd == ["git", "-C", "/repo", "diff", "abc123..def456"]
+
+    def test_fetch_commit_diff_without_base_commit(self):
+        """base_commit=None 時に git show が実行されること"""
+        import notify
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "commit abc123\ndiff --git ..."
+        with patch("notify.subprocess.run", return_value=mock_result) as mock_run:
+            result = notify._fetch_commit_diff("abc123", "/repo", base_commit=None)
+        assert result == mock_result.stdout
+        cmd = mock_run.call_args[0][0]
+        assert cmd == ["git", "-C", "/repo", "show", "abc123"]
+
+    def test_format_review_request_passes_base_commit(self):
+        """base_commit が format_review_request → _fetch_commit_diff に伝播すること"""
+        import notify
+        batch = [{
+            "issue": 1, "title": "Fix", "commit": "def456",
+            "design_reviews": {}, "code_reviews": {},
+        }]
+        with patch("notify.fetch_issue_body", return_value="body"):
+            with patch("notify._fetch_commit_diff", return_value="diff") as mock_diff:
+                notify.format_review_request(
+                    "proj", "CODE_REVIEW", batch, "atakalive/proj", "pascal",
+                    repo_path="/repo", base_commit="abc123"
+                )
+        mock_diff.assert_called_once_with("def456", "/repo", base_commit="abc123")
+
+    def test_notify_reviewers_passes_base_commit(self):
+        """notify_reviewers が format_review_request に base_commit を渡すこと"""
+        import notify
+        batch = [{
+            "issue": 1, "title": "t", "commit": None,
+            "design_reviews": {}, "code_reviews": {},
+        }]
+        with patch("notify.send_to_agent") as mock_send:
+            with patch("notify.fetch_issue_body", return_value="body"):
+                with patch("notify.format_review_request", return_value="msg") as mock_fmt:
+                    notify.notify_reviewers(
+                        "proj", "CODE_REVIEW", batch, "atakalive/proj",
+                        base_commit="abc123"
+                    )
+        # format_review_request が base_commit="abc123" で呼ばれたことを検証
+        for call in mock_fmt.call_args_list:
+            assert call.kwargs.get("base_commit") == "abc123"

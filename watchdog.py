@@ -2647,8 +2647,17 @@ def process(path: Path):
                     r for r, rev in reviews.items()
                     if rev.get("verdict", "").upper() in ("P0", "REJECT")
                 ]
+                p1_reviewers = [
+                    r for r, rev in reviews.items()
+                    if rev.get("verdict", "").upper() == "P1"
+                ]
+                parts = []
                 if p0_reviewers:
-                    lines.append(f"#{item['issue']}: {len(p0_reviewers)} P0 ({', '.join(p0_reviewers)})")
+                    parts.append(f"{len(p0_reviewers)} P0 ({', '.join(p0_reviewers)})")
+                if p1_reviewers:
+                    parts.append(f"{len(p1_reviewers)} P1 ({', '.join(p1_reviewers)})")
+                if parts:
+                    lines.append(f"#{item['issue']}: {', '.join(parts)}")
             if lines:
                 notify_discord(f"{q_prefix}[{pj}] REVISE対象:\n" + "\n".join(lines))
 

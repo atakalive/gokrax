@@ -151,11 +151,12 @@ REVIEW_MODES = {
     },
 }
 
-# Reviewer tiers: regular, semi, free
+# Reviewer tiers: regular, semi, free, short-context
 REVIEWER_TIERS: dict[str, list[str]] = {
     "regular": ["leibniz", "dijkstra", "euler"],
     "semi": ["pascal"],
     "free": ["hanfei"],
+    "short-context": [],  # ローカルLLM等、コンテキスト長が短いレビュアー
 }
 
 
@@ -220,13 +221,26 @@ METRICS_FILE = PIPELINES_DIR.parent / "devbar-metrics.jsonl"
 
 
 def _validate_reviewer_tiers():
-    """Warn if REVIEW_MODES contains reviewers not in REVIEWER_TIERS."""
+    """Warn if REVIEW_MODES contains reviewers not in REVIEWER_TIERS,
+    or if a reviewer appears in multiple tiers."""
     import logging
     logger = logging.getLogger(__name__)
 
     all_tier_members = set()
-    for members in REVIEWER_TIERS.values():
+    member_to_tiers: dict[str, list[str]] = {}
+    for tier, members in REVIEWER_TIERS.items():
+        for m in members:
+            member_to_tiers.setdefault(m, []).append(tier)
         all_tier_members.update(members)
+
+    # 一意性チェック
+    for member, tiers in member_to_tiers.items():
+        if len(tiers) > 1:
+            logger.warning(
+                "[config] Reviewer '%s' appears in multiple tiers: %s. "
+                "get_tier() will return the first match (dict order).",
+                member, tiers
+            )
 
     for mode_name, config in REVIEW_MODES.items():
         for reviewer in config["members"]:

@@ -2832,6 +2832,7 @@ def process(path: Path):
                 and notification.get("queue_mode")):
             _check_queue()
 
+        skip_reset = True  # reset_reviewers=False なら reset 未実行 → already_reset=False
         if action.reset_reviewers:
             review_mode = notification.get("review_mode", "standard")
             # keep_ctx 分岐: 遷移先に応じて参照フラグを切り替え
@@ -2897,6 +2898,7 @@ def process(path: Path):
                 excluded=excluded,
                 base_commit=base_commit,
                 comment=pipeline_data.get("comment", ""),
+                already_reset=not skip_reset,  # _reset_reviewers() 実行済みなら True
             )
             clear_pending_notification(pj, "review")
         if action.run_cc:

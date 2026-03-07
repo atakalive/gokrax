@@ -14,7 +14,7 @@ import requests
 import config
 from config import (
     DEVBAR_CLI, GLAB_BIN, DISCORD_CHANNEL, DISCORD_BOT_TOKEN,
-    AGENTS, REVIEW_MODES, MAX_EMBED_CHARS, GLAB_TIMEOUT,
+    AGENTS, REVIEW_MODES, MAX_EMBED_CHARS, MAX_DIFF_CHARS, GLAB_TIMEOUT,
     AGENT_SEND_TIMEOUT, DISCORD_POST_TIMEOUT, POST_NEW_COMMAND_WAIT_SEC
 )
 
@@ -419,6 +419,9 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
         if is_code and commit and repo_path:
             diff = _fetch_commit_diff(commit, repo_path, base_commit=base_commit)
             if diff:
+                orig_len = len(diff)
+                if orig_len > MAX_DIFF_CHARS:
+                    diff = diff[:MAX_DIFF_CHARS] + f"\n\n... (truncated: {orig_len} chars, limit {MAX_DIFF_CHARS})"
                 section_parts.append(f"**変更内容:**\n```diff\n{diff}\n```\n")
             else:
                 # 取得失敗時: fallbackコマンド
@@ -476,7 +479,11 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
             "レビュー観点:\n"
             "- 設計レビューで承認された仕様通りに実装されているか\n"
             "- バグ、エッジケース、型ヒントの欠落\n"
-            "- テストの妥当性を判定"
+            "- テストの妥当性を判定\n\n"
+            "スコープ制約:\n"
+            "- P0/P1 を出す場合、該当コードが今回の diff に含まれることを確認せよ\n"
+            "- 前バッチで既に入った変更を現バッチの責任にしない\n"
+            "- diff 外で気づいた問題は P2（提案）として報告せよ"
         )
     else:
         guidance = (

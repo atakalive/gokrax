@@ -391,6 +391,67 @@ class TestFormatReviewRequestEmbedded:
         assert "(truncated)" in result
         assert "文字数制限のため省略" in result
 
+    def test_guidance_has_scope_constraint_for_code_review(self):
+        import notify
+        batch = [self._make_batch_item(10, "Fix", "abc123")]
+        with patch("notify.fetch_issue_body", return_value="body"):
+            with patch("notify._fetch_commit_diff", return_value="diff"):
+                result = notify.format_review_request(
+                    "proj", "CODE_REVIEW", batch, "atakalive/proj", "pascal",
+                    repo_path="/repo"
+                )
+        assert "スコープ制約:" in result
+        assert "P0/P1 を出す場合、該当コードが今回の diff に含まれることを確認せよ" in result
+        assert "前バッチで既に入った変更を現バッチの責任にしない" in result
+        assert "diff 外で気づいた問題は P2（提案）として報告せよ" in result
+
+    def test_guidance_no_scope_constraint_for_design_review(self):
+        import notify
+        batch = [self._make_batch_item(10, "Spec")]
+        with patch("notify.fetch_issue_body", return_value="body"):
+            result = notify.format_review_request(
+                "proj", "DESIGN_REVIEW", batch, "atakalive/proj", "pascal"
+            )
+        assert "スコープ制約:" not in result
+
+    def test_diff_truncated_when_exceeds_max_diff_chars(self, monkeypatch):
+        import notify
+        import config
+        limit = 100
+        monkeypatch.setattr(config, "MAX_DIFF_CHARS", limit)
+        monkeypatch.setattr(notify, "MAX_DIFF_CHARS", limit)
+
+        long_diff = "x" * 200
+        batch = [self._make_batch_item(10, "Fix", "abc123")]
+        with patch("notify.fetch_issue_body", return_value="body"):
+            with patch("notify._fetch_commit_diff", return_value=long_diff):
+                result = notify.format_review_request(
+                    "proj", "CODE_REVIEW", batch, "atakalive/proj", "pascal",
+                    repo_path="/repo"
+                )
+        assert f"truncated: 200 chars, limit {limit}" in result
+        # truncation後のdiffはlimitまで
+        assert "x" * limit in result
+        assert "x" * (limit + 1) not in result
+
+    def test_diff_not_truncated_when_within_limit(self, monkeypatch):
+        import notify
+        import config
+        limit = 100
+        monkeypatch.setattr(config, "MAX_DIFF_CHARS", limit)
+        monkeypatch.setattr(notify, "MAX_DIFF_CHARS", limit)
+
+        short_diff = "x" * 50
+        batch = [self._make_batch_item(10, "Fix", "abc123")]
+        with patch("notify.fetch_issue_body", return_value="body"):
+            with patch("notify._fetch_commit_diff", return_value=short_diff):
+                result = notify.format_review_request(
+                    "proj", "CODE_REVIEW", batch, "atakalive/proj", "pascal",
+                    repo_path="/repo"
+                )
+        assert "truncated" not in result
+        assert short_diff in result
+
 
 class TestNotifyReviewersWithMode:
     """notify_reviewers の review_mode 連携テスト（Issue #24）"""

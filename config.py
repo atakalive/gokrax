@@ -171,6 +171,7 @@ def get_tier(agent_name: str) -> str:
 # レビュアーの最小コンテキスト200k中、プロンプト等で40k消費 → 残り160k
 # 安全マージンを取って128k chars（英語コードなら≒128kトークン）
 MAX_EMBED_CHARS = 512 * 1024
+MAX_DIFF_CHARS = 50_000
 
 ALLOWED_REVIEWERS = list(AGENTS.keys())
 

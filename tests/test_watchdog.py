@@ -538,6 +538,61 @@ class TestStartCc:
         assert saved["cc_pid"] == 99999
         assert "cc_session_id" in saved
 
+    def test_start_cc_plan_prompt_contains_handover_sections(self, tmp_pipelines, monkeypatch):
+        """plan_promptに実装申し送りの各セクション見出しが含まれること"""
+        from watchdog import _start_cc
+        import tempfile as _tempfile
+        from pathlib import Path as _Path
+        path = tmp_pipelines / "test-pj.json"
+        data = {
+            "project": "test-pj", "gitlab": "atakalive/test-pj",
+            "state": "IMPLEMENTATION", "enabled": True,
+            "batch": [{"issue": 1, "title": "T", "commit": None,
+                       "design_reviews": {}, "code_reviews": {}}],
+            "history": [],
+        }
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data))
+        monkeypatch.setattr("watchdog.PIPELINES_DIR", tmp_pipelines)
+
+        mock_proc = MagicMock()
+        mock_proc.pid = 99999
+        mock_git = MagicMock()
+        mock_git.returncode = 0
+        mock_git.stdout = "base123\n"
+
+        created_paths = []
+        original_mkstemp = _tempfile.mkstemp
+
+        def capturing_mkstemp(*args, **kwargs):
+            fd, p = original_mkstemp(*args, **kwargs)
+            created_paths.append(p)
+            return fd, p
+
+        with patch("watchdog.notify_discord"), \
+             patch("notify.fetch_issue_body", return_value="test body"), \
+             patch("subprocess.run", return_value=mock_git), \
+             patch("tempfile.mkstemp", side_effect=capturing_mkstemp), \
+             patch("subprocess.Popen", return_value=mock_proc):
+            _start_cc("test-pj", data["batch"], "atakalive/test-pj", "/tmp", path)
+
+        # devbar-plan- プレフィックスのファイルを特定
+        plan_files = [p for p in created_paths if "devbar-plan-" in _Path(p).name]
+        assert plan_files, "devbar-plan- ファイルが作られていない"
+        plan_text = _Path(plan_files[0]).read_text()
+        # 後片付け
+        for p in created_paths:
+            try:
+                _Path(p).unlink()
+            except OSError:
+                pass
+
+        assert "実装申し送り" in plan_text
+        assert "変更対象" in plan_text
+        assert "触るな" in plan_text
+        assert "罠・エッジケース" in plan_text
+        assert "テスト観点" in plan_text
+
     def test_start_cc_skips_committed(self, tmp_pipelines, monkeypatch):
         """commit済みIssueはスキップ"""
         from watchdog import _start_cc

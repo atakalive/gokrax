@@ -813,9 +813,23 @@ def _start_cc(project: str, batch: list, gitlab: str, repo_path: str, pipeline_p
         f"以下のIssueを実装する計画を立ててください。\n"
         f"{comment_line}"
         f"\n{issues_block}\n\n"
+        f"コミットメッセージに {closes} を必ず含めること。\n\n"
+        f"計画を立てた後、最後に以下のフォーマットで実装申し送りを出力せよ:\n\n"
+        f"## 実装申し送り\n"
+        f"### 変更対象\n"
+        f"- ファイルパスと変更内容（箇条書き）\n\n"
+        f"### 触るな\n"
+        f"- 既存コードで変更してはいけない箇所・理由\n\n"
+        f"### 罠・エッジケース\n"
+        f"- 実装時に注意すべき点（見つけたもの全て）\n\n"
+        f"### テスト観点\n"
+        f"- テストすべきケース（正常系・異常系・境界値）"
+    )
+    impl_prompt = (
+        f"計画OK。実装して、pytest を走らせて全パスを確認してから commit して。"
+        f"テストが失敗したら修正してから commit。"
         f"コミットメッセージに {closes} を必ず含めること。"
     )
-    impl_prompt = f"計画OK。実装して commit して。コミットメッセージに {closes} を必ず含めること。"
 
     # mkstemp で安全に一時ファイル作成
     fd_plan, plan_path = tempfile.mkstemp(suffix=".txt", prefix="devbar-plan-")

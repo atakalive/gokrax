@@ -825,11 +825,7 @@ def _start_cc(project: str, batch: list, gitlab: str, repo_path: str, pipeline_p
         f"### テスト観点\n"
         f"- テストすべきケース（正常系・異常系・境界値）"
     )
-    impl_prompt = (
-        f"計画OK。実装して、pytest を走らせて全パスを確認してから commit して。"
-        f"テストが失敗したら修正してから commit。"
-        f"コミットメッセージに {closes} を必ず含めること。"
-    )
+    impl_prompt = f"計画OK。実装して commit して。コミットメッセージに {closes} を必ず含めること。"
 
     # mkstemp で安全に一時ファイル作成
     fd_plan, plan_path = tempfile.mkstemp(suffix=".txt", prefix="devbar-plan-")

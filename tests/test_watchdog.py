@@ -3519,3 +3519,652 @@ class TestGetNotificationForStateComment:
         batch = [{"issue": 1, "design_ready": False}]
         action = get_notification_for_state("DESIGN_PLAN", project="Foo", batch=batch, comment="")
         assert "Mからの要望" not in action.impl_msg
+
+
+# ── Issue #92: pytest ベースライン ────────────────────────────────────────────
+
+class TestHasPytest:
+    """_has_pytest() のテスト"""
+
+    def test_pyproject_toml_with_tool_pytest(self, tmp_path):
+        """pyproject.toml に [tool.pytest.ini_options] がある → True"""
+        from watchdog import _has_pytest
+        (tmp_path / "pyproject.toml").write_text("[tool.pytest.ini_options]\n")
+        assert _has_pytest(str(tmp_path)) is True
+
+    def test_pyproject_toml_with_pytest_section(self, tmp_path):
+        """pyproject.toml に [pytest] がある → True"""
+        from watchdog import _has_pytest
+        (tmp_path / "pyproject.toml").write_text("[pytest]\naddopts = -v\n")
+        assert _has_pytest(str(tmp_path)) is True
+
+    def test_setup_cfg_with_tool_pytest(self, tmp_path):
+        """setup.cfg に [tool:pytest] がある → True"""
+        from watchdog import _has_pytest
+        (tmp_path / "setup.cfg").write_text("[tool:pytest]\n")
+        assert _has_pytest(str(tmp_path)) is True
+
+    def test_tests_dir_only(self, tmp_path):
+        """tests/ ディレクトリだけ存在 → True"""
+        from watchdog import _has_pytest
+        (tmp_path / "tests").mkdir()
+        assert _has_pytest(str(tmp_path)) is True
+
+    def test_none_of_the_above(self, tmp_path):
+        """何もなし → False"""
+        from watchdog import _has_pytest
+        assert _has_pytest(str(tmp_path)) is False
+
+    def test_pyproject_without_pytest_section(self, tmp_path):
+        """pyproject.toml に pytest 設定なし → False"""
+        from watchdog import _has_pytest
+        (tmp_path / "pyproject.toml").write_text("[tool.black]\n")
+        assert _has_pytest(str(tmp_path)) is False
+
+    def test_read_error_returns_false(self, tmp_path):
+        """ファイル読み込みエラー → False"""
+        from watchdog import _has_pytest
+        p = tmp_path / "pyproject.toml"
+        p.write_text("[tool.pytest.ini_options]\n")
+        p.chmod(0o000)
+        try:
+            result = _has_pytest(str(tmp_path))
+        finally:
+            p.chmod(0o644)
+        # 読み込みエラー時は False または tests/ ディレクトリがあれば True
+        # ここでは tests/ ディレクトリがないので False
+        assert result is False
+
+
+class TestKillPytestBaseline:
+    """_kill_pytest_baseline() のテスト"""
+
+    def test_no_info_does_nothing(self):
+        """_pytest_baseline なし → 何もしない"""
+        from watchdog import _kill_pytest_baseline
+        data = {}
+        with patch("watchdog.os.killpg") as mock_kill, \
+             patch("watchdog.os.unlink") as mock_unlink:
+            _kill_pytest_baseline(data, "pj")
+        mock_kill.assert_not_called()
+        mock_unlink.assert_not_called()
+        assert "_pytest_baseline" not in data
+
+    def test_kills_alive_pid(self, tmp_path):
+        """pid が生きている → killpg(SIGTERM) + killpg(SIGKILL) + ファイル削除"""
+        import signal as _signal
+        import os
+        from watchdog import _kill_pytest_baseline
+
+        out_path = str(tmp_path / "out.txt")
+        exit_path = str(tmp_path / "out.txt.exit")
+        (tmp_path / "out.txt").write_text("")
+
+        data = {
+            "_pytest_baseline": {
+                "pid": 12345,
+                "output_path": out_path,
+                "exit_code_path": exit_path,
+            }
+        }
+
+        kill_calls = []
+
+        def fake_killpg(pgid, sig):
+            kill_calls.append((pgid, sig))
+
+        # pid は最初alive、SIGTERMの後もalive、SIGKILLで死ぬ想定
+        # Path(f"/proc/{pid}").exists() を3回分: initial check, after SIGTERM, never alive (SIGKILL)
+        exists_results = [True, True]
+        exists_iter = iter(exists_results)
+
+        def fake_path_exists(self_):
+            try:
+                return next(exists_iter)
+            except StopIteration:
+                return False
+
+        with patch.object(Path, "exists", fake_path_exists), \
+             patch("watchdog.os.killpg", side_effect=fake_killpg), \
+             patch("watchdog.os.unlink") as mock_unlink, \
+             patch("time.sleep"):
+            _kill_pytest_baseline(data, "pj")
+
+        assert (12345, _signal.SIGTERM) in kill_calls
+        assert (12345, _signal.SIGKILL) in kill_calls
+        assert "_pytest_baseline" not in data
+
+    def test_dead_pid_only_cleans_files(self, tmp_path):
+        """pid が既に死んでいる → ファイル削除のみ"""
+        from watchdog import _kill_pytest_baseline
+
+        out_path = str(tmp_path / "out.txt")
+        (tmp_path / "out.txt").write_text("")
+
+        data = {
+            "_pytest_baseline": {
+                "pid": 99999,
+                "output_path": out_path,
+                "exit_code_path": "",
+            }
+        }
+
+        with patch.object(Path, "exists", return_value=False), \
+             patch("watchdog.os.killpg") as mock_kill, \
+             patch("watchdog.os.unlink") as mock_unlink:
+            _kill_pytest_baseline(data, "pj")
+
+        mock_kill.assert_not_called()
+        # output_path は unlink されるはず
+        mock_unlink.assert_called_once_with(out_path)
+        assert "_pytest_baseline" not in data
+
+
+class TestPollPytestBaseline:
+    """_poll_pytest_baseline() のテスト"""
+
+    def _write_pipeline(self, path, data):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data))
+
+    def test_no_info_does_nothing(self, tmp_pipelines):
+        """_pytest_baseline なし → pipeline 変更なし"""
+        from watchdog import _poll_pytest_baseline
+        path = tmp_pipelines / "pj.json"
+        data = {"enabled": True, "project": "pj", "state": "DESIGN_PLAN", "history": []}
+        self._write_pipeline(path, data)
+        _poll_pytest_baseline(path, "pj")
+        saved = json.loads(path.read_text())
+        assert "test_baseline" not in saved
+
+    def test_exit_code_path_exists_saves_baseline(self, tmp_pipelines, tmp_path):
+        """exit_code_path が存在 → test_baseline 書き込み、ファイル削除、_pytest_baseline 削除"""
+        import os
+        from watchdog import _poll_pytest_baseline
+
+        out_path = str(tmp_path / "out.txt")
+        exit_path = str(tmp_path / "out.txt.exit")
+        (tmp_path / "out.txt").write_text("5 passed\n")
+        (tmp_path / "out.txt.exit").write_text("0\n")
+
+        path = tmp_pipelines / "pj.json"
+        data = {
+            "enabled": True, "project": "pj", "state": "DESIGN_PLAN", "history": [],
+            "_pytest_baseline": {
+                "pid": 99999,
+                "commit": "abc12345",
+                "started_at": "2025-01-01T00:00:00+09:00",
+                "output_path": out_path,
+                "exit_code_path": exit_path,
+            },
+        }
+        self._write_pipeline(path, data)
+
+        # /proc/{pid} は存在しない（プロセスは終了済み）
+        with patch.object(Path, "exists", return_value=False):
+            _poll_pytest_baseline(path, "pj")
+
+        saved = json.loads(path.read_text())
+        assert "test_baseline" in saved
+        assert saved["test_baseline"]["commit"] == "abc12345"
+        assert saved["test_baseline"]["exit_code"] == 0
+        assert "5 passed" in saved["test_baseline"]["output"]
+        assert "_pytest_baseline" not in saved
+        assert not (tmp_path / "out.txt").exists()
+        assert not (tmp_path / "out.txt.exit").exists()
+
+    def test_proc_alive_no_exit_code_does_nothing(self, tmp_pipelines):
+        """exit_code_path なし + /proc あり → 何もしない（実行中）"""
+        from watchdog import _poll_pytest_baseline
+        from datetime import datetime, timedelta, timezone
+
+        JST = timezone(timedelta(hours=9))
+        recent = datetime.now(JST).isoformat()
+
+        path = tmp_pipelines / "pj.json"
+        data = {
+            "enabled": True, "project": "pj", "state": "DESIGN_PLAN", "history": [],
+            "_pytest_baseline": {
+                "pid": 12345,
+                "commit": "abc12345",
+                "started_at": recent,
+                "output_path": "/tmp/nonexistent-out.txt",
+                "exit_code_path": "/tmp/nonexistent-out.txt.exit",
+            },
+        }
+        self._write_pipeline(path, data)
+
+        def fake_exists(self_):
+            # exit_code_path のチェック → False、/proc/{pid} → True
+            s = str(self_)
+            if "/proc/" in s:
+                return True
+            return False
+
+        with patch.object(Path, "exists", fake_exists), \
+             patch("os.path.exists", return_value=False):
+            _poll_pytest_baseline(path, "pj")
+
+        saved = json.loads(path.read_text())
+        assert "test_baseline" not in saved
+        assert "_pytest_baseline" in saved
+
+    def test_proc_dead_no_exit_code_saves_minus1(self, tmp_pipelines):
+        """exit_code_path なし + /proc なし → 異常終了として exit_code=-1 で保存"""
+        from watchdog import _poll_pytest_baseline
+
+        path = tmp_pipelines / "pj.json"
+        data = {
+            "enabled": True, "project": "pj", "state": "DESIGN_PLAN", "history": [],
+            "_pytest_baseline": {
+                "pid": 12345,
+                "commit": "abc12345",
+                "started_at": "2025-01-01T00:00:00+09:00",
+                "output_path": "/tmp/nonexistent-out.txt",
+                "exit_code_path": "/tmp/nonexistent-out.txt.exit",
+            },
+        }
+        self._write_pipeline(path, data)
+
+        with patch.object(Path, "exists", return_value=False), \
+             patch("os.path.exists", return_value=False):
+            _poll_pytest_baseline(path, "pj")
+
+        saved = json.loads(path.read_text())
+        assert "test_baseline" in saved
+        assert saved["test_baseline"]["exit_code"] == -1
+        assert "_pytest_baseline" not in saved
+
+    def test_timeout_kills_and_records(self, tmp_pipelines):
+        """started_at から 5分超過 → kill + タイムアウト記録"""
+        from watchdog import _poll_pytest_baseline
+        from datetime import datetime, timedelta, timezone
+
+        JST = timezone(timedelta(hours=9))
+        old_time = (datetime.now(JST) - timedelta(seconds=400)).isoformat()
+
+        path = tmp_pipelines / "pj.json"
+        data = {
+            "enabled": True, "project": "pj", "state": "DESIGN_PLAN", "history": [],
+            "_pytest_baseline": {
+                "pid": 12345,
+                "commit": "abc12345",
+                "started_at": old_time,
+                "output_path": "/tmp/nonexistent-out.txt",
+                "exit_code_path": "/tmp/nonexistent-out.txt.exit",
+            },
+        }
+        self._write_pipeline(path, data)
+
+        with patch.object(Path, "exists", return_value=True), \
+             patch("os.path.exists", return_value=False), \
+             patch("watchdog.os.killpg") as mock_kill:
+            _poll_pytest_baseline(path, "pj")
+
+        saved = json.loads(path.read_text())
+        assert "test_baseline" in saved
+        assert saved["test_baseline"]["exit_code"] == -1
+        assert "timed out" in saved["test_baseline"]["summary"]
+        assert "_pytest_baseline" not in saved
+        mock_kill.assert_called()
+
+    def test_output_truncated_at_limit(self, tmp_pipelines, tmp_path):
+        """出力が MAX_BASELINE_OUTPUT_CHARS 超過 → 切り詰め + '(truncated)' prefix"""
+        from watchdog import _poll_pytest_baseline, MAX_BASELINE_OUTPUT_CHARS
+
+        big_output = "x" * (MAX_BASELINE_OUTPUT_CHARS + 1000)
+        out_path = str(tmp_path / "out.txt")
+        exit_path = str(tmp_path / "out.txt.exit")
+        (tmp_path / "out.txt").write_text(big_output)
+        (tmp_path / "out.txt.exit").write_text("1\n")
+
+        path = tmp_pipelines / "pj.json"
+        data = {
+            "enabled": True, "project": "pj", "state": "DESIGN_PLAN", "history": [],
+            "_pytest_baseline": {
+                "pid": 99999,
+                "commit": "abc12345",
+                "started_at": "2025-01-01T00:00:00+09:00",
+                "output_path": out_path,
+                "exit_code_path": exit_path,
+            },
+        }
+        self._write_pipeline(path, data)
+
+        with patch.object(Path, "exists", return_value=False):
+            _poll_pytest_baseline(path, "pj")
+
+        saved = json.loads(path.read_text())
+        output = saved["test_baseline"]["output"]
+        assert len(output) <= MAX_BASELINE_OUTPUT_CHARS
+        assert "(truncated)" in output
+
+
+class TestImplPromptTestBaseline:
+    """_start_cc() における test_baseline 埋め込みのテスト"""
+
+    def _make_path_and_data(self, tmp_pipelines, extra=None):
+        path = tmp_pipelines / "test-pj.json"
+        data = {
+            "project": "test-pj", "gitlab": "atakalive/test-pj",
+            "state": "IMPLEMENTATION", "enabled": True,
+            "batch": [{"issue": 1, "title": "T", "commit": None,
+                       "design_reviews": {}, "code_reviews": {}}],
+            "history": [],
+        }
+        if extra:
+            data.update(extra)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data))
+        return path, data
+
+    def _get_impl_prompt(self, tmp_pipelines, monkeypatch, extra_data=None):
+        """_start_cc() を呼んで impl プロンプトファイルの内容を返す"""
+        import tempfile as _tempfile
+        from pathlib import Path as _Path
+        from watchdog import _start_cc
+
+        path, data = self._make_path_and_data(tmp_pipelines, extra_data)
+        monkeypatch.setattr("watchdog.PIPELINES_DIR", tmp_pipelines)
+
+        mock_proc = MagicMock(); mock_proc.pid = 99999
+        mock_git = MagicMock(); mock_git.returncode = 0; mock_git.stdout = "abc12345\n"
+
+        created = []
+        orig = _tempfile.mkstemp
+
+        def capture(*args, **kwargs):
+            fd, p = orig(*args, **kwargs)
+            created.append(p)
+            return fd, p
+
+        with patch("watchdog.notify_discord"), \
+             patch("notify.fetch_issue_body", return_value="body"), \
+             patch("subprocess.run", return_value=mock_git), \
+             patch("tempfile.mkstemp", side_effect=capture), \
+             patch("subprocess.Popen", return_value=mock_proc):
+            _start_cc("test-pj", data["batch"], "atakalive/test-pj", "/repo", path)
+
+        impl_files = [p for p in created if "devbar-impl-" in _Path(p).name]
+        assert impl_files, "devbar-impl- ファイルが作られていない"
+        content = _Path(impl_files[0]).read_text()
+        for p in created:
+            try: _Path(p).unlink()
+            except OSError: pass
+        return content
+
+    def test_no_baseline_no_section(self, tmp_pipelines, monkeypatch):
+        """test_baseline なし → 埋め込みなし"""
+        content = self._get_impl_prompt(tmp_pipelines, monkeypatch)
+        assert "テストベースライン" not in content
+
+    def test_head_mismatch_no_embed(self, tmp_pipelines, monkeypatch):
+        """test_baseline あり + HEAD 不一致 → 埋め込みなし"""
+        baseline = {"commit": "different0", "exit_code": 0, "output": "5 passed"}
+        content = self._get_impl_prompt(
+            tmp_pipelines, monkeypatch, {"test_baseline": baseline, "repo_path": "/repo"}
+        )
+        assert "テストベースライン" not in content
+
+    def test_head_match_exit0_embeds_all_pass(self, tmp_pipelines, monkeypatch):
+        """HEAD 一致 + exit_code=0 → 全パス文言が埋め込まれる"""
+        import tempfile as _tempfile
+        from pathlib import Path as _Path
+        from watchdog import _start_cc
+
+        # git rev-parse HEAD が "abc12345" を返す → baseline.commit と一致させる
+        path, data = self._make_path_and_data(
+            tmp_pipelines,
+            {"test_baseline": {"commit": "abc12345", "exit_code": 0, "output": "5 passed\n"},
+             "repo_path": "/repo"},
+        )
+        monkeypatch.setattr("watchdog.PIPELINES_DIR", tmp_pipelines)
+
+        mock_proc = MagicMock(); mock_proc.pid = 99999
+        mock_git = MagicMock(); mock_git.returncode = 0; mock_git.stdout = "abc12345\n"
+
+        created = []
+        orig = _tempfile.mkstemp
+        def capture(*args, **kwargs):
+            fd, p = orig(*args, **kwargs)
+            created.append(p)
+            return fd, p
+
+        with patch("watchdog.notify_discord"), \
+             patch("notify.fetch_issue_body", return_value="body"), \
+             patch("subprocess.run", return_value=mock_git), \
+             patch("tempfile.mkstemp", side_effect=capture), \
+             patch("subprocess.Popen", return_value=mock_proc):
+            _start_cc("test-pj", data["batch"], "atakalive/test-pj", "/repo", path)
+
+        impl_files = [p for p in created if "devbar-impl-" in _Path(p).name]
+        content = _Path(impl_files[0]).read_text()
+        for p in created:
+            try: _Path(p).unlink()
+            except OSError: pass
+
+        assert "テストベースライン" in content
+        assert "全パス" in content
+        assert "壊さないこと" in content
+
+    def test_head_match_exit_nonzero_embeds_fail(self, tmp_pipelines, monkeypatch):
+        """HEAD 一致 + exit_code=1 → 失敗文言 + 警告が埋め込まれる"""
+        import tempfile as _tempfile
+        from pathlib import Path as _Path
+        from watchdog import _start_cc
+
+        path, data = self._make_path_and_data(
+            tmp_pipelines,
+            {"test_baseline": {"commit": "abc12345", "exit_code": 1, "output": "2 failed\n"},
+             "repo_path": "/repo"},
+        )
+        monkeypatch.setattr("watchdog.PIPELINES_DIR", tmp_pipelines)
+
+        mock_proc = MagicMock(); mock_proc.pid = 99999
+        mock_git = MagicMock(); mock_git.returncode = 0; mock_git.stdout = "abc12345\n"
+
+        created = []
+        orig = _tempfile.mkstemp
+        def capture(*args, **kwargs):
+            fd, p = orig(*args, **kwargs)
+            created.append(p)
+            return fd, p
+
+        with patch("watchdog.notify_discord"), \
+             patch("notify.fetch_issue_body", return_value="body"), \
+             patch("subprocess.run", return_value=mock_git), \
+             patch("tempfile.mkstemp", side_effect=capture), \
+             patch("subprocess.Popen", return_value=mock_proc):
+            _start_cc("test-pj", data["batch"], "atakalive/test-pj", "/repo", path)
+
+        impl_files = [p for p in created if "devbar-impl-" in _Path(p).name]
+        content = _Path(impl_files[0]).read_text()
+        for p in created:
+            try: _Path(p).unlink()
+            except OSError: pass
+
+        assert "テストベースライン" in content
+        assert "一部失敗" in content
+        assert "新たに壊してはいけない" in content
+
+    def test_output_truncated_at_embed_limit(self, tmp_pipelines, monkeypatch):
+        """出力が MAX_BASELINE_EMBED_CHARS 超過 → 切り詰め"""
+        import tempfile as _tempfile
+        from pathlib import Path as _Path
+        from watchdog import _start_cc, MAX_BASELINE_EMBED_CHARS
+
+        big_output = "y" * (MAX_BASELINE_EMBED_CHARS + 5000)
+        path, data = self._make_path_and_data(
+            tmp_pipelines,
+            {"test_baseline": {"commit": "abc12345", "exit_code": 0, "output": big_output},
+             "repo_path": "/repo"},
+        )
+        monkeypatch.setattr("watchdog.PIPELINES_DIR", tmp_pipelines)
+
+        mock_proc = MagicMock(); mock_proc.pid = 99999
+        mock_git = MagicMock(); mock_git.returncode = 0; mock_git.stdout = "abc12345\n"
+
+        created = []
+        orig = _tempfile.mkstemp
+        def capture(*args, **kwargs):
+            fd, p = orig(*args, **kwargs)
+            created.append(p)
+            return fd, p
+
+        with patch("watchdog.notify_discord"), \
+             patch("notify.fetch_issue_body", return_value="body"), \
+             patch("subprocess.run", return_value=mock_git), \
+             patch("tempfile.mkstemp", side_effect=capture), \
+             patch("subprocess.Popen", return_value=mock_proc):
+            _start_cc("test-pj", data["batch"], "atakalive/test-pj", "/repo", path)
+
+        impl_files = [p for p in created if "devbar-impl-" in _Path(p).name]
+        content = _Path(impl_files[0]).read_text()
+        for p in created:
+            try: _Path(p).unlink()
+            except OSError: pass
+
+        assert "(truncated)" in content
+
+
+class TestDoneCleanupTestBaseline:
+    """DONE 遷移で test_baseline / _pytest_baseline がクリアされることのテスト"""
+
+    def test_done_clears_test_baseline(self, tmp_pipelines, monkeypatch):
+        """DONE 遷移 → test_baseline と _pytest_baseline が削除される"""
+        import json as _json
+        from watchdog import process, TransitionAction
+
+        path = tmp_pipelines / "pj.json"
+        data = {
+            "project": "pj", "gitlab": "atakalive/pj",
+            "state": "DONE", "enabled": True,
+            "batch": [{"issue": 1, "title": "T", "commit": "abc",
+                       "design_reviews": {}, "code_reviews": {}}],
+            "history": [],
+            "test_baseline": {"commit": "abc", "exit_code": 0, "output": "", "summary": "ok", "timestamp": "2025-01-01T00:00:00+09:00"},
+            "_pytest_baseline": {"pid": 99999, "commit": "abc", "started_at": "2025-01-01T00:00:00+09:00", "output_path": "", "exit_code_path": ""},
+        }
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(_json.dumps(data))
+        monkeypatch.setattr("watchdog.PIPELINES_DIR", tmp_pipelines)
+
+        with patch("watchdog.check_transition", return_value=TransitionAction(new_state="IDLE")), \
+             patch("watchdog._recover_pending_notifications"), \
+             patch("watchdog._auto_push_and_close"), \
+             patch("watchdog._check_queue"), \
+             patch("watchdog._kill_pytest_baseline", wraps=__import__("watchdog")._kill_pytest_baseline) as mock_kill, \
+             patch.object(Path, "exists", return_value=False):
+            process(path)
+
+        saved = _json.loads(path.read_text())
+        assert "test_baseline" not in saved
+        assert "_pytest_baseline" not in saved
+
+
+class TestIdleToDesignPlanPytest:
+    """IDLE→DESIGN_PLAN 遷移で pytest がバックグラウンド起動されることのテスト"""
+
+    def test_has_pytest_true_starts_popen(self, tmp_pipelines, monkeypatch):
+        """_has_pytest が True → Popen が呼ばれ _pytest_baseline が設定される"""
+        import json as _json
+        from watchdog import process, TransitionAction
+
+        path = tmp_pipelines / "pj.json"
+        data = {
+            "project": "pj", "gitlab": "atakalive/pj",
+            "state": "IDLE", "enabled": True,
+            "batch": [{"issue": 1}],
+            "history": [],
+            "repo_path": "/fake/repo",
+        }
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(_json.dumps(data))
+        monkeypatch.setattr("watchdog.PIPELINES_DIR", tmp_pipelines)
+
+        mock_proc = MagicMock(); mock_proc.pid = 55555
+        mock_git = MagicMock(); mock_git.returncode = 0; mock_git.stdout = "abc12345\n"
+
+        with patch("watchdog.check_transition", return_value=TransitionAction(new_state="DESIGN_PLAN")), \
+             patch("watchdog._has_pytest", return_value=True), \
+             patch("subprocess.run", return_value=mock_git), \
+             patch("subprocess.Popen", return_value=mock_proc) as mock_popen, \
+             patch("watchdog.notify_implementer"), \
+             patch("watchdog._poll_pytest_baseline"):
+            process(path)
+
+        mock_popen.assert_called()
+        saved = _json.loads(path.read_text())
+        assert "_pytest_baseline" in saved
+        assert saved["_pytest_baseline"]["pid"] == 55555
+
+    def test_has_pytest_false_no_popen(self, tmp_pipelines, monkeypatch):
+        """_has_pytest が False → Popen は呼ばれない"""
+        import json as _json
+        from watchdog import process, TransitionAction
+
+        path = tmp_pipelines / "pj.json"
+        data = {
+            "project": "pj", "gitlab": "atakalive/pj",
+            "state": "IDLE", "enabled": True,
+            "batch": [{"issue": 1}],
+            "history": [],
+            "repo_path": "/fake/repo",
+        }
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(_json.dumps(data))
+        monkeypatch.setattr("watchdog.PIPELINES_DIR", tmp_pipelines)
+
+        with patch("watchdog.check_transition", return_value=TransitionAction(new_state="DESIGN_PLAN")), \
+             patch("watchdog._has_pytest", return_value=False), \
+             patch("subprocess.Popen") as mock_popen, \
+             patch("watchdog.notify_implementer"), \
+             patch("watchdog._poll_pytest_baseline"):
+            process(path)
+
+        mock_popen.assert_not_called()
+        saved = _json.loads(path.read_text())
+        assert "_pytest_baseline" not in saved
+
+    def test_previous_baseline_killed_before_new_start(self, tmp_pipelines, monkeypatch):
+        """前バッチの _pytest_baseline がある場合は kill してから新規起動する"""
+        import json as _json
+        from watchdog import process, TransitionAction
+
+        path = tmp_pipelines / "pj.json"
+        data = {
+            "project": "pj", "gitlab": "atakalive/pj",
+            "state": "IDLE", "enabled": True,
+            "batch": [{"issue": 1}],
+            "history": [],
+            "repo_path": "/fake/repo",
+            "_pytest_baseline": {"pid": 11111, "commit": "old", "started_at": "2025-01-01T00:00:00+09:00", "output_path": "", "exit_code_path": ""},
+        }
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(_json.dumps(data))
+        monkeypatch.setattr("watchdog.PIPELINES_DIR", tmp_pipelines)
+
+        mock_proc = MagicMock(); mock_proc.pid = 66666
+        mock_git = MagicMock(); mock_git.returncode = 0; mock_git.stdout = "abc12345\n"
+
+        kill_calls = []
+        orig_kill = __import__("watchdog")._kill_pytest_baseline
+        def tracking_kill(d, pj):
+            kill_calls.append(pj)
+            orig_kill(d, pj)
+
+        with patch("watchdog.check_transition", return_value=TransitionAction(new_state="DESIGN_PLAN")), \
+             patch("watchdog._has_pytest", return_value=True), \
+             patch("subprocess.run", return_value=mock_git), \
+             patch("subprocess.Popen", return_value=mock_proc), \
+             patch("watchdog._kill_pytest_baseline", side_effect=tracking_kill), \
+             patch("watchdog.notify_implementer"), \
+             patch("watchdog._poll_pytest_baseline"), \
+             patch.object(Path, "exists", return_value=False):
+            process(path)
+
+        assert kill_calls, "_kill_pytest_baseline が呼ばれていない"
+        saved = _json.loads(path.read_text())
+        # 新しい pytest が起動されているはず
+        assert "_pytest_baseline" in saved
+        assert saved["_pytest_baseline"]["pid"] == 66666

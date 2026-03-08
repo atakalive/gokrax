@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import re
+import signal
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -67,6 +68,11 @@ from spec_issue import (
     build_queue_plan_prompt,
     parse_queue_plan_response,
 )
+
+# Issue #92: pytest ベースライン定数
+PYTEST_BASELINE_TIMEOUT_SEC = 300   # 5分
+MAX_BASELINE_OUTPUT_CHARS   = 50_000
+MAX_BASELINE_EMBED_CHARS    = 30_000
 
 
 def _reset_reviewers(review_mode: str = "standard", implementer: str = "") -> list[str]:
@@ -825,7 +831,41 @@ def _start_cc(project: str, batch: list, gitlab: str, repo_path: str, pipeline_p
         f"### テスト観点\n"
         f"- テストすべきケース（正常系・異常系・境界値）"
     )
-    impl_prompt = f"計画OK。実装して commit して。コミットメッセージに {closes} を必ず含めること。"
+    # Issue #92: テストベースライン埋め込み
+    test_baseline_section = ""
+    baseline = data.get("test_baseline")
+    if baseline and repo_path:
+        import subprocess as _sub_bl
+        try:
+            current_head = _sub_bl.run(
+                ["git", "-C", repo_path, "rev-parse", "HEAD"],
+                capture_output=True, text=True, timeout=10, check=True,
+            ).stdout.strip()
+            if current_head == baseline["commit"]:
+                bl_exit   = baseline.get("exit_code", -1)
+                bl_output = baseline.get("output", "")
+                if len(bl_output) > MAX_BASELINE_EMBED_CHARS:
+                    bl_output = "(truncated)\n..." + bl_output[-(MAX_BASELINE_EMBED_CHARS - 20):]
+                if bl_exit == 0:
+                    test_baseline_section = (
+                        "\n\n## テストベースライン（impl 開始前の状態）\n"
+                        f"exit_code: 0 (全パス)\n\n{bl_output}\n\n"
+                        "あなたの変更でテストを壊さないこと。"
+                    )
+                else:
+                    test_baseline_section = (
+                        "\n\n## テストベースライン（impl 開始前の状態）\n"
+                        f"exit_code: {bl_exit} (一部失敗)\n\n{bl_output}\n\n"
+                        "⚠️ 上記の失敗は impl 開始前から存在するもの。\n"
+                        "あなたの変更で新たに壊してはいけない。"
+                    )
+                log(f"[{project}] test baseline embedded (exit_code={bl_exit})")
+            else:
+                log(f"[{project}] test baseline skipped: HEAD mismatch ({current_head[:8]} != {baseline['commit'][:8]})")
+        except Exception as e:
+            log(f"[{project}] WARNING: test baseline embed failed: {e}")
+
+    impl_prompt = f"計画OK。実装して commit して。コミットメッセージに {closes} を必ず含めること。{test_baseline_section}"
 
     # mkstemp で安全に一時ファイル作成
     fd_plan, plan_path = tempfile.mkstemp(suffix=".txt", prefix="devbar-plan-")
@@ -902,6 +942,154 @@ def _is_cc_running(data: dict) -> bool:
         return False
     return Path(f"/proc/{pid}").exists()
 
+
+# ── Issue #92: pytest ベースライン ──────────────────────────────────────────
+
+def _has_pytest(repo_path: str) -> bool:
+    """repo に pytest が設定されているかを確認する。"""
+    try:
+        pyproject = Path(repo_path) / "pyproject.toml"
+        if pyproject.exists():
+            t = pyproject.read_text(errors="replace")
+            if "[tool.pytest" in t or "[pytest]" in t:
+                return True
+        setup_cfg = Path(repo_path) / "setup.cfg"
+        if setup_cfg.exists():
+            if "[tool:pytest]" in setup_cfg.read_text(errors="replace"):
+                return True
+        if (Path(repo_path) / "tests").is_dir():
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _kill_pytest_baseline(data: dict, pj: str) -> None:
+    """既存の pytest baseline プロセスを停止し、残留ファイルを掃除する。
+
+    start_new_session=True で起動しているため pid == PGID。
+    os.killpg でプロセスグループごと停止する（子の pytest も確実に殺す）。
+    """
+    info = data.pop("_pytest_baseline", None)
+    if not info:
+        return
+    pid = info.get("pid")
+    if pid and Path(f"/proc/{pid}").exists():
+        try:
+            os.killpg(pid, signal.SIGTERM)
+            import time
+            time.sleep(0.5)
+            if Path(f"/proc/{pid}").exists():
+                os.killpg(pid, signal.SIGKILL)
+            log(f"[{pj}] killed stale pytest baseline (pgid={pid})")
+        except OSError:
+            pass
+    for key in ("output_path", "exit_code_path"):
+        p = info.get(key, "")
+        if p:
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+
+
+def _poll_pytest_baseline(path: Path, pj: str) -> None:
+    """バックグラウンド pytest の完了を検出し、test_baseline に書き込む。
+
+    ロック外で呼ぶ。完了していれば update_pipeline で結果を書き込む。
+    """
+    data = load_pipeline(path)
+    info = data.get("_pytest_baseline")
+    if not info:
+        return
+    pid = info.get("pid")
+    if not pid:
+        return
+
+    exit_code_path = info.get("exit_code_path", "")
+    output_path    = info.get("output_path", "")
+    finished   = bool(exit_code_path and os.path.exists(exit_code_path))
+    proc_alive = Path(f"/proc/{pid}").exists()
+
+    # タイムアウト判定
+    timed_out = False
+    started_at = info.get("started_at", "")
+    if started_at:
+        try:
+            elapsed = (_datetime.now(JST) - _datetime.fromisoformat(started_at)).total_seconds()
+            if elapsed > PYTEST_BASELINE_TIMEOUT_SEC:
+                timed_out = True
+        except (ValueError, TypeError):
+            pass
+
+    if timed_out and not finished:
+        if proc_alive:
+            try:
+                os.killpg(pid, signal.SIGKILL)
+            except OSError:
+                pass
+
+        def _save_timeout(d):
+            d["test_baseline"] = {
+                "commit": info["commit"],
+                "summary": "(pytest timed out)",
+                "exit_code": -1,
+                "output": "",
+                "timestamp": now_iso(),
+            }
+            d.pop("_pytest_baseline", None)
+
+        update_pipeline(path, _save_timeout)
+        for p in (output_path, exit_code_path):
+            if p:
+                try:
+                    os.unlink(p)
+                except OSError:
+                    pass
+        log(f"[{pj}] pytest baseline timed out (pid={pid})")
+        return
+
+    if not finished:
+        if proc_alive:
+            return  # まだ実行中
+        # 異常終了: exit_code_path なし + proc 消滅 → exit_code=-1 で保存
+
+    # 結果回収
+    output    = ""
+    exit_code = -1
+    try:
+        if output_path and os.path.exists(output_path):
+            with open(output_path) as f:
+                output = f.read()
+            os.unlink(output_path)
+        if exit_code_path and os.path.exists(exit_code_path):
+            with open(exit_code_path) as f:
+                exit_code = int(f.read().strip())
+            os.unlink(exit_code_path)
+    except Exception as e:
+        log(f"[{pj}] WARNING: pytest baseline output read failed: {e}")
+
+    if len(output) > MAX_BASELINE_OUTPUT_CHARS:
+        output = "(truncated)\n..." + output[-(MAX_BASELINE_OUTPUT_CHARS - 20):]
+
+    lines   = output.strip().splitlines()
+    summary = lines[-1] if lines else "(no output)"
+
+    def _save_baseline(d):
+        d["test_baseline"] = {
+            "commit": info["commit"],
+            "summary": summary,
+            "exit_code": exit_code,
+            "output": output,
+            "timestamp": now_iso(),
+        }
+        d.pop("_pytest_baseline", None)
+
+    update_pipeline(path, _save_baseline)
+    log(f"[{pj}] pytest baseline completed: exit_code={exit_code}, summary={summary}")
+
+
+# ────────────────────────────────────────────────────────────────────────────
 
 def _is_agent_inactive(agent_id: str, pipeline_data: dict | None = None) -> bool:
     """エージェントが非アクティブ(81秒以上更新なし)かどうか判定。
@@ -2304,6 +2492,10 @@ def process(path: Path):
     if not data.get("enabled", False):
         return
 
+    # === Issue #92: pytest ベースライン回収 ===
+    pj_poll = data.get("project", path.stem)
+    _poll_pytest_baseline(path, pj_poll)
+
     # === Issue #59: 未完了通知のリカバリ ===
     # pending が残っていれば再送してクリアし、今回のループは終了。
     # 20秒間隔なので1サイクルスキップは許容（設計判断）。
@@ -2491,12 +2683,68 @@ def process(path: Path):
             data.pop("keep_ctx_intra", None)
             data.pop("queue_mode", None)
             data.pop("comment", None)
+            # Issue #92: pytest baseline クリーンアップ
+            _kill_pytest_baseline(data, pj)
+            data.pop("test_baseline", None)
 
         # IDLE→DESIGN_PLAN: Reset REVISE cycle counters (Issue #29)
         if state == "IDLE" and action.new_state == "DESIGN_PLAN":
             data.pop("design_revise_count", None)
             data.pop("code_revise_count", None)
             data.pop("base_commit", None)
+
+            # Issue #92: 前バッチの pytest を停止 + test_baseline クリア
+            _kill_pytest_baseline(data, pj)
+            data.pop("test_baseline", None)
+
+            # Issue #92: pytest ベースライン取得（バックグラウンド）
+            repo = data.get("repo_path", "")
+            if repo and _has_pytest(repo):
+                import subprocess as _sub
+                import tempfile
+                try:
+                    head = _sub.run(
+                        ["git", "-C", repo, "rev-parse", "HEAD"],
+                        capture_output=True, text=True, timeout=10, check=True,
+                    ).stdout.strip()
+
+                    fd_out, pytest_out_path = tempfile.mkstemp(suffix=".txt", prefix="devbar-pytest-")
+                    os.close(fd_out)
+                    exit_code_path = pytest_out_path + ".exit"
+
+                    import shlex
+                    fd_sh, script_path = tempfile.mkstemp(suffix=".sh", prefix="devbar-pytest-")
+                    script = (
+                        f'#!/bin/bash\n'
+                        f'cd {shlex.quote(repo)}\n'
+                        f'python3 -m pytest --tb=short -q > {shlex.quote(pytest_out_path)} 2>&1\n'
+                        f'echo $? > {shlex.quote(exit_code_path)}\n'
+                        f'rm -f {shlex.quote(script_path)}\n'
+                    )
+                    os.write(fd_sh, script.encode())
+                    os.close(fd_sh)
+                    os.chmod(script_path, 0o700)
+
+                    proc = _sub.Popen(
+                        ["bash", script_path],
+                        stdout=_sub.DEVNULL,
+                        stderr=_sub.DEVNULL,
+                        start_new_session=True,
+                    )
+                    data["_pytest_baseline"] = {
+                        "pid": proc.pid,
+                        "commit": head,
+                        "started_at": now_iso(),
+                        "output_path": pytest_out_path,
+                        "exit_code_path": exit_code_path,
+                    }
+                    log(f"[{pj}] pytest baseline started (pid={proc.pid}, commit={head[:8]})")
+                except Exception as e:
+                    log(f"[{pj}] WARNING: pytest baseline start failed: {e}")
+                    data.pop("_pytest_baseline", None)
+            else:
+                data.pop("_pytest_baseline", None)
+                data.pop("test_baseline", None)
 
         # REVIEW→REVISE: Increment cycle counter (Issue #29)
         if state in ("DESIGN_REVIEW", "CODE_REVIEW") and action.new_state in ("DESIGN_REVISE", "CODE_REVISE"):

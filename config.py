@@ -125,7 +125,7 @@ REVIEW_MODES = {
         "min_reviews": 3,
         "grace_period_sec": 0,
     },
-    "lite3": {
+    "lite3_woOpus": {
         "members": ["leibniz", "pascal", "euler"],
         "min_reviews": 3,
         "grace_period_sec": 0,

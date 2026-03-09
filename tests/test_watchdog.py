@@ -4441,3 +4441,116 @@ class TestIdleToDesignPlanPytest:
         # 新しい pytest が起動されているはず
         assert "_pytest_baseline" in saved
         assert saved["_pytest_baseline"]["pid"] == 66666
+
+
+# ── TestHandleQrun (Issue #97): _handle_qrun 回帰テスト ──────────────────────
+
+
+class TestHandleQrun:
+    """_handle_qrun() が skip_cc_plan / p2_fix / comment を正しく伝播するテスト。"""
+
+    def _make_pipeline(self, tmp_path, project="TestPJ"):
+        """IDLE 状態の最小限パイプライン JSON を作成。"""
+        pipelines_dir = tmp_path / "pipelines"
+        pipelines_dir.mkdir(exist_ok=True)
+        path = pipelines_dir / f"{project}.json"
+        path.write_text(json.dumps({
+            "project": project,
+            "gitlab": f"atakalive/{project}",
+            "repo_path": str(tmp_path / "repo"),
+            "state": "IDLE",
+            "enabled": False,
+            "implementer": "kaneko",
+            "batch": [],
+            "history": [],
+        }))
+        return path, pipelines_dir
+
+    def _make_queue(self, tmp_path, line):
+        """キューファイルを作成。"""
+        queue_file = tmp_path / "devbar-queue.txt"
+        queue_file.write_text(line + "\n")
+        return queue_file
+
+    def _patch_config(self, monkeypatch, pipelines_dir, queue_file):
+        """config + pipeline_io の PIPELINES_DIR / QUEUE_FILE をパッチ。"""
+        import config as _config
+        import pipeline_io as _pio
+        monkeypatch.setattr(_config, "DISCORD_CHANNEL", "test-ch")
+        monkeypatch.setattr(_config, "QUEUE_FILE", queue_file)
+        monkeypatch.setattr(_config, "PIPELINES_DIR", pipelines_dir)
+        monkeypatch.setattr(_config, "DRY_RUN", False)
+        # pipeline_io は import 時に PIPELINES_DIR をキャプチャするので直接パッチ
+        monkeypatch.setattr(_pio, "PIPELINES_DIR", pipelines_dir)
+
+    def test_handle_qrun_passes_skip_cc_plan(self, tmp_path, monkeypatch):
+        """skip-cc-plan のキューエントリで cmd_start に skip_cc_plan=True が渡されること。"""
+        project = "TestPJ"
+        path, pipelines_dir = self._make_pipeline(tmp_path, project)
+        queue_file = self._make_queue(tmp_path, f"{project} 1 lite skip-cc-plan")
+        self._patch_config(monkeypatch, pipelines_dir, queue_file)
+
+        captured_args = {}
+
+        def mock_cmd_start(args):
+            captured_args["skip_cc_plan"] = getattr(args, "skip_cc_plan", "MISSING")
+            captured_args["p2_fix"] = getattr(args, "p2_fix", "MISSING")
+            captured_args["comment"] = getattr(args, "comment", "MISSING")
+
+        with patch("devbar.cmd_start", side_effect=mock_cmd_start), \
+             patch("notify.post_discord"):
+            from watchdog import _handle_qrun
+            _handle_qrun("test-msg-001")
+
+        assert captured_args.get("skip_cc_plan") is True, \
+            f"skip_cc_plan should be True, got {captured_args}"
+
+    def test_handle_qrun_passes_p2_fix_and_comment(self, tmp_path, monkeypatch):
+        """p2-fix と comment のキューエントリで cmd_start に正しく渡されること。"""
+        project = "TestPJ"
+        path, pipelines_dir = self._make_pipeline(tmp_path, project)
+        queue_file = self._make_queue(
+            tmp_path, f"{project} 2 lite p2-fix comment=テスト用コメント"
+        )
+        self._patch_config(monkeypatch, pipelines_dir, queue_file)
+
+        captured_args = {}
+
+        def mock_cmd_start(args):
+            captured_args["p2_fix"] = getattr(args, "p2_fix", "MISSING")
+            captured_args["comment"] = getattr(args, "comment", "MISSING")
+            captured_args["skip_cc_plan"] = getattr(args, "skip_cc_plan", "MISSING")
+
+        with patch("devbar.cmd_start", side_effect=mock_cmd_start), \
+             patch("notify.post_discord"):
+            from watchdog import _handle_qrun
+            _handle_qrun("test-msg-002")
+
+        assert captured_args.get("p2_fix") is True, \
+            f"p2_fix should be True, got {captured_args}"
+        assert "テスト用コメント" in (captured_args.get("comment") or ""), \
+            f"comment should contain テスト用コメント, got {captured_args}"
+
+    def test_handle_qrun_saves_skip_cc_plan_to_pipeline(self, tmp_path, monkeypatch):
+        """_save_queue_options が skip_cc_plan / p2_fix / comment を pipeline JSON に保存すること。"""
+        project = "TestPJ"
+        path, pipelines_dir = self._make_pipeline(tmp_path, project)
+        queue_file = self._make_queue(
+            tmp_path,
+            f"{project} 3 lite skip-cc-plan p2-fix comment=保存テスト"
+        )
+        self._patch_config(monkeypatch, pipelines_dir, queue_file)
+
+        with patch("devbar.cmd_start"), \
+             patch("notify.post_discord"):
+            from watchdog import _handle_qrun
+            _handle_qrun("test-msg-003")
+
+        saved = json.loads(path.read_text())
+        assert saved.get("skip_cc_plan") is True, \
+            f"pipeline skip_cc_plan should be True, got {saved.get('skip_cc_plan')}"
+        assert saved.get("p2_fix") is True, \
+            f"pipeline p2_fix should be True, got {saved.get('p2_fix')}"
+        assert saved.get("comment") == "保存テスト", \
+            f"pipeline comment should be '保存テスト', got {saved.get('comment')}"
+        assert saved.get("queue_mode") is True

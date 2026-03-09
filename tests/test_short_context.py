@@ -78,13 +78,13 @@ class TestNotifyReviewersShortContext:
         monkeypatch.setitem(config.AGENTS, reviewer_name, {"id": reviewer_name})
         return reviewer_name
 
-    def test_notify_reviewers_short_context_sends_new_when_not_reset(self, monkeypatch):
-        """already_reset=False 時、short-context tier のレビュアーに /new が送られること。"""
+    def test_notify_reviewers_short_context_no_extra_new_when_not_reset(self, monkeypatch):
+        """Issue #96: already_reset=False でも short-context tier に追加の /new が送られないこと（regular と同一挙動）。"""
         import notify
         import config
 
         reviewer = self._setup_short_ctx_reviewer(monkeypatch)
-        monkeypatch.setattr(config, "DRY_RUN", True)  # sleep はスキップ
+        monkeypatch.setattr(config, "DRY_RUN", True)
 
         with patch("notify.send_to_agent_queued") as mock_queued, \
              patch("notify.send_to_agent", return_value=True), \
@@ -97,7 +97,7 @@ class TestNotifyReviewersShortContext:
             )
 
         new_calls = [c for c in mock_queued.call_args_list if c == call(reviewer, "/new")]
-        assert len(new_calls) == 1, f"Expected 1 /new call, got {mock_queued.call_args_list}"
+        assert len(new_calls) == 0, f"Expected no /new calls (regular-equivalent), got {mock_queued.call_args_list}"
 
     def test_notify_reviewers_short_context_skips_new_when_already_reset(self, monkeypatch):
         """already_reset=True 時、追加の /new が送られないこと。"""
@@ -120,8 +120,8 @@ class TestNotifyReviewersShortContext:
         new_calls = [c for c in mock_queued.call_args_list if c == call(reviewer, "/new")]
         assert len(new_calls) == 0, f"Expected no /new calls, got {mock_queued.call_args_list}"
 
-    def test_notify_reviewers_short_context_single_sleep(self, monkeypatch):
-        """short-context レビュアーが複数人いても time.sleep が1回だけ呼ばれること。"""
+    def test_notify_reviewers_short_context_no_sleep(self, monkeypatch):
+        """Issue #96: short-context レビュアーが複数人いても追加の time.sleep が呼ばれないこと（regular と同一挙動）。"""
         import notify
         import config
 
@@ -146,7 +146,7 @@ class TestNotifyReviewersShortContext:
                 already_reset=False,
             )
 
-        assert mock_sleep.call_count == 1, f"Expected 1 sleep, got {mock_sleep.call_count}"
+        mock_sleep.assert_not_called()
 
     def test_notify_reviewers_regular_no_extra_new(self, monkeypatch):
         """regular tier のレビュアーには追加 /new が送られないこと。"""

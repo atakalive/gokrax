@@ -115,14 +115,14 @@ CODE_MIN_REVIEWS = 2
 # Review modes: project-level reviewer assignment
 REVIEW_MODES = {
     "full": {
-        "members": ["pascal", "leibniz", "dijkstra"],
-        "min_reviews": 3,
+        "members": ["pascal", "leibniz", "dijkstra", "basho"],
+        "min_reviews": 4,
         "grace_period_sec": 0,
     },
     "standard": {
-        "members": ["pascal", "leibniz", "hanfei"],
-        "min_reviews": 2,
-        "grace_period_sec": 300,
+        "members": ["pascal", "leibniz", "dijkstra"],
+        "min_reviews": 3,
+        "grace_period_sec": 0,
     },
     "lite3": {
         "members": ["leibniz", "pascal", "euler"],

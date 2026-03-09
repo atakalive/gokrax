@@ -136,7 +136,7 @@ REVIEW_MODES = {
         "grace_period_sec": 0,
     },
     "lite": {
-        "members": ["leibniz", "pascal"],
+        "members": ["euler", "pascal"],
         "min_reviews": 2,
         "grace_period_sec": 0,
     },

@@ -720,6 +720,279 @@ class TestStartCc:
         saved = json.loads(path.read_text())
         assert saved["base_commit"] == "existing123"
 
+    def test_start_cc_skip_cc_plan_no_plan_phase(self, tmp_pipelines, monkeypatch):
+        """skip_cc_plan=True 時: スクリプトに Plan フェーズが含まれず、impl_prompt に issues_block が含まれること"""
+        from watchdog import _start_cc
+        import tempfile as _tempfile
+        from pathlib import Path as _Path
+        path = tmp_pipelines / "test-pj.json"
+        data = {
+            "project": "test-pj", "gitlab": "atakalive/test-pj",
+            "state": "IMPLEMENTATION", "enabled": True,
+            "skip_cc_plan": True,
+            "batch": [{"issue": 1, "title": "Test Issue", "commit": None,
+                       "design_reviews": {}, "code_reviews": {}}],
+            "history": [],
+        }
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data))
+        monkeypatch.setattr("watchdog.PIPELINES_DIR", tmp_pipelines)
+
+        mock_proc = MagicMock()
+        mock_proc.pid = 11111
+        mock_git = MagicMock()
+        mock_git.returncode = 0
+        mock_git.stdout = "abc0001\n"
+
+        created_paths = []
+        original_mkstemp = _tempfile.mkstemp
+
+        def capturing_mkstemp(*args, **kwargs):
+            fd, p = original_mkstemp(*args, **kwargs)
+            created_paths.append(p)
+            return fd, p
+
+        with patch("watchdog.notify_discord"), \
+             patch("notify.fetch_issue_body", return_value="issue body text"), \
+             patch("subprocess.run", return_value=mock_git), \
+             patch("tempfile.mkstemp", side_effect=capturing_mkstemp), \
+             patch("subprocess.Popen", return_value=mock_proc):
+            _start_cc("test-pj", data["batch"], "atakalive/test-pj", "/tmp", path)
+
+        # plan ファイルが作られていないこと
+        plan_files = [p for p in created_paths if "devbar-plan-" in _Path(p).name]
+        assert not plan_files, "skip_cc_plan=True なのに devbar-plan- ファイルが作られた"
+
+        # impl ファイルに issues_block が含まれること
+        impl_files = [p for p in created_paths if "devbar-impl-" in _Path(p).name]
+        assert impl_files, "devbar-impl- ファイルが作られていない"
+        impl_text = _Path(impl_files[0]).read_text()
+        assert "issue body text" in impl_text
+        assert "Closes #1" in impl_text
+
+        # スクリプトに "CC Plan" が含まれないこと
+        script_files = [p for p in created_paths if "devbar-cc-" in _Path(p).name]
+        assert script_files, "devbar-cc- スクリプトが作られていない"
+        script_text = _Path(script_files[0]).read_text()
+        assert "CC Plan" not in script_text
+        assert "plan skip" in script_text
+
+        # 後片付け
+        for p in created_paths:
+            try:
+                _Path(p).unlink()
+            except OSError:
+                pass
+
+    def test_start_cc_skip_cc_plan_false_keeps_two_phase(self, tmp_pipelines, monkeypatch):
+        """skip_cc_plan=False（デフォルト）時: 既存の2段階フローが維持されること"""
+        from watchdog import _start_cc
+        import tempfile as _tempfile
+        from pathlib import Path as _Path
+        path = tmp_pipelines / "test-pj.json"
+        data = {
+            "project": "test-pj", "gitlab": "atakalive/test-pj",
+            "state": "IMPLEMENTATION", "enabled": True,
+            "batch": [{"issue": 2, "title": "T2", "commit": None,
+                       "design_reviews": {}, "code_reviews": {}}],
+            "history": [],
+        }
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data))
+        monkeypatch.setattr("watchdog.PIPELINES_DIR", tmp_pipelines)
+
+        mock_proc = MagicMock()
+        mock_proc.pid = 22222
+        mock_git = MagicMock()
+        mock_git.returncode = 0
+        mock_git.stdout = "abc0002\n"
+
+        created_paths = []
+        original_mkstemp = _tempfile.mkstemp
+
+        def capturing_mkstemp(*args, **kwargs):
+            fd, p = original_mkstemp(*args, **kwargs)
+            created_paths.append(p)
+            return fd, p
+
+        with patch("watchdog.notify_discord"), \
+             patch("notify.fetch_issue_body", return_value="body2"), \
+             patch("subprocess.run", return_value=mock_git), \
+             patch("tempfile.mkstemp", side_effect=capturing_mkstemp), \
+             patch("subprocess.Popen", return_value=mock_proc):
+            _start_cc("test-pj", data["batch"], "atakalive/test-pj", "/tmp", path)
+
+        # plan ファイルが作られていること
+        plan_files = [p for p in created_paths if "devbar-plan-" in _Path(p).name]
+        assert plan_files, "skip_cc_plan=False なのに devbar-plan- ファイルが作られなかった"
+
+        # スクリプトに "CC Plan" が含まれること
+        script_files = [p for p in created_paths if "devbar-cc-" in _Path(p).name]
+        assert script_files
+        script_text = _Path(script_files[0]).read_text()
+        assert "CC Plan" in script_text
+        assert "CC Impl" in script_text
+
+        # 後片付け
+        for p in created_paths:
+            try:
+                _Path(p).unlink()
+            except OSError:
+                pass
+
+    def test_start_cc_skip_cc_plan_with_keep_ctx(self, tmp_pipelines, monkeypatch):
+        """skip_cc_plan=True + keep_ctx_batch=True (prev_session あり): --resume が使われること"""
+        from watchdog import _start_cc
+        import tempfile as _tempfile
+        from pathlib import Path as _Path
+        path = tmp_pipelines / "test-pj.json"
+        prev_sid = "prev-session-uuid-1234"
+        data = {
+            "project": "test-pj", "gitlab": "atakalive/test-pj",
+            "state": "IMPLEMENTATION", "enabled": True,
+            "skip_cc_plan": True,
+            "keep_ctx_batch": True,
+            "cc_session_id": prev_sid,
+            "batch": [{"issue": 3, "title": "T3", "commit": None,
+                       "design_reviews": {}, "code_reviews": {}}],
+            "history": [],
+        }
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data))
+        monkeypatch.setattr("watchdog.PIPELINES_DIR", tmp_pipelines)
+
+        mock_proc = MagicMock()
+        mock_proc.pid = 33333
+        mock_git = MagicMock()
+        mock_git.returncode = 0
+        mock_git.stdout = "abc0003\n"
+
+        created_paths = []
+        original_mkstemp = _tempfile.mkstemp
+
+        def capturing_mkstemp(*args, **kwargs):
+            fd, p = original_mkstemp(*args, **kwargs)
+            created_paths.append(p)
+            return fd, p
+
+        with patch("watchdog.notify_discord"), \
+             patch("notify.fetch_issue_body", return_value="body3"), \
+             patch("subprocess.run", return_value=mock_git), \
+             patch("tempfile.mkstemp", side_effect=capturing_mkstemp), \
+             patch("subprocess.Popen", return_value=mock_proc):
+            _start_cc("test-pj", data["batch"], "atakalive/test-pj", "/tmp", path)
+
+        script_files = [p for p in created_paths if "devbar-cc-" in _Path(p).name]
+        assert script_files
+        script_text = _Path(script_files[0]).read_text()
+        # prev_session があるので claude 呼び出しに --resume を使う（--session-id ではない）
+        # Note: --session-id は devbar commit 行にも現れるため claude 行だけを確認
+        claude_line = next(
+            (ln for ln in script_text.splitlines() if ln.strip().startswith("claude ")),
+            ""
+        )
+        assert "--resume" in claude_line
+        assert "--session-id" not in claude_line
+
+        # 後片付け
+        for p in created_paths:
+            try:
+                _Path(p).unlink()
+            except OSError:
+                pass
+
+    def test_start_cc_skip_cc_plan_with_comment(self, tmp_pipelines, monkeypatch):
+        """skip_cc_plan=True + comment あり: impl_prompt に comment_line が含まれること"""
+        from watchdog import _start_cc
+        import tempfile as _tempfile
+        from pathlib import Path as _Path
+        path = tmp_pipelines / "test-pj.json"
+        data = {
+            "project": "test-pj", "gitlab": "atakalive/test-pj",
+            "state": "IMPLEMENTATION", "enabled": True,
+            "skip_cc_plan": True,
+            "comment": "テスト用コメントです",
+            "batch": [{"issue": 4, "title": "T4", "commit": None,
+                       "design_reviews": {}, "code_reviews": {}}],
+            "history": [],
+        }
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data))
+        monkeypatch.setattr("watchdog.PIPELINES_DIR", tmp_pipelines)
+
+        mock_proc = MagicMock()
+        mock_proc.pid = 44444
+        mock_git = MagicMock()
+        mock_git.returncode = 0
+        mock_git.stdout = "abc0004\n"
+
+        created_paths = []
+        original_mkstemp = _tempfile.mkstemp
+
+        def capturing_mkstemp(*args, **kwargs):
+            fd, p = original_mkstemp(*args, **kwargs)
+            created_paths.append(p)
+            return fd, p
+
+        with patch("watchdog.notify_discord"), \
+             patch("notify.fetch_issue_body", return_value="body4"), \
+             patch("subprocess.run", return_value=mock_git), \
+             patch("tempfile.mkstemp", side_effect=capturing_mkstemp), \
+             patch("subprocess.Popen", return_value=mock_proc):
+            _start_cc("test-pj", data["batch"], "atakalive/test-pj", "/tmp", path)
+
+        impl_files = [p for p in created_paths if "devbar-impl-" in _Path(p).name]
+        assert impl_files
+        impl_text = _Path(impl_files[0]).read_text()
+        assert "テスト用コメントです" in impl_text
+
+        # 後片付け
+        for p in created_paths:
+            try:
+                _Path(p).unlink()
+            except OSError:
+                pass
+
+    def test_start_cc_skip_cc_plan_cleanup_on_failure(self, tmp_pipelines, monkeypatch):
+        """skip_cc_plan=True + Popen 失敗時: impl/script は削除され plan_path (None) は触られないこと"""
+        from watchdog import _start_cc
+        import os
+        path = tmp_pipelines / "test-pj.json"
+        data = {
+            "project": "test-pj", "gitlab": "atakalive/test-pj",
+            "state": "IMPLEMENTATION", "enabled": True,
+            "skip_cc_plan": True,
+            "batch": [{"issue": 5, "title": "T5", "commit": None,
+                       "design_reviews": {}, "code_reviews": {}}],
+            "history": [],
+        }
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data))
+        monkeypatch.setattr("watchdog.PIPELINES_DIR", tmp_pipelines)
+
+        created_files = []
+        orig_mkstemp = __import__("tempfile").mkstemp
+
+        def track_mkstemp(*args, **kwargs):
+            fd, p = orig_mkstemp(*args, **kwargs)
+            created_files.append(p)
+            return fd, p
+
+        mock_git = MagicMock()
+        mock_git.returncode = 0
+        mock_git.stdout = "abc0005\n"
+
+        with patch("notify.fetch_issue_body", return_value="body5"), \
+             patch("subprocess.run", return_value=mock_git), \
+             patch("subprocess.Popen", side_effect=OSError("fail")), \
+             patch("tempfile.mkstemp", side_effect=track_mkstemp):
+            with pytest.raises(OSError):
+                _start_cc("test-pj", data["batch"], "atakalive/test-pj", "/tmp", path)
+
+        # 作成された一時ファイル（impl, script）が全て削除されていること
+        for f in created_files:
+            assert not os.path.exists(f), f"一時ファイルが残っている: {f}"
+
 
 # ── TestTimeoutExtension ──────────────────────────────────────────────────────
 

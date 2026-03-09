@@ -865,23 +865,61 @@ def _start_cc(project: str, batch: list, gitlab: str, repo_path: str, pipeline_p
         except Exception as e:
             log(f"[{project}] WARNING: test baseline embed failed: {e}")
 
-    impl_prompt = f"計画OK。実装して commit して。コミットメッセージに {closes} を必ず含めること。{test_baseline_section}"
+    if data.get("skip_cc_plan"):
+        impl_prompt = (
+            f"以下のIssueを実装してください。\n"
+            f"{comment_line}"
+            f"\n{issues_block}\n\n"
+            f"コミットメッセージに {closes} を必ず含めること。"
+            f"{test_baseline_section}"
+        )
+    else:
+        impl_prompt = f"計画OK。実装して commit して。コミットメッセージに {closes} を必ず含めること。{test_baseline_section}"
 
     # mkstemp で安全に一時ファイル作成
-    fd_plan, plan_path = tempfile.mkstemp(suffix=".txt", prefix="devbar-plan-")
-    fd_impl, impl_path = tempfile.mkstemp(suffix=".txt", prefix="devbar-impl-")
-    fd_script, script_path = tempfile.mkstemp(suffix=".sh", prefix="devbar-cc-")
+    plan_path: str | None = None
+    impl_path: str | None = None
+    script_path: str | None = None
 
     try:
-        os.write(fd_plan, plan_prompt.encode())
-        os.close(fd_plan)
+        if data.get("skip_cc_plan"):
+            fd_impl, impl_path = tempfile.mkstemp(suffix=".txt", prefix="devbar-impl-")
+            fd_script, script_path = tempfile.mkstemp(suffix=".sh", prefix="devbar-cc-")
+        else:
+            fd_plan, plan_path = tempfile.mkstemp(suffix=".txt", prefix="devbar-plan-")
+            fd_impl, impl_path = tempfile.mkstemp(suffix=".txt", prefix="devbar-impl-")
+            fd_script, script_path = tempfile.mkstemp(suffix=".sh", prefix="devbar-cc-")
+
+        if plan_path is not None:
+            os.write(fd_plan, plan_prompt.encode())
+            os.close(fd_plan)
         os.write(fd_impl, impl_prompt.encode())
         os.close(fd_impl)
 
-        # Discord通知用のヘルパー（CC進捗4段階通知）
-        notify_cmd = f'python3 -c "from notify import notify_discord; notify_discord(\\\"$1\\\")" 2>/dev/null'
+        if data.get("skip_cc_plan"):
+            script_content = f'''#!/bin/bash
+set -e
+cleanup() {{ rm -f "{script_path}" "{impl_path}"; }}
+trap cleanup EXIT
 
-        script_content = f'''#!/bin/bash
+cd "{repo_path}"
+
+_notify() {{ local ts=$(date +"%m/%d %H:%M"); python3 -c "import sys; sys.path.insert(0,'{Path(DEVBAR_CLI).resolve().parent}'); from notify import notify_discord; notify_discord(sys.argv[1])" "$1 ($ts)" 2>/dev/null || true; }}
+
+# Plan フェーズなし — 直接 Impl
+_notify "{q_tag}[{project}] 🔨 CC Impl 開始 (plan skip, model: {impl_model})"
+claude -p --model "{impl_model}" {"--resume" if prev_session else "--session-id"} "{session_id}" \
+  --permission-mode bypassPermissions --output-format json < "{impl_path}"
+_notify "{q_tag}[{project}] ✅ CC Impl 完了"
+
+# コミットハッシュ取得
+HASH=$(git log --oneline -1 --format=%h)
+
+# devbar commit
+python3 "{DEVBAR_CLI}" commit --project "{project}" --issue {issue_args} --hash "$HASH" --session-id "{session_id}"
+'''
+        else:
+            script_content = f'''#!/bin/bash
 set -e
 cleanup() {{ rm -f "{script_path}" "{plan_path}" "{impl_path}"; }}
 trap cleanup EXIT
@@ -920,7 +958,7 @@ python3 "{DEVBAR_CLI}" commit --project "{project}" --issue {issue_args} --hash 
         )
 
     except Exception:
-        for p in (plan_path, impl_path, script_path):
+        for p in filter(None, [plan_path, impl_path, script_path]):
             try:
                 os.unlink(p)
             except OSError:

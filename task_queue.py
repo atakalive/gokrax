@@ -94,6 +94,7 @@ def parse_queue_line(line: str) -> dict:
         "cc_plan_model": None,
         "cc_impl_model": None,
         "comment": None,
+        "skip_cc_plan": False,
         "original_line": line.rstrip("\n"),
     }
 
@@ -132,6 +133,8 @@ def parse_queue_line(line: str) -> dict:
             result["p2_fix"] = True
         elif token.startswith("impl="):
             result["cc_impl_model"] = token.split("=", 1)[1]
+        elif token == "skip-cc-plan":
+            result["skip_cc_plan"] = True
         elif token in REVIEW_MODES:
             if result["mode"] is not None:
                 raise ValueError(f"Duplicate mode: already {result['mode']!r}, got {token!r}")

@@ -198,6 +198,22 @@ class TestParseQueueLine:
         result = parse_queue_line("Foo 1 p1-fix")
         assert result["p2_fix"] is True
 
+    def test_skip_cc_plan(self):
+        """skip-cc-plan トークン → skip_cc_plan=True"""
+        result = parse_queue_line("Foo 1 skip-cc-plan")
+        assert result["skip_cc_plan"] is True
+
+    def test_skip_cc_plan_with_other_options(self):
+        """skip-cc-plan + automerge + mode の組み合わせ"""
+        result = parse_queue_line("EMCalibrator 64,65 automerge skip-cc-plan")
+        assert result["skip_cc_plan"] is True
+        assert result["automerge"] is True
+
+    def test_no_skip_cc_plan_default(self):
+        """skip-cc-plan 省略時は False"""
+        result = parse_queue_line("Foo 1")
+        assert result["skip_cc_plan"] is False
+
 
 class TestPopNextQueueEntry:
     """pop_next_queue_entry() のテスト"""
@@ -870,3 +886,95 @@ class TestCmdQadd:
         assert "Foo 1 full" in content
         assert "Bar 2 lite" in content
         assert "#" not in content
+
+
+class TestCmdStartSkipCcPlan:
+    """cmd_start の --skip-cc-plan フラグ・残留クリア・qrun dry-run のテスト"""
+
+    @staticmethod
+    def _write_pipeline(path, data):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        import json as _json
+        path.write_text(_json.dumps(data))
+
+    def test_skip_cc_plan_saved_to_pipeline(self, tmp_pipelines):
+        """--skip-cc-plan が渡されたとき skip_cc_plan=True がパイプラインに保存されること"""
+        import json as _json
+        path = tmp_pipelines / "test-pj.json"
+        self._write_pipeline(path, {
+            "project": "test-pj", "gitlab": "atakalive/test-pj",
+            "state": "IDLE", "enabled": False,
+            "implementer": "kaneko", "batch": [], "history": [],
+            "created_at": "2025-01-01T00:00:00+09:00",
+            "updated_at": "2025-01-01T00:00:00+09:00",
+        })
+        import argparse
+        from devbar import cmd_start
+        args = argparse.Namespace(
+            project="test-pj",
+            issue=[1],
+            mode=None,
+            keep_context=False,
+            keep_ctx_batch=False,
+            keep_ctx_intra=False,
+            keep_ctx_all=False,
+            p2_fix=False,
+            comment=None,
+            skip_cc_plan=True,
+        )
+        with patch("devbar.cmd_triage"), \
+             patch("devbar.cmd_transition"), \
+             patch("devbar._start_loop"):
+            cmd_start(args)
+
+        data = _json.loads(path.read_text())
+        assert data.get("skip_cc_plan") is True
+
+    def test_stale_skip_cc_plan_cleared_without_flag(self, tmp_pipelines):
+        """前回残留した skip_cc_plan=True が --skip-cc-plan なしの cmd_start でクリアされること"""
+        import json as _json
+        path = tmp_pipelines / "test-pj.json"
+        self._write_pipeline(path, {
+            "project": "test-pj", "gitlab": "atakalive/test-pj",
+            "state": "IDLE", "enabled": False,
+            "implementer": "kaneko", "batch": [], "history": [],
+            "skip_cc_plan": True,  # 残留フラグ
+            "created_at": "2025-01-01T00:00:00+09:00",
+            "updated_at": "2025-01-01T00:00:00+09:00",
+        })
+        import argparse
+        from devbar import cmd_start
+        args = argparse.Namespace(
+            project="test-pj",
+            issue=[1],
+            mode=None,
+            keep_context=False,
+            keep_ctx_batch=False,
+            keep_ctx_intra=False,
+            keep_ctx_all=False,
+            p2_fix=False,
+            comment=None,
+            skip_cc_plan=False,  # フラグなし
+        )
+        with patch("devbar.cmd_triage"), \
+             patch("devbar.cmd_transition"), \
+             patch("devbar._start_loop"):
+            cmd_start(args)
+
+        data = _json.loads(path.read_text())
+        assert "skip_cc_plan" not in data
+
+    def test_qrun_dry_run_shows_skip_cc_plan(self, tmp_path, monkeypatch, capsys):
+        """cmd_qrun --dry-run で skip-cc-plan が opts に表示されること"""
+        import config
+        import argparse
+        queue_file = tmp_path / "queue.txt"
+        queue_file.write_text("Foo 1,2 automerge skip-cc-plan\n")
+        monkeypatch.setattr(config, "QUEUE_FILE", queue_file)
+
+        from devbar import cmd_qrun
+        args = argparse.Namespace(dry_run=True, queue=None)
+        cmd_qrun(args)
+
+        captured = capsys.readouterr()
+        assert "skip-cc-plan" in captured.out

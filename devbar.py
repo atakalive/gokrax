@@ -364,6 +364,11 @@ def cmd_start(args):
             f"Cannot start: current state is {data['state']} (expected IDLE)"
         )
 
+    # 前回失敗時の残留フラグをクリア（do_mode で再設定する前に）
+    def _clear_stale_skip(d):
+        d.pop("skip_cc_plan", None)
+    update_pipeline(path, _clear_stale_skip)
+
     # 2. Issue番号取得（--issue指定 or GitLab API）
     if args.issue:
         issue_nums = args.issue
@@ -395,7 +400,8 @@ def cmd_start(args):
     has_keep_ctx = getattr(args, "keep_ctx_batch", False) or getattr(args, "keep_ctx_intra", False)
     has_p2_fix = getattr(args, "p2_fix", False)
     has_comment = bool(getattr(args, "comment", None))
-    if getattr(args, "mode", None) or has_keep_ctx or has_p2_fix or has_comment:
+    has_skip_cc_plan = getattr(args, "skip_cc_plan", False)
+    if getattr(args, "mode", None) or has_keep_ctx or has_p2_fix or has_comment or has_skip_cc_plan:
         from watchdog import REVIEW_MODES
         if getattr(args, "mode", None) and args.mode not in REVIEW_MODES:
             raise SystemExit(f"Invalid mode: {args.mode} (valid: {list(REVIEW_MODES)})")
@@ -413,6 +419,8 @@ def cmd_start(args):
                 sanitized = sanitize_comment(args.comment)
                 if sanitized:
                     data["comment"] = sanitized
+            if getattr(args, "skip_cc_plan", False):
+                data["skip_cc_plan"] = True
         update_pipeline(path, do_mode)
 
 
@@ -476,6 +484,7 @@ def cmd_transition(args):
             data.pop("keep_ctx_batch", None)
             data.pop("keep_ctx_intra", None)
             data.pop("comment", None)
+            data.pop("skip_cc_plan", None)
         elif target == "DESIGN_PLAN":
             # Reset REVISE cycle counters when starting new batch (Issue #29)
             data.pop("design_revise_count", None)
@@ -1073,6 +1082,8 @@ def cmd_qrun(args):
                 opts.append("keep-ctx-intra")
             if e.get("comment"):
                 opts.append(f"comment={e['comment']}")
+            if e.get("skip_cc_plan"):
+                opts.append("skip-cc-plan")
             opts_str = " " + " ".join(opts) if opts else ""
             print(f"{e['project']} {e['issues']}{mode}{opts_str}{done}")
         return
@@ -1096,6 +1107,7 @@ def cmd_qrun(args):
         keep_ctx_intra=entry.get("keep_ctx_intra", False),
         p2_fix=entry.get("p2_fix", False),
         comment=entry.get("comment") or None,
+        skip_cc_plan=entry.get("skip_cc_plan", False),
     )
 
     # queue_mode を先に設定（cmd_start 内の遷移通知で [Queue] prefix を使うため）
@@ -1123,6 +1135,8 @@ def cmd_qrun(args):
             data["cc_impl_model"] = entry["cc_impl_model"]
         if entry.get("comment"):
             data["comment"] = entry["comment"]
+        if entry.get("skip_cc_plan"):
+            data["skip_cc_plan"] = True
 
     update_pipeline(path, _save_queue_options)
 
@@ -2246,6 +2260,8 @@ def main():
     p.add_argument("--keep-ctx-all", action="store_true", default=False, dest="keep_ctx_all")
     p.add_argument("--p2-fix", action="store_true", default=False, dest="p2_fix")
     p.add_argument("--comment", default=None, help="バッチ全体への注意事項（プロンプトに挿入される）")
+    p.add_argument("--skip-cc-plan", action="store_true", default=False, dest="skip_cc_plan",
+                   help="CC Plan フェーズをスキップし、直接 Impl に入る")
 
     # triage
     p = sub.add_parser("triage", help="指定Issueをバッチに投入")

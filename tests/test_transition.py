@@ -465,3 +465,20 @@ class TestKeepCtx:
         # keep_ctx_batch is already present → normalization skipped
         assert data.get("keep_ctx_batch") is False
         assert data.get("keep_ctx_intra") is False
+
+    def test_idle_cleanup_pops_skip_cc_plan(self, tmp_pipelines, sample_pipeline):
+        """IDLE遷移で skip_cc_plan が pop されること"""
+        sample_pipeline["state"] = "DONE"
+        sample_pipeline["skip_cc_plan"] = True
+        sample_pipeline["batch"] = [{"issue": 1, "title": "T"}]
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, sample_pipeline)
+        from devbar import cmd_transition
+        args = argparse.Namespace(
+            project="test-pj", to="IDLE", actor="cli", force=False, resume=False,
+        )
+        with patch("devbar.notify_implementer"), patch("devbar.notify_reviewers"):
+            cmd_transition(args)
+        with open(path) as f:
+            data = json.load(f)
+        assert "skip_cc_plan" not in data

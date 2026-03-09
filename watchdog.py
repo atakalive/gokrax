@@ -169,6 +169,54 @@ def count_reviews(batch: list, key: str) -> tuple:
     return min_n, has_p0, has_p1, has_p2
 
 
+def _awaiting_dispute_re_review(
+    batch: list, review_key: str, excluded: list[str] | None = None,
+) -> list[str]:
+    """dispute 後に再レビューを出していないレビュアーのリストを返す。
+
+    対象:
+    - status == "pending": 常に awaiting（未解決）
+    - status == "accepted": review が無い or review.at < dispute.resolved_at → awaiting
+    - status == "rejected": 対象外（元の判定維持）
+
+    excluded に含まれるレビュアーは対象外（レート制限等で除外済み）。
+    """
+    excluded_set = set(excluded or [])
+    awaiting = set()
+    for issue in batch:
+        for d in issue.get("disputes", []):
+            status = d.get("status", "")
+            if status not in ("pending", "accepted"):
+                continue
+            reviewer = d.get("reviewer", "")
+            if reviewer in excluded_set:
+                continue
+            phase = d.get("phase", "")
+            expected_key = "design_reviews" if phase == "design" else "code_reviews"
+            if expected_key != review_key:
+                continue
+            if status == "pending":
+                awaiting.add(reviewer)
+                continue
+            # accepted: review の有無と時刻で判定
+            resolved_at = d.get("resolved_at", "")
+            review = issue.get(review_key, {}).get(reviewer)
+            if review is None:
+                awaiting.add(reviewer)
+            else:
+                review_at = review.get("at", "")
+                try:
+                    from datetime import datetime
+                    r_dt = datetime.fromisoformat(review_at)
+                    d_dt = datetime.fromisoformat(resolved_at)
+                    if r_dt < d_dt:
+                        awaiting.add(reviewer)
+                except (ValueError, TypeError):
+                    if review_at < resolved_at:
+                        awaiting.add(reviewer)
+    return sorted(awaiting)
+
+
 def _revise_target_issues(batch: list, review_key: str, revised_key: str, p2_fix: bool = False) -> str:
     """REVISE対象Issueを文字列化。P0/REJECT/P1が付いた未修正Issueを明示。p2_fix時はP2も含む。
 
@@ -645,6 +693,12 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
                 should_transition = True
 
             if should_transition:
+                awaiting = _awaiting_dispute_re_review(batch, key, excluded=excluded)
+                if awaiting:
+                    log(f"[DISPUTE] waiting for re-review from: {', '.join(awaiting)}")
+                    should_transition = False
+
+            if should_transition:
                 if data:
                     data.pop(met_key, None)
                 comment = data.get("comment", "") if data else ""
@@ -664,8 +718,10 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
         # 3. レビュアー催促（最低優先）
         excluded = data.get("excluded_reviewers", []) if data else []
         pending = _get_pending_reviewers(batch, key, mode_config["members"], excluded=excluded)
-        if pending:
-            return TransitionAction(nudge_reviewers=pending)
+        dispute_awaiting = _awaiting_dispute_re_review(batch, key, excluded=excluded)
+        all_nudge = sorted(set(list(pending) + dispute_awaiting))
+        if all_nudge:
+            return TransitionAction(nudge="REVIEW", nudge_reviewers=all_nudge)
         return TransitionAction()
 
     if state == "DESIGN_APPROVED":

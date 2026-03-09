@@ -204,6 +204,7 @@ class TestCmdReviewDisputeResolution:
         d = data["batch"][0]["disputes"][0]
         assert d["status"] == "accepted"
         assert "resolved_at" in d
+        assert d.get("resolved_verdict") == "APPROVE"
 
     def test_rejected_when_verdict_same(self, tmp_pipelines):
         """dispute pending(P0) → review P0 → status=rejected"""
@@ -255,7 +256,7 @@ class TestCmdReviewDisputeResolution:
             devbar.cmd_review(_review_args(verdict="APPROVE"))
 
     def test_review_recorded_after_dispute_resolution(self, tmp_pipelines):
-        """dispute 解決後、review エントリが記録されること"""
+        """dispute accepted 時はレビューが pop されること（次 REVIEW サイクルで再レビューを強制）"""
         self._make_revise_pipeline_with_dispute(tmp_pipelines)
         import devbar
         with patch("devbar.subprocess.run") as mock_run:
@@ -263,8 +264,8 @@ class TestCmdReviewDisputeResolution:
             devbar.cmd_review(_review_args(verdict="APPROVE"))
 
         data = _read_pipeline(tmp_pipelines / "test-pj.json")
-        review = data["batch"][0]["design_reviews"].get("pascal", {})
-        assert review.get("verdict") == "APPROVE"
+        review = data["batch"][0]["design_reviews"].get("pascal")
+        assert review is None
 
     def test_requires_force_flag(self, tmp_pipelines):
         """--force なしでは SystemExit になり、dispute status も変わらないこと"""
@@ -478,3 +479,425 @@ class TestDisputeNotificationSuppression:
         # pending_notifications からキーが削除されていること
         result = json.loads(path.read_text())
         assert notif_key not in result.get("pending_notifications", {})
+
+
+# ---------------------------------------------------------------------------
+# 6. cmd_review REVISE ブロック: accepted pop / rejected keep / resolved fields
+# ---------------------------------------------------------------------------
+
+class TestCmdReviewDisputeResolutionV2:
+    """変更 1a の新規テスト: pop / keep / resolved_fields"""
+
+    def _make_revise_pipeline(self, tmp_pipelines, filed_verdict="P0"):
+        dispute = {
+            "reviewer": "pascal",
+            "status": "pending",
+            "phase": "design",
+            "reason": "理由",
+            "filed_at": "2025-01-01T00:00:00+09:00",
+            "filed_verdict": filed_verdict,
+        }
+        return _make_pipeline(tmp_pipelines, extra_issue_fields={"disputes": [dispute]})
+
+    def test_accepted_pops_review(self, tmp_pipelines):
+        """dispute accepted → design_reviews から pascal エントリが削除される"""
+        self._make_revise_pipeline(tmp_pipelines)
+        import devbar
+        with patch("devbar.subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 0
+            devbar.cmd_review(_review_args(verdict="APPROVE"))
+
+        data = _read_pipeline(tmp_pipelines / "test-pj.json")
+        assert data["batch"][0]["design_reviews"].get("pascal") is None
+
+    def test_rejected_keeps_review(self, tmp_pipelines):
+        """dispute rejected → 新 verdict でレビューが上書きされる"""
+        self._make_revise_pipeline(tmp_pipelines)
+        import devbar
+        with patch("devbar.subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 0
+            devbar.cmd_review(_review_args(verdict="P0", summary="維持"))
+
+        data = _read_pipeline(tmp_pipelines / "test-pj.json")
+        review = data["batch"][0]["design_reviews"].get("pascal", {})
+        assert review.get("verdict") == "P0"
+
+    def test_accepted_stores_resolved_fields(self, tmp_pipelines):
+        """dispute accepted → resolved_verdict / resolved_summary が保存される"""
+        self._make_revise_pipeline(tmp_pipelines)
+        import devbar
+        with patch("devbar.subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 0
+            devbar.cmd_review(_review_args(verdict="APPROVE", summary="問題なし"))
+
+        data = _read_pipeline(tmp_pipelines / "test-pj.json")
+        d = data["batch"][0]["disputes"][0]
+        assert d.get("resolved_verdict") == "APPROVE"
+        assert d.get("resolved_summary") == "問題なし"
+
+
+# ---------------------------------------------------------------------------
+# 7. cmd_review REVIEW 状態: pending dispute 自動解決
+# ---------------------------------------------------------------------------
+
+def _make_review_pipeline(tmp_pipelines, state="DESIGN_REVIEW", extra_issue_fields=None):
+    """REVIEW 状態 + issue #1 入りのパイプラインを作成。"""
+    issue = {
+        "issue": 1,
+        "title": "Test Issue",
+        "commit": None,
+        "cc_session_id": None,
+        "design_reviews": {},
+        "code_reviews": {},
+        "added_at": "2025-01-01T00:00:00+09:00",
+    }
+    if extra_issue_fields:
+        issue.update(extra_issue_fields)
+
+    data = {
+        "project": "test-pj",
+        "gitlab": "atakalive/test-pj",
+        "state": state,
+        "enabled": True,
+        "implementer": "kaneko",
+        "batch": [issue],
+        "history": [{"from": "DESIGN_REVISE", "to": state,
+                      "at": "2025-01-01T00:00:00+09:00", "actor": "watchdog"}],
+        "created_at": "2025-01-01T00:00:00+09:00",
+        "updated_at": "2025-01-01T00:00:00+09:00",
+    }
+    path = tmp_pipelines / "test-pj.json"
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+    return path
+
+
+class TestCmdReviewDisputeAutoResolve:
+    """変更 1b のテスト: REVIEW 状態での pending dispute 自動解決"""
+
+    def test_review_in_review_state_resolves_pending_dispute(self, tmp_pipelines):
+        """DESIGN_REVIEW で pending dispute → review 投稿後に dispute accepted + review 記録"""
+        dispute = {
+            "reviewer": "pascal", "status": "pending", "phase": "design",
+            "reason": "理由", "filed_at": "2025-01-01T00:00:00+09:00",
+            "filed_verdict": "P0",
+        }
+        _make_review_pipeline(tmp_pipelines, extra_issue_fields={"disputes": [dispute]})
+        import devbar
+        with patch("devbar.subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 0
+            devbar.cmd_review(_review_args(verdict="APPROVE", force=False))
+
+        data = _read_pipeline(tmp_pipelines / "test-pj.json")
+        d = data["batch"][0]["disputes"][0]
+        assert d["status"] == "accepted"
+        assert d.get("resolved_verdict") == "APPROVE"
+        # REVIEW での投稿はレビューとして記録される（pop しない）
+        review = data["batch"][0]["design_reviews"].get("pascal", {})
+        assert review.get("verdict") == "APPROVE"
+
+    def test_review_in_review_state_no_dispute(self, tmp_pipelines):
+        """dispute なしの通常レビュー → 正常記録、disputes 影響なし"""
+        _make_review_pipeline(tmp_pipelines)
+        import devbar
+        with patch("devbar.subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 0
+            devbar.cmd_review(_review_args(verdict="APPROVE", force=False))
+
+        data = _read_pipeline(tmp_pipelines / "test-pj.json")
+        review = data["batch"][0]["design_reviews"].get("pascal", {})
+        assert review.get("verdict") == "APPROVE"
+        assert data["batch"][0].get("disputes", []) == []
+
+    def test_review_in_review_state_rejected_dispute(self, tmp_pipelines):
+        """P0 verdict を再投稿 → dispute rejected + review 記録"""
+        dispute = {
+            "reviewer": "pascal", "status": "pending", "phase": "design",
+            "reason": "理由", "filed_at": "2025-01-01T00:00:00+09:00",
+            "filed_verdict": "P0",
+        }
+        _make_review_pipeline(tmp_pipelines, extra_issue_fields={"disputes": [dispute]})
+        import devbar
+        with patch("devbar.subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 0
+            devbar.cmd_review(_review_args(verdict="P0", summary="やはり P0", force=False))
+
+        data = _read_pipeline(tmp_pipelines / "test-pj.json")
+        d = data["batch"][0]["disputes"][0]
+        assert d["status"] == "rejected"
+        review = data["batch"][0]["design_reviews"].get("pascal", {})
+        assert review.get("verdict") == "P0"
+
+    def test_review_in_review_state_existing_review_no_force_with_pending_dispute(
+        self, tmp_pipelines
+    ):
+        """既存レビューあり + pending dispute + force なし → 冪等性バイパスで上書き"""
+        dispute = {
+            "reviewer": "pascal", "status": "pending", "phase": "design",
+            "reason": "理由", "filed_at": "2025-01-01T00:00:00+09:00",
+            "filed_verdict": "P0",
+        }
+        existing_reviews = {
+            "pascal": {"verdict": "P0", "at": "2025-01-01T00:00:00+09:00"},
+        }
+        _make_review_pipeline(
+            tmp_pipelines,
+            extra_issue_fields={"design_reviews": existing_reviews, "disputes": [dispute]},
+        )
+        import devbar
+        with patch("devbar.subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 0
+            devbar.cmd_review(_review_args(verdict="APPROVE", force=False))
+
+        data = _read_pipeline(tmp_pipelines / "test-pj.json")
+        review = data["batch"][0]["design_reviews"].get("pascal", {})
+        assert review.get("verdict") == "APPROVE"
+
+    def test_review_in_review_state_existing_review_no_force_without_dispute(
+        self, tmp_pipelines
+    ):
+        """既存レビューあり + dispute なし + force なし → 冪等性チェックで skip"""
+        existing_reviews = {
+            "pascal": {"verdict": "P0", "at": "2025-01-01T00:00:00+09:00"},
+        }
+        _make_review_pipeline(
+            tmp_pipelines,
+            extra_issue_fields={"design_reviews": existing_reviews},
+        )
+        import devbar
+        with patch("devbar.subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 0
+            devbar.cmd_review(_review_args(verdict="APPROVE", force=False))
+
+        data = _read_pipeline(tmp_pipelines / "test-pj.json")
+        # 上書きされず P0 のまま
+        review = data["batch"][0]["design_reviews"].get("pascal", {})
+        assert review.get("verdict") == "P0"
+
+
+# ---------------------------------------------------------------------------
+# 8. _awaiting_dispute_re_review ユニットテスト
+# ---------------------------------------------------------------------------
+
+class TestAwaitingDisputeReReview:
+
+    def _call(self, batch, review_key="design_reviews"):
+        import watchdog
+        return watchdog._awaiting_dispute_re_review(batch, review_key)
+
+    def test_no_disputes(self):
+        batch = [{"issue": 1, "design_reviews": {}, "disputes": []}]
+        assert self._call(batch) == []
+
+    def test_pending_always_awaiting(self):
+        batch = [{"issue": 1, "design_reviews": {}, "disputes": [
+            {"reviewer": "pascal", "status": "pending", "phase": "design",
+             "filed_verdict": "P0"},
+        ]}]
+        assert self._call(batch) == ["pascal"]
+
+    def test_accepted_no_review(self):
+        batch = [{"issue": 1, "design_reviews": {}, "disputes": [
+            {"reviewer": "pascal", "status": "accepted", "phase": "design",
+             "resolved_at": "2025-01-02T00:00:00+09:00"},
+        ]}]
+        assert self._call(batch) == ["pascal"]
+
+    def test_accepted_old_review(self):
+        batch = [{"issue": 1, "design_reviews": {
+            "pascal": {"verdict": "APPROVE", "at": "2025-01-01T00:00:00+09:00"},
+        }, "disputes": [
+            {"reviewer": "pascal", "status": "accepted", "phase": "design",
+             "resolved_at": "2025-01-02T00:00:00+09:00"},
+        ]}]
+        assert self._call(batch) == ["pascal"]
+
+    def test_accepted_new_review_after_resolved_at(self):
+        batch = [{"issue": 1, "design_reviews": {
+            "pascal": {"verdict": "APPROVE", "at": "2025-01-03T00:00:00+09:00"},
+        }, "disputes": [
+            {"reviewer": "pascal", "status": "accepted", "phase": "design",
+             "resolved_at": "2025-01-02T00:00:00+09:00"},
+        ]}]
+        assert self._call(batch) == []
+
+    def test_rejected_not_counted(self):
+        batch = [{"issue": 1, "design_reviews": {}, "disputes": [
+            {"reviewer": "pascal", "status": "rejected", "phase": "design",
+             "resolved_at": "2025-01-02T00:00:00+09:00"},
+        ]}]
+        assert self._call(batch) == []
+
+    def test_wrong_phase_not_counted(self):
+        """design dispute を code_reviews で検査 → 空リスト"""
+        batch = [{"issue": 1, "code_reviews": {}, "disputes": [
+            {"reviewer": "pascal", "status": "pending", "phase": "design"},
+        ]}]
+        assert self._call(batch, review_key="code_reviews") == []
+
+    def test_multiple_issues_all_scanned(self):
+        """2 Issues、別レビュアーに dispute → 両方の awaiting を返す"""
+        batch = [
+            {"issue": 1, "design_reviews": {}, "disputes": [
+                {"reviewer": "pascal", "status": "pending", "phase": "design"},
+            ]},
+            {"issue": 2, "design_reviews": {}, "disputes": [
+                {"reviewer": "leibniz", "status": "pending", "phase": "design"},
+            ]},
+        ]
+        assert self._call(batch) == ["leibniz", "pascal"]
+
+
+# ---------------------------------------------------------------------------
+# 9. check_transition での dispute 再レビュー待ち遷移ブロック
+# ---------------------------------------------------------------------------
+
+class TestCheckTransitionDisputeReReview:
+
+    def _make_review_data(self, state="DESIGN_REVIEW", reviews=None, disputes=None,
+                          entered_at=None):
+        """DESIGN_REVIEW 状態のパイプラインデータを構築。"""
+        import datetime as dt_mod
+        if entered_at is None:
+            # NUDGE_GRACE_SEC より十分前（催促対象）
+            entered_at = (
+                dt_mod.datetime.now(dt_mod.timezone.utc) - dt_mod.timedelta(seconds=600)
+            ).isoformat()
+        issue = {
+            "issue": 1,
+            "design_reviews": reviews or {},
+            "code_reviews": {},
+        }
+        if disputes:
+            issue["disputes"] = disputes
+        return {
+            "project": "test-pj",
+            "state": state,
+            "batch": [issue],
+            "history": [{"from": "DESIGN_REVISE", "to": state, "at": entered_at,
+                         "actor": "watchdog"}],
+        }
+
+    def test_pending_blocks_transition(self):
+        """DESIGN_REVIEW、min_reviews 達成、pending dispute あり → 遷移しない"""
+        reviews = {
+            "pascal": {"verdict": "APPROVE", "at": "2025-01-03T00:00:00+09:00"},
+            "leibniz": {"verdict": "APPROVE", "at": "2025-01-03T00:00:00+09:00"},
+        }
+        disputes = [
+            {"reviewer": "pascal", "status": "pending", "phase": "design",
+             "filed_verdict": "P0"},
+        ]
+        data = self._make_review_data(reviews=reviews, disputes=disputes)
+        import watchdog
+        action = watchdog.check_transition("DESIGN_REVIEW", data["batch"], data)
+        assert action.new_state is None
+
+    def test_accepted_awaiting_blocks_transition(self):
+        """min_reviews 達成、accepted + review なし → 遷移しない"""
+        reviews = {
+            "leibniz": {"verdict": "APPROVE", "at": "2025-01-03T00:00:00+09:00"},
+        }
+        disputes = [
+            {"reviewer": "pascal", "status": "accepted", "phase": "design",
+             "resolved_at": "2025-01-02T00:00:00+09:00"},
+        ]
+        data = self._make_review_data(reviews=reviews, disputes=disputes)
+        import watchdog
+        action = watchdog.check_transition("DESIGN_REVIEW", data["batch"], data)
+        assert action.new_state is None
+
+    def test_re_reviewed_allows_transition(self):
+        """accepted + resolved_at より後に re-review 済み → DESIGN_APPROVED に遷移"""
+        reviews = {
+            "pascal": {"verdict": "APPROVE", "at": "2025-01-03T00:00:00+09:00"},
+            "leibniz": {"verdict": "APPROVE", "at": "2025-01-03T00:00:00+09:00"},
+            "dijkstra": {"verdict": "APPROVE", "at": "2025-01-03T00:00:00+09:00"},
+        }
+        disputes = [
+            {"reviewer": "pascal", "status": "accepted", "phase": "design",
+             "resolved_at": "2025-01-02T00:00:00+09:00"},
+        ]
+        data = self._make_review_data(reviews=reviews, disputes=disputes)
+        import watchdog
+        action = watchdog.check_transition("DESIGN_REVIEW", data["batch"], data)
+        assert action.new_state == "DESIGN_APPROVED"
+
+    def test_dispute_awaiting_nudge_respects_grace_period(self):
+        """grace 期間内は催促なし、grace 後は dispute_awaiting が nudge_reviewers に含まれる"""
+        import datetime as dt_mod
+        from config import NUDGE_GRACE_SEC
+
+        reviews = {}
+        disputes = [
+            {"reviewer": "pascal", "status": "pending", "phase": "design",
+             "filed_verdict": "P0"},
+        ]
+
+        # grace 期間内
+        recent_at = (
+            dt_mod.datetime.now(dt_mod.timezone.utc) - dt_mod.timedelta(seconds=10)
+        ).isoformat()
+        data_grace = self._make_review_data(reviews=reviews, disputes=disputes,
+                                            entered_at=recent_at)
+        import watchdog
+        action_grace = watchdog.check_transition("DESIGN_REVIEW", data_grace["batch"],
+                                                 data_grace)
+        assert action_grace.nudge_reviewers is None
+
+        # grace 期間後
+        old_at = (
+            dt_mod.datetime.now(dt_mod.timezone.utc)
+            - dt_mod.timedelta(seconds=NUDGE_GRACE_SEC + 60)
+        ).isoformat()
+        data_old = self._make_review_data(reviews=reviews, disputes=disputes,
+                                          entered_at=old_at)
+        action_old = watchdog.check_transition("DESIGN_REVIEW", data_old["batch"], data_old)
+        assert action_old.nudge_reviewers is not None
+        assert "pascal" in action_old.nudge_reviewers
+
+
+class TestAwaitingDisputeExcluded:
+    """excluded_reviewers が _awaiting_dispute_re_review で除外されること"""
+
+    def _call(self, batch, review_key="design_reviews", excluded=None):
+        import watchdog
+        return watchdog._awaiting_dispute_re_review(batch, review_key, excluded=excluded)
+
+    def test_excluded_reviewer_not_in_awaiting(self):
+        """excluded に入ったレビュアーの pending dispute は awaiting に含まれない"""
+        batch = [{
+            "issue": 1,
+            "design_reviews": {},
+            "disputes": [
+                {"reviewer": "pascal", "status": "pending", "phase": "design",
+                 "filed_verdict": "P0"},
+            ],
+        }]
+        assert self._call(batch, excluded=["pascal"]) == []
+
+    def test_excluded_does_not_affect_others(self):
+        """excluded でないレビュアーは通常通り awaiting"""
+        batch = [{
+            "issue": 1,
+            "design_reviews": {},
+            "disputes": [
+                {"reviewer": "pascal", "status": "pending", "phase": "design",
+                 "filed_verdict": "P0"},
+                {"reviewer": "leibniz", "status": "pending", "phase": "design",
+                 "filed_verdict": "P0"},
+            ],
+        }]
+        result = self._call(batch, excluded=["pascal"])
+        assert result == ["leibniz"]
+
+    def test_excluded_accepted_not_in_awaiting(self):
+        """excluded に入ったレビュアーの accepted dispute も awaiting に含まれない"""
+        batch = [{
+            "issue": 1,
+            "design_reviews": {},
+            "disputes": [
+                {"reviewer": "pascal", "status": "accepted", "phase": "design",
+                 "filed_verdict": "P0", "resolved_at": "2025-01-01T00:00:00+09:00"},
+            ],
+        }]
+        assert self._call(batch, excluded=["pascal"]) == []

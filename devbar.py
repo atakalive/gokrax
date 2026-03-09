@@ -641,9 +641,10 @@ def cmd_review(args):
     """レビュー結果を記録（pipeline JSON + GitLab Issue note）"""
     path = get_path(args.project)
     _skipped = False
+    _dispute_accepted = False
 
     def do_review(data):
-        nonlocal _skipped
+        nonlocal _skipped, _dispute_accepted
         state = data.get("state", "IDLE")
         if state == "DESIGN_REVIEW":
             key = "design_reviews"
@@ -676,20 +677,54 @@ def cmd_review(args):
             # dispute 解決: severity 比較で accepted/rejected を判定
             new_sev = VERDICT_SEVERITY.get(args.verdict.upper(), 0)
             filed_sev = VERDICT_SEVERITY.get(pending_dispute.get("filed_verdict", "P0"), 3)
-            pending_dispute["status"] = "accepted" if new_sev < filed_sev else "rejected"
+            resolved = "accepted" if new_sev < filed_sev else "rejected"
+            pending_dispute["status"] = resolved
             pending_dispute["resolved_at"] = now_iso()
+            pending_dispute["resolved_verdict"] = args.verdict.upper()
+            if args.summary:
+                pending_dispute["resolved_summary"] = args.summary
+            if resolved == "accepted":
+                _dispute_accepted = True
         else:
             raise SystemExit(f"Not in review state: {state}")
+        # REVIEW 状態での dispute 自動解決 + 冪等性バイパス判定
+        has_pending_dispute = False
+        if state in ("DESIGN_REVIEW", "CODE_REVIEW"):
+            phase = "design" if "DESIGN" in state else "code"
+            _issue_for_dispute = find_issue(data.get("batch", []), args.issue)
+            if _issue_for_dispute:
+                has_pending_dispute = any(
+                    d.get("reviewer") == args.reviewer
+                    and d.get("status") == "pending"
+                    and d.get("phase") == phase
+                    for d in _issue_for_dispute.get("disputes", [])
+                )
+                for d in _issue_for_dispute.get("disputes", []):
+                    if (d.get("reviewer") == args.reviewer
+                            and d.get("status") == "pending"
+                            and d.get("phase") == phase):
+                        _new_sev = VERDICT_SEVERITY.get(args.verdict.upper(), 0)
+                        _filed_sev = VERDICT_SEVERITY.get(d.get("filed_verdict", "P0"), 3)
+                        d["status"] = "accepted" if _new_sev < _filed_sev else "rejected"
+                        d["resolved_at"] = now_iso()
+                        d["resolved_verdict"] = args.verdict.upper()
+                        if args.summary:
+                            d["resolved_summary"] = args.summary
+                        break
         issue = find_issue(data.get("batch", []), args.issue)
         if not issue:
             raise SystemExit(f"Issue #{args.issue} not in batch")
         # 冪等性: 同じレビュアーが既にレビュー済みならスキップ（--force で上書き可）
-        if args.reviewer in issue.get(key, {}):
+        if args.reviewer in issue.get(key, {}) and not has_pending_dispute:
             if not args.force:
                 print(f"#{args.issue}: already reviewed by {args.reviewer}, skipping")
                 _skipped = True
                 return
             print(f"#{args.issue}: overwriting existing review by {args.reviewer} (--force)")
+        # dispute accepted 時はレビューを削除して早期 return（次の REVIEW サイクルで再レビューを強制）
+        if _dispute_accepted:
+            issue[key].pop(args.reviewer, None)
+            return
         review_entry = {"verdict": args.verdict, "at": now_iso()}
         if args.summary:
             review_entry["summary"] = args.summary

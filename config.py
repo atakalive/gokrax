@@ -100,6 +100,7 @@ AGENTS = {
     "dijkstra": "agent:dijkstra:main",  # Opus
     "neumann":  "agent:neumann:main",   # Opus, Lead
     "euler":    "agent:euler:main",     # ChatGPT
+    "basho":    "agent:basho:main",     # Local
 }
 
 # REVIEWERS = ["pascal", "leibniz", "hanfei", "dijkstra"]
@@ -135,8 +136,8 @@ REVIEW_MODES = {
         "grace_period_sec": 0,
     },
     "lite": {
-        "members": ["leibniz", "pascal"],
-        "min_reviews": 2,
+        "members": ["leibniz", "pascal", "basho"],
+        "min_reviews": 3,
         "grace_period_sec": 0,
     },
     "min": {

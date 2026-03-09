@@ -866,15 +866,25 @@ def _start_cc(project: str, batch: list, gitlab: str, repo_path: str, pipeline_p
             log(f"[{project}] WARNING: test baseline embed failed: {e}")
 
     if data.get("skip_cc_plan"):
+        scope_warning = (
+            "\n\n⚠️ スコープ厳守: Issue本文に記載された変更対象ファイル・変更内容のみを実装せよ。"
+            "「変更しないファイル」に記載されたファイルは絶対に変更するな。"
+            "Issue本文に記載のない改善・リファクタ・バグ修正は一切行うな。"
+        )
         impl_prompt = (
             f"以下のIssueを実装してください。\n"
             f"{comment_line}"
             f"\n{issues_block}\n\n"
             f"コミットメッセージに {closes} を必ず含めること。"
+            f"{scope_warning}"
             f"{test_baseline_section}"
         )
     else:
-        impl_prompt = f"計画OK。実装して commit して。コミットメッセージに {closes} を必ず含めること。{test_baseline_section}"
+        scope_warning = (
+            "\n\n⚠️ スコープ厳守: Issue本文に記載された変更のみを実装せよ。"
+            "Issue本文に記載のない改善・リファクタ・バグ修正は一切行うな。"
+        )
+        impl_prompt = f"計画OK。実装して commit して。コミットメッセージに {closes} を必ず含めること。{scope_warning}{test_baseline_section}"
 
     # mkstemp で安全に一時ファイル作成
     plan_path: str | None = None

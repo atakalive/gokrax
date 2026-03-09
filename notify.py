@@ -269,7 +269,6 @@ def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
     excluded に含まれるレビュアーには通知しない。
 
     already_reset: True の場合、_reset_reviewers() が既に実行済み（/new 送信 + 待機完了）。
-                   short-context tier への追加 /new はスキップする。
     """
     if prev_reviews is None:
         prev_reviews = {}
@@ -288,20 +287,6 @@ def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
     if review_mode == "skip":
         logger.info("[review_mode=skip] Skipping reviewer notifications for %s", project)
         return
-
-    # short-context tier: already_reset=False の場合のみ /new + 1回 sleep
-    if not already_reset:
-        short_ctx_members = [
-            r for r in reviewers
-            if r not in excluded and r in AGENTS and config.get_tier(r) == "short-context"
-        ]
-        if short_ctx_members:
-            import time
-            for r in short_ctx_members:
-                logger.info("notify_reviewers: short-context reset for %s", r)
-                send_to_agent_queued(r, "/new")
-            if not config.DRY_RUN:
-                time.sleep(config.POST_NEW_COMMAND_WAIT_SEC)
 
     # 各レビュアーにレビュー依頼メッセージ送信（/new はDESIGN_PLAN/IMPL開始時に先行送信済み）
     for r in reviewers:

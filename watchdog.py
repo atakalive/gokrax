@@ -825,6 +825,8 @@ def _start_cc(project: str, batch: list, gitlab: str, repo_path: str, pipeline_p
 
     # CC モデル指定を pipeline JSON から読み取る (Issue #45)
     data = load_pipeline(pipeline_path)
+    skip_plan = data.get("skip_cc_plan", False)
+    log(f"[{project}] _start_cc: skip_cc_plan={skip_plan}")
 
     # base_commit が未設定の場合のみ記録（REVISE→再IMPL で上書きしない）
     if not data.get("base_commit") and repo_path:
@@ -921,7 +923,7 @@ def _start_cc(project: str, batch: list, gitlab: str, repo_path: str, pipeline_p
         except Exception as e:
             log(f"[{project}] WARNING: test baseline embed failed: {e}")
 
-    if data.get("skip_cc_plan"):
+    if skip_plan:
         scope_warning = (
             "\n\n⚠️ スコープ厳守: Issue本文に記載された変更対象ファイル・変更内容のみを実装せよ。"
             "「変更しないファイル」に記載されたファイルは絶対に変更するな。"
@@ -948,7 +950,7 @@ def _start_cc(project: str, batch: list, gitlab: str, repo_path: str, pipeline_p
     script_path: str | None = None
 
     try:
-        if data.get("skip_cc_plan"):
+        if skip_plan:
             fd_impl, impl_path = tempfile.mkstemp(suffix=".txt", prefix="devbar-impl-")
             fd_script, script_path = tempfile.mkstemp(suffix=".sh", prefix="devbar-cc-")
         else:
@@ -962,7 +964,7 @@ def _start_cc(project: str, batch: list, gitlab: str, repo_path: str, pipeline_p
         os.write(fd_impl, impl_prompt.encode())
         os.close(fd_impl)
 
-        if data.get("skip_cc_plan"):
+        if skip_plan:
             script_content = f'''#!/bin/bash
 set -e
 cleanup() {{ rm -f "{script_path}" "{impl_path}"; }}
@@ -2787,6 +2789,7 @@ def process(path: Path):
             data.pop("keep_ctx_intra", None)
             data.pop("queue_mode", None)
             data.pop("comment", None)
+            data.pop("skip_cc_plan", None)
             # Issue #92: pytest baseline クリーンアップ
             _kill_pytest_baseline(data, pj)
             data.pop("test_baseline", None)
@@ -3373,6 +3376,9 @@ def _handle_qrun(msg_id: str):
         mode=mode,
         keep_ctx_batch=entry.get("keep_ctx_batch", False),
         keep_ctx_intra=entry.get("keep_ctx_intra", False),
+        p2_fix=entry.get("p2_fix", False),
+        comment=entry.get("comment") or None,
+        skip_cc_plan=entry.get("skip_cc_plan", False),
     )
 
     # Call cmd_start with try-catch
@@ -3399,10 +3405,16 @@ def _handle_qrun(msg_id: str):
     def _save_queue_options(data):
         data["queue_mode"] = True
         data["automerge"] = entry.get("automerge", True)
+        if entry.get("p2_fix"):
+            data["p2_fix"] = True
         if entry.get("cc_plan_model"):
             data["cc_plan_model"] = entry["cc_plan_model"]
         if entry.get("cc_impl_model"):
             data["cc_impl_model"] = entry["cc_impl_model"]
+        if entry.get("comment"):
+            data["comment"] = entry["comment"]
+        if entry.get("skip_cc_plan"):
+            data["skip_cc_plan"] = True
 
     update_pipeline(path, _save_queue_options)
 

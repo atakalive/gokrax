@@ -765,14 +765,10 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
                                 "queued_at": now_iso(),
                             }
 
+        flag_phase = STATE_PHASE_MAP.get(state)
         all_done = True
         for issue in batch:
             reviews = issue.get(review_key, {})
-            if not reviews:
-                if not issue.get(revised_key):
-                    all_done = False
-                    break
-                continue
 
             has_p0 = any(
                 r.get("verdict", "").upper() in ("REJECT", "P0")
@@ -787,7 +783,16 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
                 for r in reviews.values()
             )
 
-            needs_revision = has_p0 or has_p1 or (p2_fix and has_p2)
+            has_unresolved_flag = False
+            if flag_phase is not None:
+                has_unresolved_flag = any(
+                    f.get("verdict") == "P0"
+                    and not f.get("resolved")
+                    and f.get("phase") == flag_phase
+                    for f in issue.get("flags", [])
+                )
+
+            needs_revision = has_p0 or has_p1 or (p2_fix and has_p2) or has_unresolved_flag
             if needs_revision and not issue.get(revised_key):
                 all_done = False
                 break

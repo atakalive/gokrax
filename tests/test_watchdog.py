@@ -140,18 +140,97 @@ class TestCheckTransition:
         assert action.new_state == "CODE_APPROVED"
 
     def test_design_revise_all_revised(self):
+        """P0 Issue が全て revised → DESIGN_REVIEW に遷移"""
         from watchdog import check_transition
-        batch = _make_batch(2, design_revised=True)
+        batch = _make_batch(2)
+        batch[0]["design_reviews"] = _make_reviews(["P0"])
+        batch[1]["design_reviews"] = _make_reviews(["P0"])
+        batch[0]["design_revised"] = True
+        batch[1]["design_revised"] = True
         action = check_transition("DESIGN_REVISE", batch)
         assert action.new_state == "DESIGN_REVIEW"
         assert action.send_review is True
 
     def test_design_revise_not_all_revised(self):
+        """P0 Issue が2つあり、1つだけ revised → 遷移しない"""
         from watchdog import check_transition
         batch = _make_batch(2)
+        batch[0]["design_reviews"] = _make_reviews(["P0"])
+        batch[1]["design_reviews"] = _make_reviews(["P0"])
         batch[0]["design_revised"] = True
+        # batch[1] は未 revised
         action = check_transition("DESIGN_REVISE", batch)
         assert action.new_state is None
+
+    def test_design_revise_empty_reviews_no_block(self):
+        """reviews 空の Issue が revised なしでも遷移をブロックしない（#95/#37 修正）"""
+        from watchdog import check_transition
+        batch = _make_batch(2)
+        batch[0]["design_reviews"] = _make_reviews(["P0"])
+        batch[0]["design_revised"] = True
+        batch[1]["design_reviews"] = {}
+        action = check_transition("DESIGN_REVISE", batch)
+        assert action.new_state == "DESIGN_REVIEW"
+        assert action.send_review is True
+
+    def test_code_revise_empty_reviews_no_block(self):
+        """CODE_REVISE でも同様に reviews 空の Issue がブロックしない"""
+        from watchdog import check_transition
+        batch = _make_batch(2)
+        batch[0]["code_reviews"] = _make_reviews(["P0"])
+        batch[0]["code_revised"] = True
+        batch[1]["code_reviews"] = {}
+        action = check_transition("CODE_REVISE", batch)
+        assert action.new_state == "CODE_REVIEW"
+        assert action.send_review is True
+
+    def test_design_revise_approve_only_no_block(self):
+        """APPROVE のみの Issue は revised なしでも遷移をブロックしない"""
+        from watchdog import check_transition
+        batch = _make_batch(2)
+        batch[0]["design_reviews"] = _make_reviews(["P0"])
+        batch[0]["design_revised"] = True
+        batch[1]["design_reviews"] = _make_reviews(["APPROVE", "APPROVE"])
+        action = check_transition("DESIGN_REVISE", batch)
+        assert action.new_state == "DESIGN_REVIEW"
+        assert action.send_review is True
+
+    def test_design_revise_flag_p0_blocks_without_revised(self):
+        """reviews 空 + 未解決 flag P0 → revised なしでは遷移しない（flag 安全性）"""
+        from watchdog import check_transition
+        batch = _make_batch(1)
+        batch[0]["design_reviews"] = {}
+        batch[0]["flags"] = [{"verdict": "P0", "phase": "design", "resolved": False}]
+        action = check_transition("DESIGN_REVISE", batch)
+        assert action.new_state is None
+
+    def test_design_revise_flag_p0_resolved_no_block(self):
+        """reviews 空 + 解決済み flag P0 → ブロックしない"""
+        from watchdog import check_transition
+        batch = _make_batch(1)
+        batch[0]["design_reviews"] = {}
+        batch[0]["flags"] = [{"verdict": "P0", "phase": "design", "resolved": True}]
+        action = check_transition("DESIGN_REVISE", batch)
+        assert action.new_state == "DESIGN_REVIEW"
+
+    def test_code_revise_flag_p0_blocks_without_revised(self):
+        """CODE_REVISE でも未解決 flag P0 はブロックする"""
+        from watchdog import check_transition
+        batch = _make_batch(1)
+        batch[0]["code_reviews"] = {}
+        batch[0]["flags"] = [{"verdict": "P0", "phase": "code", "resolved": False}]
+        action = check_transition("CODE_REVISE", batch)
+        assert action.new_state is None
+
+    def test_design_revise_flag_p0_with_revised_passes(self):
+        """未解決 flag P0 + revised 済み → 遷移する"""
+        from watchdog import check_transition
+        batch = _make_batch(1)
+        batch[0]["design_reviews"] = {}
+        batch[0]["flags"] = [{"verdict": "P0", "phase": "design", "resolved": False}]
+        batch[0]["design_revised"] = True
+        action = check_transition("DESIGN_REVISE", batch)
+        assert action.new_state == "DESIGN_REVIEW"
 
     def test_code_revise_all_revised(self):
         from watchdog import check_transition

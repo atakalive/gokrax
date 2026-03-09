@@ -157,7 +157,7 @@ REVIEWER_TIERS: dict[str, list[str]] = {
     "regular": ["leibniz", "dijkstra", "euler"],
     "semi": ["pascal"],
     "free": ["hanfei"],
-    "short-context": [],  # ローカルLLM等、コンテキスト長が短いレビュアー
+    "short-context": ["basho"],  # ローカルLLM等、コンテキスト長が短いレビュアー
 }
 
 

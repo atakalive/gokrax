@@ -1248,6 +1248,8 @@ def get_qstatus_text(entries: list[dict], running: "dict | None" = None) -> str:
             parts.append("keep-ctx-batch")
         elif e.get("keep_ctx_intra"):
             parts.append("keep-ctx-intra")
+        if e.get("skip_cc_plan"):
+            parts.append("skip-cc-plan")
         lines.append(f"[{idx}] {' '.join(parts)}")
     return "\n".join(lines)
 

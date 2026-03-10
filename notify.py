@@ -214,6 +214,68 @@ def _fetch_commit_diff(commit: str, repo_path: str, base_commit: str | None = No
         return None
 
 
+def _check_squash(batch: list, base_commit: str, repo_path: str) -> list[str]:
+    """バッチ内の各 issue が squash 済み（1 commit）であることを検証する。
+
+    Returns:
+        違反した issue の警告メッセージのリスト。空リストなら全 issue が squash 済み。
+    """
+    # commit を持つ issue のみ対象
+    commits = [(i["issue"], i["commit"]) for i in batch if i.get("commit")]
+    if not commits or not base_commit or not repo_path:
+        return []
+
+    # トポロジカルソート: base_commit からの rev-list で順序を決定
+    try:
+        # 全コミットの中で最も新しいもの（最後の子孫）を見つける
+        # rev-list は新しい順なので、最初に出るのが最新
+        result = subprocess.run(
+            ["git", "-C", repo_path, "rev-list", "--topo-order",
+             f"{base_commit}..HEAD"],
+            capture_output=True, text=True, timeout=10, check=False,
+        )
+        if result.returncode != 0:
+            return []  # 検証不能時は続行
+
+        topo_order = result.stdout.strip().split("\n")
+        # 各 commit の位置を特定（短縮ハッシュ対応: startswith で比較）
+        def topo_index(h):
+            for idx, full in enumerate(topo_order):
+                if full.startswith(h) or h.startswith(full[:7]):
+                    return idx
+            return -1
+
+        # topo_order は新→旧の順なので、index が大きい方が古い → 古い順にソート
+        sorted_commits = sorted(commits, key=lambda x: -topo_index(x[1]))
+        # topo_index == -1 のものは末尾に（検証スキップ）
+        sorted_commits = [c for c in sorted_commits if topo_index(c[1]) >= 0]
+
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return []  # 検証不能時は続行
+
+    warnings = []
+    predecessor = base_commit
+    for issue_num, commit in sorted_commits:
+        try:
+            result = subprocess.run(
+                ["git", "-C", repo_path, "rev-list", "--count",
+                 f"{predecessor}..{commit}"],
+                capture_output=True, text=True, timeout=10, check=False,
+            )
+            if result.returncode == 0:
+                count = int(result.stdout.strip())
+                if count > 1:
+                    warnings.append(
+                        f"Issue #{issue_num}: expected 1 commit after "
+                        f"{predecessor[:7]}, got {count}. Squash required."
+                    )
+        except (subprocess.TimeoutExpired, FileNotFoundError, ValueError):
+            pass  # 検証不能時はスキップ
+        predecessor = commit
+
+    return warnings
+
+
 def notify_implementer(agent_id: str, message: str):
     if agent_id not in AGENTS:
         logger.error("Unknown agent: %s", agent_id)
@@ -287,6 +349,15 @@ def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
     if review_mode == "skip":
         logger.info("[review_mode=skip] Skipping reviewer notifications for %s", project)
         return
+
+    # コードレビュー時: squash 検証
+    if "CODE" in state:
+        squash_warnings = _check_squash(batch, base_commit, repo_path)
+        if squash_warnings:
+            for w in squash_warnings:
+                logger.error("Multi-commit detected: %s", w)
+            logger.error("Code review aborted. Squash commits before proceeding.")
+            return  # レビュー依頼を送信しない
 
     # 各レビュアーにレビュー依頼メッセージ送信（/new はDESIGN_PLAN/IMPL開始時に先行送信済み）
     for r in reviewers:
@@ -420,7 +491,7 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
 
         # コードレビュー: git diff埋め込み
         if is_code and commit and repo_path:
-            diff = _fetch_commit_diff(commit, repo_path, base_commit=base_commit)
+            diff = _fetch_commit_diff(commit, repo_path)
             if diff:
                 orig_len = len(diff)
                 if orig_len > MAX_DIFF_CHARS:

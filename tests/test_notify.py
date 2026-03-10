@@ -621,21 +621,6 @@ class TestBaseCommitDiff:
         cmd = mock_run.call_args[0][0]
         assert cmd == ["git", "-C", "/repo", "show", "abc123"]
 
-    def test_format_review_request_passes_base_commit(self):
-        """base_commit が format_review_request → _fetch_commit_diff に伝播すること"""
-        import notify
-        batch = [{
-            "issue": 1, "title": "Fix", "commit": "def456",
-            "design_reviews": {}, "code_reviews": {},
-        }]
-        with patch("notify.fetch_issue_body", return_value="body"):
-            with patch("notify._fetch_commit_diff", return_value="diff") as mock_diff:
-                notify.format_review_request(
-                    "proj", "CODE_REVIEW", batch, "atakalive/proj", "pascal",
-                    repo_path="/repo", base_commit="abc123"
-                )
-        mock_diff.assert_called_once_with("def456", "/repo", base_commit="abc123")
-
     def test_notify_reviewers_passes_base_commit(self):
         """notify_reviewers が format_review_request に base_commit を渡すこと"""
         import notify
@@ -700,3 +685,128 @@ class TestFormatReviewRequestComment:
                     )
         for c in mock_fmt.call_args_list:
             assert c.kwargs.get("comment") == "コメントテスト"
+
+
+class TestCheckSquash:
+    """_check_squash のテスト（Issue #98）"""
+
+    def _make_batch_item(self, issue_num, commit):
+        return {
+            "issue": issue_num, "title": "t", "commit": commit,
+            "design_reviews": {}, "code_reviews": {},
+        }
+
+    def _make_rev_list_result(self, returncode, stdout):
+        mock = MagicMock()
+        mock.returncode = returncode
+        mock.stdout = stdout
+        return mock
+
+    def test_check_squash_single_commit(self):
+        """predecessor..commit が 1 → 空リスト（警告なし）"""
+        import notify
+        batch = [self._make_batch_item(10, "def456")]
+        # rev-list --topo-order: base..HEAD returns def456
+        # rev-list --count base..def456: returns 1
+        topo_result = self._make_rev_list_result(0, "def456\n")
+        count_result = self._make_rev_list_result(0, "1\n")
+        with patch("notify.subprocess.run", side_effect=[topo_result, count_result]):
+            warnings = notify._check_squash(batch, "abc123", "/repo")
+        assert warnings == []
+
+    def test_check_squash_multi_commit(self):
+        """predecessor..commit が 2 以上 → 警告リストに issue 番号を含む"""
+        import notify
+        batch = [self._make_batch_item(10, "def456")]
+        topo_result = self._make_rev_list_result(0, "def456\n")
+        count_result = self._make_rev_list_result(0, "3\n")
+        with patch("notify.subprocess.run", side_effect=[topo_result, count_result]):
+            warnings = notify._check_squash(batch, "abc123", "/repo")
+        assert len(warnings) == 1
+        assert "Issue #10" in warnings[0]
+        assert "Squash required" in warnings[0]
+
+    def test_check_squash_no_base_commit(self):
+        """base_commit が None → 空リスト（検証スキップ）"""
+        import notify
+        batch = [self._make_batch_item(10, "def456")]
+        with patch("notify.subprocess.run") as mock_run:
+            warnings = notify._check_squash(batch, None, "/repo")
+        assert warnings == []
+        mock_run.assert_not_called()
+
+    def test_check_squash_no_repo_path(self):
+        """repo_path が空 → 空リスト（検証スキップ）"""
+        import notify
+        batch = [self._make_batch_item(10, "def456")]
+        with patch("notify.subprocess.run") as mock_run:
+            warnings = notify._check_squash(batch, "abc123", "")
+        assert warnings == []
+        mock_run.assert_not_called()
+
+    def test_check_squash_git_error(self):
+        """git コマンド失敗 → 空リスト（安全側: 続行）"""
+        import notify
+        batch = [self._make_batch_item(10, "def456")]
+        topo_result = self._make_rev_list_result(1, "")
+        with patch("notify.subprocess.run", return_value=topo_result):
+            warnings = notify._check_squash(batch, "abc123", "/repo")
+        assert warnings == []
+
+
+class TestNotifyReviewersSquash:
+    """squash 検証に関する notify_reviewers テスト（Issue #98）"""
+
+    def _make_batch_item(self, issue_num, commit=None):
+        return {
+            "issue": issue_num, "title": "t", "commit": commit,
+            "design_reviews": {}, "code_reviews": {},
+        }
+
+    def test_notify_reviewers_aborts_on_multi_commit(self, caplog):
+        """_check_squash が警告を返した場合、send_to_agent が呼ばれないこと"""
+        import notify
+        import logging
+        batch = [self._make_batch_item(10, "def456")]
+        with patch("notify.send_to_agent") as mock_send:
+            with patch("notify._check_squash", return_value=["Issue #10: expected 1 commit after abc123, got 2. Squash required."]):
+                with caplog.at_level(logging.ERROR, logger="devbar.notify"):
+                    notify.notify_reviewers(
+                        "proj", "CODE_REVIEW", batch, "atakalive/proj",
+                        base_commit="abc123", repo_path="/repo"
+                    )
+        mock_send.assert_not_called()
+        assert "Multi-commit detected" in caplog.text
+        assert "Code review aborted" in caplog.text
+
+    def test_notify_reviewers_proceeds_when_squash_ok(self):
+        """_check_squash が空リストを返した場合、通常通り送信されること"""
+        import notify
+        batch = [self._make_batch_item(10, "def456")]
+        with patch("notify.send_to_agent") as mock_send:
+            with patch("notify._check_squash", return_value=[]):
+                with patch("notify.fetch_issue_body", return_value="body"):
+                    notify.notify_reviewers(
+                        "proj", "CODE_REVIEW", batch, "atakalive/proj",
+                        base_commit="abc123", repo_path="/repo"
+                    )
+        assert mock_send.call_count > 0
+
+
+class TestFormatReviewRequestNoDiffBaseCommit:
+    """format_review_request が _fetch_commit_diff に base_commit を渡さないテスト（Issue #98）"""
+
+    def test_format_review_request_no_base_commit_in_diff_call(self):
+        """_fetch_commit_diff が base_commit なしで呼ばれること"""
+        import notify
+        batch = [{
+            "issue": 1, "title": "Fix", "commit": "def456",
+            "design_reviews": {}, "code_reviews": {},
+        }]
+        with patch("notify.fetch_issue_body", return_value="body"):
+            with patch("notify._fetch_commit_diff", return_value="diff") as mock_diff:
+                notify.format_review_request(
+                    "proj", "CODE_REVIEW", batch, "atakalive/proj", "pascal",
+                    repo_path="/repo", base_commit="abc123"
+                )
+        mock_diff.assert_called_once_with("def456", "/repo")

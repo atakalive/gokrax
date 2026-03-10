@@ -901,3 +901,289 @@ class TestAwaitingDisputeExcluded:
             ],
         }]
         assert self._call(batch, excluded=["pascal"]) == []
+
+
+# ---------------------------------------------------------------------------
+# 11. dispute_nudge_reviewers: 催促リストの分離 (Issue #100)
+# ---------------------------------------------------------------------------
+
+class TestDisputeNudgeReviewers:
+    """check_transition が dispute_nudge_reviewers と nudge_reviewers を正しく分離すること"""
+
+    def _make_data(self, state="DESIGN_REVIEW", reviews=None, disputes=None,
+                   review_mode="min", entered_at=None, excluded=None):
+        import datetime as dt_mod
+        from config import NUDGE_GRACE_SEC
+        if entered_at is None:
+            entered_at = (
+                dt_mod.datetime.now(dt_mod.timezone.utc)
+                - dt_mod.timedelta(seconds=NUDGE_GRACE_SEC + 60)
+            ).isoformat()
+        issue = {
+            "issue": 1,
+            "design_reviews": reviews or {},
+            "code_reviews": {},
+        }
+        if disputes:
+            issue["disputes"] = disputes
+        data = {
+            "project": "test-pj",
+            "state": state,
+            "review_mode": review_mode,
+            "batch": [issue],
+            "history": [{"from": "DESIGN_REVISE", "to": state, "at": entered_at,
+                         "actor": "watchdog"}],
+        }
+        if excluded:
+            data["excluded_reviewers"] = excluded
+        return data
+
+    def test_nudge_dispute_pending_reviewer_gets_dispute_nudge(self):
+        """dispute pending のレビュアーは dispute_nudge_reviewers に含まれること"""
+        # review_mode="min": members=["leibniz"], min_reviews=1
+        # leibniz が既にレビュー済み → count >= min_rev だが dispute が遷移をブロック
+        # pending = [] (leibniz は全 Issue をレビュー済み), dispute_awaiting = ["leibniz"]
+        reviews = {"leibniz": {"verdict": "P1", "at": "2025-01-01T00:00:00+09:00"}}
+        disputes = [{"reviewer": "leibniz", "status": "pending", "phase": "design",
+                     "filed_verdict": "P1", "reason": "理由A"}]
+        data = self._make_data(reviews=reviews, disputes=disputes)
+        import watchdog
+        action = watchdog.check_transition("DESIGN_REVIEW", data["batch"], data)
+        assert action.dispute_nudge_reviewers is not None
+        assert "leibniz" in action.dispute_nudge_reviewers
+        # 通常未レビューはなし
+        assert action.nudge_reviewers is None
+
+    def test_nudge_normal_reviewer_gets_normal_nudge(self):
+        """dispute なしのレビュアーは nudge_reviewers に入り、dispute_nudge_reviewers は None"""
+        # review_mode="min": members=["leibniz"], min_reviews=1
+        # leibniz が未レビュー → pending = ["leibniz"], dispute_awaiting = []
+        data = self._make_data()
+        import watchdog
+        action = watchdog.check_transition("DESIGN_REVIEW", data["batch"], data)
+        assert action.nudge_reviewers is not None
+        assert "leibniz" in action.nudge_reviewers
+        assert action.dispute_nudge_reviewers is None
+
+    def test_nudge_mixed_dispute_and_normal_different_reviewers(self):
+        """dispute pending のレビュアーA と通常未レビューのレビュアーB が別々のリストに入ること"""
+        # review_mode="min": members=["leibniz"], min_reviews=1
+        # leibniz: 未レビュー (normal pending)
+        # pascal: dispute pending (pascal は min mode のメンバーではない)
+        disputes = [{"reviewer": "pascal", "status": "pending", "phase": "design",
+                     "filed_verdict": "P0", "reason": "理由B"}]
+        data = self._make_data(disputes=disputes)
+        import watchdog
+        action = watchdog.check_transition("DESIGN_REVIEW", data["batch"], data)
+        assert action.nudge_reviewers is not None
+        assert "leibniz" in action.nudge_reviewers
+        assert "pascal" not in (action.nudge_reviewers or [])
+        assert action.dispute_nudge_reviewers is not None
+        assert "pascal" in action.dispute_nudge_reviewers
+        assert "leibniz" not in (action.dispute_nudge_reviewers or [])
+
+    def test_dispute_nudge_excluded_reviewer_skipped(self):
+        """excluded_reviewers に含まれる dispute pending レビュアーは dispute_nudge_reviewers に入らない"""
+        disputes = [{"reviewer": "pascal", "status": "pending", "phase": "design",
+                     "filed_verdict": "P0"}]
+        data = self._make_data(disputes=disputes, excluded=["pascal"])
+        import watchdog
+        action = watchdog.check_transition("DESIGN_REVIEW", data["batch"], data)
+        assert not (action.dispute_nudge_reviewers and "pascal" in action.dispute_nudge_reviewers)
+
+    def test_nudge_same_reviewer_dispute_and_normal_across_issues(self):
+        """同一レビュアーが Issue A で dispute pending + Issue B で通常未レビューの場合、両リストに含まれる"""
+        import datetime as dt_mod
+        from config import NUDGE_GRACE_SEC
+        entered_at = (
+            dt_mod.datetime.now(dt_mod.timezone.utc)
+            - dt_mod.timedelta(seconds=NUDGE_GRACE_SEC + 60)
+        ).isoformat()
+        # Issue 1: leibniz が P1 を提出、dispute pending
+        issue1 = {
+            "issue": 1,
+            "design_reviews": {"leibniz": {"verdict": "P1", "at": "2025-01-01T00:00:00+09:00"}},
+            "code_reviews": {},
+            "disputes": [{"reviewer": "leibniz", "status": "pending", "phase": "design",
+                          "filed_verdict": "P1", "reason": "理由C"}],
+        }
+        # Issue 2: leibniz は未レビュー
+        issue2 = {
+            "issue": 2,
+            "design_reviews": {},
+            "code_reviews": {},
+        }
+        data = {
+            "project": "test-pj",
+            "state": "DESIGN_REVIEW",
+            "review_mode": "min",
+            "batch": [issue1, issue2],
+            "history": [{"from": "DESIGN_REVISE", "to": "DESIGN_REVIEW", "at": entered_at,
+                         "actor": "watchdog"}],
+        }
+        import watchdog
+        action = watchdog.check_transition("DESIGN_REVIEW", data["batch"], data)
+        assert action.nudge_reviewers is not None
+        assert "leibniz" in action.nudge_reviewers
+        assert action.dispute_nudge_reviewers is not None
+        assert "leibniz" in action.dispute_nudge_reviewers
+
+
+# ---------------------------------------------------------------------------
+# 12. dispute 催促メッセージ送信の統合テスト (Issue #100)
+# ---------------------------------------------------------------------------
+
+class TestDisputeNudgeIntegration:
+    """process() を通した dispute 催促メッセージ送信のテスト (Issue #100)"""
+
+    def _write_pipeline(self, path, data):
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+
+    def _make_pipeline_data(self, batch, entered_at=None, review_mode="min"):
+        import datetime as dt_mod
+        from config import NUDGE_GRACE_SEC
+        if entered_at is None:
+            entered_at = (
+                dt_mod.datetime.now(dt_mod.timezone.utc)
+                - dt_mod.timedelta(seconds=NUDGE_GRACE_SEC + 60)
+            ).isoformat()
+        return {
+            "project": "test-pj",
+            "state": "DESIGN_REVIEW",
+            "enabled": True,
+            "review_mode": review_mode,
+            "batch": batch,
+            "implementer": "kaneko",
+            "history": [{"from": "DESIGN_REVISE", "to": "DESIGN_REVIEW", "at": entered_at,
+                         "actor": "watchdog"}],
+            "created_at": "2025-01-01T00:00:00+09:00",
+            "updated_at": "2025-01-01T00:00:00+09:00",
+        }
+
+    def test_watchdog_process_dispute_nudge_sends_dispute_message(
+            self, tmp_path, monkeypatch):
+        """dispute pending レビュアーに【異議申し立て — 回答催促】メッセージが送られること"""
+        import config, pipeline_io
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        # leibniz が review 済み (count=1 >= min_rev=1) かつ dispute pending
+        batch = [{
+            "issue": 1,
+            "design_reviews": {"leibniz": {"verdict": "P1", "at": "2025-01-01T00:00:00+09:00"}},
+            "code_reviews": {},
+            "disputes": [{"reviewer": "leibniz", "status": "pending", "phase": "design",
+                          "filed_verdict": "P1", "reason": "テスト理由"}],
+        }]
+        data = self._make_pipeline_data(batch=batch)
+        path = tmp_path / "test-pj.json"
+        self._write_pipeline(path, data)
+
+        captured = []
+
+        def fake_update(p, cb):
+            cb(data)
+            return data
+
+        from watchdog import process
+        with patch("watchdog.update_pipeline", side_effect=fake_update), \
+             patch("watchdog.send_to_agent_queued",
+                   side_effect=lambda r, m: captured.append((r, m)) or True), \
+             patch("watchdog._is_agent_inactive", return_value=True), \
+             patch("watchdog.notify_discord"):
+            process(path)
+
+        assert len(captured) == 1, f"Expected 1 send, got {len(captured)}: {captured}"
+        reviewer, msg = captured[0]
+        assert reviewer == "leibniz"
+        assert "【異議申し立て — 回答催促】" in msg
+        assert "テスト理由" in msg
+        assert "--force" in msg
+        # 通常の [Remind] は含まれないこと
+        assert "[Remind]" not in msg
+
+    def test_watchdog_process_dispute_only_no_implementer_nudge(
+            self, tmp_path, monkeypatch):
+        """dispute pending レビュアーのみの場合、実装担当催促が発火しないこと"""
+        import config, pipeline_io
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        batch = [{
+            "issue": 1,
+            "design_reviews": {"leibniz": {"verdict": "P1", "at": "2025-01-01T00:00:00+09:00"}},
+            "code_reviews": {},
+            "disputes": [{"reviewer": "leibniz", "status": "pending", "phase": "design",
+                          "filed_verdict": "P1", "reason": "理由X"}],
+        }]
+        data = self._make_pipeline_data(batch=batch)
+        path = tmp_path / "test-pj.json"
+        self._write_pipeline(path, data)
+
+        def fake_update(p, cb):
+            cb(data)
+            return data
+
+        from watchdog import process
+        with patch("watchdog.update_pipeline", side_effect=fake_update), \
+             patch("watchdog.send_to_agent_queued", return_value=True) as mock_send, \
+             patch("watchdog._is_agent_inactive", return_value=True), \
+             patch("watchdog.notify_discord"):
+            process(path)
+
+        # send_to_agent_queued が呼ばれたこと（dispute 催促）
+        assert mock_send.called
+        # 実装担当への催促（kaneko）は呼ばれていないこと
+        called_recipients = [call[0][0] for call in mock_send.call_args_list]
+        assert "kaneko" not in called_recipients
+
+    def test_watchdog_process_mixed_reviewer_gets_combined_message(
+            self, tmp_path, monkeypatch):
+        """同一レビュアーが Issue A で dispute pending + Issue B で未レビューの場合、
+        1通の複合メッセージが送られること"""
+        import config, pipeline_io
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        # Issue 1: leibniz が P1、dispute pending
+        # Issue 2: leibniz 未レビュー (normal pending)
+        batch = [
+            {
+                "issue": 1,
+                "design_reviews": {"leibniz": {"verdict": "P1", "at": "2025-01-01T00:00:00+09:00"}},
+                "code_reviews": {},
+                "disputes": [{"reviewer": "leibniz", "status": "pending", "phase": "design",
+                              "filed_verdict": "P1", "reason": "複合理由"}],
+            },
+            {
+                "issue": 2,
+                "design_reviews": {},
+                "code_reviews": {},
+            },
+        ]
+        data = self._make_pipeline_data(batch=batch)
+        path = tmp_path / "test-pj.json"
+        self._write_pipeline(path, data)
+
+        captured = []
+
+        def fake_update(p, cb):
+            cb(data)
+            return data
+
+        from watchdog import process
+        with patch("watchdog.update_pipeline", side_effect=fake_update), \
+             patch("watchdog.send_to_agent_queued",
+                   side_effect=lambda r, m: captured.append((r, m)) or True), \
+             patch("watchdog._is_agent_inactive", return_value=True), \
+             patch("watchdog.notify_discord"):
+            process(path)
+
+        # leibniz に対して1回だけ送信されること
+        leibniz_calls = [(r, m) for r, m in captured if r == "leibniz"]
+        assert len(leibniz_calls) == 1, \
+            f"Expected 1 send to leibniz, got {len(leibniz_calls)}"
+        msg = leibniz_calls[0][1]
+        # 両セクションが1通に含まれること
+        assert "【異議申し立て — 回答催促】" in msg
+        assert "[Remind]" in msg

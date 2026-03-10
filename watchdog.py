@@ -275,6 +275,7 @@ class TransitionAction:
     run_cc: bool = False  # CC CLI を直接起動
     nudge: str | None = None   # 催促通知が必要な状態名
     nudge_reviewers: list | None = None  # 催促が必要なレビュアーのリスト
+    dispute_nudge_reviewers: list | None = None  # dispute pending で催促が必要なレビュアー
     extend_notice: str | None = None  # タイムアウト延長案内メッセージ
     save_grace_met_at: str | None = None  # grace met_atをpipelineに保存する必要がある場合のキー名
 
@@ -719,9 +720,12 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
         excluded = data.get("excluded_reviewers", []) if data else []
         pending = _get_pending_reviewers(batch, key, mode_config["members"], excluded=excluded)
         dispute_awaiting = _awaiting_dispute_re_review(batch, key, excluded=excluded)
-        all_nudge = sorted(set(list(pending) + dispute_awaiting))
-        if all_nudge:
-            return TransitionAction(nudge="REVIEW", nudge_reviewers=all_nudge)
+        if pending or dispute_awaiting:
+            return TransitionAction(
+                nudge="REVIEW",
+                nudge_reviewers=sorted(pending) or None,
+                dispute_nudge_reviewers=sorted(dispute_awaiting) or None,
+            )
         return TransitionAction()
 
     if state == "DESIGN_APPROVED":
@@ -2680,7 +2684,7 @@ def process(path: Path):
         return
 
     pre_action = check_transition(state, batch, data)
-    if pre_action.new_state is None and not pre_action.nudge and not pre_action.nudge_reviewers and not pre_action.save_grace_met_at and not pre_action.run_cc:
+    if pre_action.new_state is None and not pre_action.nudge and not pre_action.nudge_reviewers and not pre_action.dispute_nudge_reviewers and not pre_action.save_grace_met_at and not pre_action.run_cc:
         return
 
     # === ロック内で第2チェック + 遷移 (Double-Checked Locking) ===
@@ -2698,12 +2702,13 @@ def process(path: Path):
         action = check_transition(state, batch, data)
 
         # レビュアー催促（書き込み不要、情報保存のみ）
-        if action.nudge_reviewers:
+        if action.nudge_reviewers or action.dispute_nudge_reviewers:
             pj = data.get("project", path.stem)
             notification.update({
                 "pj": pj,
                 "action": action,
-                "nudge_reviewers": list(action.nudge_reviewers),
+                "nudge_reviewers": list(action.nudge_reviewers) if action.nudge_reviewers else [],
+                "dispute_nudge_reviewers": list(action.dispute_nudge_reviewers) if action.dispute_nudge_reviewers else [],
                 "batch": list(batch),
                 "old_state": state,
                 "queue_mode": data.get("queue_mode", False),
@@ -2999,7 +3004,7 @@ def process(path: Path):
         action = notification["action"]
         pj = notification["pj"]
 
-        if action.nudge_reviewers:
+        if action.nudge_reviewers or action.dispute_nudge_reviewers:
             # 非アクティブなレビュアーにのみ「continue」送信（送信失敗時は次回スキップ）
             path = get_path(pj)
             pipeline_data = load_pipeline(path)
@@ -3011,7 +3016,13 @@ def process(path: Path):
             # Determine review key based on state
             review_key = "design_reviews" if "DESIGN" in state else "code_reviews"
 
-            for reviewer in notification["nudge_reviewers"]:
+            # 全催促対象レビュアーを統合（重複排除）
+            all_reviewers = sorted(set(
+                notification.get("nudge_reviewers", [])
+                + notification.get("dispute_nudge_reviewers", [])
+            ))
+
+            for reviewer in all_reviewers:
                 if _is_agent_inactive(reviewer):
                     # 前回催促からINACTIVE_THRESHOLD_SEC未満ならスキップ
                     nudge_key = f"_last_nudge_{reviewer}"
@@ -3024,27 +3035,57 @@ def process(path: Path):
                         except (ValueError, TypeError):
                             pass
 
-                    # Find pending issues for this reviewer
-                    pending_issues = [
-                        item["issue"] for item in batch
-                        if reviewer not in item.get(review_key, {})
-                    ]
+                    # このレビュアーの通常未レビュー Issue を収集
+                    normal_pending_issues = []
+                    if reviewer in notification.get("nudge_reviewers", []):
+                        normal_pending_issues = [
+                            item["issue"] for item in batch
+                            if reviewer not in item.get(review_key, {})
+                        ]
 
-                    # Skip if no pending issues (shouldn't happen due to _get_pending_reviewers)
-                    if not pending_issues:
+                    # このレビュアーの pending dispute を収集
+                    dispute_items: list[tuple[int, str]] = []  # (issue番号, reason)
+                    if reviewer in notification.get("dispute_nudge_reviewers", []):
+                        for item in batch:
+                            for d in item.get("disputes", []):
+                                if (d.get("reviewer") == reviewer
+                                        and d.get("status") == "pending"):
+                                    dispute_items.append((item["issue"], d.get("reason", "(不明)")))
+
+                    # どちらもなければスキップ
+                    if not normal_pending_issues and not dispute_items:
                         continue
 
-                    # Generate copy-pasteable command for each issue
-                    from config import review_command
-                    cmd_lines = "\n".join(
-                        review_command(pj, num, reviewer) for num in pending_issues
-                    )
+                    # メッセージ組み立て（1通にまとめる）
+                    from config import review_command, DEVBAR_CLI
+                    msg_parts = []
 
-                    msg = (
-                        f"[Remind] {pj} のレビューが未完了です。対象: {', '.join(f'#{n}' for n in pending_issues)}\n"
-                        f"以下のコマンドで各 Issue のレビューを報告してください:\n"
-                        f"{cmd_lines}"
-                    )
+                    if dispute_items:
+                        lines = []
+                        for issue_num, reason in dispute_items:
+                            lines.append(
+                                f"  #{issue_num}: {reason}\n"
+                                f"    python3 {DEVBAR_CLI} review --pj {pj} --issue {issue_num} "
+                                f"--reviewer {reviewer} --verdict <APPROVE/P0/P1/P2> --summary \"...\" --force"
+                            )
+                        msg_parts.append(
+                            f"【異議申し立て — 回答催促】\n"
+                            f"{pj} であなたの判定に対して異議が出ています。\n"
+                            f"再評価した上で --force 付きで判定を報告してください:\n\n"
+                            + "\n".join(lines)
+                        )
+
+                    if normal_pending_issues:
+                        cmd_lines = "\n".join(
+                            review_command(pj, num, reviewer) for num in normal_pending_issues
+                        )
+                        msg_parts.append(
+                            f"[Remind] {pj} のレビューが未完了です。対象: {', '.join(f'#{n}' for n in normal_pending_issues)}\n"
+                            f"以下のコマンドで各 Issue のレビューを報告してください:\n"
+                            f"{cmd_lines}"
+                        )
+
+                    msg = "\n\n".join(msg_parts)
 
                     if send_to_agent_queued(reviewer, msg):
                         woken.append(reviewer)

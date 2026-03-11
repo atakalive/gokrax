@@ -116,17 +116,17 @@ CODE_MIN_REVIEWS = 2
 # Review modes: project-level reviewer assignment
 REVIEW_MODES = {
     "full": {
-        "members": ["pascal", "leibniz", "dijkstra", "euler"],
-        "min_reviews": 4,
+        "members": ["pascal", "leibniz", "dijkstra", "euler", "basho"],
+        "min_reviews": 5,
         "grace_period_sec": 0,
     },
     "standard": {
-        "members": ["pascal", "leibniz", "dijkstra"],
-        "min_reviews": 3,
+        "members": ["pascal", "leibniz", "dijkstra", "basho"],
+        "min_reviews": 4,
         "grace_period_sec": 0,
     },
     "lite3_woOpus": {
-        "members": ["leibniz", "pascal", "basho"],
+        "members": ["leibniz", "pascal", "euler"],
         "min_reviews": 3,
         "grace_period_sec": 0,
     },
@@ -154,10 +154,10 @@ REVIEW_MODES = {
 
 # Reviewer tiers: regular, semi, free, short-context
 REVIEWER_TIERS: dict[str, list[str]] = {
-    "regular": ["leibniz", "dijkstra", "euler"],
+    "regular": ["leibniz", "dijkstra", "euler", "basho"],
     "semi": ["pascal"],
     "free": ["hanfei"],
-    "short-context": ["basho"],  # ローカルLLM等、コンテキスト長が短いレビュアー
+    "short-context": [],  # ローカルLLM等、コンテキスト長が短いレビュアー
 }
 
 

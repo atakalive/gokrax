@@ -604,7 +604,7 @@ class TestStartCc:
 
         mock_git = MagicMock()
         mock_git.returncode = 0
-        mock_git.stdout = "base123\n"
+        mock_git.stdout = "b" * 40 + "\n"
 
         with patch("watchdog.notify_discord"), \
              patch("notify.fetch_issue_body", return_value="test body"), \
@@ -1071,6 +1071,60 @@ class TestStartCc:
         # 作成された一時ファイル（impl, script）が全て削除されていること
         for f in created_files:
             assert not os.path.exists(f), f"一時ファイルが残っている: {f}"
+
+    def test_start_cc_preserves_existing_base_commit(self, tmp_pipelines, monkeypatch):
+        """REVISE→再IMPL: base_commit 設定済み → _start_cc は上書きしない"""
+        from watchdog import _start_cc
+        existing_base = "a" * 40
+        path = tmp_pipelines / "test-pj.json"
+        data = {
+            "project": "test-pj", "state": "IMPLEMENTATION", "enabled": True,
+            "base_commit": existing_base,
+            "batch": [{"issue": 1, "title": "T", "commit": None,
+                       "design_reviews": {}, "code_reviews": {}}],
+            "history": [],
+        }
+        path.parent.mkdir(parents=True, exist_ok=True)
+        import json as _json
+        path.write_text(_json.dumps(data))
+        monkeypatch.setattr("watchdog.PIPELINES_DIR", tmp_pipelines)
+        mock_proc = MagicMock()
+        mock_proc.pid = 99999
+        # git は呼ばれない（base_commit 設定済みなのでガードで弾かれる）
+        with patch("watchdog.notify_discord"), \
+             patch("notify.fetch_issue_body", return_value="test body"), \
+             patch("subprocess.Popen", return_value=mock_proc):
+            _start_cc("test-pj", data["batch"], "atakalive/test-pj", "/tmp", path)
+        saved = _json.loads(path.read_text())
+        assert saved["base_commit"] == existing_base  # 上書きされていない
+
+    def test_start_cc_fallback_records_full_sha(self, tmp_pipelines, monkeypatch):
+        """base_commit 未設定 → _start_cc が fallback で full SHA を記録"""
+        from watchdog import _start_cc
+        path = tmp_pipelines / "test-pj.json"
+        data = {
+            "project": "test-pj", "state": "IMPLEMENTATION", "enabled": True,
+            # base_commit なし
+            "batch": [{"issue": 1, "title": "T", "commit": None,
+                       "design_reviews": {}, "code_reviews": {}}],
+            "history": [],
+        }
+        path.parent.mkdir(parents=True, exist_ok=True)
+        import json as _json
+        path.write_text(_json.dumps(data))
+        monkeypatch.setattr("watchdog.PIPELINES_DIR", tmp_pipelines)
+        mock_proc = MagicMock()
+        mock_proc.pid = 99999
+        current_head = "c" * 40
+        mock_git = MagicMock(returncode=0, stdout=current_head + "\n")
+        with patch("watchdog.notify_discord"), \
+             patch("notify.fetch_issue_body", return_value="test body"), \
+             patch("subprocess.run", return_value=mock_git), \
+             patch("subprocess.Popen", return_value=mock_proc):
+            _start_cc("test-pj", data["batch"], "atakalive/test-pj", "/tmp", path)
+        saved = _json.loads(path.read_text())
+        assert saved["base_commit"] == current_head
+        assert len(saved["base_commit"]) == 40
 
 
 # ── TestTimeoutExtension ──────────────────────────────────────────────────────

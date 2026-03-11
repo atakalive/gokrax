@@ -837,11 +837,11 @@ def _start_cc(project: str, batch: list, gitlab: str, repo_path: str, pipeline_p
     skip_plan = data.get("skip_cc_plan", False)
     log(f"[{project}] _start_cc: skip_cc_plan={skip_plan}")
 
-    # base_commit が未設定の場合のみ記録（REVISE→再IMPL で上書きしない）
+    # base_commit フォールバック: DESIGN_PLAN 遷移で記録されていない場合のみ
     if not data.get("base_commit") and repo_path:
         try:
             result = _sub.run(
-                ["git", "-C", repo_path, "log", "--format=%h", "-1"],
+                ["git", "-C", repo_path, "log", "--format=%H", "-1"],
                 capture_output=True, text=True, timeout=10, check=False,
             )
             if result.returncode == 0 and result.stdout.strip():
@@ -850,7 +850,7 @@ def _start_cc(project: str, batch: list, gitlab: str, repo_path: str, pipeline_p
                     if not d.get("base_commit"):
                         d["base_commit"] = base
                 update_pipeline(pipeline_path, _set_base)
-                log(f"[{project}] base_commit recorded: {base}")
+                log(f"[{project}] base_commit fallback recorded: {base[:7]}")
         except Exception as e:
             log(f"[{project}] WARNING: failed to record base_commit: {e}")
 
@@ -2808,7 +2808,21 @@ def process(path: Path):
         if state == "IDLE" and action.new_state == "DESIGN_PLAN":
             data.pop("design_revise_count", None)
             data.pop("code_revise_count", None)
+            # base_commit: バッチ開始時点の HEAD を full SHA で記録
             data.pop("base_commit", None)
+            repo = data.get("repo_path", "")
+            if repo:
+                try:
+                    import subprocess as _sub_bc
+                    _result = _sub_bc.run(
+                        ["git", "-C", repo, "log", "--format=%H", "-1"],
+                        capture_output=True, text=True, timeout=10, check=False,
+                    )
+                    if _result.returncode == 0 and _result.stdout.strip():
+                        data["base_commit"] = _result.stdout.strip()
+                        log(f"[{pj}] base_commit recorded at DESIGN_PLAN: {data['base_commit'][:7]}")
+                except Exception as e:
+                    log(f"[{pj}] WARNING: failed to record base_commit: {e}")
 
             # Issue #92: 前バッチの pytest を停止 + test_baseline クリア
             _kill_pytest_baseline(data, pj)

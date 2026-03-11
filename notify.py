@@ -241,8 +241,15 @@ def _check_squash(batch: list, base_commit: str, repo_path: str) -> list[str]:
         # 各 commit の位置を特定（短縮ハッシュ対応: startswith で比較）
         def topo_index(h):
             for idx, full in enumerate(topo_order):
-                if full.startswith(h) or h.startswith(full[:7]):
-                    return idx
+                if len(h) == 40 and len(full) == 40:
+                    if full == h:
+                        return idx
+                else:
+                    # 後方互換: 旧 short hash base_commit との照合。
+                    # best-effort: 多重一致時は最初のマッチを返す（不定だが
+                    # 旧データ移行期の暫定措置。full SHA 移行後は到達しない）。
+                    if full.startswith(h) or h.startswith(full):
+                        return idx
             return -1
 
         # topo_order は新→旧の順なので、index が大きい方が古い → 古い順にソート

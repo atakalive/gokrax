@@ -4,7 +4,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -92,6 +92,40 @@ class TestTransitionForce:
         assert data["state"] == "IDLE"
         assert data["batch"] == []
         assert data["enabled"] is False
+
+    def test_design_plan_records_fresh_base_commit(self, tmp_pipelines, sample_pipeline):
+        """前バッチの stale base_commit が cmd_transition(DESIGN_PLAN) で fresh full SHA に更新される"""
+        sample_pipeline["base_commit"] = "stale_old_hash_from_previous_batch__"  # 40文字 stale 値
+        sample_pipeline["repo_path"] = "/tmp/repo"
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, sample_pipeline)
+        from devbar import cmd_transition
+        import argparse
+        fresh_sha = "f" * 40
+        mock_result = MagicMock(returncode=0, stdout=fresh_sha + "\n")
+        args = argparse.Namespace(project="test-pj", to="DESIGN_PLAN", actor="cli", force=False)
+        with patch("subprocess.run", return_value=mock_result):
+            cmd_transition(args)
+        with open(path) as f:
+            saved = json.load(f)
+        assert saved["base_commit"] == fresh_sha
+        assert len(saved["base_commit"]) == 40
+
+    def test_design_plan_clears_stale_on_git_failure(self, tmp_pipelines, sample_pipeline):
+        """git 失敗時、stale base_commit は pop され、_start_cc の fallback に委ねる"""
+        sample_pipeline["base_commit"] = "stale_old_hash_from_previous_batch__"
+        sample_pipeline["repo_path"] = "/tmp/repo"
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, sample_pipeline)
+        from devbar import cmd_transition
+        import argparse
+        mock_result = MagicMock(returncode=128, stdout="", stderr="fatal")
+        args = argparse.Namespace(project="test-pj", to="DESIGN_PLAN", actor="cli", force=False)
+        with patch("subprocess.run", return_value=mock_result):
+            cmd_transition(args)
+        with open(path) as f:
+            saved = json.load(f)
+        assert "base_commit" not in saved  # stale 値が残らない
 
 
 class TestTransitionNotifications:

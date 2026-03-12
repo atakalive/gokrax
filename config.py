@@ -154,10 +154,10 @@ REVIEW_MODES = {
 
 # Reviewer tiers: regular, semi, free, short-context
 REVIEWER_TIERS: dict[str, list[str]] = {
-    "regular": ["leibniz", "dijkstra", "euler", "basho"],
+    "regular": ["leibniz", "dijkstra", "euler"],
     "semi": ["pascal"],
     "free": ["hanfei"],
-    "short-context": [],  # ローカルLLM等、コンテキスト長が短いレビュアー
+    "short-context": ["basho"],  # ローカルLLM等、コンテキスト長が短いレビュアー
 }
 
 

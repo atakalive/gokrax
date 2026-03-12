@@ -5,33 +5,33 @@
 ```mermaid
 graph LR
     subgraph Input
-        GL[("GitLab\nIssues")]
-        M["Human\nOperator"]
+        GL[("GitLab<br/>Issues")]
+        M["Human<br/>Operator"]
     end
 
     subgraph DevBar["DevBar (Pipeline Orchestrator)"]
         CLI["devbar CLI"]
-        SM["State Machine\n(pipeline.json)"]
-        WD["Watchdog\n(polling loop)"]
-        TQ["Task Queue\n(batch execution)"]
+        SM["State Machine<br/>(pipeline.json)"]
+        WD["Watchdog<br/>(polling loop)"]
+        TQ["Task Queue<br/>(batch execution)"]
     end
 
     subgraph Execution
-        CC1["Claude Code CLI\n(Impl Lead 1: Kaneko)"]
-        CC2["Claude Code CLI\n(Impl Lead 2: Neumann)"]
+        CC1["Claude Code CLI<br/>(Impl Lead 1: Kaneko)"]
+        CC2["Claude Code CLI<br/>(Impl Lead 2: Neumann)"]
     end
 
     subgraph Review["Reviewer Ensemble"]
         direction TB
-        R_REG["Regular Tier\nLeibniz · Dijkstra · Euler · Basho"]
-        R_SEMI["Semi Tier\nPascal"]
-        R_FREE["Free Tier\nHanfei"]
+        R_REG["Regular Tier<br/>Leibniz · Dijkstra · Euler · Basho"]
+        R_SEMI["Semi Tier<br/>Pascal"]
+        R_FREE["Free Tier<br/>Hanfei"]
     end
 
     subgraph Output
-        MR[("GitLab\nMerge Request")]
-        DC["Discord\nNotifications"]
-        WB["WatcherB\n(GUI Monitor)"]
+        MR[("GitLab<br/>Merge Request")]
+        DC["Discord<br/>Notifications"]
+        WB["WatcherB<br/>(GUI Monitor)"]
     end
 
     GL -->|"issue created"| CLI
@@ -43,7 +43,7 @@ graph LR
     TQ -->|"design/implement"| CC2
     WD -->|"request review"| R_REG
     WD -->|"request review"| R_SEMI
-    WD -->|"request review\n(ping → fallback)"| R_FREE
+    WD -->|"request review<br/>(ping → fallback)"| R_FREE
     R_REG -->|"verdict"| CLI
     R_SEMI -->|"verdict"| CLI
     R_FREE -->|"verdict"| CLI
@@ -95,27 +95,27 @@ stateDiagram-v2
 ```mermaid
 graph TB
     subgraph "Review Modes (per-project configurable)"
-        FULL["<b>full</b> (5 reviewers)\nPascal · Leibniz · Dijkstra · Euler · Basho"]
-        STD["<b>standard</b> (4 reviewers)\nPascal · Leibniz · Dijkstra · Basho"]
-        LITE3["<b>lite3</b> (3 reviewers)\nLeibniz · Pascal · Euler"]
-        LITE["<b>lite</b> (2 reviewers)\nEuler · Pascal"]
-        MIN["<b>min</b> (1 reviewer)\nLeibniz"]
-        SKIP["<b>skip</b> (0 reviewers)\nauto-approve"]
+        FULL["<b>full</b> (5 reviewers)<br/>Pascal · Leibniz · Dijkstra · Euler · Basho"]
+        STD["<b>standard</b> (4 reviewers)<br/>Pascal · Leibniz · Dijkstra · Basho"]
+        LITE3["<b>lite3</b> (3 reviewers)<br/>Leibniz · Pascal · Euler"]
+        LITE["<b>lite</b> (2 reviewers)<br/>Euler · Pascal"]
+        MIN["<b>min</b> (1 reviewer)<br/>Leibniz"]
+        SKIP["<b>skip</b> (0 reviewers)<br/>auto-approve"]
     end
 
     subgraph "Reviewer Tiers"
-        REG["🟢 <b>Regular</b>\nLeibniz (GPT-5.4)\nDijkstra (Opus)\nEuler (GPT-5.4)\nBasho (Local Qwen3.5-27B)"]
-        SEMI["🟡 <b>Semi</b>\nPascal (Gemini 3 Pro)"]
-        FREE["🔴 <b>Free</b>\nHanfei (Qwen Portal)"]
+        REG["🟢 <b>Regular</b><br/>Leibniz (GPT-5.4)<br/>Dijkstra (Opus)<br/>Euler (GPT-5.4)<br/>Basho (Local Qwen3.5-27B)"]
+        SEMI["🟡 <b>Semi</b><br/>Pascal (Gemini 3 Pro)"]
+        FREE["🔴 <b>Free</b><br/>Hanfei (Qwen Portal)"]
     end
 
     subgraph "Dispatch Logic"
         D1["1. Send /new to all members"]
         D2["2. Regular: wait for response"]
         D3["3. Semi: wait, no ping"]
-        D4["4. Free: ping after 20s\n   → no response → exclude"]
+        D4["4. Free: ping after 20s<br/>   → no response → exclude"]
         D5["5. Collect until min_reviews met"]
-        D6["6. Aggregate verdicts\n   (worst severity wins)"]
+        D6["6. Aggregate verdicts<br/>   (worst severity wins)"]
     end
 
     D1 --> D2 --> D3 --> D4 --> D5 --> D6
@@ -125,15 +125,15 @@ graph TB
 
 ```mermaid
 graph TD
-    START["Watchdog Loop\n(60s interval)"] --> SCAN["Scan all pipeline.json files"]
-    SCAN --> CHECK{"Active issue\nfound?"}
-    CHECK -->|No| IDLE_CHECK{"All projects\nDONE/IDLE?"}
-    IDLE_CHECK -->|Yes| STOP["Auto-stop\nwatchdog loop"]
+    START["Watchdog Loop<br/>(60s interval)"] --> SCAN["Scan all pipeline.json files"]
+    SCAN --> CHECK{"Active issue<br/>found?"}
+    CHECK -->|No| IDLE_CHECK{"All projects<br/>DONE/IDLE?"}
+    IDLE_CHECK -->|Yes| STOP["Auto-stop<br/>watchdog loop"]
     IDLE_CHECK -->|No| WAIT["Sleep 60s"]
     CHECK -->|Yes| TIMEOUT{"Timed out?"}
-    TIMEOUT -->|Yes| NUDGE["Send nudge /\nauto-transition\nto BLOCKED"]
-    TIMEOUT -->|No| PENDING{"Pending\nnotification?"}
-    PENDING -->|Yes| NOTIFY["Send Discord\nnotification"]
+    TIMEOUT -->|Yes| NUDGE["Send nudge /<br/>auto-transition<br/>to BLOCKED"]
+    TIMEOUT -->|No| PENDING{"Pending<br/>notification?"}
+    PENDING -->|Yes| NOTIFY["Send Discord<br/>notification"]
     PENDING -->|No| WAIT
     NUDGE --> WAIT
     NOTIFY --> WAIT

@@ -3603,7 +3603,52 @@ def _handle_qdel(msg_id: str, content: str):
     log(f"Processed Discord qdel command (msg_id={msg_id})")
 
 
-DISCORD_COMMANDS = ("status", "qrun", "qstatus", "qadd", "qdel")
+def _handle_qedit(msg_id: str, content: str):
+    from config import DISCORD_CHANNEL, QUEUE_FILE
+    from notify import post_discord
+    from task_queue import replace_entry, get_active_entries
+    from devbar import get_qstatus_text, _get_running_info
+    import config
+
+    if config.DRY_RUN:
+        log(f"[dry-run] Discord qedit command skipped (msg_id={msg_id})")
+        return
+
+    parts = content.strip().split(None, 2)
+    if len(parts) < 3:
+        post_discord(DISCORD_CHANNEL, "qedit: 引数が必要です (例: qedit 1 devbar 105 full ...)")
+        return
+
+    target = parts[1]
+    new_line = parts[2]
+
+    if target in ("last", "-1"):
+        idx = "last"
+    else:
+        try:
+            idx = int(target)
+        except ValueError:
+            post_discord(DISCORD_CHANNEL, f"qedit: 無効な引数 '{target}' (数値 or 'last')")
+            return
+
+    try:
+        result = replace_entry(QUEUE_FILE, idx, new_line)
+    except ValueError as e:
+        post_discord(DISCORD_CHANNEL, f"qedit: エラー: {e}")
+        return
+
+    if result is None:
+        post_discord(DISCORD_CHANNEL, "qedit: 対象が見つからないか、キューが空です")
+        return
+
+    entries = get_active_entries(QUEUE_FILE)
+    running = _get_running_info()
+    text = get_qstatus_text(entries, running=running)
+    post_discord(DISCORD_CHANNEL, f"Replaced [{target}]: {new_line}\n```\n{text}\n```")
+    log(f"Processed Discord qedit command (msg_id={msg_id})")
+
+
+DISCORD_COMMANDS = ("status", "qrun", "qstatus", "qadd", "qdel", "qedit")
 
 
 def check_discord_commands():
@@ -3679,6 +3724,9 @@ def check_discord_commands():
 
         elif cmd_word == "qdel":
             _handle_qdel(msg_id, content)
+
+        elif cmd_word == "qedit":
+            _handle_qedit(msg_id, content)
 
         # 6. Update state (even in dry-run to test deduplication)
         state["last_command_message_id"] = msg_id

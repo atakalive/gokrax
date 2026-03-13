@@ -4687,3 +4687,67 @@ class TestHandleQrun:
         assert saved.get("comment") == "保存テスト", \
             f"pipeline comment should be '保存テスト', got {saved.get('comment')}"
         assert saved.get("queue_mode") is True
+
+
+# ── TestHandleQedit (Issue #107) ─────────────────────────────────────────────
+
+class TestHandleQedit:
+    """_handle_qedit() のテスト"""
+
+    def _run(self, content, queue_file, monkeypatch):
+        import config
+        monkeypatch.setattr(config, "QUEUE_FILE", queue_file)
+        monkeypatch.setattr(config, "DISCORD_CHANNEL", "test-channel")
+        monkeypatch.setattr(config, "DRY_RUN", False)
+        from watchdog import _handle_qedit
+        with patch("notify.post_discord") as mock_post:
+            _handle_qedit("msg-001", content)
+        return mock_post
+
+    def test_qedit_success(self, tmp_path, monkeypatch):
+        """正常置換: 成功メッセージが post_discord で投稿される"""
+        queue_file = tmp_path / "queue.txt"
+        queue_file.write_text("Foo 1\nBar 2\n")
+
+        mock_post = self._run("qedit 0 Baz 3", queue_file, monkeypatch)
+
+        mock_post.assert_called_once()
+        msg = mock_post.call_args[0][1]
+        assert "Replaced [0]: Baz 3" in msg
+
+        content = queue_file.read_text()
+        assert "Baz 3\n" in content
+        assert "Foo 1" not in content
+
+    def test_qedit_missing_args(self, tmp_path, monkeypatch):
+        """引数不足 → エラーメッセージ投稿"""
+        queue_file = tmp_path / "queue.txt"
+        queue_file.write_text("Foo 1\n")
+
+        mock_post = self._run("qedit 0", queue_file, monkeypatch)
+
+        mock_post.assert_called_once()
+        msg = mock_post.call_args[0][1]
+        assert "引数が必要" in msg
+
+    def test_qedit_invalid_target(self, tmp_path, monkeypatch):
+        """不正 target → エラーメッセージ投稿"""
+        queue_file = tmp_path / "queue.txt"
+        queue_file.write_text("Foo 1\n")
+
+        mock_post = self._run("qedit bad_target Bar 2", queue_file, monkeypatch)
+
+        mock_post.assert_called_once()
+        msg = mock_post.call_args[0][1]
+        assert "無効な引数" in msg or "invalid" in msg.lower()
+
+    def test_qedit_not_found(self, tmp_path, monkeypatch):
+        """範囲外 → エラーメッセージ投稿"""
+        queue_file = tmp_path / "queue.txt"
+        queue_file.write_text("Foo 1\n")
+
+        mock_post = self._run("qedit 99 Bar 2", queue_file, monkeypatch)
+
+        mock_post.assert_called_once()
+        msg = mock_post.call_args[0][1]
+        assert "見つからない" in msg or "空" in msg

@@ -394,6 +394,65 @@ def append_entry(queue_path: Path, line: str) -> dict:
     return entry
 
 
+def replace_entry(queue_path: Path, index: int | str, new_line: str) -> Optional[dict]:
+    """キューファイルの指定インデックスの active エントリを新しい行で置換する。
+
+    Args:
+        queue_path: キューファイルのパス
+        index: int (0始まり) または str ("last" / "-1")
+        new_line: 置換する新しい行
+
+    Returns:
+        置換後エントリの dict、範囲外や空キューなら None
+
+    Raises:
+        ValueError: new_line が不正な場合（ファイル操作より先に発生）
+    """
+    # 1. バリデーションが常に最初
+    entry = parse_queue_line(new_line)
+
+    # 2. ファイル不存在 → None
+    if not queue_path.exists():
+        return None
+
+    with open(queue_path, "r+") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        try:
+            lines = f.readlines()
+            active = _find_active_lines(lines)
+
+            if not active:
+                return None
+
+            # Resolve target
+            if isinstance(index, str):
+                if index in ("last", "-1"):
+                    target_idx = len(active) - 1
+                else:
+                    try:
+                        target_idx = int(index)
+                    except ValueError:
+                        return None
+            else:
+                target_idx = index
+
+            if target_idx < 0 or target_idx >= len(active):
+                return None
+
+            line_no, _ = active[target_idx]
+            lines[line_no] = new_line.rstrip("\n") + "\n"
+
+            f.seek(0)
+            f.truncate()
+            f.writelines(lines)
+            f.flush()
+            os.fsync(f.fileno())
+
+            return entry
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
+
+
 def delete_entry(queue_path: Path, index: int | str) -> Optional[dict]:
     """キューファイルから指定インデックスの active エントリを削除する。
 

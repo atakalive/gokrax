@@ -1424,6 +1424,45 @@ def cmd_qdel(args):
         print("Queue empty")
 
 
+def cmd_qedit(args):
+    """キューのエントリを置換"""
+    from task_queue import replace_entry, get_active_entries
+    from config import QUEUE_FILE
+
+    queue_path = Path(args.queue) if args.queue else QUEUE_FILE
+    display_target = args.target
+
+    # Parse target
+    if args.target in ("last", "-1"):
+        idx = "last"
+    else:
+        try:
+            idx = int(args.target)
+        except ValueError:
+            print(f"Error: invalid target '{args.target}' (use integer or 'last')", file=sys.stderr)
+            sys.exit(1)
+
+    new_line = " ".join(args.entry)
+
+    try:
+        result = replace_entry(queue_path, idx, new_line)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if result is None:
+        print("Error: target not found or queue empty", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"Replaced [{display_target}]: {new_line}")
+    entries = get_active_entries(queue_path)
+    running = _get_running_info()
+    if entries or running:
+        print(get_qstatus_text(entries, running=running))
+    else:
+        print("Queue empty")
+
+
 # === Spec Mode Commands ===
 
 def _reset_review_requests(spec_config: dict) -> None:
@@ -2480,6 +2519,12 @@ def main():
     p.add_argument("target", help="削除対象 (インデックス番号 or 'last')")
     p.add_argument("--queue", type=Path, help="キューファイルパス")
 
+    # qedit
+    p = sub.add_parser("qedit", help="キューのエントリを置換")
+    p.add_argument("target", help="置換対象 (インデックス番号 or 'last')")
+    p.add_argument("entry", nargs="+", help="新しいエントリ (例: devbar 105 full automerge)")
+    p.add_argument("--queue", type=Path, help="キューファイルパス")
+
     # spec
     spec_parser = sub.add_parser("spec", help="Spec mode commands")
     spec_sub = spec_parser.add_subparsers(dest="spec_command")
@@ -2585,6 +2630,7 @@ def main():
         "qstatus": cmd_qstatus,
         "qadd": cmd_qadd,
         "qdel": cmd_qdel,
+        "qedit": cmd_qedit,
         "spec": cmd_spec,
     }
     cmds[args.command](args)

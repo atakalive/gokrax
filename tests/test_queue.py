@@ -13,7 +13,7 @@ sys.path.insert(0, str(ROOT))
 
 from task_queue import (
     parse_queue_line, pop_next_queue_entry, restore_queue_entry, peek_queue,
-    get_active_entries, append_entry, delete_entry, sanitize_comment,
+    get_active_entries, append_entry, delete_entry, replace_entry, sanitize_comment,
 )
 
 
@@ -628,6 +628,213 @@ class TestDeleteEntry:
         assert "Bar 2" not in content
         assert "Qux 4\n" in content
         assert "# done: Foo 1\n" in content
+
+
+# ===========================================================================
+# Issue #107: replace_entry テスト
+# ===========================================================================
+
+class TestReplaceEntry:
+    """replace_entry() のテスト"""
+
+    def test_replace_first(self, tmp_path):
+        """index=0 で先頭行を置換"""
+        queue_file = tmp_path / "queue.txt"
+        queue_file.write_text("Foo 1\nBar 2\n")
+
+        result = replace_entry(queue_file, 0, "Baz 3")
+        assert result is not None
+        assert result["project"] == "Baz"
+
+        content = queue_file.read_text()
+        assert "Baz 3\n" in content
+        assert "Foo 1" not in content
+        assert "Bar 2\n" in content
+
+    def test_replace_last_keyword(self, tmp_path):
+        """index='last' で末尾行を置換"""
+        queue_file = tmp_path / "queue.txt"
+        queue_file.write_text("Foo 1\nBar 2\nBaz 3\n")
+
+        result = replace_entry(queue_file, "last", "Qux 4")
+        assert result is not None
+        assert result["project"] == "Qux"
+
+        content = queue_file.read_text()
+        assert "Qux 4\n" in content
+        assert "Baz 3" not in content
+        assert "Foo 1\n" in content
+        assert "Bar 2\n" in content
+
+    def test_replace_minus_one(self, tmp_path):
+        """index='-1' で末尾行を置換"""
+        queue_file = tmp_path / "queue.txt"
+        queue_file.write_text("Foo 1\nBar 2\n")
+
+        result = replace_entry(queue_file, "-1", "Baz 3")
+        assert result is not None
+        assert result["project"] == "Baz"
+
+        content = queue_file.read_text()
+        assert "Baz 3\n" in content
+        assert "Bar 2" not in content
+
+    def test_replace_out_of_range(self, tmp_path):
+        """範囲外 → None"""
+        queue_file = tmp_path / "queue.txt"
+        queue_file.write_text("Foo 1\n")
+
+        assert replace_entry(queue_file, 5, "Bar 2") is None
+
+    def test_replace_empty_queue(self, tmp_path):
+        """空キュー → None"""
+        queue_file = tmp_path / "queue.txt"
+        queue_file.write_text("")
+
+        assert replace_entry(queue_file, 0, "Foo 1") is None
+
+    def test_replace_skips_done_lines(self, tmp_path):
+        """done行はインデックス対象外。index=0 は最初のactive行を置換"""
+        queue_file = tmp_path / "queue.txt"
+        queue_file.write_text("# done: Foo 1\nBar 2\nBaz 3\n")
+
+        result = replace_entry(queue_file, 0, "Qux 4")
+        assert result is not None
+        assert result["project"] == "Qux"
+
+        content = queue_file.read_text()
+        assert "# done: Foo 1\n" in content
+        assert "Qux 4\n" in content
+        assert "Bar 2" not in content
+        assert "Baz 3\n" in content
+
+    def test_replace_file_not_exist(self, tmp_path):
+        """ファイル不存在 → None"""
+        queue_file = tmp_path / "nonexistent.txt"
+        assert replace_entry(queue_file, 0, "Foo 1") is None
+
+    def test_replace_invalid_new_line(self, tmp_path):
+        """不正な新行 → ValueError（ファイルが存在してもバリデーションが先）"""
+        queue_file = tmp_path / "queue.txt"
+        queue_file.write_text("Foo 1\n")
+
+        with pytest.raises(ValueError):
+            replace_entry(queue_file, 0, "INVALID_NO_ISSUE")
+
+    def test_replace_preserves_other_lines(self, tmp_path):
+        """他のactive行・done行・コメント行が変化しないこと"""
+        queue_file = tmp_path / "queue.txt"
+        queue_file.write_text(
+            "# done: Foo 1\n"
+            "# コメント行\n"
+            "\n"
+            "Bar 2\n"
+            "Baz 3\n"
+        )
+
+        result = replace_entry(queue_file, 0, "Qux 4")
+        assert result is not None
+        assert result["project"] == "Qux"
+
+        content = queue_file.read_text()
+        assert "# done: Foo 1\n" in content
+        assert "# コメント行\n" in content
+        assert "Qux 4\n" in content
+        assert "Bar 2" not in content
+        assert "Baz 3\n" in content
+
+
+# ===========================================================================
+# Issue #107: cmd_qedit テスト
+# ===========================================================================
+
+class TestCmdQedit:
+    """cmd_qedit() のテスト"""
+
+    def _make_args(self, target, entry, queue=None):
+        import argparse
+        ns = argparse.Namespace(
+            target=target,
+            entry=entry,
+            queue=queue,
+        )
+        return ns
+
+    def test_cmd_qedit_success(self, tmp_path, monkeypatch, capsys):
+        """正常置換: 成功メッセージ + キュー状態が stdout に出力される"""
+        import config
+        queue_file = tmp_path / "queue.txt"
+        queue_file.write_text("Foo 1\nBar 2\n")
+        monkeypatch.setattr(config, "QUEUE_FILE", queue_file)
+
+        from devbar import cmd_qedit
+        args = self._make_args("0", ["Baz", "3"])
+        cmd_qedit(args)
+
+        out = capsys.readouterr().out
+        assert "Replaced [0]: Baz 3" in out
+
+    def test_cmd_qedit_last(self, tmp_path, monkeypatch, capsys):
+        """target='last' で末尾行を置換"""
+        import config
+        queue_file = tmp_path / "queue.txt"
+        queue_file.write_text("Foo 1\nBar 2\n")
+        monkeypatch.setattr(config, "QUEUE_FILE", queue_file)
+
+        from devbar import cmd_qedit
+        args = self._make_args("last", ["Baz", "3"])
+        cmd_qedit(args)
+
+        out = capsys.readouterr().out
+        assert "Replaced [last]: Baz 3" in out
+        content = queue_file.read_text()
+        assert "Baz 3\n" in content
+        assert "Bar 2" not in content
+
+    def test_cmd_qedit_invalid_target(self, tmp_path, monkeypatch, capsys):
+        """target が数値でも 'last'/'-1' でもない → stderr + sys.exit(1)"""
+        import config
+        queue_file = tmp_path / "queue.txt"
+        queue_file.write_text("Foo 1\n")
+        monkeypatch.setattr(config, "QUEUE_FILE", queue_file)
+
+        from devbar import cmd_qedit
+        args = self._make_args("invalid", ["Bar", "2"])
+        with pytest.raises(SystemExit) as exc:
+            cmd_qedit(args)
+        assert exc.value.code == 1
+        err = capsys.readouterr().err
+        assert "invalid" in err
+
+    def test_cmd_qedit_out_of_range(self, tmp_path, monkeypatch, capsys):
+        """範囲外 → stderr + sys.exit(1)"""
+        import config
+        queue_file = tmp_path / "queue.txt"
+        queue_file.write_text("Foo 1\n")
+        monkeypatch.setattr(config, "QUEUE_FILE", queue_file)
+
+        from devbar import cmd_qedit
+        args = self._make_args("99", ["Bar", "2"])
+        with pytest.raises(SystemExit) as exc:
+            cmd_qedit(args)
+        assert exc.value.code == 1
+        err = capsys.readouterr().err
+        assert "not found" in err or "empty" in err
+
+    def test_cmd_qedit_invalid_entry(self, tmp_path, monkeypatch, capsys):
+        """不正な新行 → stderr + sys.exit(1)"""
+        import config
+        queue_file = tmp_path / "queue.txt"
+        queue_file.write_text("Foo 1\n")
+        monkeypatch.setattr(config, "QUEUE_FILE", queue_file)
+
+        from devbar import cmd_qedit
+        args = self._make_args("0", ["INVALID_NO_ISSUE"])
+        with pytest.raises(SystemExit) as exc:
+            cmd_qedit(args)
+        assert exc.value.code == 1
+        err = capsys.readouterr().err
+        assert "Error" in err
 
 
 # ===========================================================================

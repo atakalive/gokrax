@@ -362,9 +362,7 @@ def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
         squash_warnings = _check_squash(batch, base_commit, repo_path)
         if squash_warnings:
             for w in squash_warnings:
-                logger.error("Multi-commit detected: %s", w)
-            logger.error("Code review aborted. Squash commits before proceeding.")
-            return  # レビュー依頼を送信しない
+                logger.warning("Multi-commit (squash needed before merge): %s", w)
 
     # 各レビュアーにレビュー依頼メッセージ送信（/new はDESIGN_PLAN/IMPL開始時に先行送信済み）
     for r in reviewers:

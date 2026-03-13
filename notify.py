@@ -652,6 +652,18 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
                     quoted = "\n".join(f"> {line}" for line in prev_summary.split("\n"))
                     section_parts.insert(1, f"**前回の{prev_verdict}指摘（あなた）:**\n{quoted}\n\n")
 
+        # dispute 理由の埋め込み (Issue #108)
+        dispute_phase = "code" if is_code else "design"
+        for disp in i.get("disputes", []):
+            if (disp.get("reviewer") == reviewer
+                    and disp.get("status") == "pending"
+                    and disp.get("phase") == dispute_phase):
+                dispute_reason = disp.get("reason", "").strip()
+                if dispute_reason:
+                    quoted_reason = "\n".join(f"> {line}" for line in dispute_reason.splitlines())
+                    section_parts.append(f"**実装者からの異議（あなたの{disp.get('filed_verdict', 'P0')}に対して）:**\n{quoted_reason}\n\n")
+                break  # 同一レビュアーの pending dispute は高々1件（cmd_dispute で保証）
+
         # Issue本文を取得して埋め込み
         issue_body = fetch_issue_body(num, gitlab)
         if issue_body:

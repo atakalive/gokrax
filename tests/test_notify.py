@@ -965,3 +965,178 @@ class TestFormatReviewRequestNoDiffBaseCommit:
                     repo_path="/repo", base_commit="abc123"
                 )
         mock_diff.assert_called_once_with("def456", "/repo")
+
+
+# ── Issue #108: dispute 理由埋め込みテスト ────────────────────────────────────
+
+class TestFormatReviewRequestDisputeEmbedding:
+    """format_review_request() の dispute 理由埋め込みテスト（Issue #108）"""
+
+    def _make_batch(self, disputes=None, is_code=False):
+        review_key = "code_reviews" if is_code else "design_reviews"
+        item = {
+            "issue": 1, "title": "test issue", "commit": None,
+            "design_reviews": {}, "code_reviews": {},
+        }
+        if disputes is not None:
+            item["disputes"] = disputes
+        return [item]
+
+    def test_format_review_request_with_dispute(self):
+        """pending dispute があるレビュアーへのレビュー依頼に「実装者からの異議」が含まれること"""
+        import notify
+        disputes = [{
+            "reviewer": "pascal", "status": "pending", "phase": "design",
+            "reason": "理由テキスト", "filed_verdict": "P0",
+        }]
+        batch = self._make_batch(disputes=disputes)
+        with patch("notify.fetch_issue_body", return_value="body"):
+            msg = notify.format_review_request(
+                "proj", "DESIGN_REVIEW", batch, "atakalive/proj", reviewer="pascal"
+            )
+        assert "実装者からの異議" in msg
+        assert "理由テキスト" in msg
+
+    def test_format_review_request_no_dispute(self):
+        """dispute がないレビュアーへのレビュー依頼に「実装者からの異議」が含まれないこと"""
+        import notify
+        batch = self._make_batch(disputes=[])
+        with patch("notify.fetch_issue_body", return_value="body"):
+            msg = notify.format_review_request(
+                "proj", "DESIGN_REVIEW", batch, "atakalive/proj", reviewer="pascal"
+            )
+        assert "実装者からの異議" not in msg
+
+    def test_format_review_request_dispute_other_reviewer(self):
+        """別のレビュアーの dispute は埋め込まれないこと"""
+        import notify
+        disputes = [{
+            "reviewer": "leibniz", "status": "pending", "phase": "design",
+            "reason": "理由テキスト", "filed_verdict": "P0",
+        }]
+        batch = self._make_batch(disputes=disputes)
+        with patch("notify.fetch_issue_body", return_value="body"):
+            msg = notify.format_review_request(
+                "proj", "DESIGN_REVIEW", batch, "atakalive/proj", reviewer="pascal"
+            )
+        assert "実装者からの異議" not in msg
+        assert "理由テキスト" not in msg
+
+    def test_format_review_request_dispute_resolved(self):
+        """resolved (accepted/rejected) の dispute は埋め込まれないこと"""
+        import notify
+        for status in ("accepted", "rejected"):
+            disputes = [{
+                "reviewer": "pascal", "status": status, "phase": "design",
+                "reason": "理由テキスト", "filed_verdict": "P0",
+            }]
+            batch = self._make_batch(disputes=disputes)
+            with patch("notify.fetch_issue_body", return_value="body"):
+                msg = notify.format_review_request(
+                    "proj", "DESIGN_REVIEW", batch, "atakalive/proj", reviewer="pascal"
+                )
+            assert "実装者からの異議" not in msg, f"status={status} should not embed dispute"
+
+    def test_format_review_request_dispute_phase_mismatch(self):
+        """design phase の dispute が CODE_REVIEW のレビュー依頼に埋め込まれないこと（逆も同様）"""
+        import notify
+        # design dispute → code review: not embedded
+        disputes_design = [{
+            "reviewer": "pascal", "status": "pending", "phase": "design",
+            "reason": "理由テキスト", "filed_verdict": "P0",
+        }]
+        batch = self._make_batch(disputes=disputes_design)
+        with patch("notify.fetch_issue_body", return_value="body"):
+            with patch("notify._fetch_commit_diff", return_value="diff"):
+                msg = notify.format_review_request(
+                    "proj", "CODE_REVIEW", batch, "atakalive/proj", reviewer="pascal"
+                )
+        assert "実装者からの異議" not in msg
+
+        # code dispute → design review: not embedded
+        disputes_code = [{
+            "reviewer": "pascal", "status": "pending", "phase": "code",
+            "reason": "理由テキスト", "filed_verdict": "P0",
+        }]
+        batch2 = self._make_batch(disputes=disputes_code)
+        with patch("notify.fetch_issue_body", return_value="body"):
+            msg2 = notify.format_review_request(
+                "proj", "DESIGN_REVIEW", batch2, "atakalive/proj", reviewer="pascal"
+            )
+        assert "実装者からの異議" not in msg2
+
+    def test_format_review_request_dispute_empty_reason(self):
+        """reason が空文字列の dispute は「実装者からの異議」セクションを出力しないこと"""
+        import notify
+        disputes = [{
+            "reviewer": "pascal", "status": "pending", "phase": "design",
+            "reason": "", "filed_verdict": "P0",
+        }]
+        batch = self._make_batch(disputes=disputes)
+        with patch("notify.fetch_issue_body", return_value="body"):
+            msg = notify.format_review_request(
+                "proj", "DESIGN_REVIEW", batch, "atakalive/proj", reviewer="pascal"
+            )
+        assert "実装者からの異議" not in msg
+
+    def test_format_review_request_header_preserved(self):
+        """dispute 埋め込み後も、メッセージ末尾の {phase}レビュー依頼 が正しいこと（dispute_phase 変数名衝突回避の回帰テスト）"""
+        import notify
+        disputes = [{
+            "reviewer": "pascal", "status": "pending", "phase": "design",
+            "reason": "理由テキスト", "filed_verdict": "P0",
+        }]
+        batch = self._make_batch(disputes=disputes)
+        with patch("notify.fetch_issue_body", return_value="body"):
+            msg_design = notify.format_review_request(
+                "proj", "DESIGN_REVIEW", batch, "atakalive/proj", reviewer="pascal"
+            )
+        assert "設計レビュー依頼" in msg_design
+        assert "コードレビュー依頼" not in msg_design
+
+        disputes_code = [{
+            "reviewer": "pascal", "status": "pending", "phase": "code",
+            "reason": "理由テキスト", "filed_verdict": "P0",
+        }]
+        batch_code = [{
+            "issue": 1, "title": "test", "commit": "abc123",
+            "design_reviews": {}, "code_reviews": {},
+            "disputes": disputes_code,
+        }]
+        with patch("notify.fetch_issue_body", return_value="body"):
+            with patch("notify._fetch_commit_diff", return_value="diff"):
+                msg_code = notify.format_review_request(
+                    "proj", "CODE_REVIEW", batch_code, "atakalive/proj", reviewer="pascal",
+                    repo_path="/repo"
+                )
+        assert "コードレビュー依頼" in msg_code
+        assert "設計レビュー依頼" not in msg_code
+
+
+class TestCheckTransitionNoDisputeQueueing:
+    """check_transition() が pending_notifications に dispute エントリを追加しないことを検証（Issue #108）"""
+
+    def test_check_transition_no_dispute_queueing(self):
+        """pending dispute があっても pending_notifications に dispute エントリが追加されないこと"""
+        import watchdog
+        dispute = {
+            "reviewer": "pascal", "status": "pending", "phase": "design",
+            "reason": "理由テキスト", "filed_at": "2025-01-01T00:00:00+09:00",
+            "filed_verdict": "P0",
+        }
+        issue = {
+            "issue": 1,
+            "design_reviews": {
+                "pascal": {"verdict": "P0", "at": "2025-01-01T00:00:00+09:00"},
+            },
+            "code_reviews": {},
+            "disputes": [dispute],
+        }
+        data = {
+            "project": "test-pj",
+            "state": "DESIGN_REVISE",
+            "batch": [issue],
+        }
+        watchdog.check_transition("DESIGN_REVISE", data["batch"], data)
+        pn = data.get("pending_notifications", {})
+        assert not any(v.get("type") == "dispute" for v in pn.values())

@@ -445,6 +445,28 @@ def cmd_start(args):
     print(f"{args.project}: started with issues [{issues_str}] → DESIGN_PLAN (watchdog enabled)")
 
 
+def _reset_to_idle(data: dict) -> None:
+    """data を IDLE 状態にリセットする（batch クリア + フラグ除去）。
+
+    state と history の更新は呼び出し側で行う。
+    spec_mode のクリーンアップは行わない（それは cmd_spec_stop の責務）。
+    """
+    data["batch"] = []
+    data["enabled"] = False
+    data.pop("design_revise_count", None)
+    data.pop("code_revise_count", None)
+    data.pop("automerge", None)
+    data.pop("p2_fix", None)
+    data.pop("p1_fix", None)
+    data.pop("cc_plan_model", None)
+    data.pop("cc_impl_model", None)
+    data.pop("keep_context", None)
+    data.pop("keep_ctx_batch", None)
+    data.pop("keep_ctx_intra", None)
+    data.pop("comment", None)
+    data.pop("skip_cc_plan", None)
+
+
 def cmd_transition(args):
     """状態遷移（バリデーション付き）"""
     import config as _cfg
@@ -469,22 +491,7 @@ def cmd_transition(args):
         add_history(data, current, target, args.actor or "cli")
         data["state"] = target
         if target == "IDLE":
-            data["batch"] = []
-            data["enabled"] = False
-            # Reset REVISE cycle counters when returning to IDLE (Issue #29)
-            data.pop("design_revise_count", None)
-            data.pop("code_revise_count", None)
-            # Clear queue options (Issue #45, #71)
-            data.pop("automerge", None)
-            data.pop("p2_fix", None)
-            data.pop("p1_fix", None)      # 旧フラグ（後方互換クリーンアップ）
-            data.pop("cc_plan_model", None)
-            data.pop("cc_impl_model", None)
-            data.pop("keep_context", None)      # 旧フラグ（後方互換クリーンアップ）
-            data.pop("keep_ctx_batch", None)
-            data.pop("keep_ctx_intra", None)
-            data.pop("comment", None)
-            data.pop("skip_cc_plan", None)
+            _reset_to_idle(data)
         elif target == "DESIGN_PLAN":
             # Reset REVISE cycle counters when starting new batch (Issue #29)
             data.pop("design_revise_count", None)
@@ -622,6 +629,54 @@ def cmd_transition(args):
     ts = datetime.now(JST).strftime("%m/%d %H:%M")
     q_prefix = "[Queue]" if ctx.get("queue_mode") else ""
     notify_discord(f"{q_prefix}[{pj}] {prefix}{current} → {args.to} (by {actor}, {ts})")
+
+
+def cmd_reset(args: argparse.Namespace) -> None:
+    """非IDLE状態の全PJをIDLEにリセット（spec_mode除外）"""
+    targets = []
+    skipped_spec = []
+    for path in sorted(PIPELINES_DIR.glob("*.json")):
+        data = load_pipeline(path)
+        state = data.get("state", "IDLE")
+        if state == "IDLE":
+            continue
+        if data.get("spec_mode", False):
+            skipped_spec.append((data.get("project", path.stem), state))
+        else:
+            targets.append((path, data.get("project", path.stem), state))
+
+    if skipped_spec:
+        names = ", ".join(f"{pj} ({st})" for pj, st in skipped_spec)
+        print(f"Skipping spec-mode project(s): {names}")
+
+    if not targets:
+        if skipped_spec:
+            print("No resettable non-spec projects found.")
+        else:
+            print("All projects are already IDLE.")
+        return
+
+    projects_str = ", ".join(f"{pj} ({st})" for _, pj, st in targets)
+    print(f"Projects to reset: {projects_str}")
+
+    if getattr(args, "dry_run", False):
+        return
+
+    if not getattr(args, "force", False):
+        answer = input(f"Reset {len(targets)} project(s) to IDLE? [y/N] ")
+        if answer not in ("y", "Y"):
+            print("Aborted.")
+            return
+
+    for path, pj, old_state in targets:
+        def do_reset(data, _old=old_state):
+            add_history(data, _old, "IDLE", "cli")
+            data["state"] = "IDLE"
+            _reset_to_idle(data)
+        update_pipeline(path, do_reset)
+        print(f"  [RESET] {pj}: {old_state} → IDLE")
+
+    print(f"Reset {len(targets)} project(s) to IDLE.")
 
 
 def _log(msg: str) -> None:
@@ -2333,6 +2388,11 @@ def main():
     p.add_argument("--dry-run", action="store_true", default=False, dest="dry_run",
                    help="遷移のみ実行し通知をスキップ（テスト用）")
 
+    # reset
+    p = sub.add_parser("reset", help="非IDLE状態の全PJをIDLEにリセット（spec_mode除外）")
+    p.add_argument("--dry-run", action="store_true", help="変更せず対象を表示のみ")
+    p.add_argument("--force", action="store_true", help="確認プロンプトをスキップ")
+
     # review
     p = sub.add_parser("review", help="レビュー結果を記録（冪等: 同一レビュアーの二重投稿はスキップ）")
     p.add_argument("--pj", "--project", dest="project", required=True)
@@ -2515,7 +2575,7 @@ def main():
         "status": cmd_status, "init": cmd_init,
         "enable": cmd_enable, "disable": cmd_disable,
         "extend": cmd_extend, "start": cmd_start,
-        "triage": cmd_triage, "transition": cmd_transition,
+        "triage": cmd_triage, "transition": cmd_transition, "reset": cmd_reset,
         "review": cmd_review, "flag": cmd_flag, "dispute": cmd_dispute, "commit": cmd_commit,
         "cc-start": cmd_cc_start, "plan-done": cmd_plan_done,
         "design-revise": cmd_design_revise, "code-revise": cmd_code_revise,

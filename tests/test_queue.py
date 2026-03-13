@@ -214,6 +214,67 @@ class TestParseQueueLine:
         result = parse_queue_line("Foo 1")
         assert result["skip_cc_plan"] is False
 
+    # --- インラインコメントテスト (Issue #105) ---
+
+    def test_inline_comment_space_hash_space(self):
+        """末尾インラインコメント（スペース+#+スペース）: 正常パース"""
+        result = parse_queue_line("baybay 1 lite # 骨格")
+        assert result["project"] == "baybay"
+        assert result["issues"] == "1"
+        assert result["mode"] == "lite"
+
+    def test_inline_comment_double_space_hash(self):
+        """末尾インラインコメント（スペース2個+#）: 正常パース（空白の揺れに対応）"""
+        result = parse_queue_line("baybay 1 lite  # 骨格")
+        assert result["project"] == "baybay"
+        assert result["issues"] == "1"
+        assert result["mode"] == "lite"
+
+    def test_inline_comment_tab_hash(self):
+        """末尾インラインコメント（タブ+#）: 正常パース（タブ対応）"""
+        result = parse_queue_line("baybay 1 lite\t# 骨格")
+        assert result["project"] == "baybay"
+        assert result["issues"] == "1"
+        assert result["mode"] == "lite"
+
+    def test_inline_comment_hash_only(self):
+        """末尾が `#` のみ（スペース+#、コメント文なし）: 正常パース"""
+        result = parse_queue_line("baybay 1 lite #")
+        assert result["project"] == "baybay"
+        assert result["issues"] == "1"
+        assert result["mode"] == "lite"
+
+    def test_inline_comment_with_multiple_options(self):
+        """複数オプション後のインラインコメント: 正常パース"""
+        result = parse_queue_line("baybay 1,2 automerge p2-fix # テスト")
+        assert result["project"] == "baybay"
+        assert result["issues"] == "1,2"
+        assert result["automerge"] is True
+        assert result["p2_fix"] is True
+
+    def test_inline_comment_no_space_before_hash(self):
+        """# 前後にスペースなし（非コメント）: Unknown token の ValueError"""
+        with pytest.raises(ValueError, match="Unknown token"):
+            parse_queue_line("baybay 1 lite#骨格")
+
+    def test_comment_line_still_raises(self):
+        """コメントのみ残る場合: 既存通り ValueError（行頭 # のスキップ）"""
+        with pytest.raises(ValueError):
+            parse_queue_line("# 全部コメント")
+
+    def test_original_line_preserved(self):
+        """`original_line` がインラインコメント除去前の元の行を保持する"""
+        raw = "baybay 1 lite # 骨格"
+        result = parse_queue_line(raw)
+        assert result["original_line"] == raw
+
+    def test_inline_comment_with_plan_option(self):
+        """`plan=` オプションとインラインコメントの共存: 正常パース"""
+        result = parse_queue_line("baybay 1 plan=sonnet # モデル指定")
+        assert result["project"] == "baybay"
+        assert result["issues"] == "1"
+        assert result["cc_plan_model"] == "sonnet"
+
 
 class TestPopNextQueueEntry:
     """pop_next_queue_entry() のテスト"""

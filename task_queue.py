@@ -57,6 +57,9 @@ def parse_queue_line(line: str) -> dict:
     if not stripped or stripped.startswith("#"):
         raise ValueError(f"Skip line (empty or comment): {line!r}")
 
+    # インラインコメント除去: 空白+# 以降を除去
+    stripped = re.sub(r'\s+#.*', '', stripped).strip()
+
     # トークン分割
     tokens = stripped.split()
     if len(tokens) < 2:

@@ -7,6 +7,8 @@ import sys
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
+import websocket
+
 import pytest
 
 from config import REVIEW_MODES
@@ -32,21 +34,172 @@ class TestGetBotToken:
 
 class TestSendToAgent:
 
-    def test_openclaw_not_found(self, caplog):
+    def test_cli_openclaw_not_found(self, caplog):
+        """CLI パス: openclaw が PATH にない場合 False を返すこと。"""
         import notify
         with patch("notify.subprocess.run", side_effect=FileNotFoundError("openclaw")):
             with caplog.at_level(logging.ERROR, logger="devbar.notify"):
-                result = notify.send_to_agent("test-agent", "hello")
+                result = notify._gateway_chat_send_cli('{"sessionKey":"x","message":"y","idempotencyKey":"z"}', 10)
         assert result is False
-        assert "node not found in PATH" in caplog.text
+        assert "not found" in caplog.text.lower()
 
-    def test_timeout(self, caplog):
+    def test_cli_timeout(self, caplog):
+        """CLI パス: タイムアウト時に False を返すこと。"""
         import notify
         with patch("notify.subprocess.run", side_effect=subprocess.TimeoutExpired("cmd", 5)):
             with caplog.at_level(logging.WARNING, logger="devbar.notify"):
-                result = notify.send_to_agent("test-agent", "hello", timeout=1)
+                result = notify._gateway_chat_send_cli('{"sessionKey":"x","message":"y","idempotencyKey":"z"}', 5)
         assert result is False
-        assert "timed out" in caplog.text
+        assert "timed out" in caplog.text.lower()
+
+    def test_cli_success_status_started(self):
+        """CLI パス正常系: status=started で成功。"""
+        import notify
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = '{"runId":"abc","status":"started"}'
+        with patch("notify.subprocess.run", return_value=mock_result):
+            result = notify._gateway_chat_send_cli('{"sessionKey":"x","message":"y","idempotencyKey":"z"}', 10)
+        assert result is True
+
+    def test_cli_success_ok_true(self):
+        """CLI パス正常系: ok=true で成功（レスポンス形式の差異に対応）。"""
+        import notify
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = '{"ok":true,"runId":"abc"}'
+        with patch("notify.subprocess.run", return_value=mock_result):
+            result = notify._gateway_chat_send_cli('{"sessionKey":"x","message":"y","idempotencyKey":"z"}', 10)
+        assert result is True
+
+    def test_cli_nonzero_exit(self, caplog):
+        """CLI パス: 非ゼロ終了コードで False を返すこと。"""
+        import notify
+        mock_result = MagicMock()
+        mock_result.returncode = 1
+        mock_result.stderr = "Gateway call failed"
+        with patch("notify.subprocess.run", return_value=mock_result):
+            with caplog.at_level(logging.WARNING, logger="devbar.notify"):
+                result = notify._gateway_chat_send_cli('{"sessionKey":"x","message":"y","idempotencyKey":"z"}', 10)
+        assert result is False
+
+    def test_ws_connection_failed(self, caplog):
+        """WS パス: 接続失敗時に False を返すこと。"""
+        import notify
+        with patch("notify.websocket.create_connection",
+                   side_effect=websocket.WebSocketException("connection refused")):
+            with patch("notify._load_gateway_token", return_value="dummy"):
+                with caplog.at_level(logging.WARNING, logger="devbar.notify"):
+                    result = notify._gateway_chat_send_ws("agent:test:main", "hello", 10)
+        assert result is False
+        assert "connection failed" in caplog.text.lower()
+
+    def test_ws_token_load_failure(self, caplog):
+        """WS パス: token 読み込み失敗で False を返すこと。"""
+        import notify
+        with patch("notify._load_gateway_token",
+                   side_effect=FileNotFoundError("openclaw.json")):
+            with caplog.at_level(logging.ERROR, logger="devbar.notify"):
+                result = notify._gateway_chat_send_ws("agent:test:main", "hello", 10)
+        assert result is False
+        assert "gateway token" in caplog.text.lower()
+
+    def test_ws_auth_failed(self, caplog):
+        """WS パス: 認証失敗時に False を返すこと。"""
+        import notify
+        mock_ws = MagicMock()
+        mock_ws.recv.side_effect = [
+            json.dumps({"type": "event", "event": "connect.challenge", "payload": {}}),
+            json.dumps({"type": "res", "id": "x", "ok": False,
+                        "error": {"message": "token mismatch"}}),
+        ]
+        with patch("notify.websocket.create_connection", return_value=mock_ws):
+            with patch("notify._load_gateway_token", return_value="bad-token"):
+                result = notify._gateway_chat_send_ws("agent:test:main", "hello", 10)
+        assert result is False
+
+    def test_ws_chat_send_success(self):
+        """WS パス正常系: challenge → hello-ok → chat.send 成功。"""
+        import notify
+        mock_ws = MagicMock()
+        mock_ws.recv.side_effect = [
+            json.dumps({"type": "event", "event": "connect.challenge", "payload": {}}),
+            json.dumps({"type": "res", "id": "x", "ok": True,
+                        "payload": {"type": "hello-ok"}}),
+            json.dumps({"type": "res", "id": "y", "ok": True,
+                        "payload": {"status": "started"}}),
+        ]
+        with patch("notify.websocket.create_connection", return_value=mock_ws):
+            with patch("notify._load_gateway_token", return_value="valid-token"):
+                result = notify._gateway_chat_send_ws("agent:test:main", "hello\nworld", 10)
+        assert result is True
+        # 改行保持の検証
+        sent_frames = [call.args[0] for call in mock_ws.send.call_args_list]
+        chat_frame = json.loads(sent_frames[-1])
+        assert "\n" in chat_frame["params"]["message"]
+
+    def test_dispatch_small_message_uses_cli(self):
+        """120KB 未満のメッセージは CLI パスを使うこと。"""
+        import notify
+        with patch("notify._gateway_chat_send_cli", return_value=True) as mock_cli:
+            with patch("notify._gateway_chat_send_ws") as mock_ws:
+                result = notify._gateway_chat_send("agent:test:main", "small msg", 10)
+        assert result is True
+        mock_cli.assert_called_once()
+        mock_ws.assert_not_called()
+
+    def test_dispatch_large_message_uses_ws(self):
+        """120KB 以上のメッセージは WS パスを使うこと。"""
+        import notify
+        large_msg = "x" * 130_000
+        with patch("notify._gateway_chat_send_cli") as mock_cli:
+            with patch("notify._gateway_chat_send_ws", return_value=True) as mock_ws:
+                result = notify._gateway_chat_send("agent:test:main", large_msg, 10)
+        assert result is True
+        mock_cli.assert_not_called()
+        mock_ws.assert_called_once()
+
+    def test_dispatch_boundary_just_under_limit_uses_cli(self):
+        """120KB ギリギリ未満のメッセージは CLI パスを使うこと。"""
+        import notify
+        # _CLI_PARAMS_LIMIT = 120_000 bytes。params JSON にはメッセージ以外のキーも入るので
+        # メッセージサイズは少し小さくても params 全体で 120KB 未満に収まるケースをテスト
+        msg = "x" * 100_000  # params JSON 全体は ~100KB + overhead
+        with patch("notify._gateway_chat_send_cli", return_value=True) as mock_cli:
+            with patch("notify._gateway_chat_send_ws") as mock_ws:
+                result = notify._gateway_chat_send("agent:test:main", msg, 10)
+        assert result is True
+        mock_cli.assert_called_once()
+        mock_ws.assert_not_called()
+
+    def test_dispatch_boundary_over_limit_uses_ws(self):
+        """params JSON が確実に 120KB を超えるメッセージは WS パスを使うこと。"""
+        import notify
+        # params JSON overhead ≈ 91 bytes (keys + UUID)。
+        # 120KB (120_000) を確実に超えるメッセージサイズ: 120_000 bytes
+        msg = "x" * 120_000
+        with patch("notify._gateway_chat_send_cli") as mock_cli:
+            with patch("notify._gateway_chat_send_ws", return_value=True) as mock_ws:
+                result = notify._gateway_chat_send("agent:test:main", msg, 10)
+        assert result is True
+        mock_cli.assert_not_called()
+        mock_ws.assert_called_once()
+
+    def test_newline_preserved_cli(self):
+        """CLI パス: 改行を含むメッセージが params JSON で保持されること。"""
+        import notify
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = '{"status":"started"}'
+        msg = "line1\nline2\nline3"
+        with patch("notify.subprocess.run", return_value=mock_result) as mock_run:
+            notify._gateway_chat_send_cli(
+                json.dumps({"sessionKey": "x", "message": msg, "idempotencyKey": "z"}), 10
+            )
+        # --params に渡された JSON 内に改行が保持されていること
+        params_arg = mock_run.call_args.args[0][5]  # ["openclaw","gateway","call","chat.send","--params",<here>]
+        parsed = json.loads(params_arg)
+        assert parsed["message"] == msg
 
 
 class TestPostDiscord:
@@ -487,8 +640,8 @@ class TestNotifyReviewersWithMode:
                 notify.notify_reviewers("proj", "DESIGN_REVIEW", batch, "atakalive/proj",
                                        review_mode="full")
 
-        # full mode has 3 reviewers (pascal, leibniz, dijkstra) × 1 call = 3 calls
-        assert mock_send.call_count == 3
+        # full mode has 4 reviewers (pascal, leibniz, dijkstra, euler) × 1 call = 4 calls
+        assert mock_send.call_count == 4
 
 
 class TestPrevReviews:
@@ -763,21 +916,23 @@ class TestNotifyReviewersSquash:
             "design_reviews": {}, "code_reviews": {},
         }
 
-    def test_notify_reviewers_aborts_on_multi_commit(self, caplog):
-        """_check_squash が警告を返した場合、send_to_agent が呼ばれないこと"""
+    def test_notify_reviewers_warns_on_multi_commit(self, caplog):
+        """_check_squash が警告を返した場合、警告ログを出しつつレビュー送信は続行されること"""
         import notify
         import logging
         batch = [self._make_batch_item(10, "d" * 40)]
         with patch("notify.send_to_agent") as mock_send:
             with patch("notify._check_squash", return_value=["Issue #10: expected 1 commit after abc123, got 2. Squash required."]):
-                with caplog.at_level(logging.ERROR, logger="devbar.notify"):
-                    notify.notify_reviewers(
-                        "proj", "CODE_REVIEW", batch, "atakalive/proj",
-                        base_commit="a" * 40, repo_path="/repo"
-                    )
-        mock_send.assert_not_called()
-        assert "Multi-commit detected" in caplog.text
-        assert "Code review aborted" in caplog.text
+                with patch("notify.fetch_issue_body", return_value="body"):
+                    with caplog.at_level(logging.WARNING, logger="devbar.notify"):
+                        notify.notify_reviewers(
+                            "proj", "CODE_REVIEW", batch, "atakalive/proj",
+                            base_commit="a" * 40, repo_path="/repo"
+                        )
+        # squash 警告はログに出る
+        assert "Multi-commit" in caplog.text
+        # レビュー送信は中止されない（#100 で変更: 警告に留める）
+        assert mock_send.call_count > 0
 
     def test_notify_reviewers_proceeds_when_squash_ok(self):
         """_check_squash が空リストを返した場合、通常通り送信されること"""

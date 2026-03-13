@@ -11,6 +11,7 @@ PIPELINES_DIR = Path(os.environ["DEVBAR_PIPELINES_DIR"]) if "DEVBAR_PIPELINES_DI
 DEVBAR_CLI = PurePosixPath("/home/ataka/.openclaw/shared/bin/devbar")
 GLAB_BIN = "/home/ataka/bin/glab"
 # GATEWAY_TOKEN_PATH removed — using direct bot token
+GATEWAY_PORT = int(os.environ.get("OPENCLAW_GATEWAY_PORT", "18789"))
 LOG_FILE = Path("/tmp/devbar-watchdog.log")
 QUEUE_FILE = PIPELINES_DIR / "devbar-queue.txt"  # Default. Don't delete this line.
 QUEUE_FILE = Path("/mnt/s/wsl/work/project/DevBar/devbar-queue.txt")

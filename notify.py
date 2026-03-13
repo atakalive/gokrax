@@ -5,11 +5,14 @@ watchdog.pyから呼ばれる。LLM不要。
 """
 
 import logging
+import os
 import subprocess
 import json
+import uuid
 from pathlib import Path
 
 import requests
+import websocket
 
 import config
 from config import (
@@ -21,36 +24,199 @@ from config import (
 logger = logging.getLogger("devbar.notify")
 
 
+def _load_gateway_token() -> str:
+    """Gateway 認証トークンを取得する（WS 直接接続用）。
+
+    優先順位:
+    1. 環境変数 OPENCLAW_GATEWAY_TOKEN
+    2. ~/.openclaw/openclaw.json の gateway.auth.token
+
+    Raises:
+        FileNotFoundError: config ファイルが存在しない
+        json.JSONDecodeError: config ファイルが不正な JSON
+        KeyError: gateway.auth.token キーが存在しない
+    """
+    env_token = os.environ.get("OPENCLAW_GATEWAY_TOKEN")
+    if env_token:
+        return env_token
+    config_path = Path.home() / ".openclaw" / "openclaw.json"
+    with open(config_path) as f:
+        cfg = json.load(f)
+    return cfg["gateway"]["auth"]["token"]
+
+
+def _gateway_chat_send_cli(params_json: str, timeout: int) -> bool:
+    """openclaw gateway call CLI 経由で chat.send を送信する。
+
+    CLI が device identity と全 auth mode を内部で処理する。
+    MAX_ARG_STRLEN (128KB) 未満のメッセージ専用。
+
+    Args:
+        params_json: JSON 文字列（sessionKey, message, idempotencyKey）
+        timeout: 秒単位のタイムアウト
+
+    Returns:
+        True: chat.send 成功, False: 失敗
+    """
+    try:
+        result = subprocess.run(
+            [
+                "openclaw", "gateway", "call", "chat.send",
+                "--params", params_json,
+                "--json",
+                "--timeout", str(timeout * 1000),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=timeout + 5,  # CLI timeout + margin
+        )
+        if result.returncode != 0:
+            logger.warning("openclaw gateway call failed (rc=%d): %s",
+                          result.returncode, result.stderr.strip()[:200])
+            return False
+        resp = json.loads(result.stdout)
+        return resp.get("ok", False) or resp.get("status") == "started"
+    except FileNotFoundError:
+        logger.error("openclaw not found in PATH")
+        return False
+    except subprocess.TimeoutExpired:
+        logger.warning("openclaw gateway call timed out (%ds)", timeout)
+        return False
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning("openclaw gateway call error: %s", e)
+        return False
+
+
+def _gateway_chat_send_ws(session_key: str, message: str, timeout: int) -> bool:
+    """Gateway WS に直接接続して chat.send を送信する（大メッセージ用、ベストエフォート）。
+
+    CLI パスで MAX_ARG_STRLEN を超えるメッセージのフォールバック。
+    token auth・loopback 限定。device identity は省略。
+    将来の OpenClaw が loopback でも device identity を要求した場合は失敗する。
+
+    WS プロトコル:
+    1. 接続 → connect.challenge 受信
+    2. connect リクエスト（token 認証）→ hello-ok 確認
+    3. chat.send リクエスト → レスポンス確認
+    4. 切断
+
+    Returns:
+        True: chat.send 成功, False: 失敗（ベストエフォート — 通知ループを中断しない）
+    """
+    gateway_url = f"ws://127.0.0.1:{config.GATEWAY_PORT}"
+
+    try:
+        token = _load_gateway_token()
+    except (FileNotFoundError, json.JSONDecodeError, KeyError, OSError) as e:
+        logger.error("Failed to load gateway token: %s", e)
+        return False
+
+    try:
+        ws = websocket.create_connection(gateway_url, timeout=timeout)
+    except (websocket.WebSocketException, OSError) as e:
+        logger.warning("Gateway WS connection failed: %s", e)
+        return False
+
+    try:
+        # 1. Receive challenge
+        challenge_raw = ws.recv()
+        challenge = json.loads(challenge_raw)
+        if challenge.get("event") != "connect.challenge":
+            logger.warning("Unexpected first frame: %s", challenge.get("event"))
+            return False
+
+        # 2. Connect (authenticate)
+        connect_req = {
+            "type": "req",
+            "id": str(uuid.uuid4()),
+            "method": "connect",
+            "params": {
+                "minProtocol": 3,
+                "maxProtocol": 3,
+                "client": {
+                    "id": "cli",
+                    "version": "1.0.0",
+                    "platform": "linux",
+                    "mode": "cli",
+                },
+                "role": "operator",
+                "scopes": ["operator.read", "operator.write"],
+                "auth": {"token": token},
+            },
+        }
+        ws.send(json.dumps(connect_req))
+        hello = json.loads(ws.recv())
+        if not hello.get("ok"):
+            logger.warning("Gateway auth failed: %s",
+                          hello.get("error", {}).get("message", "unknown"))
+            return False
+
+        # 3. Send chat.send
+        chat_req = {
+            "type": "req",
+            "id": str(uuid.uuid4()),
+            "method": "chat.send",
+            "params": {
+                "sessionKey": session_key,
+                "message": message,
+                "idempotencyKey": str(uuid.uuid4()),
+            },
+        }
+        ws.send(json.dumps(chat_req))
+        resp = json.loads(ws.recv())
+        if not resp.get("ok"):
+            logger.warning("chat.send failed: %s",
+                          resp.get("error", {}).get("message", "unknown"))
+            return False
+
+        return True
+
+    except (websocket.WebSocketException, OSError, json.JSONDecodeError) as e:
+        logger.warning("Gateway WS error: %s", e)
+        return False
+    finally:
+        try:
+            ws.close()
+        except Exception:
+            pass
+
+
+# MAX_ARG_STRLEN safety margin (128KB - 8KB overhead)
+_CLI_PARAMS_LIMIT = 120_000
+
+
+def _gateway_chat_send(session_key: str, message: str, timeout: int) -> bool:
+    """Gateway 経由で chat.send を送信する（二層ディスパッチ）。
+
+    1. params JSON が 120KB 未満 → CLI 経由（device identity・全 auth mode 対応）
+    2. params JSON が 120KB 以上 → WS 直接接続（token auth・loopback 限定）
+    """
+    params_json = json.dumps({
+        "sessionKey": session_key,
+        "message": message,
+        "idempotencyKey": str(uuid.uuid4()),
+    })
+
+    if len(params_json.encode("utf-8")) < _CLI_PARAMS_LIMIT:
+        return _gateway_chat_send_cli(params_json, timeout)
+
+    logger.info("Message too large for CLI (%d bytes), using WS direct",
+               len(params_json.encode("utf-8")))
+    return _gateway_chat_send_ws(session_key, message, timeout)
+
+
 def send_to_agent(agent_id: str, message: str, timeout: int = AGENT_SEND_TIMEOUT) -> bool:
-    """Gateway chat.send経由でメッセージ送信 (gateway-send.js)。
+    """Gateway 経由で chat.send を送信。
 
     collectキュー（デフォルト）により、run中でもabortせずfollowup turnとして処理される。
-    stdin経由でメッセージを渡すため、ARG_MAX(128KB)制限を回避。
-    chat.sendは改行を保持する。二重送信問題もない。
+    改行を保持する。
     """
     if config.DRY_RUN:
         logger.info("[dry-run] send_to_agent skipped (agent=%s)", agent_id)
         return True
     session_key = f"agent:{agent_id}:main"
-    try:
-        result = subprocess.run(
-            ["node", str(GATEWAY_SEND_SCRIPT), session_key],
-            input=message,
-            capture_output=True, text=True, timeout=timeout + 10,
-        )
-        if result.returncode != 0:
-            logger.warning("agent send failed (rc=%d, agent=%s): %s",
-                          result.returncode, agent_id, result.stderr.strip())
-        return result.returncode == 0
-    except subprocess.TimeoutExpired:
-        logger.warning("agent send timed out (agent=%s, timeout=%ds)", agent_id, timeout)
-        return False
-    except FileNotFoundError:
-        logger.error("node not found in PATH")
-        return False
+    return _gateway_chat_send(session_key, message, timeout)
 
-
-GATEWAY_SEND_SCRIPT = Path(__file__).resolve().parent / "gateway-send.js"
 
 def send_to_agent_queued(agent_id: str, message: str, timeout: int = AGENT_SEND_TIMEOUT) -> bool:
     """send_to_agent のエイリアス。"""

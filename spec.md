@@ -131,16 +131,19 @@ IDLE → DESIGN_PLAN → DESIGN_REVIEW → DESIGN_APPROVED → IMPLEMENTATION
 
 ### 7.0 エージェント送信方法
 
-2つの送信経路を用途で使い分ける:
+`send_to_agent()` と `send_to_agent_queued()` は同一関数（後者はエイリアス）。
+二層アーキテクチャで Gateway に `chat.send` を送信する。
 
-| 関数 | 内部実装 | 改行 | run中のabort | 用途 |
+| パス | 条件 | 実装 | device identity | auth mode |
 |---|---|---|---|---|
-| `send_to_agent()` | `openclaw agent` CLI | ✅保持 | ⚠️ abort | レビュー依頼、/new、遷移通知（エージェントがidle時に送る） |
-| `send_to_agent_queued()` | Gateway `chat.send` (collectキュー) | ❌消える | ✅safe | 催促 (`continue`) のみ |
+| CLI (primary) | params < 120KB | `openclaw gateway call` | ✅ ランタイム処理 | ✅ 全 mode |
+| WS direct (fallback) | params ≥ 120KB | `websocket-client` | ❌ 省略 (loopback) | token のみ |
 
-- `openclaw agent` CLIは実行中のrunをabortする。レビュー依頼等はエージェントがidle状態の時に送るため安全
-- Gateway `chat.send` はcollectキューに積まれ、run完了後にfollowup turnとして処理される。改行は消えるが催促は1単語なので問題ない
-- `gateway-send.js` が `chat.send` のNode.jsラッパー（OpenClawの `callGateway()` 内部APIを使用、device identity署名でスコープ取得）
+- collectキューに積まれ、run完了後にfollowup turnとして処理される
+  - 即時性より abort 回避を優先する設計。/new やレビュー依頼も followup turn として処理される
+- 改行を保持する
+- `dist/` 内部ファイルへの依存なし
+- auth token 取得（WS パス用）: 環境変数 `OPENCLAW_GATEWAY_TOKEN` → `~/.openclaw/openclaw.json` の `gateway.auth.token`
 
 ### 7.1 催促
 
@@ -227,8 +230,8 @@ IDLE → DESIGN_PLAN → DESIGN_REVIEW → DESIGN_APPROVED → IMPLEMENTATION
 | 対象 | mock方法 | 理由 |
 |---|---|---|
 | `notify.post_discord` | `return_value="mock-msg-id"` | Discord APIを叩かない |
-| `notify.send_to_agent` | `return_value=True` | openclaw agent CLIを叩かない |
-| `notify.send_to_agent_queued` | `return_value=True` | Gateway chat.sendを叩かない |
+| `notify.send_to_agent` | `return_value=True` | Gateway CLI/WS を叩かない |
+| `notify.send_to_agent_queued` | `return_value=True` | 同上（エイリアス） |
 | `watchdog.send_to_agent` | `return_value=True` | 同上 |
 | `watchdog.send_to_agent_queued` | `return_value=True` | 同上 |
 | `watchdog._stop_loop_if_idle` | mock化 | **本番のwatchdog-loop.shを殺さない** |

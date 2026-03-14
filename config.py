@@ -95,13 +95,13 @@ TRIAGE_ALLOWED_STATES = ["IDLE", "TRIAGE"]
 # エージェント
 AGENTS = {
     "kaneko":   "agent:kaneko:main",    # Opus, Lead
-    "pascal":   "agent:pascal:main",    # Gemini
-    "leibniz":  "agent:leibniz:main",   # ChatGPT
-    "hanfei":   "agent:hanfei:main",    # Qwen
+    "pascal":   "agent:pascal:main",    # Gemini 3 Pro
+    "leibniz":  "agent:leibniz:main",   # GPT-4.1 (GitHub)
+    "hanfei":   "agent:hanfei:main",    # GPT-4.1 (GitHub)
     "dijkstra": "agent:dijkstra:main",  # Opus
     "neumann":  "agent:neumann:main",   # Opus, Lead
-    "euler":    "agent:euler:main",     # ChatGPT
-    "basho":    "agent:basho:main",     # Local
+    "euler":    "agent:euler:main",     # ChatGPT-5.4
+    "basho":    "agent:basho:main",     # Local, Qwen3.5-27B 
 }
 
 # REVIEWERS = ["pascal", "leibniz", "hanfei", "dijkstra"]
@@ -142,7 +142,7 @@ REVIEW_MODES = {
         "grace_period_sec": 0,
     },
     "min": {
-        "members": ["leibniz"],
+        "members": ["euler"],
         "min_reviews": 1,
         "grace_period_sec": 0,
     },
@@ -155,10 +155,10 @@ REVIEW_MODES = {
 
 # Reviewer tiers: regular, semi, free, short-context
 REVIEWER_TIERS: dict[str, list[str]] = {
-    "regular": ["leibniz", "dijkstra", "euler"],
+    "regular": ["dijkstra", "euler"],
     "semi": ["pascal"],
-    "free": ["hanfei"],
-    "short-context": ["basho"],  # ローカルLLM等、コンテキスト長が短いレビュアー
+    "free": [],
+    "short-context": ["basho", "hanfei", "leibniz"],  # ローカルLLM等、コンテキスト長が短いレビュアー
 }
 
 

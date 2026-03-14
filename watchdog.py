@@ -135,6 +135,30 @@ def _reset_reviewers(review_mode: str = "standard", implementer: str = "") -> li
     return excluded
 
 
+def _reset_short_context_reviewers(review_mode: str) -> None:
+    """keep_ctx スキップ時でも short-context tier のレビュアーだけ /new を送信。"""
+    from config import AGENTS, REVIEW_MODES, POST_NEW_COMMAND_WAIT_SEC
+    import config
+    import time
+
+    mode_config = REVIEW_MODES.get(review_mode)
+    if mode_config is None:
+        log(f"[/new] WARNING: unknown review_mode '{review_mode}', skipping short-context reset")
+        return
+    short_ctx = [m for m in mode_config["members"]
+                 if config.get_tier(m) == "short-context" and m in AGENTS]
+    if not short_ctx:
+        return
+    for r in short_ctx:
+        log(f"[/new] sending /new to {r} (short-context, forced)")
+        if not send_to_agent_queued(r, "/new"):
+            log(f"[/new] WARNING: failed to send /new to {r}")
+    from config import DRY_RUN
+    if not DRY_RUN:
+        log(f"[/new] waiting {POST_NEW_COMMAND_WAIT_SEC} sec for short-context reset")
+        time.sleep(POST_NEW_COMMAND_WAIT_SEC)
+
+
 def log(msg: str):
     ts = datetime.now(JST).strftime("%Y-%m-%d %H:%M:%S")
     line = f"[{ts}] {msg}"
@@ -3212,6 +3236,7 @@ def process(path: Path):
                 skip_reset = False
             if skip_reset:
                 log(f"[{pj}] reset_reviewers SKIPPED (keep_ctx for {action.new_state})")
+                _reset_short_context_reviewers(review_mode)
                 excluded = []
             else:
                 # 実装担当も常にリセット（レビュアーと同タイミングで/new）

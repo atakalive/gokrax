@@ -1,0 +1,17 @@
+# Auto detect text files and normalize to LF
+* text=auto eol=lf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.tar binary
+*.dll binary
+*.exe binary
+*.so binary
+*.dylib binary

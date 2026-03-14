@@ -117,8 +117,8 @@ CODE_MIN_REVIEWS = 2
 # Review modes: project-level reviewer assignment
 REVIEW_MODES = {
     "full": {
-        "members": ["pascal", "leibniz", "dijkstra", "euler"],
-        "min_reviews": 4,
+        "members": ["pascal", "dijkstra", "euler", "basho", "leibniz"],
+        "min_reviews": 5,
         "grace_period_sec": 0,
     },
     "standard": {
@@ -160,8 +160,8 @@ REVIEW_MODES = {
 
 # Reviewer tiers: regular, semi, free, short-context
 REVIEWER_TIERS: dict[str, list[str]] = {
-    "regular": ["dijkstra", "euler"],
-    "semi": ["pascal"],
+    "regular": ["dijkstra", "euler", "pascal"],
+    "semi": [],
     "free": [],
     "short-context": ["basho", "hanfei", "leibniz"],  # ローカルLLM等、コンテキスト長が短いレビュアー
 }

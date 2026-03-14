@@ -360,9 +360,9 @@ def _fetch_commit_diff(commit: str, repo_path: str, base_commit: str | None = No
     """
     try:
         if base_commit:
-            cmd = ["git", "-C", repo_path, "diff", f"{base_commit}..{commit}"]
+            cmd = ["git", "-C", repo_path, "diff", "-W", f"{base_commit}..{commit}"]
         else:
-            cmd = ["git", "-C", repo_path, "show", commit]
+            cmd = ["git", "-C", repo_path, "show", "-W", commit]
         result = subprocess.run(
             cmd,
             capture_output=True, text=True, timeout=30, check=False,
@@ -740,7 +740,12 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
             "スコープ制約:\n"
             "- P0/P1 を出す場合、該当コードが今回の diff に含まれることを確認せよ\n"
             "- 前バッチで既に入った変更を現バッチの責任にしない\n"
-            "- diff 外で気づいた問題は P2（提案）として報告せよ"
+            "- diff 外で気づいた問題は P2（提案）として報告せよ\n\n"
+            "コンテキスト制約（重要）:\n"
+            "- あなたに見えているのは diff とその周辺コンテキストのみである。リポジトリ全体のコードは見えていない\n"
+            "- diff に含まれないファイル・関数・変数について「存在しない」と断定してはならない\n"
+            "- 「〜が見当たらない」という指摘は P2（提案）に留め、P0/P1 にしてはならない\n"
+            "- diff 外のコードに依存する指摘を P0/P1 で出す場合、その根拠が diff 内に明示的に存在することを確認せよ"
         )
     else:
         guidance = (

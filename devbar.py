@@ -24,6 +24,7 @@ from config import (
     MAX_SPEC_REVISE_CYCLES, MIN_VALID_REVIEWS_BY_MODE,
     SPEC_REVIEW_TIMEOUT_SEC, SPEC_ISSUE_SUGGESTION_TIMEOUT_SEC,
     SPEC_REVISE_SELF_REVIEW_PASSES, MAX_SPEC_RETRIES,
+    DEVBAR_CLI,
 )
 from pipeline_io import (
     load_pipeline, save_pipeline, update_pipeline,
@@ -107,7 +108,7 @@ def _any_pj_enabled() -> bool:
         if data.get("enabled", False):
             return True
     return False
-from notify import notify_implementer, notify_reviewers, notify_discord, send_to_agent, spec_notify_approved_forced, spec_notify_review_start
+from notify import notify_implementer, notify_reviewers, notify_discord, send_to_agent, spec_notify_approved_forced, spec_notify_review_start, send_to_agent_queued
 
 
 # === Commands ===
@@ -919,6 +920,25 @@ def cmd_dispute(args):
             signal.raise_signal(signal.SIGTERM)
 
     print(f"{args.project}: #{args.issue} dispute filed against {args.reviewer}")
+
+    # dispute 即時通知（best-effort）
+    state = data.get("state", "IDLE")
+    phase = "design" if "DESIGN" in state else "code"
+    review_key = "design_reviews" if "DESIGN" in state else "code_reviews"
+    issue_data = find_issue(data.get("batch", []), args.issue)
+    filed_verdict = ""
+    if issue_data:
+        filed_verdict = issue_data.get(review_key, {}).get(args.reviewer, {}).get("verdict", "")
+    dispute_msg = (
+        f"【異議申し立て — あなたの {filed_verdict} 判定に対する異議】\n"
+        f"{args.project} #{args.issue}: 実装者があなたの判定に異議を申し立てました。\n\n"
+        f"理由:\n{args.reason.strip()}\n\n"
+        f"再評価した上で --force 付きで判定を報告してください:\n"
+        f"python3 {DEVBAR_CLI} review --pj {args.project} --issue {args.issue} "
+        f"--reviewer {args.reviewer} --verdict <APPROVE/P0/P1/P2> --summary \"...\" --force"
+    )
+    if not send_to_agent_queued(args.reviewer, dispute_msg):
+        print(f"WARNING: dispute 通知の送信に失敗 ({args.reviewer})")
 
     gitlab = data.get("gitlab", f"atakalive/{args.project}")
     note_body = (

@@ -118,8 +118,8 @@ CODE_MIN_REVIEWS = 2
 REVIEW_MODES = {
     "full": {
         "members": ["pascal", "dijkstra", "euler", "basho", "leibniz"],
-        "min_reviews": 5,
-        "grace_period_sec": 0,
+        "min_reviews": 4,
+        "grace_period_sec": 450,
     },
     "standard": {
         "members": ["pascal", "leibniz", "dijkstra"],
@@ -127,12 +127,12 @@ REVIEW_MODES = {
         "grace_period_sec": 0,
     },
     "lite3_woOpus": {
-        "members": ["leibniz", "pascal", "euler"],
+        "members": ["pascal", "euler", "basho"],
         "min_reviews": 3,
         "grace_period_sec": 0,
     },
     "lite3_woGoogle": {
-        "members": ["leibniz", "euler", "dijkstra"],
+        "members": ["euler", "dijkstra", "basho"],
         "min_reviews": 3,
         "grace_period_sec": 0,
     },

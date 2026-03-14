@@ -518,7 +518,7 @@ class TestFormatReviewRequestEmbedded:
                     repo_path="/repo"
                 )
         assert "diff content" in result
-        assert "**変更内容:**" in result
+        assert "**変更内容 (commit abc123):**" in result
 
     def test_fallback_on_fetch_failure(self):
         import notify

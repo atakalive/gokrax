@@ -627,6 +627,8 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
     total_chars = 0
     truncated = False
 
+    diff_commits: set[str] = set()
+
     for i in batch:
         num = i["issue"]
         title = i.get("title", "")
@@ -672,21 +674,9 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
             # 取得失敗時: fallbackコマンド
             section_parts.append(f"Issue詳細: `{GLAB_BIN} issue show {num} -R {gitlab}`\n")
 
-        # コードレビュー: git diff埋め込み
+        # コードレビュー: diff参照を記録（埋め込みはループ外で一括）
         if is_code and commit and repo_path:
-            diff = _fetch_commit_diff(commit, repo_path)
-            if diff:
-                orig_len = len(diff)
-                if orig_len > MAX_DIFF_CHARS:
-                    diff = diff[:MAX_DIFF_CHARS] + f"\n\n... (truncated: {orig_len} chars, limit {MAX_DIFF_CHARS})"
-                section_parts.append(f"**変更内容:**\n```diff\n{diff}\n```\n")
-            else:
-                # 取得失敗時: fallbackコマンド
-                section_parts.append(
-                    f"変更確認:\n"
-                    f"  `git -C {repo_path} show --stat {commit}`\n"
-                    f"  `git -C {repo_path} show {commit}`\n\n"
-                )
+            diff_commits.add(commit)
 
         section_text = "".join(section_parts)
 
@@ -730,6 +720,22 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
     )
 
     body = "\n\n".join(sections)
+
+    # コードレビュー: diffをcommit単位で重複排除して末尾に一括添付
+    if is_code and repo_path and diff_commits:
+        for commit_hash in sorted(diff_commits):
+            diff = _fetch_commit_diff(commit_hash, repo_path)
+            if diff:
+                orig_len = len(diff)
+                if orig_len > MAX_DIFF_CHARS:
+                    diff = diff[:MAX_DIFF_CHARS] + f"\n\n... (truncated: {orig_len} chars, limit {MAX_DIFF_CHARS})"
+                body += f"\n\n---\n**変更内容 (commit {commit_hash[:7]}):**\n```diff\n{diff}\n```\n"
+            else:
+                body += (
+                    f"\n\n---\n変更確認 (commit {commit_hash[:7]}):\n"
+                    f"  `git -C {repo_path} show --stat {commit_hash}`\n"
+                    f"  `git -C {repo_path} show {commit_hash}`\n"
+                )
 
     if is_code:
         guidance = (

@@ -141,6 +141,11 @@ REVIEW_MODES = {
         "min_reviews": 2,
         "grace_period_sec": 0,
     },
+    "cheap": {
+        "members": ["basho", "leibniz", "hanfei"],
+        "min_reviews": 3,
+        "grace_period_sec": 0,
+    },
     "min": {
         "members": ["euler"],
         "min_reviews": 1,

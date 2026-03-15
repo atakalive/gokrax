@@ -1641,6 +1641,8 @@ def cmd_spec_start(args):
         })
         sc["current_rev"] = str(effective_rev)
         sc["rev_index"] = effective_rev
+        # --rev N で開始した場合、rev1→revN の改訂が既に N-1 回発生している
+        sc["revise_count"] = effective_rev - 1
         data["spec_mode"] = True
         old_state = data.get("state", "IDLE")
         data["state"] = "SPEC_APPROVED" if skip_review else "SPEC_REVIEW"

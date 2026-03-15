@@ -1642,7 +1642,9 @@ def cmd_spec_start(args):
         sc["current_rev"] = str(effective_rev)
         sc["rev_index"] = effective_rev
         data["spec_mode"] = True
+        old_state = data.get("state", "IDLE")
         data["state"] = "SPEC_APPROVED" if skip_review else "SPEC_REVIEW"
+        add_history(data, old_state, data["state"], actor="cli")
         data["enabled"] = True
         if args.review_mode:
             data["review_mode"] = review_mode

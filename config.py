@@ -137,7 +137,7 @@ REVIEW_MODES = {
         "grace_period_sec": 0,
     },
     "lite": {
-        "members": ["euler", "pascal"],
+        "members": ["basho", "pascal"],
         "min_reviews": 2,
         "grace_period_sec": 0,
     },

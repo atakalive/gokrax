@@ -2601,9 +2601,9 @@ def _apply_spec_action(
             pd = orig_data.get("spec_config", {}).get("pipelines_dir")
             if pd:
                 _cleanup_expired_spec_files(pd)
-        # SPEC_DONE → IDLE 後: キュー次タスクの自動起動（無条件）
-        if action.expected_state == "SPEC_DONE" and applied_action.next_state == "IDLE":
-            _check_queue()
+        # SPEC_DONE → IDLE 後: キュー自動起動しない（M指示 2026-03-16）
+        # spec mode 終了後は IDLE で停止。手動 `devbar qrun` で開始する。
+        # 通常モード（DONE → IDLE）のキュー進行は do_transition 側で別途制御。
 
 
 def process(path: Path):

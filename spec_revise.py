@@ -227,18 +227,24 @@ python3 /home/ataka/.openclaw/shared/bin/devbar spec self-review-submit --pj {pr
 # ---------------------------------------------------------------------------
 
 def get_self_review_agent(spec_config: dict) -> str:
-    """セルフレビュー パス2 のエージェントを選択する。
+    """セルフレビュー担当エージェントを選択する。
 
-    spec_config.self_review_agent が設定されていればそのエージェント。
-    None なら review_requests のキー一覧の先頭。
+    優先順位:
+    1. spec_config.self_review_agent が設定されていればそのエージェント
+    2. spec_config.spec_implementer（改訂担当者 = セルフレビューの本来の実行者）
+    3. フォールバック: review_requests のキー一覧の先頭
     """
     agent = spec_config.get("self_review_agent")
     if agent:
         return agent
+    # セルフレビューは implementer が自分の改訂を検証するもの (#112)
+    implementer = spec_config.get("spec_implementer")
+    if implementer:
+        return implementer
     review_requests = spec_config.get("review_requests", {})
     if review_requests:
         return next(iter(review_requests))
-    return "pascal"  # フォールバック
+    return "kaneko"  # フォールバック
 
 
 # ---------------------------------------------------------------------------

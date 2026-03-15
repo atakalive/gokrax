@@ -669,11 +669,7 @@ def cmd_reset(args: argparse.Namespace) -> None:
         update_pipeline(path, do_reset)
         print(f"  [RESET] {pj}: {old_state} → IDLE")
 
-    if not _any_pj_enabled():
-        _stop_loop()
-        print(f"Reset {len(targets)} project(s) to IDLE. Watchdog loop stopped (no active projects).")
-    else:
-        print(f"Reset {len(targets)} project(s) to IDLE.")
+    print(f"Reset {len(targets)} project(s) to IDLE.")
 
 
 def _log(msg: str) -> None:

@@ -183,51 +183,62 @@ class TestCmdReset:
         # state は変更しない（呼び出し側の責務）
         assert data["state"] == "IMPLEMENTATION"
 
-    def test_spec_mode_project_excluded(self, tmp_pipelines, capsys):
-        """spec_mode=True のPJは除外され、変更されない"""
-        spec_pipeline = make_pipeline("pj-spec", state="SPEC_REVIEW", spec_mode=True, spec_config={})
+    def test_spec_mode_project_included(self, tmp_pipelines, capsys):
+        """spec_mode=True のPJもリセットされ、spec_mode/spec_configがクリアされる"""
+        spec_pipeline = make_pipeline("pj-spec", state="SPEC_REVIEW", spec_mode=True, spec_config={"spec_path": "test.md"})
         spec_path = tmp_pipelines / "pj-spec.json"
         write_pipeline(spec_path, spec_pipeline)
-        original_content = spec_path.read_text()
 
         from devbar import cmd_reset
         cmd_reset(reset_args())
 
         out = capsys.readouterr().out
-        assert "Skipping spec-mode project(s)" in out
-        assert "pj-spec (SPEC_REVIEW)" in out
-        assert spec_path.read_text() == original_content
+        assert "[RESET] pj-spec: SPEC_REVIEW → IDLE" in out
+
+        saved = read_pipeline(spec_path)
+        assert saved["state"] == "IDLE"
+        assert saved["spec_mode"] is False
+        assert saved["spec_config"] == {}
 
     def test_spec_mode_mixed_with_normal(self, tmp_pipelines, capsys):
-        """spec_mode PJと通常PJが混在: spec_mode PJは除外され、通常PJのみリセット"""
+        """spec_mode PJと通常PJが混在: 両方ともリセットされる"""
         spec_path = tmp_pipelines / "pj-spec.json"
         normal_path = tmp_pipelines / "pj-normal.json"
-        write_pipeline(spec_path, make_pipeline("pj-spec", state="SPEC_REVIEW", spec_mode=True))
+        write_pipeline(spec_path, make_pipeline("pj-spec", state="SPEC_REVIEW", spec_mode=True, spec_config={}))
         write_pipeline(normal_path, make_pipeline("pj-normal", state="IMPLEMENTATION"))
-        original_spec = spec_path.read_text()
 
         from devbar import cmd_reset
         cmd_reset(reset_args())
 
         out = capsys.readouterr().out
-        assert "Skipping spec-mode project(s)" in out
         assert "[RESET] pj-normal: IMPLEMENTATION → IDLE" in out
-        assert spec_path.read_text() == original_spec
+        assert "[RESET] pj-spec: SPEC_REVIEW → IDLE" in out
+
+        spec_saved = read_pipeline(spec_path)
+        assert spec_saved["state"] == "IDLE"
+        assert spec_saved["spec_mode"] is False
+        assert spec_saved["spec_config"] == {}
+
         assert read_pipeline(normal_path)["state"] == "IDLE"
 
-    def test_spec_only_non_idle_message(self, tmp_pipelines, capsys):
-        """spec_mode PJのみが非IDLEの場合: "No resettable non-spec projects found." が表示される"""
+    def test_spec_only_resets_normally(self, tmp_pipelines, capsys):
+        """spec_mode PJのみが非IDLEの場合: 通常通りリセットされる"""
+        spec_path = tmp_pipelines / "pj-spec.json"
         write_pipeline(
-            tmp_pipelines / "pj-spec.json",
-            make_pipeline("pj-spec", state="SPEC_REVIEW", spec_mode=True),
+            spec_path,
+            make_pipeline("pj-spec", state="SPEC_REVIEW", spec_mode=True, spec_config={}),
         )
 
         from devbar import cmd_reset
         cmd_reset(reset_args())
 
         out = capsys.readouterr().out
-        assert "No resettable non-spec projects found." in out
-        assert "All projects are already IDLE." not in out
+        assert "[RESET] pj-spec: SPEC_REVIEW → IDLE" in out
+
+        saved = read_pipeline(spec_path)
+        assert saved["state"] == "IDLE"
+        assert saved["spec_mode"] is False
+        assert saved["spec_config"] == {}
 
     def test_confirm_y_executes(self, tmp_pipelines, capsys):
         """確認プロンプトで y: 実行される"""

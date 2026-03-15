@@ -633,28 +633,17 @@ def cmd_transition(args):
 
 
 def cmd_reset(args: argparse.Namespace) -> None:
-    """非IDLE状態の全PJをIDLEにリセット（spec_mode除外）"""
+    """非IDLE状態の全PJをIDLEにリセット"""
     targets = []
-    skipped_spec = []
     for path in sorted(PIPELINES_DIR.glob("*.json")):
         data = load_pipeline(path)
         state = data.get("state", "IDLE")
         if state == "IDLE":
             continue
-        if data.get("spec_mode", False):
-            skipped_spec.append((data.get("project", path.stem), state))
-        else:
-            targets.append((path, data.get("project", path.stem), state))
-
-    if skipped_spec:
-        names = ", ".join(f"{pj} ({st})" for pj, st in skipped_spec)
-        print(f"Skipping spec-mode project(s): {names}")
+        targets.append((path, data.get("project", path.stem), state))
 
     if not targets:
-        if skipped_spec:
-            print("No resettable non-spec projects found.")
-        else:
-            print("All projects are already IDLE.")
+        print("All projects are already IDLE.")
         return
 
     projects_str = ", ".join(f"{pj} ({st})" for _, pj, st in targets)
@@ -673,11 +662,18 @@ def cmd_reset(args: argparse.Namespace) -> None:
         def do_reset(data, _old=old_state):
             add_history(data, _old, "IDLE", "cli")
             data["state"] = "IDLE"
+            if data.get("spec_mode", False):
+                data["spec_mode"] = False
+                data["spec_config"] = {}
             _reset_to_idle(data)
         update_pipeline(path, do_reset)
         print(f"  [RESET] {pj}: {old_state} → IDLE")
 
-    print(f"Reset {len(targets)} project(s) to IDLE.")
+    if not _any_pj_enabled():
+        _stop_loop()
+        print(f"Reset {len(targets)} project(s) to IDLE. Watchdog loop stopped (no active projects).")
+    else:
+        print(f"Reset {len(targets)} project(s) to IDLE.")
 
 
 def _log(msg: str) -> None:
@@ -2455,7 +2451,7 @@ def main():
                    help="遷移のみ実行し通知をスキップ（テスト用）")
 
     # reset
-    p = sub.add_parser("reset", help="非IDLE状態の全PJをIDLEにリセット（spec_mode除外）")
+    p = sub.add_parser("reset", help="非IDLE状態の全PJをIDLEにリセット")
     p.add_argument("--dry-run", action="store_true", help="変更せず対象を表示のみ")
     p.add_argument("--force", action="store_true", help="確認プロンプトをスキップ")
 

@@ -264,7 +264,7 @@ def build_queue_plan_prompt(spec_config: dict, data: dict) -> str:
 
 - `issue_nums` はカンマ区切り（例: `{project} 51,52,53 full # Phase 1`）
 - 1バッチ内のIssueは並列実装される。依存関係があるIssueは別バッチにすること
-- review_mode は full / lite から選択。とても簡単で間違いそうにない場合、lite でよい。
+- review_mode は full / lite から選択。簡単で間違いそうにない場合、lite でよい。
 
 ### 実装フェーズで使用するCCモデルは、問題の難易度に応じて選択する。
 - デフォルト: Sonnet （指定不要）

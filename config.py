@@ -122,7 +122,7 @@ REVIEW_MODES = {
         "grace_period_sec": 0,
     },
     "standard": {
-        "members": ["pascal", "leibniz", "dijkstra"],
+        "members": ["pascal", "euler", "dijkstra"],
         "min_reviews": 3,
         "grace_period_sec": 0,
     },
@@ -133,6 +133,11 @@ REVIEW_MODES = {
     },
     "lite3_woGoogle": {
         "members": ["euler", "dijkstra", "basho"],
+        "min_reviews": 3,
+        "grace_period_sec": 0,
+    },
+    "lite3_woOpenAI": {
+        "members": ["pascal", "dijkstra", "basho"],
         "min_reviews": 3,
         "grace_period_sec": 0,
     },
@@ -147,7 +152,7 @@ REVIEW_MODES = {
         "grace_period_sec": 0,
     },
     "min": {
-        "members": ["euler"],
+        "members": ["pascal"],
         "min_reviews": 1,
         "grace_period_sec": 0,
     },

@@ -2533,16 +2533,15 @@ def _apply_spec_action(
 
             woken = []
             for reviewer in applied_action.nudge_reviewers:
-                # レート制限: NUDGE_GRACE_SEC 以内の再催促をスキップ
-                # Note: _is_agent_inactive() はセッション heartbeat を見るため、
-                # タスク未応答でもアクティブ扱いになり催促が飛ばない問題があった。
-                # レート制限のみで催促頻度を制御する。(#112)
+                if not _is_agent_inactive(reviewer):
+                    continue
+                # INACTIVE_THRESHOLD_SEC 以内の再催促をスキップ
                 rr = fresh_sc.get("review_requests", {}).get(reviewer, {})
                 last_nudge = rr.get("last_nudge_at")
                 if last_nudge:
                     try:
                         since = (_datetime.now(JST) - _datetime.fromisoformat(last_nudge)).total_seconds()
-                        if since < NUDGE_GRACE_SEC:
+                        if since < INACTIVE_THRESHOLD_SEC:
                             continue
                     except (ValueError, TypeError):
                         continue  # parse 失敗時は安全側=催促しない
@@ -2571,15 +2570,13 @@ def _apply_spec_action(
             project_fresh = fresh_data.get("project", "")
             current_rev_fresh = fresh_sc.get("current_rev", "1")
 
-            # Note: _is_agent_inactive() ガードを除去。セッション heartbeat で
-            # アクティブ扱いされ催促が飛ばない問題があった。レート制限のみで制御。(#112)
-            if implementer:
+            if implementer and _is_agent_inactive(implementer):
                 last_nudge = fresh_sc.get("_last_nudge_implementer")
                 should_nudge = True
                 if last_nudge:
                     try:
                         since = (_datetime.now(JST) - _datetime.fromisoformat(last_nudge)).total_seconds()
-                        if since < NUDGE_GRACE_SEC:
+                        if since < INACTIVE_THRESHOLD_SEC:
                             should_nudge = False
                     except (ValueError, TypeError):
                         should_nudge = False  # parse 失敗時は安全側=催促しない
@@ -2697,14 +2694,15 @@ def process(path: Path):
         # 実装担当催促（遷移なし、カウンタ書き込みのみ）
         if action.nudge:
             implementer = data.get("implementer", "kaneko")
-            # Note: _is_agent_inactive() ガードを除去。セッション heartbeat で
-            # アクティブ扱いされ催促が飛ばない問題があった。レート制限のみで制御。(#112)
-            # 前回催促からNUDGE_GRACE_SEC未満ならスキップ
+            if not _is_agent_inactive(implementer, data):
+                # アクティブなら催促しない（カウンタも上げない）
+                return
+            # 前回催促からINACTIVE_THRESHOLD_SEC未満ならスキップ
             last_nudge = data.get("_last_nudge_at")
             if last_nudge:
                 try:
                     elapsed_since_nudge = (_datetime.now(JST) - _datetime.fromisoformat(last_nudge)).total_seconds()
-                    if elapsed_since_nudge < NUDGE_GRACE_SEC:
+                    if elapsed_since_nudge < INACTIVE_THRESHOLD_SEC:
                         return
                 except (ValueError, TypeError):
                     pass
@@ -3007,18 +3005,17 @@ def process(path: Path):
             ))
 
             for reviewer in all_reviewers:
-                # Note: _is_agent_inactive() ガードを除去。セッション heartbeat で
-                # アクティブ扱いされ催促が飛ばない問題があった。レート制限のみで制御。(#112)
-                # 前回催促からNUDGE_GRACE_SEC未満ならスキップ
-                nudge_key = f"_last_nudge_{reviewer}"
-                last_at = pipeline_data.get(nudge_key) or pipeline_data.get(f"_nudge_failed_{reviewer}")
-                if last_at:
-                    try:
-                        elapsed = (_datetime.now(JST) - _datetime.fromisoformat(last_at)).total_seconds()
-                        if elapsed < NUDGE_GRACE_SEC:
-                            continue
-                    except (ValueError, TypeError):
-                        pass
+                if _is_agent_inactive(reviewer):
+                    # 前回催促からINACTIVE_THRESHOLD_SEC未満ならスキップ
+                    nudge_key = f"_last_nudge_{reviewer}"
+                    last_at = pipeline_data.get(nudge_key) or pipeline_data.get(f"_nudge_failed_{reviewer}")
+                    if last_at:
+                        try:
+                            elapsed = (_datetime.now(JST) - _datetime.fromisoformat(last_at)).total_seconds()
+                            if elapsed < INACTIVE_THRESHOLD_SEC:
+                                continue
+                        except (ValueError, TypeError):
+                            pass
 
                     # このレビュアーの通常未レビュー Issue を収集
                     normal_pending_issues = []

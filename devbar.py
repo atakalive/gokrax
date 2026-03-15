@@ -1712,6 +1712,7 @@ def cmd_spec_approve(args):
                 "rev_index": sc.get("rev_index", 0),
                 "remaining_p1_items": remaining,
             })
+        add_history(data, state, "SPEC_APPROVED", actor="cli:spec-approve")
         data["state"] = "SPEC_APPROVED"
 
     update_pipeline(path, do_approve)
@@ -1763,6 +1764,7 @@ def cmd_spec_done(args):
         raise SystemExit(f"Cannot done: state is {data['state']} (expected SPEC_DONE)")
 
     def do_done(data):
+        add_history(data, "SPEC_DONE", "IDLE", actor="cli:spec-done")
         data["state"] = "IDLE"
         data["spec_mode"] = False
         data["spec_config"] = {}
@@ -1807,6 +1809,7 @@ def cmd_spec_retry(args):
         sc = data["spec_config"]
         _reset_review_requests(sc)
         sc["current_reviews"] = {}
+        add_history(data, "SPEC_REVIEW_FAILED", "SPEC_REVIEW", actor="cli:spec-retry")
         data["state"] = "SPEC_REVIEW"
 
     update_pipeline(path, do_retry)
@@ -1848,6 +1851,7 @@ def cmd_spec_resume(args):
                     ).isoformat()
 
         sc.setdefault("retry_counts", {})[target] = 0
+        add_history(data, "SPEC_PAUSED", target, actor="cli:spec-resume")
         data["state"] = target
         sc["paused_from"] = None
 
@@ -1867,6 +1871,7 @@ def cmd_spec_extend(args):
     def do_extend(data):
         sc = data["spec_config"]
         sc["max_revise_cycles"] = sc.get("max_revise_cycles", MAX_SPEC_REVISE_CYCLES) + n
+        add_history(data, "SPEC_STALLED", "SPEC_REVISE", actor="cli:spec-extend")
         data["state"] = "SPEC_REVISE"
 
     update_pipeline(path, do_extend)

@@ -1424,8 +1424,8 @@ def _build_spec_review_prompt_revision(
     """rev2以降のレビュー依頼プロンプト（§5.1）。"""
     pipelines_dir = spec_config.get("pipelines_dir") or str(PIPELINES_DIR)
     spec_name = Path(spec_path).stem
-    last_commit = spec_config.get("last_commit", "unknown")
-    last_changes = spec_config.get("last_changes", {})
+    last_commit = spec_config.get("last_commit") or "unknown"
+    last_changes = spec_config.get("last_changes") or {}
     added = last_changes.get("added_lines", "?")
     removed = last_changes.get("removed_lines", "?")
     changelog = last_changes.get("changelog_summary", "変更履歴なし")
@@ -1487,7 +1487,10 @@ def _check_spec_review(
 
         if status == "pending" and req.get("sent_at") is None:
             # 未送信 → レビュー依頼プロンプト生成
-            if rev_index <= 1:
+            # rev_index > 1 でも last_changes がない場合は初回プロンプトを使う
+            # （devbar spec start --rev 2 で初回起動した場合など）
+            has_prior_review = bool(spec_config.get("last_changes"))
+            if rev_index <= 1 or not has_prior_review:
                 prompt = _build_spec_review_prompt_initial(
                     project, spec_path, current_rev, spec_config,
                 )

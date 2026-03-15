@@ -1641,8 +1641,6 @@ def cmd_spec_start(args):
         })
         sc["current_rev"] = str(effective_rev)
         sc["rev_index"] = effective_rev
-        # --rev N で開始した場合、rev1→revN の改訂が既に N-1 回発生している
-        sc["revise_count"] = effective_rev - 1
         data["spec_mode"] = True
         old_state = data.get("state", "IDLE")
         data["state"] = "SPEC_APPROVED" if skip_review else "SPEC_REVIEW"
@@ -1892,7 +1890,7 @@ def cmd_spec_status(args):
 
     state = data.get("state", "?")
     rev = sc.get("current_rev", "?")
-    cycle = f"{sc.get('revise_count', 0)}/{sc.get('max_revise_cycles', '?')}"
+    cycle = f"rev{sc.get('rev_index', 0)}/{sc.get('max_revise_cycles', '?')}"
 
     retry_parts = []
     for k, v in sc.get("retry_counts", {}).items():

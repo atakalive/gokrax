@@ -185,7 +185,7 @@ def should_continue_review(
     Returns: "revise"|"approved"|"stalled"|"failed"|"paused"
 
     Raises:
-        KeyError: spec_config に revise_count/max_revise_cycles がない場合
+        KeyError: spec_config に rev_index/max_revise_cycles がない場合
             （壊れたデータの早期検出）
     """
     cr = spec_config.get("current_reviews", {})
@@ -227,7 +227,7 @@ def should_continue_review(
         return "approved"
 
     # 4. MAX到達 → stalled（直アクセス: Dijkstra P1-2）
-    if spec_config["revise_count"] >= spec_config["max_revise_cycles"]:
+    if spec_config["rev_index"] >= spec_config["max_revise_cycles"]:
         return "stalled"
 
     return "revise"

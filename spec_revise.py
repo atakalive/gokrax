@@ -508,7 +508,6 @@ def build_revise_completion_updates(
         "current_rev": str(revise_data["new_rev"]),
         "rev_index": new_rev_int,  # new_rev から直接算出（drift 防止）
         "last_changes": changes,
-        "revise_count": spec_config.get("revise_count", 0) + 1,
         "review_history": review_history,
         # current_reviews クリア
         "current_reviews": {"entries": {}},

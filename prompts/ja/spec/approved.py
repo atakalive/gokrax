@@ -5,7 +5,7 @@
 
 
 def notify_approved(project: str, rev: str | int, **_kw) -> str:
-    """通常承認（M確認待ち）。"""
+    """通常承認（オーナー確認待ち）。"""
     return f"[Spec] {project}: spec承認 (rev{rev})。`devbar spec continue` でIssue分割へ"
 
 

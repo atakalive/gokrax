@@ -10,7 +10,7 @@ import importlib
 try:
     from config import PROMPT_LANG
 except ImportError:
-    PROMPT_LANG = "ja"
+    PROMPT_LANG = "en"  # デフォルトは英語
 
 
 def render(template: str, macro: str, lang: str | None = None, **kwargs) -> str:
@@ -19,7 +19,7 @@ def render(template: str, macro: str, lang: str | None = None, **kwargs) -> str:
     Args:
         template: ステート名（例: "spec_review", "design_revise"）
         macro: 関数名（例: "initial", "nudge", "notify_start"）
-        lang: 言語コード（デフォルト: config.PROMPT_LANG or "ja"）
+        lang: 言語コード（デフォルト: config.PROMPT_LANG or "en"）
         **kwargs: テンプレート関数に渡す引数
     """
     lang = lang or PROMPT_LANG

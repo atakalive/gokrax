@@ -265,6 +265,7 @@ python3 devbar.py spec start --pj <PROJECT> --spec <PATH> --implementer <AGENT>
 | `--review-only` | レビューだけ行いIssue化しない |
 | `--no-queue` | キュー生成をスキップ |
 | `--auto-continue` | APPROVED後にM確認スキップで自動的にISSUE_SUGGESTIONへ |
+| `--auto-qrun` | spec完了後にキューを自動実行する |
 
 #### `spec approve` — 手動でSPEC_APPROVEDに遷移
 

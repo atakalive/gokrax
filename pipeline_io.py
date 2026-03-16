@@ -201,6 +201,7 @@ def default_spec_config() -> dict:
         "no_queue": False,
         "skip_review": False,
         "auto_continue": False,
+        "auto_qrun": False,
         "self_review_passes": SPEC_REVISE_SELF_REVIEW_PASSES,
         "self_review_agent": None,
         "current_rev": "1",

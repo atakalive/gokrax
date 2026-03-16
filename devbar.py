@@ -1626,6 +1626,7 @@ def cmd_spec_start(args):
             "no_queue": no_queue,
             "skip_review": skip_review,
             "auto_continue": auto_continue,
+            "auto_qrun": args.auto_qrun,
             "max_revise_cycles": args.max_cycles if args.max_cycles is not None else MAX_SPEC_REVISE_CYCLES,
             "model": args.model,
             "review_requests": review_requests,
@@ -1935,6 +1936,7 @@ def cmd_spec_status(args):
     review_mode = data.get("review_mode", "full")
     min_valid = MIN_VALID_REVIEWS_BY_MODE.get(review_mode, 0)
     print(f"  min_valid: {min_valid} ({review_mode} mode)")
+    print(f"  auto_qrun: {sc.get('auto_qrun', False)}")
     print(f"  pipelines_dir: {sc.get('pipelines_dir', '?')}")
 
 
@@ -2583,6 +2585,7 @@ def main():
                    choices=["full", "standard", "lite", "min"])
     p.add_argument("--model", default=None)
     p.add_argument("--auto-continue", action="store_true", default=False, dest="auto_continue")
+    p.add_argument("--auto-qrun", action="store_true", default=False, dest="auto_qrun")
     p.add_argument("--rev", type=int, default=None,
                    help="current_revの初期値（デフォルト: 1）")
 

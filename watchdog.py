@@ -3042,7 +3042,8 @@ def process(path: Path):
                         continue
 
                     # メッセージ組み立て（1通にまとめる）
-                    from config import review_command, DEVBAR_CLI
+                    from config import review_command, get_current_round, DEVBAR_CLI
+                    round_num = get_current_round(pipeline_data)
                     msg_parts = []
 
                     if dispute_items:
@@ -3062,7 +3063,7 @@ def process(path: Path):
 
                     if normal_pending_issues:
                         cmd_lines = "\n".join(
-                            review_command(pj, num, reviewer) for num in normal_pending_issues
+                            review_command(pj, num, reviewer, round_num=round_num if round_num > 0 else None) for num in normal_pending_issues
                         )
                         msg_parts.append(
                             f"[Remind] {pj} のレビューが未完了です。対象: {', '.join(f'#{n}' for n in normal_pending_issues)}\n"
@@ -3287,6 +3288,8 @@ def process(path: Path):
             excluded = pipeline_data.get("excluded_reviewers", [])
 
             base_commit = pipeline_data.get("base_commit")
+            from config import get_current_round
+            round_num = get_current_round(pipeline_data)
             notify_reviewers(
                 pj, action.new_state, notification["batch"], notification["gitlab"],
                 repo_path=notification.get("repo_path", ""),
@@ -3295,6 +3298,7 @@ def process(path: Path):
                 excluded=excluded,
                 base_commit=base_commit,
                 comment=pipeline_data.get("comment", ""),
+                round_num=round_num if round_num > 0 else None,
                 already_reset=not skip_reset,  # _reset_reviewers() 実行済みなら True
             )
             clear_pending_notification(pj, "review")

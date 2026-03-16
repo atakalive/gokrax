@@ -750,6 +750,16 @@ def cmd_review(args):
                 _dispute_accepted = True
         else:
             raise SystemExit(f"Not in review state: {state}")
+        from config import get_current_round
+        _round_arg = getattr(args, "round", None)
+        if _round_arg is not None:
+            current_round = get_current_round(data)
+            if current_round > 0 and _round_arg != current_round:
+                raise SystemExit(
+                    f"Round mismatch: current round is {current_round}, "
+                    f"but --round {_round_arg} was specified. "
+                    f"This review may be stale (from a previous cycle)."
+                )
         # REVIEW 状態での dispute 自動解決 + 冪等性バイパス判定
         has_pending_dispute = False
         if state in ("DESIGN_REVIEW", "CODE_REVIEW"):
@@ -2485,6 +2495,7 @@ def main():
     p.add_argument("--summary", default="", help="レビューサマリー")
     p.add_argument("--force", action="store_true", default=False,
                    help="既存レビューを上書きする")
+    p.add_argument("--round", type=int, default=None, help="レビューラウンド番号（自動埋め込み）")
 
     # flag
     p = sub.add_parser("flag", help="人間（M）による P0/P1 差し込み（任意タイミング）")

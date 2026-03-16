@@ -263,18 +263,28 @@ def _validate_reviewer_tiers():
                 )
 
 
-def review_command(project: str, issue: int, reviewer: str) -> str:
-    """レビュー報告コマンド文字列を生成する。単一ソース。
+def get_current_round(data: dict) -> int:
+    """現在のレビューラウンド番号を返す（1起算）。
 
-    Args:
-        project: プロジェクト名
-        issue: Issue番号
-        reviewer: レビュアー名
+    DESIGN_REVIEW/DESIGN_REVISE → design_revise_count + 1
+    CODE_REVIEW/CODE_REVISE → code_revise_count + 1
+    その他の状態 → 0（ラウンド検証をスキップさせる）
 
-    Returns:
-        コピペ可能な devbar review コマンド文字列
+    注: "DESIGN" / "CODE" を含む状態名で判定するため、DESIGN_PLAN 等の
+    非レビュー状態でも非0を返す。ただし cmd_review の state チェックで
+    REVIEW/REVISE 以外は事前に弾かれるため、実害はない。
     """
-    return (
+    state = data.get("state", "IDLE")
+    if "DESIGN" in state:
+        return data.get("design_revise_count", 0) + 1
+    elif "CODE" in state:
+        return data.get("code_revise_count", 0) + 1
+    return 0
+
+
+def review_command(project: str, issue: int, reviewer: str, round_num: int | None = None) -> str:
+    """レビュー報告コマンド文字列を生成する。単一ソース。"""
+    cmd = (
         f'python3 {DEVBAR_CLI} review'
         f' --project {project}'
         f' --issue {issue}'
@@ -282,6 +292,9 @@ def review_command(project: str, issue: int, reviewer: str) -> str:
         f' --verdict <APPROVE/P0/P1/P2>'
         f' --summary "..."'
     )
+    if round_num is not None:
+        cmd += f' --round {round_num}'
+    return cmd
 
 
 _validate_reviewer_tiers()

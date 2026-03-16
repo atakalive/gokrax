@@ -496,6 +496,7 @@ def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
                      prev_reviews: dict = None, excluded: list[str] = None,
                      base_commit: str | None = None,
                      comment: str = "",
+                     round_num: int | None = None,
                      already_reset: bool = False):
     """各レビュアーに個別のメッセージを送信。
 
@@ -539,7 +540,8 @@ def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
             continue  # 既にログ出力済み
         msg = format_review_request(project, state, batch, gitlab, reviewer=r,
                                     repo_path=repo_path, prev_reviews=prev_reviews,
-                                    base_commit=base_commit, comment=comment)
+                                    base_commit=base_commit, comment=comment,
+                                    round_num=round_num)
         if not msg:
             logger.info("No pending issues for %s — skipping review request", r)
             continue
@@ -616,7 +618,8 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
                           reviewer: str, repo_path: str = "",
                           prev_reviews: dict = None,
                           base_commit: str | None = None,
-                          comment: str = "") -> str:
+                          comment: str = "",
+                          round_num: int | None = None) -> str:
     """レビュー依頼メッセージを生成（データ埋め込み + 20000文字制限）。"""
     if prev_reviews is None:
         prev_reviews = {}
@@ -708,10 +711,12 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
         if existing.get("verdict", "").upper() in ("APPROVE", "P1"):
             continue
         pending_issues.append(f"□ #{num}: {title}")
+        round_arg = f" --round {round_num}" if round_num is not None else ""
         pending_cmds.append(
             f"python3 {DEVBAR_CLI} review --project {project} --issue {num} "
             f"--reviewer {reviewer} --verdict <APPROVE|P0|P1|P2> "
             f"--summary $'レビュー本文\n2行目\n3行目..'"
+            f"{round_arg}"
         )
 
     todo_header = (

@@ -108,15 +108,62 @@ AGENTS = {
     "basho":    "agent:basho:main",     # Local, Qwen3.5-27B 
 }
 
-# REVIEWERS = ["pascal", "leibniz", "hanfei", "dijkstra"]
+# Reviewer tiers: regular, semi, free, short-context
+REVIEWER_TIERS: dict[str, list[str]] = {
+    "regular": ["dijkstra", "euler", "pascal"],
+    "semi": [],
+    "free": [],
+    "short-context": ["basho", "hanfei", "leibniz"],  # ローカルLLM等、コンテキスト長が短いレビュアー
+}
 
-# 段階別レビュアー設定
-# DEPRECATED: Use REVIEW_MODES instead (kept for backward compat)
-DESIGN_REVIEWERS = ["pascal", "leibniz"]  # "dijkstra"
-CODE_REVIEWERS = ["pascal", "leibniz"]
-
-DESIGN_MIN_REVIEWS = 2
-CODE_MIN_REVIEWS = 2
+# Review modes: project-level reviewer assignment
+REVIEW_MODES = {
+    "full": {
+        "members": ["pascal", "dijkstra", "euler", "basho"],
+        "min_reviews": 4,
+        "grace_period_sec": 0,
+    },
+    "standard": {
+        "members": ["pascal", "euler", "dijkstra"],
+        "min_reviews": 3,
+        "grace_period_sec": 0,
+    },
+    "lite3_woOpus": {
+        "members": ["pascal", "euler", "basho"],
+        "min_reviews": 3,
+        "grace_period_sec": 0,
+    },
+    "lite3_woGoogle": {
+        "members": ["euler", "dijkstra", "basho"],
+        "min_reviews": 3,
+        "grace_period_sec": 0,
+    },
+    "lite3_woOpenAI": {
+        "members": ["pascal", "dijkstra", "basho"],
+        "min_reviews": 3,
+        "grace_period_sec": 0,
+    },
+    "lite": {
+        "members": ["basho", "pascal"],
+        "min_reviews": 2,
+        "grace_period_sec": 0,
+    },
+    "cheap": {
+        "members": ["basho", "leibniz", "hanfei"],
+        "min_reviews": 3,
+        "grace_period_sec": 0,
+    },
+    "min": {
+        "members": ["pascal"],
+        "min_reviews": 1,
+        "grace_period_sec": 0,
+    },
+    "skip": {
+        "members": [],
+        "min_reviews": 0,
+        "grace_period_sec": 0,
+    },
+}
 
 # スキル定義: スキル名 → 絶対パス
 SKILLS: dict[str, str] = {
@@ -129,13 +176,14 @@ SKILLS: dict[str, str] = {
 # AGENTS に存在しないエージェント名を含めてもよい（将来の追加に備えた予約）。
 # load_skills はエージェント名の AGENTS 存在チェックを行わない。
 AGENT_SKILLS: dict[str, list[str]] = {
-    "pascal": ["diff-reading-guide", "code-walkthrough"],
-    "dijkstra": ["diff-reading-guide", "code-walkthrough"],
-    "euler": ["diff-reading-guide", "code-walkthrough"],
-    "basho": ["diff-reading-guide"],
+    "pascal": ["diff-reading-guide"],
+    "dijkstra": ["diff-reading-guide"],
+    "euler": ["diff-reading-guide"],
     "leibniz": ["diff-reading-guide"],
     "hanfei": ["diff-reading-guide"],
-    "kaneko": ["diff-reading-guide", "code-walkthrough"],
+    "basho": ["diff-reading-guide"],  # Local Reviewer
+    "kaneko": [],  # implementer
+    "neumann": [],  # implementer
 }
 
 _logger = logging.getLogger(__name__)
@@ -195,65 +243,6 @@ def load_skills(agent_name: str) -> str:
         block = block[:content_limit] + _CLOSING_TAG
 
     return block
-
-
-# Review modes: project-level reviewer assignment
-REVIEW_MODES = {
-    "full": {
-        "members": ["pascal", "dijkstra", "euler", "basho"],
-        "min_reviews": 4,
-        "grace_period_sec": 0,
-    },
-    "standard": {
-        "members": ["pascal", "euler", "dijkstra"],
-        "min_reviews": 3,
-        "grace_period_sec": 0,
-    },
-    "lite3_woOpus": {
-        "members": ["pascal", "euler", "basho"],
-        "min_reviews": 3,
-        "grace_period_sec": 0,
-    },
-    "lite3_woGoogle": {
-        "members": ["euler", "dijkstra", "basho"],
-        "min_reviews": 3,
-        "grace_period_sec": 0,
-    },
-    "lite3_woOpenAI": {
-        "members": ["pascal", "dijkstra", "basho"],
-        "min_reviews": 3,
-        "grace_period_sec": 0,
-    },
-    "lite": {
-        "members": ["basho", "pascal"],
-        "min_reviews": 2,
-        "grace_period_sec": 0,
-    },
-    "cheap": {
-        "members": ["basho", "leibniz", "hanfei"],
-        "min_reviews": 3,
-        "grace_period_sec": 0,
-    },
-    "min": {
-        "members": ["pascal"],
-        "min_reviews": 1,
-        "grace_period_sec": 0,
-    },
-    "skip": {
-        "members": [],
-        "min_reviews": 0,
-        "grace_period_sec": 0,
-    },
-}
-
-# Reviewer tiers: regular, semi, free, short-context
-REVIEWER_TIERS: dict[str, list[str]] = {
-    "regular": ["dijkstra", "euler", "pascal"],
-    "semi": [],
-    "free": [],
-    "short-context": ["basho", "hanfei", "leibniz"],  # ローカルLLM等、コンテキスト長が短いレビュアー
-}
-
 
 def get_tier(agent_name: str) -> str:
     """Return tier for agent. Unknown agents are conservatively marked as 'free'."""

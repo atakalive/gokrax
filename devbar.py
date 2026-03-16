@@ -447,13 +447,21 @@ def cmd_start(args):
 
 
 def _reset_to_idle(data: dict) -> None:
-    """data を IDLE 状態にリセットする（batch クリア + フラグ除去）。
+    """data を IDLE 状態にリセットする（batch クリア + フラグ除去 + リソース解放）。
 
     state と history の更新は呼び出し側で行う。
     spec_mode のクリーンアップは行わない（それは cmd_spec_stop の責務）。
     """
+    # --- リソース解放（pop より先に実行）---
+    from watchdog import _kill_pytest_baseline, _cleanup_review_files
+    pj = data.get("project", "")
+    _kill_pytest_baseline(data, pj)
+    _cleanup_review_files(pj)
+
+    # --- 状態クリア ---
     data["batch"] = []
     data["enabled"] = False
+    # 既存フィールド
     data.pop("design_revise_count", None)
     data.pop("code_revise_count", None)
     data.pop("automerge", None)
@@ -466,6 +474,37 @@ def _reset_to_idle(data: dict) -> None:
     data.pop("keep_ctx_intra", None)
     data.pop("comment", None)
     data.pop("skip_cc_plan", None)
+    # タイムアウト延長
+    data.pop("timeout_extension", None)
+    data.pop("extend_count", None)
+    # キューモード
+    data.pop("queue_mode", None)
+    # pytest ベースライン（_kill_pytest_baseline で PID 使用済み）
+    data.pop("test_baseline", None)
+    data.pop("_pytest_baseline", None)
+    # CC 実行追跡
+    data.pop("cc_pid", None)
+    data.pop("cc_session_id", None)
+    # バッチ開始時 HEAD
+    data.pop("base_commit", None)
+    # レビュアー除外
+    data.pop("excluded_reviewers", None)
+    data.pop("min_reviews_override", None)
+    # マージサマリー
+    data.pop("summary_message_id", None)
+    # 未送通知
+    data.pop("_pending_notifications", None)
+    # 状態タイマー
+    data.pop("_state_entered_at", None)
+    # 前回レビュー退避
+    data.pop("_prev_design_reviews", None)
+    data.pop("_prev_code_reviews", None)
+    # 催促系（動的キー含む）
+    data.pop("_last_nudge_at", None)
+    for k in [k for k in data if k.startswith(("_nudge_failed_", "_last_nudge_"))]:
+        del data[k]
+    for k in [k for k in data if k.endswith("_notify_count")]:
+        del data[k]
 
 
 def cmd_transition(args):

@@ -8,7 +8,6 @@ Variables:
     DEVBAR_CLI: str       - devbar CLIパス
 """
 
-from prompts._common import no_interrupt_header, no_interrupt_footer
 
 
 def plan(
@@ -16,7 +15,7 @@ def plan(
     **_kw,
 ) -> str:
     """キュー生成指示プロンプト（§9）。"""
-    return f"""{no_interrupt_header()}
+    return f"""【指示】このタスクは中断せず最後まで一気に完了してください。途中で確認を求めないこと。
 
 起票済みIssueをバッチ実行キューに登録してください。
 
@@ -67,7 +66,7 @@ queue_file: "{queue_file_path}"
 {DEVBAR_CLI} spec queue-submit --pj {project} --file <YAMLファイルパス>
 ```
 
-{no_interrupt_footer("キュー登録・完了報告の提出")}"""
+【重要】キュー登録・完了報告の提出まで、中断せず一気に完了すること。"""
 
 
 # ---------------------------------------------------------------------------

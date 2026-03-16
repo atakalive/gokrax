@@ -8,7 +8,6 @@ Variables:
     DEVBAR_CLI: str    - devbar CLIパス
 """
 
-from prompts._common import no_interrupt_header, no_interrupt_footer
 
 
 def suggestion(
@@ -16,7 +15,7 @@ def suggestion(
     **_kw,
 ) -> str:
     """Issue分割提案プロンプト（§7）。"""
-    return f"""{no_interrupt_header()}
+    return f"""【指示】このタスクは中断せず最後まで一気に完了してください。途中で確認を求めないこと。
 
 承認された仕様書に基づき、GitLab Issue への分割提案を行ってください。
 
@@ -73,4 +72,4 @@ phases:
 {DEVBAR_CLI} spec suggestion-submit --pj {project} --reviewer {reviewer} --file <YAMLファイルパス>
 ```
 
-{no_interrupt_footer("提案作成・提出")}"""
+【重要】提案作成・提出まで、中断せず一気に完了すること。"""

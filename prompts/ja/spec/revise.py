@@ -7,7 +7,6 @@ Variables (common):
     DEVBAR_CLI: str        - devbar CLIパス
 """
 
-from prompts._common import no_interrupt_header, no_interrupt_footer
 
 
 # ---------------------------------------------------------------------------
@@ -20,7 +19,7 @@ def revise(
     **_kw,
 ) -> str:
     """改訂依頼プロンプト（§6.1）。"""
-    return f"""{no_interrupt_header()}
+    return f"""【指示】このタスクは中断せず最後まで一気に完了してください。途中で確認を求めないこと。
 
 以下の仕様書を改訂してください。
 
@@ -63,7 +62,7 @@ changes:
 {DEVBAR_CLI} spec revise-submit --pj {project} --file <YAMLファイルパス>
 ```
 
-{no_interrupt_footer("改訂・コミット・完了報告の提出")}"""
+【重要】改訂・コミット・完了報告の提出まで、中断せず一気に完了すること。"""
 
 
 def self_review(
@@ -72,7 +71,7 @@ def self_review(
     **_kw,
 ) -> str:
     """セルフレビュー依頼プロンプト。"""
-    return f"""{no_interrupt_header()}
+    return f"""【指示】このタスクは中断せず最後まで一気に完了してください。途中で確認を求めないこと。
 
 改訂された仕様書のセルフレビューを依頼します。
 

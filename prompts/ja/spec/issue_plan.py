@@ -10,7 +10,6 @@ Variables:
     DEVBAR_CLI: str           - devbar CLIパス
 """
 
-from prompts._common import no_interrupt_header, no_interrupt_footer
 
 
 def plan(
@@ -19,7 +18,7 @@ def plan(
     **_kw,
 ) -> str:
     """Issue起票指示プロンプト（§8.1）。"""
-    return f"""{no_interrupt_header()}
+    return f"""【指示】このタスクは中断せず最後まで一気に完了してください。途中で確認を求めないこと。
 
 以下のレビュアー提案を統合して、GitLab Issue を起票せよ。
 
@@ -58,7 +57,7 @@ created_issues:
 {DEVBAR_CLI} spec issue-submit --pj {project} --file <YAMLファイルパス>
 ```
 
-{no_interrupt_footer("Issue起票・完了報告の提出")}"""
+【重要】Issue起票・完了報告の提出まで、中断せず一気に完了すること。"""
 
 
 # ---------------------------------------------------------------------------

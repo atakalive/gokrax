@@ -7,7 +7,6 @@ Variables (common):
     DEVBAR_CLI: str    - devbar CLIパス
 """
 
-from prompts._common import no_interrupt_header, no_interrupt_footer
 
 
 # ---------------------------------------------------------------------------
@@ -16,7 +15,7 @@ from prompts._common import no_interrupt_header, no_interrupt_footer
 
 def initial(project: str, spec_path: str, current_rev: str, DEVBAR_CLI: str, **_kw) -> str:
     """初回レビュー依頼プロンプト（§5.1）。"""
-    return f"""{no_interrupt_header()}
+    return f"""【指示】このタスクは中断せず最後まで一気に完了してください。途中で確認を求めないこと。
 
 以下の仕様書をレビューしてください。**やりすぎレビュー**を依頼します。
 
@@ -52,7 +51,7 @@ items:
 
 ファイルは素のYAMLでも、上記「出力フォーマット」の ```yaml ... ``` ブロックを含むMarkdownでも可。
 
-{no_interrupt_footer("レビュー完了・結果の提出")}"""
+【重要】レビュー完了・結果の提出まで、中断せず一気に完了すること。"""
 
 
 def revision(
@@ -61,7 +60,7 @@ def revision(
     **_kw,
 ) -> str:
     """rev2以降のレビュー依頼プロンプト（§5.1）。"""
-    return f"""{no_interrupt_header()}
+    return f"""【指示】このタスクは中断せず最後まで一気に完了してください。途中で確認を求めないこと。
 
 以下の仕様書の改訂版をレビューしてください。
 
@@ -88,7 +87,7 @@ def revision(
 
 ファイルは素のYAMLでも、上記「出力フォーマット」の ```yaml ... ``` ブロックを含むMarkdownでも可。
 
-{no_interrupt_footer("レビュー完了・結果の提出")}"""
+【重要】レビュー完了・結果の提出まで、中断せず一気に完了すること。"""
 
 
 # ---------------------------------------------------------------------------

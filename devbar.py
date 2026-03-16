@@ -24,7 +24,7 @@ from config import (
     MAX_SPEC_REVISE_CYCLES, MIN_VALID_REVIEWS_BY_MODE,
     SPEC_REVIEW_TIMEOUT_SEC, SPEC_ISSUE_SUGGESTION_TIMEOUT_SEC,
     SPEC_REVISE_SELF_REVIEW_PASSES, MAX_SPEC_RETRIES,
-    DEVBAR_CLI,
+    DEVBAR_CLI, OWNER_NAME,
 )
 from pipeline_io import (
     load_pipeline, save_pipeline, update_pipeline,
@@ -1021,7 +1021,7 @@ def cmd_flag(args):
             "verdict": args.verdict,
             "summary": args.summary or "",
             "at": now_iso(),
-            "by": "M",
+            "by": OWNER_NAME,
             "phase": phase,
         }
         issue.setdefault("flags", []).append(flag_entry)
@@ -1774,7 +1774,7 @@ def cmd_spec_approve(args):
             _archive_current_reviews(sc)
             sc.setdefault("force_events", []).append({
                 "at": datetime.now(JST).isoformat(),
-                "actor": "M",
+                "actor": OWNER_NAME,
                 "from_state": state,
                 "rev": sc.get("current_rev", "?"),
                 "rev_index": sc.get("rev_index", 0),

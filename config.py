@@ -433,3 +433,9 @@ SPEC_QUEUE_PLAN_TIMEOUT_SEC: int = 1800    # §10.2 準拠
 SPEC_REVISE_SELF_REVIEW_PASSES: int = 2
 MAX_SPEC_RETRIES: int = 3
 SPEC_REVIEW_RAW_RETENTION_DAYS: int = 30
+
+# ---------------------------------------------------------------------------
+# General
+# ---------------------------------------------------------------------------
+OWNER_NAME: str = "M"
+PROMPT_LANG: str = "ja"

@@ -795,7 +795,8 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
         f"⚠️ 全Issueのreviewコマンドを実行するまでタスク未完了。途中で止めるな。"
     )
 
-    comment_line = f"\nMからの要望: {comment}" if comment else ""
+    from config import OWNER_NAME
+    comment_line = f"\n{OWNER_NAME}からの要望: {comment}" if comment else ""
     phase_note = "" if is_code else "\n⚠️ これは設計レビュー DESIGN_REVIEW です。コードやdiffはまだ存在しません。\n"
     final_message = f"[devbar] {project}: {phase}レビュー依頼{comment_line}{phase_note}\n\n{todo_header}\n\n{guidance}\n\n{body}{completion}"
     # skill_block が非空なら先頭に挿入
@@ -822,7 +823,7 @@ def spec_notify_review_complete(
 
 
 def spec_notify_approved(project: str, rev: str | int) -> str:
-    """→ SPEC_APPROVED（通常、M確認待ち）"""
+    """→ SPEC_APPROVED（通常、オーナー確認待ち）"""
     return f"[Spec] {project}: spec承認 (rev{rev})。`devbar spec continue` でIssue分割へ"
 
 

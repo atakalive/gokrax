@@ -444,7 +444,8 @@ def get_notification_for_state(
     if state in ("DESIGN_REVIEW", "CODE_REVIEW"):
         return TransitionAction(send_review=True)
 
-    comment_line = f"Mからの要望: {comment}\n" if comment else ""
+    from config import OWNER_NAME
+    comment_line = f"{OWNER_NAME}からの要望: {comment}\n" if comment else ""
 
     if state == "DESIGN_PLAN":
         issues_str = ", ".join(
@@ -551,7 +552,7 @@ def _resolve_review_outcome(
 
     # P0 or P1 あり → REVISE or BLOCKED/フォールバック
     if has_p0 or has_p1:
-        from config import MAX_REVISE_CYCLES
+        from config import MAX_REVISE_CYCLES, OWNER_NAME
         counter_key = "design_revise_count" if "DESIGN" in state else "code_revise_count"
         current_count = data.get(counter_key, 0) if data else 0
 
@@ -563,7 +564,7 @@ def _resolve_review_outcome(
                     new_state="BLOCKED",
                     impl_msg=(
                         f"{phase}レビューサイクルが上限（{MAX_REVISE_CYCLES}回）に達しました。\n"
-                        f"P0の指摘が解消されていません。手動で対応してください。DiscordでMに報告してください。"
+                        f"P0の指摘が解消されていません。手動で対応してください。Discordで{OWNER_NAME}に報告してください。"
                     ),
                 )
             # P0 なし + P1 のみ → フォールバック APPROVE（P1 は免除される）
@@ -883,7 +884,8 @@ def _start_cc(project: str, batch: list, gitlab: str, repo_path: str, pipeline_p
     issue_args = " ".join(str(n) for n in issue_nums)
 
     comment = data.get("comment", "")
-    comment_line = f"Mからの要望: {comment}\n\n" if comment else ""
+    from config import OWNER_NAME as _owner
+    comment_line = f"{_owner}からの要望: {comment}\n\n" if comment else ""
     plan_prompt = (
         f"以下のIssueを実装する計画を立ててください。\n"
         f"{comment_line}"

@@ -1,5 +1,8 @@
 """CODE_REVIEW ステートのプロンプト・催促。
 
+コードレビューと設計レビューは共通構造を持つ。
+催促メッセージは design_review.py と共通のため、そちらからインポート。
+
 Variables (review_request):
     project: str           - プロジェクト名
     todo_header: str       - TODOチェックリスト（組み立て済み）
@@ -9,7 +12,10 @@ Variables (review_request):
     comment_line: str      - オーナーコメント行
 """
 
-
+from messages.ja.design_review import (
+    nudge_review,
+    nudge_dispute,
+)
 
 __all__ = [
     "review_request",
@@ -77,32 +83,4 @@ def guidance_code(**_kw) -> str:
         "- diff に含まれないファイル・関数・変数について「存在しない」と断定してはならない\n"
         "- 「〜が見当たらない」という指摘は P2（提案）に留め、P0/P1 にしてはならない\n"
         "- diff 外のコードに依存する指摘を P0/P1 で出す場合、その根拠が diff 内に明示的に存在することを確認せよ"
-    )
-
-
-def nudge_review(
-    project: str,
-    issues_display: str,
-    cmd_lines: str,
-    **_kw,
-) -> str:
-    """通常レビュー催促メッセージ。"""
-    return (
-        f"[Remind] {project} のレビューが未完了です。対象: {issues_display}\n"
-        f"以下のコマンドで各 Issue のレビューを報告してください:\n"
-        f"{cmd_lines}"
-    )
-
-
-def nudge_dispute(
-    project: str,
-    dispute_lines: str,
-    **_kw,
-) -> str:
-    """dispute 回答催促メッセージ。"""
-    return (
-        f"【異議申し立て — 回答催促】\n"
-        f"{project} であなたの判定に対して異議が出ています。\n"
-        f"再評価した上で --force 付きで判定を報告してください:\n\n"
-        f"{dispute_lines}"
     )

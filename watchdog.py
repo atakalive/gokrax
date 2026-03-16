@@ -975,6 +975,36 @@ def _start_cc(project: str, batch: list, gitlab: str, repo_path: str, pipeline_p
         os.write(fd_impl, impl_prompt.encode())
         os.close(fd_impl)
 
+        # コミット検証+リトライブロック（skip_plan/通常 共通）
+        commit_verify_block = f'''
+# コミット検証: CC が実際に新しいコミットを作ったか確認し、なければリトライ
+HASH=$(git rev-parse --short HEAD)
+RETRY=0
+while [ "$HASH" = "$BEFORE_HASH" ] && [ "$RETRY" -lt 2 ]; do
+    RETRY=$((RETRY + 1))
+    _notify "{q_tag}[{project}] ⚠️ コミット未検出 — CC にリトライ指示 ($RETRY/2)"
+    echo "実装は完了しているが git commit されていない。以下のコマンドを実行せよ:
+
+  git add -A
+  git commit -m \\"feat({closes}): <変更内容の要約>\\"
+
+コミットメッセージには {closes} を必ず含めること。
+変更すべきファイルがワーキングツリーにない場合は、Issue本文の変更対象を読み直して実装してからコミットせよ。" | \\
+    claude -p --model "{impl_model}" --resume "{session_id}" \\
+      --permission-mode bypassPermissions --output-format json
+    HASH=$(git rev-parse --short HEAD)
+done
+
+if [ "$HASH" = "$BEFORE_HASH" ]; then
+    _notify "{q_tag}[{project}] ❌ CC がコミットを作成しなかった（2回リトライ後）→ BLOCKED"
+    python3 "{DEVBAR_CLI}" transition --project "{project}" --to BLOCKED --force --comment "CC がコミットを作成しなかった（2回リトライ後）"
+    exit 1
+fi
+
+# devbar commit
+python3 "{DEVBAR_CLI}" commit --project "{project}" --issue {issue_args} --hash "$HASH" --session-id "{session_id}"
+'''
+
         if skip_plan:
             script_content = f'''#!/bin/bash
 set -e
@@ -985,18 +1015,14 @@ cd "{repo_path}"
 
 _notify() {{ local ts=$(date +"%m/%d %H:%M"); python3 -c "import sys; sys.path.insert(0,'{Path(DEVBAR_CLI).resolve().parent}'); from notify import notify_discord; notify_discord(sys.argv[1])" "$1 ($ts)" 2>/dev/null || true; }}
 
+BEFORE_HASH=$(git rev-parse --short HEAD)
+
 # Plan フェーズなし — 直接 Impl
 _notify "{q_tag}[{project}] 🔨 CC Impl 開始 (plan skip, model: {impl_model})"
 claude -p --model "{impl_model}" {"--resume" if prev_session else "--session-id"} "{session_id}" \
   --permission-mode bypassPermissions --output-format json < "{impl_path}"
 _notify "{q_tag}[{project}] ✅ CC Impl 完了"
-
-# コミットハッシュ取得
-HASH=$(git log --oneline -1 --format=%h)
-
-# devbar commit
-python3 "{DEVBAR_CLI}" commit --project "{project}" --issue {issue_args} --hash "$HASH" --session-id "{session_id}"
-'''
+{commit_verify_block}'''
         else:
             script_content = f'''#!/bin/bash
 set -e
@@ -1006,6 +1032,8 @@ trap cleanup EXIT
 cd "{repo_path}"
 
 _notify() {{ local ts=$(date +"%m/%d %H:%M"); python3 -c "import sys; sys.path.insert(0,'{Path(DEVBAR_CLI).resolve().parent}'); from notify import notify_discord; notify_discord(sys.argv[1])" "$1 ($ts)" 2>/dev/null || true; }}
+
+BEFORE_HASH=$(git rev-parse --short HEAD)
 
 # Phase 1: Plan
 _notify "{q_tag}[{project}] 📋 CC Plan 開始 (model: {plan_model})"
@@ -1018,13 +1046,7 @@ _notify "{q_tag}[{project}] 🔨 CC Impl 開始 (model: {impl_model})"
 claude -p --model "{impl_model}" --resume "{session_id}" \
   --permission-mode bypassPermissions --output-format json < "{impl_path}"
 _notify "{q_tag}[{project}] ✅ CC Impl 完了"
-
-# コミットハッシュ取得
-HASH=$(git log --oneline -1 --format=%h)
-
-# devbar commit
-python3 "{DEVBAR_CLI}" commit --project "{project}" --issue {issue_args} --hash "$HASH" --session-id "{session_id}"
-'''
+{commit_verify_block}'''
         os.write(fd_script, script_content.encode())
         os.close(fd_script)
         os.chmod(script_path, 0o700)

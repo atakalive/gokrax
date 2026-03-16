@@ -450,9 +450,17 @@ def _check_squash(batch: list, base_commit: str, repo_path: str) -> list[str]:
 
 
 def notify_implementer(agent_id: str, message: str):
+    """実装担当にメッセージを送信する。
+
+    agent_id に紐付けられたスキルブロック（config.AGENT_SKILLS）がある場合、
+    message の先頭に自動付与する。
+    """
     if agent_id not in AGENTS:
         logger.error("Unknown agent: %s", agent_id)
         return
+    skill_block = config.load_skills(agent_id)
+    if skill_block:
+        message = f"{skill_block}\n\n{message}"
     send_to_agent(agent_id, message)
 
 
@@ -630,6 +638,8 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
     total_chars = 0
     truncated = False
 
+    skill_block = config.load_skills(reviewer)
+
     diff_commits: set[str] = set()
 
     for i in batch:
@@ -778,7 +788,11 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
 
     comment_line = f"\nMからの要望: {comment}" if comment else ""
     phase_note = "" if is_code else "\n⚠️ これは設計レビュー DESIGN_REVIEW です。コードやdiffはまだ存在しません。\n"
-    return f"[devbar] {project}: {phase}レビュー依頼{comment_line}{phase_note}\n\n{todo_header}\n\n{guidance}\n\n{body}{completion}{truncate_notice}"
+    final_message = f"[devbar] {project}: {phase}レビュー依頼{comment_line}{phase_note}\n\n{todo_header}\n\n{guidance}\n\n{body}{completion}{truncate_notice}"
+    # skill_block が非空なら先頭に挿入
+    if skill_block:
+        final_message = f"{skill_block}\n\n{final_message}"
+    return final_message
 
 
 # ---------------------------------------------------------------------------

@@ -293,7 +293,10 @@ class TestNotifyImplementer:
         import notify
         with patch("notify.send_to_agent") as mock_send:
             notify.notify_implementer("kaneko", "test message")
-        mock_send.assert_called_once_with("kaneko", "test message")
+        mock_send.assert_called_once()
+        args = mock_send.call_args[0]
+        assert args[0] == "kaneko"
+        assert "test message" in args[1]
 
     def test_unknown_agent_logs_error_no_send(self, caplog):
         """未知のキー → logger.error が呼ばれ、send_to_agent は呼ばれないこと。"""
@@ -1140,3 +1143,64 @@ class TestCheckTransitionNoDisputeQueueing:
         watchdog.check_transition("DESIGN_REVISE", data["batch"], data)
         pn = data.get("pending_notifications", {})
         assert not any(v.get("type") == "dispute" for v in pn.values())
+
+
+class TestSkillInjection:
+
+    def test_format_review_request_includes_skills(self, tmp_path, monkeypatch):
+        """format_review_request の返値が skill_block で始まること。"""
+        import config
+        import notify
+
+        # ダミースキルファイル作成
+        skill_file = tmp_path / "skill.md"
+        skill_file.write_text("Skill content here", encoding="utf-8")
+
+        monkeypatch.setattr(config, "SKILLS", {"test-skill": str(skill_file)})
+        monkeypatch.setattr(config, "AGENT_SKILLS", {"pascal": ["test-skill"]})
+
+        batch = [{
+            "issue": 1,
+            "title": "Test issue",
+            "design_reviews": {},
+            "code_reviews": {},
+        }]
+
+        with patch("notify.fetch_issue_body", return_value="issue body"):
+            result = notify.format_review_request(
+                "test-pj", "DESIGN_REVIEW", batch, "gitlab/repo",
+                reviewer="pascal",
+            )
+
+        assert result.startswith("<skills>\n")
+        assert "--- skill: test-skill ---" in result
+        assert "Skill content here" in result
+
+    def test_notify_implementer_includes_skills(self, tmp_path, monkeypatch):
+        """notify_implementer が send_to_agent に渡すメッセージの先頭にスキルブロックが付与されること。"""
+        import config
+        import notify
+
+        # ダミースキルファイル作成
+        skill_file = tmp_path / "impl-skill.md"
+        skill_file.write_text("Impl skill", encoding="utf-8")
+
+        monkeypatch.setattr(config, "SKILLS", {"impl-skill": str(skill_file)})
+        monkeypatch.setattr(config, "AGENT_SKILLS", {"kaneko": ["impl-skill"]})
+
+        sent_messages = []
+
+        def mock_send(agent_id, message, timeout=30):
+            sent_messages.append((agent_id, message))
+            return True
+
+        monkeypatch.setattr(notify, "send_to_agent", mock_send)
+
+        notify.notify_implementer("kaneko", "Original message")
+
+        assert len(sent_messages) == 1
+        _, msg = sent_messages[0]
+        assert msg.startswith("<skills>\n")
+        assert "--- skill: impl-skill ---" in msg
+        assert "Impl skill" in msg
+        assert msg.endswith("\n\nOriginal message")

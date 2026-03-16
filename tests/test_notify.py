@@ -627,7 +627,7 @@ class TestBaseCommitDiff:
             result = notify._fetch_commit_diff("def456", "/repo", base_commit="abc123")
         assert result == mock_result.stdout
         cmd = mock_run.call_args[0][0]
-        assert cmd == ["git", "-C", "/repo", "diff", "abc123..def456"]
+        assert cmd == ["git", "-C", "/repo", "diff", "-W", "abc123..def456"]
 
     def test_fetch_commit_diff_without_base_commit(self):
         """base_commit=None 時に git show が実行されること"""
@@ -639,7 +639,7 @@ class TestBaseCommitDiff:
             result = notify._fetch_commit_diff("abc123", "/repo", base_commit=None)
         assert result == mock_result.stdout
         cmd = mock_run.call_args[0][0]
-        assert cmd == ["git", "-C", "/repo", "show", "abc123"]
+        assert cmd == ["git", "-C", "/repo", "show", "-W", "abc123"]
 
     def test_notify_reviewers_passes_base_commit(self):
         """notify_reviewers が format_review_request に base_commit を渡すこと"""
@@ -1101,7 +1101,9 @@ class TestWriteReviewFile:
         monkeypatch.setattr(config, "REVIEW_FILE_DIR", tmp_path)
         monkeypatch.setattr(notify, "REVIEW_FILE_DIR", tmp_path)
         monkeypatch.setattr(config, "REVIEW_FILE_WRITE_RETRIES", 3)
+        monkeypatch.setattr(notify, "REVIEW_FILE_WRITE_RETRIES", 3)
         monkeypatch.setattr(config, "REVIEW_FILE_WRITE_RETRY_DELAY", 0.01)
+        monkeypatch.setattr(notify, "REVIEW_FILE_WRITE_RETRY_DELAY", 0.01)
         call_count = 0
         original_write_text = Path.write_text
         def flaky_write(self_path, *args, **kwargs):
@@ -1121,7 +1123,9 @@ class TestWriteReviewFile:
         monkeypatch.setattr(config, "REVIEW_FILE_DIR", tmp_path)
         monkeypatch.setattr(notify, "REVIEW_FILE_DIR", tmp_path)
         monkeypatch.setattr(config, "REVIEW_FILE_WRITE_RETRIES", 2)
+        monkeypatch.setattr(notify, "REVIEW_FILE_WRITE_RETRIES", 2)
         monkeypatch.setattr(config, "REVIEW_FILE_WRITE_RETRY_DELAY", 0.01)
+        monkeypatch.setattr(notify, "REVIEW_FILE_WRITE_RETRY_DELAY", 0.01)
         monkeypatch.setattr(Path, "write_text", lambda *a, **kw: (_ for _ in ()).throw(OSError("fail")))
         with caplog.at_level(logging.ERROR, logger="devbar.notify"):
             result = notify._write_review_file("proj", "pascal", "content")

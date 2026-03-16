@@ -153,6 +153,7 @@ def build_issue_plan_prompt(spec_config: dict, data: dict) -> str:
         suggestions_text += "\n"
 
     spec_name = spec_path.replace("/", "_").replace(".", "_") if spec_path else project
+    spec_filename = spec_path.split("/")[-1] if spec_path else "spec"
     gitlab = data.get("gitlab", f"atakalive/{project}")
 
     return f"""【指示】このタスクは中断せず最後まで一気に完了してください。途中で確認を求めないこと。
@@ -169,13 +170,13 @@ def build_issue_plan_prompt(spec_config: dict, data: dict) -> str:
 類似または重複するIssueは1つにまとめ、依存関係を整理せよ。
 
 ## 起票ルール
-- Issue タイトルには `[spec:{spec_name}:S-{{N}}]` プレフィックスを付ける（N は連番）。
+- Issue タイトルには `[spec:{spec_filename}:S-{{N}}]` プレフィックスを付ける（N は連番）。
 - `glab issue list -R {gitlab} -O json` で既存Issueを確認し、重複起票を避けろ。
 - Issueコメントは使用禁止。
 - 各Issueの本文に「期待する振る舞い」と「テスト」セクションを必ず含めろ。
 - 起票コマンド: `glab issue create -R {gitlab} --title "..." --description "..." --label "spec-mode"`
 - 実装上の注意事項は本文に ⚠️ 注記として記載せよ。
-- 各Issueに仕様書参照セクション（spec_refs）を明記せよ。
+- **[重要] 起票するIssueの冒頭に、仕様書のファイルパスを明記せよ。(例: `仕様書: {spec_path}`)**
 
 ## 完了報告フォーマット
 ```yaml

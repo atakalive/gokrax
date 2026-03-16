@@ -800,47 +800,48 @@ class TestDisputeNudgeReviewers:
 
     def test_nudge_dispute_pending_reviewer_gets_dispute_nudge(self):
         """dispute pending のレビュアーは dispute_nudge_reviewers に含まれること"""
-        # review_mode="min": members=["leibniz"], min_reviews=1
-        # leibniz が既にレビュー済み → count >= min_rev だが dispute が遷移をブロック
-        # pending = [] (leibniz は全 Issue をレビュー済み), dispute_awaiting = ["leibniz"]
-        reviews = {"leibniz": {"verdict": "P1", "at": "2025-01-01T00:00:00+09:00"}}
-        disputes = [{"reviewer": "leibniz", "status": "pending", "phase": "design",
+        # review_mode="min": members=["pascal"], min_reviews=1
+        # pascal が既にレビュー済み → count >= min_rev だが dispute が遷移をブロック
+        # pending = [] (pascal は全 Issue をレビュー済み), dispute_awaiting = ["pascal"]
+        reviews = {"pascal": {"verdict": "P1", "at": "2025-01-01T00:00:00+09:00"}}
+        disputes = [{"reviewer": "pascal", "status": "pending", "phase": "design",
                      "filed_verdict": "P1", "reason": "理由A"}]
         data = self._make_data(reviews=reviews, disputes=disputes)
         import watchdog
         action = watchdog.check_transition("DESIGN_REVIEW", data["batch"], data)
         assert action.dispute_nudge_reviewers is not None
-        assert "leibniz" in action.dispute_nudge_reviewers
-        # 通常未レビューはなし
+        assert "pascal" in action.dispute_nudge_reviewers
+        # pascal はレビュー済みなので通常催促なし
         assert action.nudge_reviewers is None
 
     def test_nudge_normal_reviewer_gets_normal_nudge(self):
         """dispute なしのレビュアーは nudge_reviewers に入り、dispute_nudge_reviewers は None"""
-        # review_mode="min": members=["leibniz"], min_reviews=1
-        # leibniz が未レビュー → pending = ["leibniz"], dispute_awaiting = []
+        # review_mode="min": members=["pascal"], min_reviews=1
+        # pascal が未レビュー → pending = ["pascal"], dispute_awaiting = []
         data = self._make_data()
         import watchdog
         action = watchdog.check_transition("DESIGN_REVIEW", data["batch"], data)
         assert action.nudge_reviewers is not None
-        assert "leibniz" in action.nudge_reviewers
+        assert "pascal" in action.nudge_reviewers
         assert action.dispute_nudge_reviewers is None
 
     def test_nudge_mixed_dispute_and_normal_different_reviewers(self):
         """dispute pending のレビュアーA と通常未レビューのレビュアーB が別々のリストに入ること"""
-        # review_mode="min": members=["leibniz"], min_reviews=1
-        # leibniz: 未レビュー (normal pending)
-        # pascal: dispute pending (pascal は min mode のメンバーではない)
-        disputes = [{"reviewer": "pascal", "status": "pending", "phase": "design",
+        # review_mode="lite": members=["basho", "pascal"], min_reviews=2
+        # pascal: 未レビュー (normal pending)
+        # basho: レビュー済み + dispute pending
+        reviews = {"basho": {"verdict": "P0", "at": "2025-01-01T00:00:00+09:00"}}
+        disputes = [{"reviewer": "basho", "status": "pending", "phase": "design",
                      "filed_verdict": "P0", "reason": "理由B"}]
-        data = self._make_data(disputes=disputes)
+        data = self._make_data(review_mode="lite", reviews=reviews, disputes=disputes)
         import watchdog
         action = watchdog.check_transition("DESIGN_REVIEW", data["batch"], data)
         assert action.nudge_reviewers is not None
-        assert "leibniz" in action.nudge_reviewers
-        assert "pascal" not in (action.nudge_reviewers or [])
+        assert "pascal" in action.nudge_reviewers
+        assert "basho" not in (action.nudge_reviewers or [])
         assert action.dispute_nudge_reviewers is not None
-        assert "pascal" in action.dispute_nudge_reviewers
-        assert "leibniz" not in (action.dispute_nudge_reviewers or [])
+        assert "basho" in action.dispute_nudge_reviewers
+        assert "pascal" not in (action.dispute_nudge_reviewers or [])
 
     def test_dispute_nudge_excluded_reviewer_skipped(self):
         """excluded_reviewers に含まれる dispute pending レビュアーは dispute_nudge_reviewers に入らない"""
@@ -859,15 +860,16 @@ class TestDisputeNudgeReviewers:
             dt_mod.datetime.now(dt_mod.timezone.utc)
             - dt_mod.timedelta(seconds=NUDGE_GRACE_SEC + 60)
         ).isoformat()
-        # Issue 1: leibniz が P1 を提出、dispute pending
+        # review_mode="min": members=["pascal"], min_reviews=1
+        # Issue 1: pascal が P1 を提出、dispute pending
         issue1 = {
             "issue": 1,
-            "design_reviews": {"leibniz": {"verdict": "P1", "at": "2025-01-01T00:00:00+09:00"}},
+            "design_reviews": {"pascal": {"verdict": "P1", "at": "2025-01-01T00:00:00+09:00"}},
             "code_reviews": {},
-            "disputes": [{"reviewer": "leibniz", "status": "pending", "phase": "design",
+            "disputes": [{"reviewer": "pascal", "status": "pending", "phase": "design",
                           "filed_verdict": "P1", "reason": "理由C"}],
         }
-        # Issue 2: leibniz は未レビュー
+        # Issue 2: pascal は未レビュー
         issue2 = {
             "issue": 2,
             "design_reviews": {},
@@ -884,9 +886,9 @@ class TestDisputeNudgeReviewers:
         import watchdog
         action = watchdog.check_transition("DESIGN_REVIEW", data["batch"], data)
         assert action.nudge_reviewers is not None
-        assert "leibniz" in action.nudge_reviewers
+        assert "pascal" in action.nudge_reviewers
         assert action.dispute_nudge_reviewers is not None
-        assert "leibniz" in action.dispute_nudge_reviewers
+        assert "pascal" in action.dispute_nudge_reviewers
 
 
 # ---------------------------------------------------------------------------

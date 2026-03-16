@@ -2,7 +2,7 @@
 
 Usage:
     from prompts import render
-    msg = render("spec_review", "initial", project="Foo", spec_path="docs/spec.md", ...)
+    msg = render("spec.review", "initial", project="Foo", spec_path="docs/spec.md", ...)
 """
 
 import importlib

@@ -259,7 +259,6 @@ class TestBuildReviseCompletionUpdates:
             "spec_path": "/repo/docs/foo-spec-rev2.md",
             "current_rev": "2",
             "rev_index": 2,
-            "rev_index": 1,
             "review_history": [],
             "current_reviews": {
                 "entries": {
@@ -283,7 +282,6 @@ class TestBuildReviseCompletionUpdates:
         assert updates["last_commit"] == "new456"
         assert updates["current_rev"] == "3"
         assert updates["rev_index"] == 3
-        assert updates["rev_index"] == 2
         assert len(updates["review_history"]) == 1
         assert updates["current_reviews"] == {"entries": {}}
         assert updates["_revise_retry_at"] is None

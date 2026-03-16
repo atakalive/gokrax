@@ -64,7 +64,8 @@ def _make_spec_config(**overrides):
     return cfg
 
 
-_REVIEWERS = ("pascal", "leibniz", "dijkstra")
+from config import REVIEW_MODES as _REVIEW_MODES
+_REVIEWERS = tuple(_REVIEW_MODES["full"]["members"])
 
 
 def _pending_review_requests():
@@ -217,8 +218,8 @@ class TestNormalFlowE2E:
         action = check_transition_spec("SPEC_REVIEW", sc, _now(), data)
         assert action.next_state is None  # まだ遷移しない
         assert action.send_to is not None
-        assert "pascal" in action.send_to
-        assert "leibniz" in action.send_to
+        for r in _REVIEWERS:
+            assert r in action.send_to, f"{r} should be in send_to"
         sc = _apply_updates_to_sc(sc, action.pipeline_updates)
 
         # --- tick 2: SPEC_REVIEW — 全員 APPROVE ---
@@ -313,7 +314,7 @@ class TestReviewCycleE2E:
         data = _make_pipeline(state="SPEC_REVIEW", spec_mode=True, spec_config=sc)
 
         # 全員 received: pascal=P0, leibniz=APPROVE
-        _set_all_received(sc, {"pascal": "P0", "leibniz": "APPROVE", "dijkstra": "APPROVE"})
+        _set_all_received(sc, {_REVIEWERS[0]: "P0", **{r: "APPROVE" for r in _REVIEWERS[1:]}})
         action = check_transition_spec("SPEC_REVIEW", sc, _now(), data)
         assert action.next_state == "SPEC_REVISE"
         sc = _apply_updates_to_sc(sc, action.pipeline_updates)
@@ -326,10 +327,9 @@ class TestReviewCycleE2E:
         pu = action.pipeline_updates
         assert pu["current_rev"] == "2"
         assert pu["rev_index"] == 2
-        assert pu["revise_count"] == 1
 
         # 再 SPEC_REVIEW — 全員 APPROVE
-        _set_all_received(sc, {"pascal": "APPROVE", "leibniz": "APPROVE", "dijkstra": "APPROVE"})
+        _set_all_received(sc, {r: "APPROVE" for r in _REVIEWERS})
         action = check_transition_spec("SPEC_REVIEW", sc, _now(), data)
         assert action.next_state == "SPEC_APPROVED"
 
@@ -347,7 +347,7 @@ class TestReviewCycleE2E:
             expected_next_rev = str(cycle + 2)
 
             # SPEC_REVIEW — P0
-            _set_all_received(sc, {"pascal": "P0", "leibniz": "APPROVE", "dijkstra": "APPROVE"})
+            _set_all_received(sc, {_REVIEWERS[0]: "P0", **{r: "APPROVE" for r in _REVIEWERS[1:]}})
             action = check_transition_spec("SPEC_REVIEW", sc, _now(), data)
             assert action.next_state == "SPEC_REVISE"
             sc = _apply_updates_to_sc(sc, action.pipeline_updates)
@@ -361,7 +361,6 @@ class TestReviewCycleE2E:
             pu = action.pipeline_updates
             assert pu["current_rev"] == expected_next_rev
             assert pu["rev_index"] == cycle + 2
-            assert pu["revise_count"] == cycle + 1
 
             # review_history が蓄積
             assert len(sc.get("review_history", [])) == cycle + 1
@@ -467,12 +466,12 @@ class TestAbnormalFlowE2E:
             spec_path="docs/test-spec.md",
             spec_implementer="kaneko",
             review_requests=_pending_review_requests(),
-            revise_count=config.MAX_SPEC_REVISE_CYCLES,
+            rev_index=config.MAX_SPEC_REVISE_CYCLES,
             max_revise_cycles=config.MAX_SPEC_REVISE_CYCLES,
         )
         data = _make_pipeline(state="SPEC_REVIEW", spec_mode=True, spec_config=sc)
 
-        _set_all_received(sc, {"pascal": "P1", "leibniz": "APPROVE", "dijkstra": "APPROVE"})
+        _set_all_received(sc, {_REVIEWERS[0]: "P1", **{r: "APPROVE" for r in _REVIEWERS[1:]}})
         result = should_continue_review(sc, "full")
         assert result == "stalled"
 
@@ -585,45 +584,44 @@ class TestAbnormalFlowE2E:
         assert action2.send_to is None
 
     def test_full_mode_one_timeout_approved(self):
-        """fullモード 4人中1人 timeout → approved（min_valid=3, #65 C3）"""
+        """standardモード 3人中1人 timeout → approved（min_valid=3 を3人 received で満たす）"""
+        members = list(_REVIEW_MODES["standard"]["members"])
         sc = _make_spec_config(
             spec_path="docs/test-spec.md",
             spec_implementer="kaneko",
             review_requests={
                 r: {"status": "pending", "sent_at": None, "timeout_at": None,
                     "last_nudge_at": None, "response": None}
-                for r in ("pascal", "leibniz", "dijkstra", "euler")
+                for r in members + ["extra_reviewer"]
             },
             current_reviews={
                 "reviewed_rev": "1",
                 "entries": {
-                    "pascal": _received_entry("APPROVE"),
-                    "leibniz": _received_entry("APPROVE"),
-                    "dijkstra": _received_entry("APPROVE"),
-                    "euler": {"verdict": None, "items": [], "raw_text": None,
+                    **{r: _received_entry("APPROVE") for r in members},
+                    "extra_reviewer": {"verdict": None, "items": [], "raw_text": None,
                               "parse_success": False, "status": "timeout"},
                 },
             },
         )
-        result = should_continue_review(sc, "full")
+        result = should_continue_review(sc, "standard")
         assert result == "approved"
 
     def test_lite_mode_one_timeout_approved(self):
-        """liteモード 3人中1人 timeout → approved（min_valid=2, #65 C3）"""
+        """liteモード 2人中1人 timeout + extra → approved（min_valid=2, #65 C3）"""
+        lite_members = list(_REVIEW_MODES["lite"]["members"])
         sc = _make_spec_config(
             spec_path="docs/test-spec.md",
             spec_implementer="kaneko",
             review_requests={
                 r: {"status": "pending", "sent_at": None, "timeout_at": None,
                     "last_nudge_at": None, "response": None}
-                for r in ("leibniz", "pascal", "dijkstra")
+                for r in lite_members + ["extra_reviewer"]
             },
             current_reviews={
                 "reviewed_rev": "1",
                 "entries": {
-                    "leibniz": _received_entry("APPROVE"),
-                    "pascal": _received_entry("APPROVE"),
-                    "dijkstra": {"verdict": None, "items": [], "raw_text": None,
+                    **{r: _received_entry("APPROVE") for r in lite_members},
+                    "extra_reviewer": {"verdict": None, "items": [], "raw_text": None,
                                  "parse_success": False, "status": "timeout"},
                 },
             },
@@ -631,8 +629,9 @@ class TestAbnormalFlowE2E:
         result = should_continue_review(sc, "lite")
         assert result == "approved"
 
-    def test_full_mode_two_timeout_failed(self):
-        """fullモード 3人中2人 timeout → failed（#65 C3 境界）"""
+    def test_full_mode_insufficient_received_failed(self):
+        """fullモード received < min_valid → failed"""
+        # full mode has min_valid=4; provide only 1 received + 3 timeout
         sc = _make_spec_config(
             spec_path="docs/test-spec.md",
             spec_implementer="kaneko",
@@ -640,11 +639,9 @@ class TestAbnormalFlowE2E:
             current_reviews={
                 "reviewed_rev": "1",
                 "entries": {
-                    "pascal": _received_entry("APPROVE"),
-                    "leibniz": {"verdict": None, "items": [], "raw_text": None,
-                                "parse_success": False, "status": "timeout"},
-                    "dijkstra": {"verdict": None, "items": [], "raw_text": None,
-                                 "parse_success": False, "status": "timeout"},
+                    _REVIEWERS[0]: _received_entry("APPROVE"),
+                    **{r: {"verdict": None, "items": [], "raw_text": None,
+                           "parse_success": False, "status": "timeout"} for r in _REVIEWERS[1:]},
                 },
             },
         )
@@ -736,7 +733,7 @@ class TestCLIOptionCombinations:
         defaults = dict(
             project="test-pj", spec="docs/spec.md", implementer="kaneko",
             review_only=False, no_queue=False, skip_review=False,
-            max_cycles=None, review_mode=None, model=None, auto_continue=False,
+            max_cycles=None, review_mode=None, model=None, auto_continue=False, auto_qrun=False,
         )
         defaults.update(overrides)
         return _args(**defaults)
@@ -1149,9 +1146,11 @@ class TestSpecDoneAutoTransition:
         ]
         assert len(watchdog_history) == 1, "add_history は SPEC_DONE→IDLE で1回だけ呼ばれること"
 
-    def test_apply_spec_action_spec_done_calls_check_queue(self, tmp_pipelines):
-        """SPEC_DONE → IDLE 遷移後に _check_queue() が無条件で呼ばれる。"""
-        from pipeline_io import get_path
+    def test_apply_spec_action_spec_done_transitions_to_idle(self, tmp_pipelines):
+        """SPEC_DONE → IDLE 遷移で spec_mode が False になること。
+        _check_queue は process() レベルで呼ばれるため、_apply_spec_action 単体では呼ばれない。
+        """
+        from pipeline_io import get_path, load_pipeline
 
         sc = _make_spec_config(spec_path="docs/test-spec.md", spec_implementer="kaneko")
         pj_data = _make_pipeline(state="SPEC_DONE", spec_mode=True, spec_config=sc)
@@ -1159,7 +1158,9 @@ class TestSpecDoneAutoTransition:
         write_pipeline(path, pj_data)
 
         action = SpecTransitionAction(next_state="IDLE", expected_state="SPEC_DONE")
-        with patch("watchdog._check_queue") as mock_check_queue:
+        with patch("watchdog._check_queue"):
             _apply_spec_action(path, action, _now(), pj_data)
 
-        mock_check_queue.assert_called_once()
+        result = load_pipeline(path)
+        assert result["state"] == "IDLE"
+        assert result["spec_mode"] is False

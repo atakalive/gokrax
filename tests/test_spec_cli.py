@@ -87,7 +87,7 @@ class TestCmdSpecStart:
         args = _args(
             project="test-pj", spec="docs/spec.md", implementer="kaneko",
             review_only=False, no_queue=False, skip_review=False,
-            max_cycles=None, review_mode=None, model=None, auto_continue=False,
+            max_cycles=None, review_mode=None, model=None, auto_continue=False, auto_qrun=False,
         )
         with patch("devbar._start_loop"):
             cmd_spec_start(args)
@@ -118,7 +118,7 @@ class TestCmdSpecStart:
         args = _args(
             project="test-pj", spec="docs/spec.md", implementer="kaneko",
             review_only=False, no_queue=False, skip_review=True,
-            max_cycles=None, review_mode=None, model=None, auto_continue=False,
+            max_cycles=None, review_mode=None, model=None, auto_continue=False, auto_qrun=False,
         )
         with patch("devbar._start_loop"):
             cmd_spec_start(args)
@@ -137,7 +137,7 @@ class TestCmdSpecStart:
         args = _args(
             project="test-pj", spec="docs/spec.md", implementer="kaneko",
             review_only=True, no_queue=False, skip_review=False,
-            max_cycles=None, review_mode=None, model=None, auto_continue=True,
+            max_cycles=None, review_mode=None, model=None, auto_continue=True, auto_qrun=False,
         )
         with patch("devbar._start_loop"):
             cmd_spec_start(args)
@@ -157,7 +157,7 @@ class TestCmdSpecStart:
         args = _args(
             project="test-pj", spec="docs/spec.md", implementer="kaneko",
             review_only=True, no_queue=False, skip_review=True,
-            max_cycles=None, review_mode=None, model=None, auto_continue=False,
+            max_cycles=None, review_mode=None, model=None, auto_continue=False, auto_qrun=False,
         )
         with pytest.raises(SystemExit, match="mutually exclusive"):
             cmd_spec_start(args)
@@ -171,7 +171,7 @@ class TestCmdSpecStart:
         args = _args(
             project="test-pj", spec="docs/spec.md", implementer="kaneko",
             review_only=False, no_queue=False, skip_review=False,
-            max_cycles=None, review_mode=None, model=None, auto_continue=False,
+            max_cycles=None, review_mode=None, model=None, auto_continue=False, auto_qrun=False,
         )
         with pytest.raises(SystemExit, match="expected IDLE"):
             cmd_spec_start(args)
@@ -185,7 +185,7 @@ class TestCmdSpecStart:
         args = _args(
             project="test-pj", spec="docs/spec.md", implementer="kaneko",
             review_only=False, no_queue=False, skip_review=False,
-            max_cycles=None, review_mode=None, model=None, auto_continue=False,
+            max_cycles=None, review_mode=None, model=None, auto_continue=False, auto_qrun=False,
         )
         with pytest.raises(SystemExit, match="already active"):
             cmd_spec_start(args)
@@ -199,7 +199,7 @@ class TestCmdSpecStart:
         args = _args(
             project="test-pj", spec="docs/nonexistent.md", implementer="kaneko",
             review_only=False, no_queue=False, skip_review=False,
-            max_cycles=None, review_mode=None, model=None, auto_continue=False,
+            max_cycles=None, review_mode=None, model=None, auto_continue=False, auto_qrun=False,
         )
         with pytest.raises(SystemExit, match="Spec file not found"):
             cmd_spec_start(args)
@@ -213,7 +213,7 @@ class TestCmdSpecStart:
         args = _args(
             project="test-pj", spec="docs/spec.md", implementer="kaneko",
             review_only=False, no_queue=False, skip_review=False,
-            max_cycles=0, review_mode=None, model=None, auto_continue=False,
+            max_cycles=0, review_mode=None, model=None, auto_continue=False, auto_qrun=False,
         )
         with patch("devbar._start_loop"):
             cmd_spec_start(args)
@@ -567,7 +567,7 @@ class TestCmdSpecStatus:
             spec_path="docs/spec.md",
             spec_implementer="kaneko",
             current_rev="3",
-            revise_count=2,
+            rev_index=2,
             max_revise_cycles=5,
             retry_counts={"SPEC_REVIEW": 1},
             review_requests={
@@ -586,7 +586,7 @@ class TestCmdSpecStatus:
         captured = capsys.readouterr()
         assert "SPEC_REVIEW" in captured.out
         assert "rev3" in captured.out
-        assert "cycle 2/5" in captured.out
+        assert "cycle rev2/5" in captured.out
         assert "docs/spec.md" in captured.out
         assert "kaneko" in captured.out
         assert "pascal" in captured.out

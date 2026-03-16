@@ -1548,7 +1548,8 @@ def _check_spec_review(
         effective_sc["current_reviews"] = effective_cr
 
         review_mode = data.get("review_mode", "standard")
-        result = should_continue_review(effective_sc, review_mode)
+        min_reviews_override = data.get("min_reviews_override")
+        result = should_continue_review(effective_sc, review_mode, min_reviews_override=min_reviews_override)
 
         # merged severity counts を entries から集計
         sev_counts = {"critical": 0, "major": 0, "minor": 0, "suggestion": 0}

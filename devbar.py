@@ -1643,13 +1643,35 @@ def cmd_spec_start(args):
         data["spec_config"] = sc
 
     update_pipeline(path, do_start)
+    if not skip_review:
+        from watchdog import _reset_reviewers
+        excluded = _reset_reviewers(review_mode, implementer=args.implementer or "")
+        # excluded から純粋なレビュアーのみ抽出（implementer を除外計算に含めない）
+        from watchdog import REVIEW_MODES
+        mode_config = REVIEW_MODES.get(review_mode, REVIEW_MODES["standard"])
+        excluded_reviewers_only = [r for r in excluded if r in mode_config["members"]]
+        if excluded_reviewers_only:
+            def _save_excluded(data):
+                data["excluded_reviewers"] = excluded
+                # spec_config.review_requests から除外レビュアーを削除
+                sc = data.get("spec_config", {})
+                rr = sc.get("review_requests", {})
+                for r in excluded_reviewers_only:
+                    rr.pop(r, None)
+                # min_reviews_override を計算（レビュアーのみで計算）
+                effective_count = len(mode_config["members"]) - len(excluded_reviewers_only)
+                min_reviews = mode_config["min_reviews"]
+                if effective_count < min_reviews:
+                    data["min_reviews_override"] = max(1, effective_count)
+            update_pipeline(path, _save_excluded)
     _start_loop()
 
+    # Discord 通知（除外後の正確な reviewer_count を使用）
     target = "SPEC_APPROVED" if skip_review else "SPEC_REVIEW"
     if not skip_review:
-        reviewer_count = len(review_requests)
+        effective_reviewer_count = len(review_requests) - len(excluded_reviewers_only) if excluded_reviewers_only else len(review_requests)
         try:
-            notify_discord(spec_notify_review_start(args.project, str(effective_rev), reviewer_count))
+            notify_discord(spec_notify_review_start(args.project, str(effective_rev), effective_reviewer_count))
         except Exception:
             logger.warning("Failed to send review_start notification")
     print(f"{args.project}: spec mode started (spec={args.spec}) → {target}")

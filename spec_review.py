@@ -179,6 +179,7 @@ def validate_received_entry(entry: dict) -> bool:
 def should_continue_review(
     spec_config: dict,
     review_mode: str,
+    min_reviews_override: int | None = None,
 ) -> str:
     """SPEC_REVIEW完了後の判定。
 
@@ -207,7 +208,7 @@ def should_continue_review(
 
     if review_mode not in MIN_VALID_REVIEWS_BY_MODE:
         raise ValueError(f"Unknown review_mode: {review_mode!r}")
-    min_valid = MIN_VALID_REVIEWS_BY_MODE[review_mode]
+    min_valid = min_reviews_override if min_reviews_override is not None else MIN_VALID_REVIEWS_BY_MODE[review_mode]
 
     # 1. 全員タイムアウト（received=0, parsed_fail=0）
     if len(received) == 0 and len(parsed_fail) == 0:

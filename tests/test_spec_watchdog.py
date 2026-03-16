@@ -18,13 +18,11 @@ from watchdog import (
     _check_spec_review,
     _check_spec_revise,
     _apply_spec_action,
-    _build_spec_review_prompt_initial,
-    _build_spec_review_prompt_revision,
-    _build_spec_review_nudge_msg,
-    _build_spec_revise_nudge_msg,
     _ensure_pipelines_dir,
     _cleanup_expired_spec_files,
 )
+from messages import render
+from config import DEVBAR_CLI
 
 JST = timezone(timedelta(hours=9))
 
@@ -300,8 +298,9 @@ class TestApplySpecAction:
 
 class TestPromptGeneration:
     def test_initial_prompt(self):
-        prompt = _build_spec_review_prompt_initial(
-            "devbar", "docs/spec.md", "1", {"pipelines_dir": "/tmp"},
+        prompt = render("spec.review", "initial",
+            project="devbar", spec_path="docs/spec.md",
+            current_rev="1", DEVBAR_CLI=DEVBAR_CLI,
         )
         assert "やりすぎレビュー" in prompt
         assert "devbar" in prompt
@@ -314,8 +313,14 @@ class TestPromptGeneration:
             "last_changes": {"added_lines": 50, "removed_lines": 10,
                              "changelog_summary": "Fixed stuff"},
         }
-        prompt = _build_spec_review_prompt_revision(
-            "devbar", "docs/spec.md", "2", sc, {},
+        last_changes = sc.get("last_changes") or {}
+        prompt = render("spec.review", "revision",
+            project="devbar", spec_path="docs/spec.md",
+            current_rev="2", DEVBAR_CLI=DEVBAR_CLI,
+            changelog=last_changes.get("changelog_summary", "変更履歴なし"),
+            added=str(last_changes.get("added_lines", "?")),
+            removed=str(last_changes.get("removed_lines", "?")),
+            last_commit=sc.get("last_commit") or "unknown",
         )
         assert "改訂版" in prompt
         assert "abc1234" in prompt
@@ -736,16 +741,21 @@ class TestSpecNudge:
     # --- メッセージ生成テスト ---
 
     def test_build_spec_review_nudge_msg_contains_command(self):
-        """_build_spec_review_nudge_msg に spec review-submit コマンドが含まれる。"""
-        msg = _build_spec_review_nudge_msg("myproj", "2", "docs/spec.md", "pascal")
+        """spec review nudge メッセージに spec review-submit コマンドが含まれる。"""
+        msg = render("spec.review", "nudge",
+            project="myproj", current_rev="2", spec_path="docs/spec.md",
+            reviewer="pascal", DEVBAR_CLI=DEVBAR_CLI,
+        )
         assert "spec review-submit" in msg
         assert "myproj" in msg
         assert "rev2" in msg
         assert "pascal" in msg
 
     def test_build_spec_revise_nudge_msg_contains_command(self):
-        """_build_spec_revise_nudge_msg に spec revise-submit コマンドが含まれる。"""
-        msg = _build_spec_revise_nudge_msg("myproj", "3")
+        """spec revise nudge メッセージに spec revise-submit コマンドが含まれる。"""
+        msg = render("spec.revise", "nudge",
+            project="myproj", current_rev="3", DEVBAR_CLI=DEVBAR_CLI,
+        )
         assert "spec revise-submit" in msg
         assert "myproj" in msg
         assert "rev3" in msg

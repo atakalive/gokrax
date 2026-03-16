@@ -811,7 +811,8 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
 
 def spec_notify_review_start(project: str, rev: str | int, reviewer_count: int) -> str:
     """→ SPEC_REVIEW"""
-    return f"[Spec] {project}: rev{rev} レビュー開始 ({reviewer_count}人)"
+    from messages import render
+    return render("spec.review", "notify_start", project=project, rev=rev, reviewer_count=reviewer_count)
 
 
 def spec_notify_review_complete(
@@ -819,77 +820,89 @@ def spec_notify_review_complete(
     critical: int, major: int, minor: int, suggestion: int,
 ) -> str:
     """→ SPEC_REVISE"""
-    return f"[Spec] {project}: rev{rev} レビュー完了 — C:{critical} M:{major} m:{minor} s:{suggestion}"
+    from messages import render
+    return render("spec.review", "notify_complete", project=project, rev=rev, critical=critical, major=major, minor=minor, suggestion=suggestion)
 
 
 def spec_notify_approved(project: str, rev: str | int) -> str:
     """→ SPEC_APPROVED（通常、オーナー確認待ち）"""
-    return f"[Spec] {project}: spec承認 (rev{rev})。`devbar spec continue` でIssue分割へ"
+    from messages import render
+    return render("spec.approved", "notify_approved", project=project, rev=rev)
 
 
 def spec_notify_approved_auto(project: str, rev: str | int) -> str:
     """→ SPEC_APPROVED（auto_continue: 自動進行）"""
-    return f"[Spec] {project}: spec承認 (rev{rev}) → Issue分割へ自動進行"
+    from messages import render
+    return render("spec.approved", "notify_approved_auto", project=project, rev=rev)
 
 
 def spec_notify_approved_forced(project: str, rev: str | int, remaining_p1_plus: int) -> str:
     """→ SPEC_APPROVED（強制承認 via `spec approve --force`）"""
-    return f"[Spec] ⚠️ {project}: 強制承認 (P1以上 {remaining_p1_plus}件残存)"
-
+    from messages import render
+    return render("spec.approved", "notify_approved_forced", project=project, rev=rev, remaining_p1_plus=remaining_p1_plus)
 
 
 def spec_notify_stalled(project: str, rev: str | int, remaining_p1_plus: int) -> str:
     """→ SPEC_STALLED"""
-    return f"[Spec] ⏸️ {project}: MAX_CYCLES到達、P1以上 {remaining_p1_plus}件残存"
+    from messages import render
+    return render("spec.stalled", "notify_stalled", project=project, rev=rev, remaining_p1_plus=remaining_p1_plus)
 
 
 def spec_notify_review_failed(project: str, rev: str | int) -> str:
     """→ SPEC_REVIEW_FAILED"""
-    return f"[Spec] ❌ {project}: 有効レビュー不足"
+    from messages import render
+    return render("spec.review", "notify_failed", project=project, rev=rev)
 
 
 def spec_notify_paused(project: str, reason: str) -> str:
     """→ SPEC_PAUSED"""
-    return f"[Spec] ⏸️ {project}: パイプライン停止 — {reason}"
+    from messages import render
+    return render("spec.paused", "notify_paused", project=project, reason=reason)
 
 
 def spec_notify_revise_done(project: str, rev: str | int, commit: str) -> str:
     """REVISE完了（commit hashあり）。commit は先頭7文字に短縮（§11補足）。"""
-    return f"[Spec] {project}: rev{rev} 改訂完了 ({commit[:7]})"
+    from messages import render
+    return render("spec.revise", "notify_done", project=project, rev=rev, commit=commit)
 
 
 def spec_notify_revise_commit_failed(project: str, rev: str | int) -> str:
     """REVISE完了（git commit失敗）"""
-    return f"[Spec] ⚠️ {project}: rev{rev} git commit失敗"
+    from messages import render
+    return render("spec.revise", "notify_commit_failed", project=project, rev=rev)
 
 
 def spec_notify_revise_no_changes(project: str, rev: str | int) -> str:
     """REVISE完了（差分0）→ SPEC_PAUSED"""
-    return f"[Spec] ⚠️ {project}: rev{rev} 変更なし（改訂が空）"
-
+    from messages import render
+    return render("spec.revise", "notify_no_changes", project=project, rev=rev)
 
 
 def spec_notify_issue_plan_done(project: str, issue_count: int) -> str:
     """→ ISSUE_PLAN完了"""
-    return f"[Spec] {project}: {issue_count}件 Issue起票完了"
+    from messages import render
+    return render("spec.issue_plan", "notify_done", project=project, issue_count=issue_count)
 
 
 def spec_notify_queue_plan_done(project: str, batch_count: int) -> str:
     """→ QUEUE_PLAN完了"""
-    return f"[Spec] {project}: {batch_count}バッチ キュー生成完了"
+    from messages import render
+    return render("spec.queue_plan", "notify_done", project=project, batch_count=batch_count)
 
 
 def spec_notify_done(project: str) -> str:
     """→ SPEC_DONE"""
-    return f"[Spec] ✅ {project}: spec mode完了"
+    from messages import render
+    return render("spec.done", "notify_done", project=project)
 
 
 def spec_notify_failure(project: str, kind: str, detail: str = "") -> str:
     """失敗系通知（汎用）。kind: "YAMLパース失敗", "送信失敗", "git push失敗", "Issue起票失敗" 等。"""
-    suffix = f" — {detail}" if detail else ""
-    return f"[Spec] ❌ {project}: {kind}{suffix}"
+    from messages import render
+    return render("spec.paused", "notify_failure", project=project, kind=kind, detail=detail)
 
 
 def spec_notify_self_review_failed(project: str, failed_count: int) -> str:
     """セルフレビュー差し戻し通知。"""
-    return f"🔁 [{project}] セルフレビュー: {failed_count}件の問題検出。implementer に差し戻し"
+    from messages import render
+    return render("spec.revise", "notify_self_review_failed", project=project, failed_count=failed_count)

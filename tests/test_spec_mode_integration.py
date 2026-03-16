@@ -18,8 +18,9 @@ from watchdog import (
     _check_spec_review,
     _check_spec_revise,
     _apply_spec_action,
-    _build_spec_review_prompt_revision,
 )
+from messages import render
+from config import DEVBAR_CLI
 from pipeline_io import default_spec_config
 from spec_review import (
     should_continue_review,
@@ -922,8 +923,14 @@ class TestLastChangesVerification:
                           "changelog_summary": "Fixed stuff"},
             pipelines_dir="/tmp",
         )
-        prompt = _build_spec_review_prompt_revision(
-            "devbar", "docs/spec.md", "2", sc, {},
+        last_changes = sc.get("last_changes") or {}
+        prompt = render("spec.review", "revision",
+            project="devbar", spec_path="docs/spec.md",
+            current_rev="2", DEVBAR_CLI=DEVBAR_CLI,
+            changelog=last_changes.get("changelog_summary", "変更履歴なし"),
+            added=str(last_changes.get("added_lines", "?")),
+            removed=str(last_changes.get("removed_lines", "?")),
+            last_commit=sc.get("last_commit") or "unknown",
         )
         assert "abc1234" in prompt
         assert "+50" in prompt

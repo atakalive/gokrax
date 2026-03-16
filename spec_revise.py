@@ -8,7 +8,7 @@ from pathlib import Path
 
 from config import (
     GLAB_BIN, SPEC_REVIEW_TIMEOUT_SEC, SPEC_REVISE_SELF_REVIEW_PASSES,
-    PIPELINES_DIR,
+    PIPELINES_DIR, DEVBAR_CLI,
 )
 from spec_review import (
     _reset_review_requests,
@@ -99,6 +99,7 @@ def build_revise_prompt(
     data: dict,
 ) -> str:
     """改訂依頼プロンプトを生成する（§6.1）。"""
+    from messages import render
     project = data.get("project", "")
     spec_path = spec_config.get("spec_path", "")
     if not spec_path:
@@ -107,50 +108,11 @@ def build_revise_prompt(
     rev_index = spec_config.get("rev_index", 1)
     next_rev = rev_index + 1
     new_spec_path = make_rev_path(spec_path, next_rev)
-    return f"""【指示】このタスクは中断せず最後まで一気に完了してください。途中で確認を求めないこと。
-
-以下の仕様書を改訂してください。
-
-プロジェクト: {project}
-仕様書（現行）: {spec_path} (rev{current_rev})
-改訂先ファイル: {new_spec_path} (rev{next_rev})
-
-## 改訂手順
-1. 現行仕様書 `{spec_path}` をコピーして `{new_spec_path}` を作成
-2. `{new_spec_path}` を編集（改訂内容を反映）
-3. `{new_spec_path}` を git add + commit
-4. 完了報告を投入
-
-## レビュー統合レポート
-{merged_report_md}
-
-## 改訂ルール
-- 変更履歴テーブルに1行追加
-- `[v{next_rev}] 指摘元ID: 説明` 形式で全件列挙
-- 擬似コード中 `# [v{next_rev}] Pascal C-1: 説明` で変更理由記載
-- deferred（保留）する指摘には理由を明記
-
-## 完了報告フォーマット
-```yaml
-status: done
-new_rev: "{next_rev}"
-commit: "<7文字以上のgit commit hash>"
-changes:
-  added_lines: <number>
-  removed_lines: <number>
-  reflected_items: ["pascal:C-1", ...]
-  deferred_items: ["dijkstra:m-4", ...]
-  deferred_reasons:
-    "dijkstra:m-4": "理由"
-```
-
-## 提出方法
-完了報告を YAML ファイルに保存し、以下のコマンドで投入してください:
-```
-/home/ataka/.openclaw/shared/bin/devbar spec revise-submit --pj {project} --file <YAMLファイルパス>
-```
-
-【重要】改訂・コミット・完了報告の提出まで、中断せず一気に完了すること。"""
+    return render("spec.revise", "revise",
+        project=project, spec_path=spec_path, current_rev=current_rev,
+        DEVBAR_CLI=DEVBAR_CLI, next_rev=next_rev, new_spec_path=new_spec_path,
+        merged_report_md=merged_report_md,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -170,6 +132,7 @@ def build_self_review_prompt(
         checklist: チェックリスト定義。None の場合は DEFAULT_SELF_REVIEW_CHECKLIST を使用。
                    spec_config に self_review_checklist キーがあればそちらを優先。
     """
+    from messages import render
     project = data.get("project", "")
     spec_path = spec_config.get("spec_path", "")
     new_rev = spec_config.get("current_rev", "1")
@@ -183,7 +146,6 @@ def build_self_review_prompt(
         checklist_lines.append(f'- **{item["id"]}**: {item["question"]}')
     checklist_text = "\n".join(checklist_lines)
 
-    # YAML 回答フォーマット例
     example_items = []
     for item in checklist:
         example_items.append(
@@ -193,33 +155,11 @@ def build_self_review_prompt(
         )
     example_yaml = "checklist:\n" + "\n".join(example_items)
 
-    return f"""【指示】このタスクは中断せず最後まで一気に完了してください。途中で確認を求めないこと。
-
-改訂された仕様書のセルフレビューを依頼します。
-
-プロジェクト: {project}
-仕様書: {spec_path} (rev{new_rev})
-前回commit: {last_commit}
-
-## チェック項目
-{checklist_text}
-
-## 回答フォーマット
-以下のYAMLで回答してください。各項目の result は "Yes" または "No" のみ有効です。
-
-```yaml
-{example_yaml}
-```
-
-result が "No" の場合は evidence に具体的な問題箇所を記述してください。
-
-## 提出方法
-チェック結果を YAML ファイルに保存し、以下のコマンドで投入してください:
-/home/ataka/.openclaw/shared/bin/devbar spec self-review-submit --pj {project} --file <YAMLファイルパス>
-
-※ YAMLブロック（```yaml ... ```）で囲うことを推奨します。囲わなくても CLI が自動でフェンスを補完しますが、確実なパースのため囲ってください。
-
-【重要】チェック完了まで中断せず一気に完了すること。"""
+    return render("spec.revise", "self_review",
+        project=project, spec_path=spec_path, current_rev=new_rev,
+        DEVBAR_CLI=DEVBAR_CLI, last_commit=last_commit,
+        checklist_text=checklist_text, example_yaml=example_yaml,
+    )
 
 
 # ---------------------------------------------------------------------------

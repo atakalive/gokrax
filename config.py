@@ -1,8 +1,11 @@
 """devbar config — 定数の一元管理"""
 
+from __future__ import annotations
+
 import os
 from pathlib import Path, PurePosixPath
 from datetime import timezone, timedelta
+from typing import Any
 
 DRY_RUN: bool = os.environ.get("DEVBAR_DRY_RUN", "").strip() not in ("", "0", "false")
 
@@ -263,7 +266,7 @@ def _validate_reviewer_tiers():
                 )
 
 
-def get_current_round(data: dict) -> int:
+def get_current_round(data: dict[str, Any]) -> int:
     """現在のレビューラウンド番号を返す（1起算）。
 
     DESIGN_REVIEW/DESIGN_REVISE → design_revise_count + 1

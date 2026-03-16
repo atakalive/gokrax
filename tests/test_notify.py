@@ -7,10 +7,9 @@ import sys
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-import websocket
-
 import pytest
 
+import config
 from config import REVIEW_MODES
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -83,81 +82,13 @@ class TestSendToAgent:
                 result = notify._gateway_chat_send_cli('{"sessionKey":"x","message":"y","idempotencyKey":"z"}', 10)
         assert result is False
 
-    def test_ws_connection_failed(self, caplog):
-        """WS パス: 接続失敗時に False を返すこと。"""
-        import notify
-        with patch("notify.websocket.create_connection",
-                   side_effect=websocket.WebSocketException("connection refused")):
-            with patch("notify._load_gateway_token", return_value="dummy"):
-                with caplog.at_level(logging.WARNING, logger="devbar.notify"):
-                    result = notify._gateway_chat_send_ws("agent:test:main", "hello", 10)
-        assert result is False
-        assert "connection failed" in caplog.text.lower()
-
-    def test_ws_token_load_failure(self, caplog):
-        """WS パス: token 読み込み失敗で False を返すこと。"""
-        import notify
-        with patch("notify._load_gateway_token",
-                   side_effect=FileNotFoundError("openclaw.json")):
-            with caplog.at_level(logging.ERROR, logger="devbar.notify"):
-                result = notify._gateway_chat_send_ws("agent:test:main", "hello", 10)
-        assert result is False
-        assert "gateway token" in caplog.text.lower()
-
-    def test_ws_auth_failed(self, caplog):
-        """WS パス: 認証失敗時に False を返すこと。"""
-        import notify
-        mock_ws = MagicMock()
-        mock_ws.recv.side_effect = [
-            json.dumps({"type": "event", "event": "connect.challenge", "payload": {}}),
-            json.dumps({"type": "res", "id": "x", "ok": False,
-                        "error": {"message": "token mismatch"}}),
-        ]
-        with patch("notify.websocket.create_connection", return_value=mock_ws):
-            with patch("notify._load_gateway_token", return_value="bad-token"):
-                result = notify._gateway_chat_send_ws("agent:test:main", "hello", 10)
-        assert result is False
-
-    def test_ws_chat_send_success(self):
-        """WS パス正常系: challenge → hello-ok → chat.send 成功。"""
-        import notify
-        mock_ws = MagicMock()
-        mock_ws.recv.side_effect = [
-            json.dumps({"type": "event", "event": "connect.challenge", "payload": {}}),
-            json.dumps({"type": "res", "id": "x", "ok": True,
-                        "payload": {"type": "hello-ok"}}),
-            json.dumps({"type": "res", "id": "y", "ok": True,
-                        "payload": {"status": "started"}}),
-        ]
-        with patch("notify.websocket.create_connection", return_value=mock_ws):
-            with patch("notify._load_gateway_token", return_value="valid-token"):
-                result = notify._gateway_chat_send_ws("agent:test:main", "hello\nworld", 10)
-        assert result is True
-        # 改行保持の検証
-        sent_frames = [call.args[0] for call in mock_ws.send.call_args_list]
-        chat_frame = json.loads(sent_frames[-1])
-        assert "\n" in chat_frame["params"]["message"]
-
     def test_dispatch_small_message_uses_cli(self):
         """120KB 未満のメッセージは CLI パスを使うこと。"""
         import notify
         with patch("notify._gateway_chat_send_cli", return_value=True) as mock_cli:
-            with patch("notify._gateway_chat_send_ws") as mock_ws:
-                result = notify._gateway_chat_send("agent:test:main", "small msg", 10)
+            result = notify._gateway_chat_send("agent:test:main", "small msg", 10)
         assert result is True
         mock_cli.assert_called_once()
-        mock_ws.assert_not_called()
-
-    def test_dispatch_large_message_uses_ws(self):
-        """120KB 以上のメッセージは WS パスを使うこと。"""
-        import notify
-        large_msg = "x" * 130_000
-        with patch("notify._gateway_chat_send_cli") as mock_cli:
-            with patch("notify._gateway_chat_send_ws", return_value=True) as mock_ws:
-                result = notify._gateway_chat_send("agent:test:main", large_msg, 10)
-        assert result is True
-        mock_cli.assert_not_called()
-        mock_ws.assert_called_once()
 
     def test_dispatch_boundary_just_under_limit_uses_cli(self):
         """120KB ギリギリ未満のメッセージは CLI パスを使うこと。"""
@@ -166,24 +97,9 @@ class TestSendToAgent:
         # メッセージサイズは少し小さくても params 全体で 120KB 未満に収まるケースをテスト
         msg = "x" * 100_000  # params JSON 全体は ~100KB + overhead
         with patch("notify._gateway_chat_send_cli", return_value=True) as mock_cli:
-            with patch("notify._gateway_chat_send_ws") as mock_ws:
-                result = notify._gateway_chat_send("agent:test:main", msg, 10)
+            result = notify._gateway_chat_send("agent:test:main", msg, 10)
         assert result is True
         mock_cli.assert_called_once()
-        mock_ws.assert_not_called()
-
-    def test_dispatch_boundary_over_limit_uses_ws(self):
-        """params JSON が確実に 120KB を超えるメッセージは WS パスを使うこと。"""
-        import notify
-        # params JSON overhead ≈ 91 bytes (keys + UUID)。
-        # 120KB (120_000) を確実に超えるメッセージサイズ: 120_000 bytes
-        msg = "x" * 120_000
-        with patch("notify._gateway_chat_send_cli") as mock_cli:
-            with patch("notify._gateway_chat_send_ws", return_value=True) as mock_ws:
-                result = notify._gateway_chat_send("agent:test:main", msg, 10)
-        assert result is True
-        mock_cli.assert_not_called()
-        mock_ws.assert_called_once()
 
     def test_newline_preserved_cli(self):
         """CLI パス: 改行を含むメッセージが params JSON で保持されること。"""
@@ -533,20 +449,6 @@ class TestFormatReviewRequestEmbedded:
         assert "glab issue show 30" in result
         assert "Issue詳細:" in result
 
-    def test_truncation_with_marker(self, monkeypatch):
-        import notify
-        import config
-        monkeypatch.setattr(config, "MAX_EMBED_CHARS", 100)
-        monkeypatch.setattr(notify, "MAX_EMBED_CHARS", 100)
-
-        batch = [self._make_batch_item(i, "Long") for i in range(1, 6)]
-        with patch("notify.fetch_issue_body", return_value="A" * 50):
-            result = notify.format_review_request(
-                "proj", "DESIGN_REVIEW", batch, "atakalive/proj", "pascal"
-            )
-        assert "(truncated)" in result
-        assert "文字数制限のため省略" in result
-
     def test_guidance_has_scope_constraint_for_code_review(self):
         import notify
         batch = [self._make_batch_item(10, "Fix", "abc123")]
@@ -569,44 +471,6 @@ class TestFormatReviewRequestEmbedded:
                 "proj", "DESIGN_REVIEW", batch, "atakalive/proj", "pascal"
             )
         assert "スコープ制約:" not in result
-
-    def test_diff_truncated_when_exceeds_max_diff_chars(self, monkeypatch):
-        import notify
-        import config
-        limit = 100
-        monkeypatch.setattr(config, "MAX_DIFF_CHARS", limit)
-        monkeypatch.setattr(notify, "MAX_DIFF_CHARS", limit)
-
-        long_diff = "x" * 200
-        batch = [self._make_batch_item(10, "Fix", "abc123")]
-        with patch("notify.fetch_issue_body", return_value="body"):
-            with patch("notify._fetch_commit_diff", return_value=long_diff):
-                result = notify.format_review_request(
-                    "proj", "CODE_REVIEW", batch, "atakalive/proj", "pascal",
-                    repo_path="/repo"
-                )
-        assert f"truncated: 200 chars, limit {limit}" in result
-        # truncation後のdiffはlimitまで
-        assert "x" * limit in result
-        assert "x" * (limit + 1) not in result
-
-    def test_diff_not_truncated_when_within_limit(self, monkeypatch):
-        import notify
-        import config
-        limit = 100
-        monkeypatch.setattr(config, "MAX_DIFF_CHARS", limit)
-        monkeypatch.setattr(notify, "MAX_DIFF_CHARS", limit)
-
-        short_diff = "x" * 50
-        batch = [self._make_batch_item(10, "Fix", "abc123")]
-        with patch("notify.fetch_issue_body", return_value="body"):
-            with patch("notify._fetch_commit_diff", return_value=short_diff):
-                result = notify.format_review_request(
-                    "proj", "CODE_REVIEW", batch, "atakalive/proj", "pascal",
-                    repo_path="/repo"
-                )
-        assert "truncated" not in result
-        assert short_diff in result
 
 
 class TestNotifyReviewersWithMode:
@@ -1204,3 +1068,222 @@ class TestSkillInjection:
         assert "--- skill: impl-skill ---" in msg
         assert "Impl skill" in msg
         assert msg.endswith("\n\nOriginal message")
+
+
+class TestWriteReviewFile:
+
+    def test_writes_file_successfully(self, tmp_path, monkeypatch):
+        """正常系: ファイルが作成され、内容が一致すること"""
+        import notify
+        monkeypatch.setattr(config, "REVIEW_FILE_DIR", tmp_path)
+        monkeypatch.setattr(notify, "REVIEW_FILE_DIR", tmp_path)
+        result = notify._write_review_file("proj", "pascal", "review content")
+        assert result is not None
+        assert result.exists()
+        assert result.read_text(encoding="utf-8") == "review content"
+        assert result.parent == tmp_path
+        assert "proj--pascal-" in result.name  # ダブルハイフンセパレータ
+        assert result.suffix == ".md"
+
+    def test_creates_directory_if_missing(self, tmp_path, monkeypatch):
+        """ディレクトリが存在しない場合に自動作成されること"""
+        import notify
+        new_dir = tmp_path / "subdir"
+        monkeypatch.setattr(config, "REVIEW_FILE_DIR", new_dir)
+        monkeypatch.setattr(notify, "REVIEW_FILE_DIR", new_dir)
+        result = notify._write_review_file("proj", "euler", "content")
+        assert result is not None
+        assert new_dir.exists()
+
+    def test_retries_on_failure(self, tmp_path, monkeypatch):
+        """書き込み失敗時にリトライし、最終的に成功すること"""
+        import notify
+        monkeypatch.setattr(config, "REVIEW_FILE_DIR", tmp_path)
+        monkeypatch.setattr(notify, "REVIEW_FILE_DIR", tmp_path)
+        monkeypatch.setattr(config, "REVIEW_FILE_WRITE_RETRIES", 3)
+        monkeypatch.setattr(config, "REVIEW_FILE_WRITE_RETRY_DELAY", 0.01)
+        call_count = 0
+        original_write_text = Path.write_text
+        def flaky_write(self_path, *args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count < 3:
+                raise OSError("disk full")
+            original_write_text(self_path, *args, **kwargs)
+        monkeypatch.setattr(Path, "write_text", flaky_write)
+        result = notify._write_review_file("proj", "pascal", "content")
+        assert result is not None
+        assert call_count == 3
+
+    def test_returns_none_after_all_retries_fail(self, tmp_path, monkeypatch, caplog):
+        """全リトライ失敗時にNoneを返すこと"""
+        import notify
+        monkeypatch.setattr(config, "REVIEW_FILE_DIR", tmp_path)
+        monkeypatch.setattr(notify, "REVIEW_FILE_DIR", tmp_path)
+        monkeypatch.setattr(config, "REVIEW_FILE_WRITE_RETRIES", 2)
+        monkeypatch.setattr(config, "REVIEW_FILE_WRITE_RETRY_DELAY", 0.01)
+        monkeypatch.setattr(Path, "write_text", lambda *a, **kw: (_ for _ in ()).throw(OSError("fail")))
+        with caplog.at_level(logging.ERROR, logger="devbar.notify"):
+            result = notify._write_review_file("proj", "pascal", "content")
+        assert result is None
+
+    def test_project_name_sanitized(self, tmp_path, monkeypatch):
+        """プロジェクト名のスラッシュ・空白がハイフンに正規化されること"""
+        import notify
+        monkeypatch.setattr(config, "REVIEW_FILE_DIR", tmp_path)
+        monkeypatch.setattr(notify, "REVIEW_FILE_DIR", tmp_path)
+        result = notify._write_review_file("my/project name", "pascal", "content")
+        assert result is not None
+        assert "my-project-name--pascal-" in result.name  # ダブルハイフンセパレータ
+
+    def test_no_prefix_collision(self, tmp_path, monkeypatch):
+        """プロジェクト名がプレフィックス関係でも衝突しないこと"""
+        import notify
+        monkeypatch.setattr(config, "REVIEW_FILE_DIR", tmp_path)
+        monkeypatch.setattr(notify, "REVIEW_FILE_DIR", tmp_path)
+        result_foo = notify._write_review_file("foo", "pascal", "content1")
+        result_foobar = notify._write_review_file("foo-bar", "pascal", "content2")
+        assert result_foo is not None
+        assert result_foobar is not None
+        assert result_foo.name.startswith("foo--")
+        assert result_foobar.name.startswith("foo-bar--")
+        # foo のプレフィックスで foo-bar のファイルがマッチしないことを確認
+        assert not result_foobar.name.startswith("foo--")
+
+
+class TestBuildFileReviewMessage:
+
+    def test_contains_read_command(self, tmp_path):
+        """メッセージにReadコマンドが含まれること"""
+        import notify
+        file_path = tmp_path / "test.md"
+        batch = [{"issue": 1, "title": "t", "design_reviews": {}, "code_reviews": {}}]
+        msg = notify._build_file_review_message("proj", False, "pascal", file_path, batch, round_num=1)
+        assert f"Read {file_path}" in msg
+
+    def test_contains_review_commands_for_pending_issues(self, tmp_path):
+        """未APPROVEのIssueに対するreviewコマンドが含まれること"""
+        import notify
+        file_path = tmp_path / "test.md"
+        batch = [
+            {"issue": 1, "title": "a", "design_reviews": {}, "code_reviews": {}},
+            {"issue": 2, "title": "b", "design_reviews": {"pascal": {"verdict": "APPROVE"}}, "code_reviews": {}},
+            {"issue": 3, "title": "c", "design_reviews": {}, "code_reviews": {}},
+        ]
+        msg = notify._build_file_review_message("proj", False, "pascal", file_path, batch, round_num=1)
+        assert "--issue 1" in msg
+        assert "--issue 2" not in msg
+        assert "--issue 3" in msg
+
+    def test_includes_skill_block(self, tmp_path, monkeypatch):
+        """スキルブロックが先頭に付与されること"""
+        import notify
+        import config as cfg
+        skill_file = tmp_path / "skill.md"
+        skill_file.write_text("Skill", encoding="utf-8")
+        monkeypatch.setattr(cfg, "SKILLS", {"s": str(skill_file)})
+        monkeypatch.setattr(cfg, "AGENT_SKILLS", {"pascal": ["s"]})
+        file_path = tmp_path / "test.md"
+        batch = [{"issue": 1, "title": "t", "design_reviews": {}, "code_reviews": {}}]
+        msg = notify._build_file_review_message("proj", False, "pascal", file_path, batch, round_num=None)
+        assert msg.startswith("<skills>\n")
+
+    def test_is_code_true_uses_code_reviews(self, tmp_path):
+        """is_code=True の場合、code_reviews を参照すること"""
+        import notify
+        file_path = tmp_path / "test.md"
+        batch = [
+            {"issue": 1, "title": "a", "design_reviews": {}, "code_reviews": {"pascal": {"verdict": "APPROVE"}}},
+            {"issue": 2, "title": "b", "design_reviews": {}, "code_reviews": {}},
+        ]
+        msg = notify._build_file_review_message("proj", True, "pascal", file_path, batch, round_num=1)
+        assert "--issue 1" not in msg
+        assert "--issue 2" in msg
+        assert "コードレビュー依頼" in msg
+
+
+class TestNotifyReviewersExternalization:
+
+    def _make_batch(self):
+        return [{"issue": 1, "title": "t", "commit": None, "design_reviews": {}, "code_reviews": {}}]
+
+    def test_small_message_sends_inline(self, monkeypatch):
+        """閾値未満のメッセージはインライン送信されること"""
+        import notify
+        monkeypatch.setattr(config, "MAX_INLINE_MESSAGE_BYTES", 999_999)
+        with patch("notify.send_to_agent", return_value=True) as mock_send:
+            with patch("notify.fetch_issue_body", return_value="body"):
+                with patch("notify._write_review_file") as mock_write:
+                    notify.notify_reviewers("proj", "DESIGN_REVIEW", self._make_batch(),
+                                           "atakalive/proj", review_mode="min")
+        mock_write.assert_not_called()
+        mock_send.assert_called()
+
+    def test_large_message_externalizes(self, tmp_path, monkeypatch):
+        """閾値以上のメッセージがファイル外部化されること"""
+        import notify
+        monkeypatch.setattr(config, "MAX_INLINE_MESSAGE_BYTES", 10)
+        monkeypatch.setattr(config, "REVIEW_FILE_DIR", tmp_path)
+        file_path = tmp_path / "test.md"
+        with patch("notify.send_to_agent", return_value=True) as mock_send:
+            with patch("notify.fetch_issue_body", return_value="body"):
+                with patch("notify._write_review_file", return_value=file_path) as mock_write:
+                    with patch("notify._build_file_review_message", return_value="short") as mock_short:
+                        notify.notify_reviewers("proj", "DESIGN_REVIEW", self._make_batch(),
+                                               "atakalive/proj", review_mode="min")
+        mock_write.assert_called_once()
+        mock_short.assert_called_once()
+        mock_send.assert_called_once()
+        assert mock_send.call_args[0][1] == "short"
+
+    def test_file_write_failure_triggers_blocked(self, monkeypatch):
+        """ファイル書き出し失敗時にBLOCKED遷移が呼ばれること"""
+        import notify
+        monkeypatch.setattr(config, "MAX_INLINE_MESSAGE_BYTES", 10)
+        with patch("notify.send_to_agent") as mock_send:
+            with patch("notify.fetch_issue_body", return_value="body"):
+                with patch("notify._write_review_file", return_value=None):
+                    with patch("notify._trigger_blocked") as mock_blocked:
+                        notify.notify_reviewers("proj", "DESIGN_REVIEW", self._make_batch(),
+                                               "atakalive/proj", review_mode="min")
+        mock_blocked.assert_called_once()
+        mock_send.assert_not_called()
+
+
+class TestCleanupReviewFiles:
+
+    def test_removes_project_files_only(self, tmp_path, monkeypatch):
+        """当該プロジェクトのファイルのみ削除されること（ダブルハイフンセパレータ）"""
+        import watchdog
+        monkeypatch.setattr(config, "REVIEW_FILE_DIR", tmp_path)
+        (tmp_path / "projA--pascal-uuid1.md").write_text("a")
+        (tmp_path / "projA--euler-uuid2.md").write_text("b")
+        (tmp_path / "projB--pascal-uuid3.md").write_text("c")
+        watchdog._cleanup_review_files("projA")
+        remaining = sorted(f.name for f in tmp_path.iterdir())
+        assert remaining == ["projB--pascal-uuid3.md"]
+
+    def test_no_prefix_collision_cleanup(self, tmp_path, monkeypatch):
+        """プレフィックスが部分一致するプロジェクトのファイルを誤削除しないこと"""
+        import watchdog
+        monkeypatch.setattr(config, "REVIEW_FILE_DIR", tmp_path)
+        (tmp_path / "foo--pascal-uuid1.md").write_text("a")
+        (tmp_path / "foo-bar--pascal-uuid2.md").write_text("b")
+        watchdog._cleanup_review_files("foo")
+        remaining = sorted(f.name for f in tmp_path.iterdir())
+        assert remaining == ["foo-bar--pascal-uuid2.md"]
+
+    def test_directory_not_exists(self, tmp_path, monkeypatch):
+        """ディレクトリが存在しない場合にエラーにならないこと"""
+        import watchdog
+        monkeypatch.setattr(config, "REVIEW_FILE_DIR", tmp_path / "nonexistent")
+        watchdog._cleanup_review_files("proj")  # no error
+
+    def test_directory_preserved(self, tmp_path, monkeypatch):
+        """ディレクトリ自体は削除されないこと"""
+        import watchdog
+        monkeypatch.setattr(config, "REVIEW_FILE_DIR", tmp_path)
+        (tmp_path / "proj--pascal-uuid.md").write_text("x")
+        watchdog._cleanup_review_files("proj")
+        assert tmp_path.exists()
+        assert tmp_path.is_dir()

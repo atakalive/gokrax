@@ -2609,6 +2609,36 @@ def _apply_spec_action(
             _check_queue()
 
 
+def _cleanup_review_files(project: str) -> None:
+    """REVIEW_FILE_DIR 内の当該プロジェクトのファイルのみ削除する。
+
+    ファイル名のダブルハイフン ``--`` セパレータより前が sanitized project 名。
+    sanitized は notify._write_review_file() と同じ正規化ルール:
+        sanitized = re.sub(r'[/\\\\s]', '-', project)
+    判定: f.name.startswith(f"{sanitized}--")
+
+    ダブルハイフンにより、プロジェクト "foo" のクリーンアップが
+    "foo-bar" のファイルを誤削除しない（"foo--" vs "foo-bar--"）。
+
+    呼び出しタイミング:
+    - IDLE→DESIGN_PLAN 遷移時（バッチ開始時）
+    - DONE遷移時（二重保険）
+    ディレクトリが存在しない場合は何もしない。
+    """
+    import config
+    review_dir = config.REVIEW_FILE_DIR
+    if not review_dir.exists():
+        return
+    sanitized = re.sub(r'[/\\\s]', '-', project)
+    prefix = f"{sanitized}--"
+    for f in review_dir.iterdir():
+        if f.name.startswith(prefix):
+            try:
+                f.unlink(missing_ok=True)
+            except OSError as e:
+                log(f"Warning: failed to delete review file {f}: {e}")
+
+
 def process(path: Path):
     # === 第1チェック (ロックなし) ===
     data = load_pipeline(path)
@@ -2761,6 +2791,7 @@ def process(path: Path):
             _done_batch = list(data.get("batch", []))  # close用に退避
             _done_queue_mode = data.get("queue_mode", False)  # _check_queue判定用に退避
             data["batch"] = []
+            _cleanup_review_files(pj)
             data["enabled"] = False
             data.pop("timeout_extension", None)
             data.pop("extend_count", None)
@@ -2787,6 +2818,7 @@ def process(path: Path):
         if state == "IDLE" and action.new_state == "DESIGN_PLAN":
             data.pop("design_revise_count", None)
             data.pop("code_revise_count", None)
+            _cleanup_review_files(pj)
             # base_commit: バッチ開始時点の HEAD を full SHA で記録
             data.pop("base_commit", None)
             repo = data.get("repo_path", "")

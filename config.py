@@ -252,11 +252,20 @@ def get_tier(agent_name: str) -> str:
     return "free"
 
 
-# Maximum characters for embedded review data (issue body + diff)
-# レビュアーの最小コンテキスト200k中、プロンプト等で40k消費 → 残り160k
-# 安全マージンを取って128k chars（英語コードなら≒128kトークン）
-MAX_EMBED_CHARS = 512 * 1024
-MAX_DIFF_CHARS = 50_000
+# diff のハードリミット（OOM 安全弁）。ファイル外部化により送信経路の制限は解消されたが、
+# 巨大 commit（数GB）の diff を全文メモリに載せるとプロセスが落ちるため安全弁として残す。
+MAX_DIFF_CHARS: int = 5_000_000
+
+# インライン送信の上限バイトサイズ（UTF-8エンコード後）
+# これ以上のメッセージはファイル外部化に切り替える
+MAX_INLINE_MESSAGE_BYTES: int = 120_000
+
+# レビューデータ外部化のディレクトリ
+REVIEW_FILE_DIR: Path = Path("/tmp/devbar-review")
+
+# ファイル書き出しリトライ設定
+REVIEW_FILE_WRITE_RETRIES: int = 3
+REVIEW_FILE_WRITE_RETRY_DELAY: float = 2.0
 
 ALLOWED_REVIEWERS = list(AGENTS.keys())
 

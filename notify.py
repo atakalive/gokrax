@@ -6,43 +6,26 @@ watchdog.pyから呼ばれる。LLM不要。
 
 import logging
 import os
+import re
 import subprocess
 import json
+import time
 import uuid
 from pathlib import Path
 
 import requests
-import websocket
 
 import config
 from config import (
     DEVBAR_CLI, GLAB_BIN, DISCORD_CHANNEL, DISCORD_BOT_TOKEN,
-    AGENTS, REVIEW_MODES, MAX_EMBED_CHARS, MAX_DIFF_CHARS, GLAB_TIMEOUT,
-    AGENT_SEND_TIMEOUT, DISCORD_POST_TIMEOUT, POST_NEW_COMMAND_WAIT_SEC
+    AGENTS, REVIEW_MODES, MAX_DIFF_CHARS, GLAB_TIMEOUT,
+    AGENT_SEND_TIMEOUT, DISCORD_POST_TIMEOUT, POST_NEW_COMMAND_WAIT_SEC,
+    MAX_INLINE_MESSAGE_BYTES, REVIEW_FILE_DIR, REVIEW_FILE_WRITE_RETRIES,
+    REVIEW_FILE_WRITE_RETRY_DELAY,
 )
 
 logger = logging.getLogger("devbar.notify")
 
-
-def _load_gateway_token() -> str:
-    """Gateway 認証トークンを取得する（WS 直接接続用）。
-
-    優先順位:
-    1. 環境変数 OPENCLAW_GATEWAY_TOKEN
-    2. ~/.openclaw/openclaw.json の gateway.auth.token
-
-    Raises:
-        FileNotFoundError: config ファイルが存在しない
-        json.JSONDecodeError: config ファイルが不正な JSON
-        KeyError: gateway.auth.token キーが存在しない
-    """
-    env_token = os.environ.get("OPENCLAW_GATEWAY_TOKEN")
-    if env_token:
-        return env_token
-    config_path = Path.home() / ".openclaw" / "openclaw.json"
-    with open(config_path) as f:
-        cfg = json.load(f)
-    return cfg["gateway"]["auth"]["token"]
 
 
 def _gateway_chat_send_cli(params_json: str, timeout: int) -> bool:
@@ -87,122 +70,18 @@ def _gateway_chat_send_cli(params_json: str, timeout: int) -> bool:
         return False
 
 
-def _gateway_chat_send_ws(session_key: str, message: str, timeout: int) -> bool:
-    """Gateway WS に直接接続して chat.send を送信する（大メッセージ用、ベストエフォート）。
-
-    CLI パスで MAX_ARG_STRLEN を超えるメッセージのフォールバック。
-    token auth・loopback 限定。device identity は省略。
-    将来の OpenClaw が loopback でも device identity を要求した場合は失敗する。
-
-    WS プロトコル:
-    1. 接続 → connect.challenge 受信
-    2. connect リクエスト（token 認証）→ hello-ok 確認
-    3. chat.send リクエスト → レスポンス確認
-    4. 切断
-
-    Returns:
-        True: chat.send 成功, False: 失敗（ベストエフォート — 通知ループを中断しない）
-    """
-    gateway_url = f"ws://127.0.0.1:{config.GATEWAY_PORT}"
-
-    try:
-        token = _load_gateway_token()
-    except (FileNotFoundError, json.JSONDecodeError, KeyError, OSError) as e:
-        logger.error("Failed to load gateway token: %s", e)
-        return False
-
-    try:
-        ws = websocket.create_connection(gateway_url, timeout=timeout)
-    except (websocket.WebSocketException, OSError) as e:
-        logger.warning("Gateway WS connection failed: %s", e)
-        return False
-
-    try:
-        # 1. Receive challenge
-        challenge_raw = ws.recv()
-        challenge = json.loads(challenge_raw)
-        if challenge.get("event") != "connect.challenge":
-            logger.warning("Unexpected first frame: %s", challenge.get("event"))
-            return False
-
-        # 2. Connect (authenticate)
-        connect_req = {
-            "type": "req",
-            "id": str(uuid.uuid4()),
-            "method": "connect",
-            "params": {
-                "minProtocol": 3,
-                "maxProtocol": 3,
-                "client": {
-                    "id": "cli",
-                    "version": "1.0.0",
-                    "platform": "linux",
-                    "mode": "cli",
-                },
-                "role": "operator",
-                "scopes": ["operator.read", "operator.write"],
-                "auth": {"token": token},
-            },
-        }
-        ws.send(json.dumps(connect_req))
-        hello = json.loads(ws.recv())
-        if not hello.get("ok"):
-            logger.warning("Gateway auth failed: %s",
-                          hello.get("error", {}).get("message", "unknown"))
-            return False
-
-        # 3. Send chat.send
-        chat_req = {
-            "type": "req",
-            "id": str(uuid.uuid4()),
-            "method": "chat.send",
-            "params": {
-                "sessionKey": session_key,
-                "message": message,
-                "idempotencyKey": str(uuid.uuid4()),
-            },
-        }
-        ws.send(json.dumps(chat_req))
-        resp = json.loads(ws.recv())
-        if not resp.get("ok"):
-            logger.warning("chat.send failed: %s",
-                          resp.get("error", {}).get("message", "unknown"))
-            return False
-
-        return True
-
-    except (websocket.WebSocketException, OSError, json.JSONDecodeError) as e:
-        logger.warning("Gateway WS error: %s", e)
-        return False
-    finally:
-        try:
-            ws.close()
-        except Exception:
-            pass
-
-
-# MAX_ARG_STRLEN safety margin (128KB - 8KB overhead)
-_CLI_PARAMS_LIMIT = 120_000
-
-
 def _gateway_chat_send(session_key: str, message: str, timeout: int) -> bool:
-    """Gateway 経由で chat.send を送信する（二層ディスパッチ）。
+    """Gateway 経由で chat.send を送信する（CLI経由のみ）。
 
-    1. params JSON が 120KB 未満 → CLI 経由（device identity・全 auth mode 対応）
-    2. params JSON が 120KB 以上 → WS 直接接続（token auth・loopback 限定）
+    MAX_INLINE_MESSAGE_BYTES 未満のメッセージ専用。
+    それ以上のメッセージは呼び出し元でファイル外部化すること。
     """
     params_json = json.dumps({
         "sessionKey": session_key,
         "message": message,
         "idempotencyKey": str(uuid.uuid4()),
     })
-
-    if len(params_json.encode("utf-8")) < _CLI_PARAMS_LIMIT:
-        return _gateway_chat_send_cli(params_json, timeout)
-
-    logger.info("Message too large for CLI (%d bytes), using WS direct",
-               len(params_json.encode("utf-8")))
-    return _gateway_chat_send_ws(session_key, message, timeout)
+    return _gateway_chat_send_cli(params_json, timeout)
 
 
 def send_to_agent(agent_id: str, message: str, timeout: int = AGENT_SEND_TIMEOUT) -> bool:
@@ -221,6 +100,132 @@ def send_to_agent(agent_id: str, message: str, timeout: int = AGENT_SEND_TIMEOUT
 def send_to_agent_queued(agent_id: str, message: str, timeout: int = AGENT_SEND_TIMEOUT) -> bool:
     """send_to_agent のエイリアス。"""
     return send_to_agent(agent_id, message, timeout)
+
+
+def _write_review_file(
+    project: str,
+    reviewer: str,
+    content: str,
+) -> Path | None:
+    """レビューデータをファイルに書き出す。
+
+    Args:
+        project: プロジェクト名
+        reviewer: レビュアー名
+        content: レビュー依頼メッセージの全文
+
+    Returns:
+        書き出し先のPathオブジェクト。全リトライ失敗時はNone。
+
+    ファイルパス: /tmp/devbar-review/{project}-{reviewer}-{uuid4}.md
+    プロジェクト名の正規化: スラッシュ・空白を '-' に置換してパストラバーサルを防止する。
+        sanitized = re.sub(r'[/\\\\\\s]', '-', project)
+    リトライ: REVIEW_FILE_WRITE_RETRIES回、間隔REVIEW_FILE_WRITE_RETRY_DELAY秒。
+    想定障害: NFS/CIFS上の一時的なI/Oエラー、WSL環境でのファイルシステム遅延。
+    ディスクフルのような持続的障害ではリトライは無意味だが、3回×2秒は実害のないコストなので
+    一律リトライとし、障害種別の判定は行わない。
+    """
+    sanitized = re.sub(r'[/\\\s]', '-', project)
+    os.makedirs(REVIEW_FILE_DIR, exist_ok=True)
+    file_path = REVIEW_FILE_DIR / f"{sanitized}--{reviewer}-{uuid.uuid4()}.md"
+    for attempt in range(REVIEW_FILE_WRITE_RETRIES):
+        try:
+            file_path.write_text(content, encoding="utf-8")
+            return file_path
+        except OSError as e:
+            logger.warning("Review file write failed (attempt %d/%d): %s",
+                          attempt + 1, REVIEW_FILE_WRITE_RETRIES, e)
+            if attempt < REVIEW_FILE_WRITE_RETRIES - 1:
+                time.sleep(REVIEW_FILE_WRITE_RETRY_DELAY)
+    logger.error("Failed to write review file after %d attempts: %s",
+                REVIEW_FILE_WRITE_RETRIES, file_path)
+    return None
+
+
+def _build_file_review_message(
+    project: str,
+    is_code: bool,
+    reviewer: str,
+    file_path: Path,
+    batch: list,
+    round_num: int | None,
+) -> str:
+    """ファイル外部化時のレビュー依頼メッセージを生成する。
+
+    Args:
+        project: プロジェクト名
+        is_code: True=コードレビュー、False=設計レビュー
+        reviewer: レビュアー名
+        file_path: 書き出し先ファイルパス
+        batch: バッチ内Issueリスト（未APPROVE分のIssue番号を抽出するため）
+        round_num: 現在のラウンド番号（--round引数用）
+    """
+    phase = "コード" if is_code else "設計"
+    review_key = "code_reviews" if is_code else "design_reviews"
+
+    # 未APPROVEのIssueを抽出
+    pending_issues = []
+    for i in batch:
+        existing = i.get(review_key, {}).get(reviewer, {})
+        if existing.get("verdict", "").upper() == "APPROVE":
+            continue
+        pending_issues.append(i)
+
+    n = len(pending_issues)
+
+    # 各Issueのreviewコマンド生成
+    review_cmds = []
+    for i in pending_issues:
+        cmd = config.review_command(project, i["issue"], reviewer, round_num)
+        review_cmds.append(cmd)
+
+    cmds_block = "\n".join(review_cmds)
+
+    msg = (
+        f"[devbar] {project}: {phase}レビュー依頼（{n}件）\n\n"
+        f"レビューデータファイルを読み込み、全件レビューせよ。\n\n"
+        f"Read {file_path}\n\n"
+        f"完了後、各Issueについて以下を実行:\n"
+        f"{cmds_block}\n"
+        f"（上記コマンドを各Issue分繰り返す）\n\n"
+        f"⚠️ 全Issueのreviewコマンドを実行するまでタスク未完了。途中で止めるな。"
+    )
+
+    # スキルブロック付与
+    skill_block = config.load_skills(reviewer)
+    if skill_block:
+        msg = f"{skill_block}\n\n{msg}"
+
+    return msg
+
+
+def _trigger_blocked(project: str, reason: str) -> None:
+    """パイプラインをBLOCKED状態に遷移させる。
+
+    notify.pyからのBLOCKED遷移は異常系のみ。
+    devbar CLI経由で遷移する。
+    --force を使う理由: notify_reviewers() は DESIGN_REVIEW/CODE_REVIEW 状態から
+    呼ばれるが、BLOCKED への遷移は正規遷移表に含まれるため --force は本来不要。
+    ただし、watchdog の状態遷移タイミングと競合した場合（例: REVISE への遷移中）の
+    安全策として --force を付与する。
+    reason はログにのみ記録する（pipeline JSON への永続化は行わない）。
+    BLOCKED 遷移の reason 永続化が必要になった場合は別 Issue で対応する。
+    """
+    try:
+        result = subprocess.run(
+            ["python3", str(config.DEVBAR_CLI), "transition",
+             "--project", project, "--to", "BLOCKED", "--force"],
+            capture_output=True, text=True, timeout=30, check=False,
+        )
+        if result.returncode == 0:
+            logger.error("Pipeline %s → BLOCKED: %s", project, reason)
+        else:
+            logger.error(
+                "Failed to transition %s → BLOCKED (rc=%d): %s | reason: %s",
+                project, result.returncode, result.stderr.strip()[:200], reason,
+            )
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
+        logger.error("Failed to trigger BLOCKED for %s: %s | reason: %s", project, e, reason)
 
 
 def ping_agent(agent_id: str, timeout: int = 20) -> bool:
@@ -545,7 +550,8 @@ def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
             logger.info("notify_reviewers: skipping excluded reviewer=%s", r)
             continue
         if r not in AGENTS:
-            continue  # 既にログ出力済み
+            continue
+
         msg = format_review_request(project, state, batch, gitlab, reviewer=r,
                                     repo_path=repo_path, prev_reviews=prev_reviews,
                                     base_commit=base_commit, comment=comment,
@@ -553,19 +559,37 @@ def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
         if not msg:
             logger.info("No pending issues for %s — skipping review request", r)
             continue
-        if not send_to_agent(r, msg):
-            logger.warning("Failed to send review request to %s", r)
-            continue
+
+        # サイズ判定: UTF-8バイト数で閾値を超えたらファイル外部化
+        msg_bytes = len(msg.encode("utf-8"))
+        if msg_bytes >= config.MAX_INLINE_MESSAGE_BYTES:
+            logger.info("Review message for %s is %d bytes, externalizing to file", r, msg_bytes)
+            file_path = _write_review_file(project, r, msg)
+            if file_path is None:
+                # ファイル書き出し失敗 → BLOCKED遷移
+                logger.error("Failed to write review file for %s, triggering BLOCKED", r)
+                _trigger_blocked(project, f"レビューデータファイル書き出し失敗 (reviewer={r})")
+                return
+            is_code = "CODE" in state
+            short_msg = _build_file_review_message(project, is_code, r, file_path, batch, round_num)
+            if not send_to_agent(r, short_msg):
+                logger.warning("Failed to send short review request to %s", r)
+                continue
+        else:
+            if not send_to_agent(r, msg):
+                logger.warning("Failed to send review request to %s", r)
+                continue
+
         # メトリクス記録（Issue #81）
         from pipeline_io import append_metric
-        phase = "code" if "CODE" in state else "design"
+        phase_key = "code" if "CODE" in state else "design"
         review_key = "code_reviews" if "CODE" in state else "design_reviews"
         for i in batch:
             existing = i.get(review_key, {}).get(r, {})
             if existing.get("verdict", "").upper() == "APPROVE":
                 continue
             append_metric("review_request", pj=project, issue=i["issue"],
-                          phase=phase, reviewer=r)
+                          phase=phase_key, reviewer=r)
 
 
 def notify_discord(message: str):
@@ -635,8 +659,6 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
     is_code = "CODE" in state
     phase = "コード" if is_code else "設計"
     sections = []
-    total_chars = 0
-    truncated = False
 
     skill_block = config.load_skills(reviewer)
 
@@ -693,18 +715,7 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
 
         section_text = "".join(section_parts)
 
-        # 文字数制限チェック
-        if total_chars + len(section_text) > MAX_EMBED_CHARS:
-            sections.append(
-                f"### #{num}: {title}\n"
-                f"**(truncated)** 文字数制限のため省略。以下のコマンドで確認してください:\n"
-                f"  Issue: `{GLAB_BIN} issue show {num} -R {gitlab}`\n"
-                + (f"  Diff: `git -C {repo_path} show {commit}`\n" if commit else "")
-            )
-            truncated = True
-        else:
-            sections.append(section_text)
-            total_chars += len(section_text)
+        sections.append(section_text)
 
     # 全IssueがAPPROVE済みなら空レビュー依頼を返さない
     if not sections:
@@ -743,7 +754,7 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
             if diff:
                 orig_len = len(diff)
                 if orig_len > MAX_DIFF_CHARS:
-                    diff = diff[:MAX_DIFF_CHARS] + f"\n\n... (truncated: {orig_len} chars, limit {MAX_DIFF_CHARS})"
+                    diff = diff[:MAX_DIFF_CHARS] + f"\n\n... (safety truncated: {orig_len} chars exceeds {MAX_DIFF_CHARS} hard limit)"
                 body += f"\n\n---\n**変更内容 (commit {commit_hash[:7]}):**\n```diff\n{diff}\n```\n"
             else:
                 body += (
@@ -784,11 +795,9 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
         f"⚠️ 全Issueのreviewコマンドを実行するまでタスク未完了。途中で止めるな。"
     )
 
-    truncate_notice = "\n\n**注意:** 一部のデータが文字数制限により省略されています。" if truncated else ""
-
     comment_line = f"\nMからの要望: {comment}" if comment else ""
     phase_note = "" if is_code else "\n⚠️ これは設計レビュー DESIGN_REVIEW です。コードやdiffはまだ存在しません。\n"
-    final_message = f"[devbar] {project}: {phase}レビュー依頼{comment_line}{phase_note}\n\n{todo_header}\n\n{guidance}\n\n{body}{completion}{truncate_notice}"
+    final_message = f"[devbar] {project}: {phase}レビュー依頼{comment_line}{phase_note}\n\n{todo_header}\n\n{guidance}\n\n{body}{completion}"
     # skill_block が非空なら先頭に挿入
     if skill_block:
         final_message = f"{skill_block}\n\n{final_message}"

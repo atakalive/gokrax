@@ -147,7 +147,7 @@ changes:
 ## 提出方法
 完了報告を YAML ファイルに保存し、以下のコマンドで投入してください:
 ```
-python3 /home/ataka/.openclaw/shared/bin/devbar spec revise-submit --pj {project} --file <YAMLファイルパス>
+/home/ataka/.openclaw/shared/bin/devbar spec revise-submit --pj {project} --file <YAMLファイルパス>
 ```
 
 【重要】改訂・コミット・完了報告の提出まで、中断せず一気に完了すること。"""
@@ -215,7 +215,7 @@ result が "No" の場合は evidence に具体的な問題箇所を記述して
 
 ## 提出方法
 チェック結果を YAML ファイルに保存し、以下のコマンドで投入してください:
-python3 /home/ataka/.openclaw/shared/bin/devbar spec self-review-submit --pj {project} --file <YAMLファイルパス>
+/home/ataka/.openclaw/shared/bin/devbar spec self-review-submit --pj {project} --file <YAMLファイルパス>
 
 ※ YAMLブロック（```yaml ... ```）で囲うことを推奨します。囲わなくても CLI が自動でフェンスを補完しますが、確実なパースのため囲ってください。
 

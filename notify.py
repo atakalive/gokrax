@@ -213,7 +213,7 @@ def _trigger_blocked(project: str, reason: str) -> None:
     """
     try:
         result = subprocess.run(
-            ["python3", str(config.DEVBAR_CLI), "transition",
+            [str(config.DEVBAR_CLI), "transition",
              "--project", project, "--to", "BLOCKED", "--force"],
             capture_output=True, text=True, timeout=30, check=False,
         )
@@ -486,16 +486,16 @@ def notify_dispute(
         f"理由: {reason}\n\n"
         f"再評価した上で、以下のいずれかのコマンドで判定を報告してください:\n\n"
         f"# 判定を変更する場合:\n"
-        f"python3 {DEVBAR_CLI} review --pj {project} --issue {issue_num} "
+        f"{DEVBAR_CLI} review --pj {project} --issue {issue_num} "
         f"--reviewer {reviewer} --verdict APPROVE --force\n"
-        f"python3 {DEVBAR_CLI} review --pj {project} --issue {issue_num} "
+        f"{DEVBAR_CLI} review --pj {project} --issue {issue_num} "
         f"--reviewer {reviewer} --verdict P2 --summary \"理由\" --force\n"
-        f"python3 {DEVBAR_CLI} review --pj {project} --issue {issue_num} "
+        f"{DEVBAR_CLI} review --pj {project} --issue {issue_num} "
         f"--reviewer {reviewer} --verdict P1 --summary \"理由\" --force\n\n"
         f"# 現在の判定を維持する場合:\n"
-        f"python3 {DEVBAR_CLI} review --pj {project} --issue {issue_num} "
+        f"{DEVBAR_CLI} review --pj {project} --issue {issue_num} "
         f"--reviewer {reviewer} --verdict P0 --summary \"維持理由\" --force\n"
-        f"python3 {DEVBAR_CLI} review --pj {project} --issue {issue_num} "
+        f"{DEVBAR_CLI} review --pj {project} --issue {issue_num} "
         f"--reviewer {reviewer} --verdict P1 --summary \"維持理由\" --force\n\n"
         f"※ --force は必須です（既存レビューの上書きに必要）。\n"
         f"※ 維持する場合も必ずコマンドで明示してください。\n"
@@ -734,7 +734,7 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
         pending_issues.append(f"□ #{num}: {title}")
         round_arg = f" --round {round_num}" if round_num is not None else ""
         pending_cmds.append(
-            f"python3 {DEVBAR_CLI} review --project {project} --issue {num} "
+            f"{DEVBAR_CLI} review --project {project} --issue {num} "
             f"--reviewer {reviewer} --verdict <APPROVE|P0|P1|P2> "
             f"--summary $'レビュー本文\n2行目\n3行目..'"
             f"{round_arg}"

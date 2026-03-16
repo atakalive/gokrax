@@ -369,7 +369,7 @@ def _check_nudge(state: str, data: dict) -> TransitionAction | None:
         if extend_count < max_extends:
             nudge.extend_notice = (
                 f"\n\n⏰ タイムアウトまで残り{int(remaining)}秒（延長残り{max_extends - extend_count}回）。延長が必要なら:\n"
-                f"python3 {DEVBAR_CLI} extend --project {project} --by 600"
+                f"{DEVBAR_CLI} extend --project {project} --by 600"
             )
         else:
             nudge.extend_notice = (
@@ -458,7 +458,7 @@ def get_notification_for_state(
             f"Claude Codeが確実に実装できる粒度まで、**対象Issue本文の説明を修正せよ** (glab issue update)。\n"
             f"コメントによる補足は禁止する。\n"
             f"全て修正後、問題がなければ plan-done して完了せよ（一括報告できる）。\n"
-            f"python3 {DEVBAR_CLI} plan-done --project {project} --issue N [N...]\n"
+            f"{DEVBAR_CLI} plan-done --project {project} --issue N [N...]\n"
             f"[お願い] 仕事は中断せず、完了まで一気にやること。"
         )
         return TransitionAction(impl_msg=msg, reset_reviewers=True)
@@ -477,11 +477,11 @@ def get_notification_for_state(
             f"【手順】\n"
             f"1. {fix_label}を読み、Issue本文を修正する（glab issue update）\n"
             f"2. devbar に完了報告:\n"
-            f"   python3 {DEVBAR_CLI} design-revise --pj {project} --issue N [N...]\n\n"
+            f"   {DEVBAR_CLI} design-revise --pj {project} --issue N [N...]\n\n"
             f"複数レビュアーから同一のP2/Suggestionがある場合、その指摘は正しい可能性が高いため修正せよ。\n"
             f"レビュアー指摘と設計判断が相違する場合は、新規Issueを立てて設計判断を議論する場所を用意せよ。\n"
             f"※ P0/P1指摘に誤りがあると確信した場合、revise完了前に異議を申し立てることができます:\n"
-            f"python3 {DEVBAR_CLI} dispute --pj {project} --issue N --reviewer REVIEWER --reason \"理由\"\n"
+            f"{DEVBAR_CLI} dispute --pj {project} --issue N --reviewer REVIEWER --reason \"理由\"\n"
             f"理由は詳細に、子供でも理解できる粒度で記載してください。disputeが認められた場合、該当P0/P1は取り下げられます。\n"
             f"[お願い] 仕事は中断せず、完了まで一気にやること。"
         )
@@ -502,12 +502,12 @@ def get_notification_for_state(
             f"1. {fix_label}を読み、コードを修正する\n"
             f"2. git commit する\n"
             f"3. devbar に完了報告:\n"
-            f"   python3 {DEVBAR_CLI} code-revise --pj {project} --issue N [N...] --hash <commit>\n\n"
+            f"   {DEVBAR_CLI} code-revise --pj {project} --issue N [N...] --hash <commit>\n\n"
             f"複数レビュアーから同一のP2/Suggestionがある場合、その指摘は正しい可能性が高いため修正せよ。\n"
             f"--hash <commit> を忘れずに添付して送信すること。\n"
             f"レビュアー指摘と設計判断が相違する場合は、新規Issueを立てて設計判断を議論する場所を用意せよ。\n"
             f"※ P0/P1指摘に誤りがあると確信した場合、revise完了前に異議を申し立てることができます:\n"
-            f"python3 {DEVBAR_CLI} dispute --pj {project} --issue N --reviewer REVIEWER --reason \"理由\"\n"
+            f"{DEVBAR_CLI} dispute --pj {project} --issue N --reviewer REVIEWER --reason \"理由\"\n"
             f"理由は詳細に、子供でも理解できる粒度で記載してください。disputeが認められた場合、該当P0/P1は取り下げられます。\n"
             f"[お願い] 仕事は中断せず、完了まで一気にやること。"
         )
@@ -525,7 +525,7 @@ def get_notification_for_state(
             f"手順:\n"
             f"1. `claude --model {CC_MODEL_PLAN}` で、全対象Issueをまとめて設計確認（Plan）\n"
             f"2. `claude --model {CC_MODEL_IMPL}` で、全対象Issueをまとめて実装（Impl）\n"
-            f"3. 完了後: `python3 {DEVBAR_CLI} commit --project {project} --issue N [N...] --hash <commit>`"
+            f"3. 完了後: `{DEVBAR_CLI} commit --project {project} --issue N [N...] --hash <commit>`"
         )
         return TransitionAction(run_cc=True, reset_reviewers=True)
 
@@ -999,12 +999,12 @@ done
 
 if [ "$HASH" = "$BEFORE_HASH" ]; then
     _notify "{q_tag}[{project}] ❌ CC がコミットを作成しなかった（2回リトライ後）→ BLOCKED"
-    python3 "{DEVBAR_CLI}" transition --project "{project}" --to BLOCKED --force --comment "CC がコミットを作成しなかった（2回リトライ後）"
+    "{DEVBAR_CLI}" transition --project "{project}" --to BLOCKED --force --comment "CC がコミットを作成しなかった（2回リトライ後）"
     exit 1
 fi
 
 # devbar commit
-python3 "{DEVBAR_CLI}" commit --project "{project}" --issue {issue_args} --hash "$HASH" --session-id "{session_id}"
+"{DEVBAR_CLI}" commit --project "{project}" --issue {issue_args} --hash "$HASH" --session-id "{session_id}"
 '''
 
         if skip_plan:
@@ -1322,7 +1322,7 @@ def _check_queue():
     # devbar qrun を subprocess 経由で呼び出し
     try:
         result = _sp.run(
-            ["python3", str(DEVBAR_CLI), "qrun", "--queue", str(queue_path)],
+            [str(DEVBAR_CLI), "qrun", "--queue", str(queue_path)],
             capture_output=True, text=True, timeout=180,
         )
         if result.returncode == 0 and result.stdout.strip():
@@ -1430,7 +1430,7 @@ items:
 1. ワークスペース内にYAMLファイルを保存（パスは任意）
 2. 以下のコマンドで投入:
 ```bash
-python3 {DEVBAR_CLI} spec review-submit --pj {project} --reviewer <YOUR_NAME> --file <保存したファイルのパス>
+{DEVBAR_CLI} spec review-submit --pj {project} --reviewer <YOUR_NAME> --file <保存したファイルのパス>
 ```
 
 ファイルは素のYAMLでも、上記「出力フォーマット」の ```yaml ... ``` ブロックを含むMarkdownでも可。
@@ -1475,7 +1475,7 @@ def _build_spec_review_prompt_revision(
 1. ワークスペース内にYAMLファイルを保存（パスは任意）
 2. 以下のコマンドで投入:
 ```bash
-python3 {DEVBAR_CLI} spec review-submit --pj {project} --reviewer <YOUR_NAME> --file <保存したファイルのパス>
+{DEVBAR_CLI} spec review-submit --pj {project} --reviewer <YOUR_NAME> --file <保存したファイルのパス>
 ```
 
 ファイルは素のYAMLでも、上記「出力フォーマット」の ```yaml ... ``` ブロックを含むMarkdownでも可。
@@ -2455,7 +2455,7 @@ def _build_spec_review_nudge_msg(project: str, current_rev: str, spec_path: str,
         f"[Remind] {project} spec rev{current_rev} のレビューが未完了です。\n"
         f"仕様書: {spec_path}\n"
         f"以下のコマンドでレビュー結果を提出してください:\n"
-        f"python3 {DEVBAR_CLI} spec review-submit --pj {project} --reviewer {reviewer} --file <YAMLファイルパス>"
+        f"{DEVBAR_CLI} spec review-submit --pj {project} --reviewer {reviewer} --file <YAMLファイルパス>"
     )
 
 
@@ -2464,7 +2464,7 @@ def _build_spec_revise_nudge_msg(project: str, current_rev: str) -> str:
     return (
         f"[Remind] {project} spec rev{current_rev} のリバイス作業が未完了です。\n"
         f"レビュー指摘を反映し、以下のコマンドで完了報告してください:\n"
-        f"python3 {DEVBAR_CLI} spec revise-submit --pj {project} --file <完了報告YAMLファイルパス>"
+        f"{DEVBAR_CLI} spec revise-submit --pj {project} --file <完了報告YAMLファイルパス>"
     )
 
 
@@ -3107,7 +3107,7 @@ def process(path: Path):
                         for issue_num, reason in dispute_items:
                             lines.append(
                                 f"  #{issue_num}: {reason}\n"
-                                f"    python3 {DEVBAR_CLI} review --pj {pj} --issue {issue_num} "
+                                f"    {DEVBAR_CLI} review --pj {pj} --issue {issue_num} "
                                 f"--reviewer {reviewer} --verdict <APPROVE/P0/P1/P2> --summary \"...\" --force"
                             )
                         msg_parts.append(

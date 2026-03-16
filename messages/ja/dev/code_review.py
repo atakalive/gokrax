@@ -9,8 +9,6 @@ Variables (review_request):
     comment_line: str      - オーナーコメント行
 """
 
-
-
 __all__ = [
     "review_request",
     "file_review_request",

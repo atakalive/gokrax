@@ -9,7 +9,7 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from prompts import render
+from messages import render
 
 # --- notify.py の旧関数群 ---
 from notify import (

@@ -929,12 +929,13 @@ class TestDisputeNudgeIntegration:
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
 
-        # leibniz が review 済み (count=1 >= min_rev=1) かつ dispute pending
+        # review_mode="min": members=["pascal"], min_reviews=1
+        # pascal が review 済み (count=1 >= min_rev=1) かつ pascal に dispute pending
         batch = [{
             "issue": 1,
-            "design_reviews": {"leibniz": {"verdict": "P1", "at": "2025-01-01T00:00:00+09:00"}},
+            "design_reviews": {"pascal": {"verdict": "P1", "at": "2025-01-01T00:00:00+09:00"}},
             "code_reviews": {},
-            "disputes": [{"reviewer": "leibniz", "status": "pending", "phase": "design",
+            "disputes": [{"reviewer": "pascal", "status": "pending", "phase": "design",
                           "filed_verdict": "P1", "reason": "テスト理由"}],
         }]
         data = self._make_pipeline_data(batch=batch)
@@ -957,7 +958,7 @@ class TestDisputeNudgeIntegration:
 
         assert len(captured) == 1, f"Expected 1 send, got {len(captured)}: {captured}"
         reviewer, msg = captured[0]
-        assert reviewer == "leibniz"
+        assert reviewer == "pascal"
         assert "【異議申し立て — 回答催促】" in msg
         assert "テスト理由" in msg
         assert "--force" in msg
@@ -1007,14 +1008,15 @@ class TestDisputeNudgeIntegration:
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
 
-        # Issue 1: leibniz が P1、dispute pending
-        # Issue 2: leibniz 未レビュー (normal pending)
+        # review_mode="min": members=["pascal"], min_reviews=1
+        # Issue 1: pascal が P1、dispute pending
+        # Issue 2: pascal 未レビュー (normal pending)
         batch = [
             {
                 "issue": 1,
-                "design_reviews": {"leibniz": {"verdict": "P1", "at": "2025-01-01T00:00:00+09:00"}},
+                "design_reviews": {"pascal": {"verdict": "P1", "at": "2025-01-01T00:00:00+09:00"}},
                 "code_reviews": {},
-                "disputes": [{"reviewer": "leibniz", "status": "pending", "phase": "design",
+                "disputes": [{"reviewer": "pascal", "status": "pending", "phase": "design",
                               "filed_verdict": "P1", "reason": "複合理由"}],
             },
             {
@@ -1041,11 +1043,11 @@ class TestDisputeNudgeIntegration:
              patch("watchdog.notify_discord"):
             process(path)
 
-        # leibniz に対して1回だけ送信されること
-        leibniz_calls = [(r, m) for r, m in captured if r == "leibniz"]
-        assert len(leibniz_calls) == 1, \
-            f"Expected 1 send to leibniz, got {len(leibniz_calls)}"
-        msg = leibniz_calls[0][1]
+        # pascal に対して1回だけ送信されること
+        pascal_calls = [(r, m) for r, m in captured if r == "pascal"]
+        assert len(pascal_calls) == 1, \
+            f"Expected 1 send to pascal, got {len(pascal_calls)}"
+        msg = pascal_calls[0][1]
         # 両セクションが1通に含まれること
         assert "【異議申し立て — 回答催促】" in msg
         assert "[Remind]" in msg

@@ -167,23 +167,20 @@ class TestCheckSpecReview:
 
     def test_p0_triggers_revise(self):
         """P0 あり → SPEC_REVISE。"""
-        sc = self._base_config(["pascal", "leibniz", "dijkstra"])
-        for r in ["pascal", "leibniz", "dijkstra"]:
+        reviewers = ["pascal", "dijkstra", "euler", "basho"]
+        sc = self._base_config(reviewers)
+        for r in reviewers:
             sc["review_requests"][r]["status"] = "received"
             sc["review_requests"][r]["sent_at"] = _now().isoformat()
         sc["current_reviews"]["entries"]["pascal"] = {
             "verdict": "P0", "items": [], "raw_text": "",
             "parse_success": True, "status": "received",
         }
-        sc["current_reviews"]["entries"]["leibniz"] = {
-            "verdict": "APPROVE", "items": [], "raw_text": "",
-            "parse_success": True, "status": "received",
-        }
-        sc["current_reviews"]["entries"]["dijkstra"] = {
-            "verdict": "APPROVE", "items": [], "raw_text": "",
-            "parse_success": True, "status": "received",
-        }
-        sc["revise_count"] = 0
+        for r in ["dijkstra", "euler", "basho"]:
+            sc["current_reviews"]["entries"][r] = {
+                "verdict": "APPROVE", "items": [], "raw_text": "",
+                "parse_success": True, "status": "received",
+            }
         sc["max_revise_cycles"] = 5
         data = {"project": "test", "review_mode": "full"}
         action = _check_spec_review(sc, _now(), data)

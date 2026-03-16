@@ -191,7 +191,7 @@ class TestFormatReviewRequest:
         assert "--reviewer leibniz" in result
 
     def test_command_structure(self):
-        """生成コマンドが python3 <DEVBAR_CLI> review ... 形式であること。"""
+        """生成コマンドが <DEVBAR_CLI> review ... 形式であること（python3 prefix なし）。"""
         import notify
         import config
         batch = [self._make_batch_item(5)]
@@ -199,7 +199,9 @@ class TestFormatReviewRequest:
             project="proj", state="DESIGN_REVIEW",
             batch=batch, gitlab="atakalive/proj", reviewer="hanfei",
         )
-        assert f"python3 {config.DEVBAR_CLI} review" in result
+        assert f"{config.DEVBAR_CLI} review" in result
+        # python3 prefix がないことを確認
+        assert f"python3 {config.DEVBAR_CLI} review" not in result
 
 
 class TestNotifyImplementer:

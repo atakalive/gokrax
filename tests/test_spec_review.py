@@ -218,36 +218,35 @@ class TestValidateReceivedEntry:
 # --- should_continue_review ---
 
 class TestShouldContinueReview:
-    def _config(self, entries, revise_count=0, max_cycles=5):
+    def _config(self, entries, rev_index=0, max_revise_cycles=5):
         return {
             "current_reviews": {"entries": entries},
-            "revise_count": revise_count,
-            "max_revise_cycles": max_cycles,
+            "rev_index": rev_index,
+            "max_revise_cycles": max_revise_cycles,
+        }
+
+    def _full_approve_entries(self):
+        """full mode (min_valid=4) の全員 APPROVE エントリ。"""
+        return {
+            "pascal": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
+            "dijkstra": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
+            "euler": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
+            "basho": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
         }
 
     def test_all_approve(self):
-        entries = {
-            "pascal": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
-            "leibniz": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
-            "dijkstra": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
-        }
+        entries = self._full_approve_entries()
         assert should_continue_review(self._config(entries), "full") == "approved"
 
     def test_one_p0(self):
-        entries = {
-            "pascal": {"status": "received", "verdict": "P0", "items": [], "parse_success": True},
-            "leibniz": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
-            "dijkstra": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
-        }
+        entries = self._full_approve_entries()
+        entries["pascal"]["verdict"] = "P0"
         assert should_continue_review(self._config(entries), "full") == "revise"
 
     def test_max_reached_stalled(self):
-        entries = {
-            "pascal": {"status": "received", "verdict": "P1", "items": [], "parse_success": True},
-            "leibniz": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
-            "dijkstra": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
-        }
-        cfg = self._config(entries, revise_count=5, max_cycles=5)
+        entries = self._full_approve_entries()
+        entries["pascal"]["verdict"] = "P1"
+        cfg = self._config(entries, rev_index=5, max_revise_cycles=5)
         assert should_continue_review(cfg, "full") == "stalled"
 
     def test_all_timeout_failed(self):
@@ -296,19 +295,17 @@ class TestShouldContinueReview:
         """received >= min_valid かつ parsed_fail > 0 → 通常判定続行（Leibniz P0-5）"""
         entries = {
             "pascal": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
-            "leibniz": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
             "dijkstra": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
+            "euler": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
+            "basho": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
             "hanfei": {"status": "parse_failed"},
         }
         assert should_continue_review(self._config(entries), "full") == "approved"
 
-    def test_missing_revise_count_raises(self):
-        """revise_count 欠落 → KeyError（Dijkstra P1-2）"""
-        entries = {
-            "pascal": {"status": "received", "verdict": "P1", "items": [], "parse_success": True},
-            "leibniz": {"status": "received", "verdict": "P1", "items": [], "parse_success": True},
-            "dijkstra": {"status": "received", "verdict": "P1", "items": [], "parse_success": True},
-        }
+    def test_missing_rev_index_raises(self):
+        """rev_index 欠落 → KeyError（Dijkstra P1-2）"""
+        entries = self._full_approve_entries()
+        entries["pascal"]["verdict"] = "P1"
         cfg = {"current_reviews": {"entries": entries}}
         with pytest.raises(KeyError):
             should_continue_review(cfg, "full")

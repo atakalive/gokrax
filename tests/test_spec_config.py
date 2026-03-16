@@ -54,7 +54,7 @@ class TestSpecConstants:
 
     def test_min_valid_reviews_by_mode(self):
         assert config.MIN_VALID_REVIEWS_BY_MODE == {
-            "full": 3, "standard": 2, "lite": 2, "min": 1, "lite3": 3, "lite3_woGoogle": 3, "skip": 0,
+            "full": 4, "standard": 3, "lite": 2, "min": 1, "lite3": 3, "lite3_woGoogle": 3, "skip": 0,
         }
 
     def test_timeouts(self):

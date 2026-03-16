@@ -458,8 +458,8 @@ class TestKeepCtx:
         assert "keep_ctx_intra" not in data
         assert "keep_context" not in data
 
-    def test_idle_cleanup_preserves_cc_session_id(self, tmp_pipelines, sample_pipeline):
-        """IDLE遷移で cc_session_id は pop されない（次バッチ再利用のため）。"""
+    def test_idle_cleanup_removes_cc_session_id(self, tmp_pipelines, sample_pipeline):
+        """IDLE遷移で cc_session_id は pop される（セッション再利用しない）。"""
         sample_pipeline["state"] = "DONE"
         sample_pipeline["cc_session_id"] = "test-session-456"
         sample_pipeline["batch"] = [{"issue": 1, "title": "T"}]
@@ -473,7 +473,7 @@ class TestKeepCtx:
             cmd_transition(args)
         with open(path) as f:
             data = json.load(f)
-        assert data.get("cc_session_id") == "test-session-456"
+        assert data.get("cc_session_id") is None
 
     def test_legacy_keep_context_normalization(self):
         """旧 keep_context=True → keep_ctx_batch + keep_ctx_intra に正規化。"""

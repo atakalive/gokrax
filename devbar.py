@@ -1701,7 +1701,6 @@ def cmd_spec_start(args):
         from watchdog import _reset_reviewers
         excluded = _reset_reviewers(review_mode, implementer=args.implementer or "")
         # excluded から純粋なレビュアーのみ抽出（implementer を除外計算に含めない）
-        from watchdog import REVIEW_MODES
         mode_config = REVIEW_MODES.get(review_mode, REVIEW_MODES["standard"])
         excluded_reviewers_only = [r for r in excluded if r in mode_config["members"]]
         if excluded_reviewers_only:

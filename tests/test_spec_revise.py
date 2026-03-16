@@ -86,7 +86,7 @@ class TestGetSelfReviewAgent:
 
     def test_fallback(self):
         sc = {"review_requests": {}}
-        assert get_self_review_agent(sc) == "pascal"
+        assert get_self_review_agent(sc) == "kaneko"
 
 
 # --- parse_revise_response ---
@@ -259,7 +259,7 @@ class TestBuildReviseCompletionUpdates:
             "spec_path": "/repo/docs/foo-spec-rev2.md",
             "current_rev": "2",
             "rev_index": 2,
-            "revise_count": 1,
+            "rev_index": 1,
             "review_history": [],
             "current_reviews": {
                 "entries": {
@@ -283,7 +283,7 @@ class TestBuildReviseCompletionUpdates:
         assert updates["last_commit"] == "new456"
         assert updates["current_rev"] == "3"
         assert updates["rev_index"] == 3
-        assert updates["revise_count"] == 2
+        assert updates["rev_index"] == 2
         assert len(updates["review_history"]) == 1
         assert updates["current_reviews"] == {"entries": {}}
         assert updates["_revise_retry_at"] is None
@@ -293,7 +293,7 @@ class TestBuildReviseCompletionUpdates:
     def test_preserves_existing_history(self):
         sc = {
             "spec_path": "/repo/docs/foo-spec-rev1.md",
-            "current_rev": "1", "rev_index": 1, "revise_count": 0,
+            "current_rev": "1", "rev_index": 1, "rev_index": 0,
             "review_history": [{"rev": "0", "timestamp": "old"}],
             "current_reviews": {"entries": {}},
         }
@@ -304,13 +304,13 @@ class TestBuildReviseCompletionUpdates:
     def test_does_not_mutate_spec_config(self):
         sc = {
             "spec_path": "/repo/docs/foo-spec-rev1.md",
-            "current_rev": "1", "rev_index": 1, "revise_count": 0,
+            "current_rev": "1", "rev_index": 1, "rev_index": 0,
             "review_history": [], "current_reviews": {"entries": {}},
         }
         revise_data = {"new_rev": "2", "commit": "abc", "changes": {}}
         build_revise_completion_updates(sc, revise_data, _now())
         assert sc["current_rev"] == "1"  # 変更されていない
-        assert sc["revise_count"] == 0
+        assert sc["rev_index"] == 0
 
 
 # ---------------------------------------------------------------------------
@@ -367,7 +367,7 @@ class TestBuildReviseCompletionUpdatesEmptySpecPath:
         """spec_path 空文字 → ValueError（Pascal P1 / Leibniz P1-2）"""
         sc = {
             "spec_path": "",
-            "current_rev": "1", "rev_index": 1, "revise_count": 0,
+            "current_rev": "1", "rev_index": 1, "rev_index": 0,
             "review_history": [], "current_reviews": {"entries": {}},
         }
         revise_data = {"new_rev": "2", "commit": "abc1234",
@@ -382,7 +382,7 @@ class TestBuildReviseCompletionUpdatesSpecPath:
             "spec_path": "/repo/docs/testgen-surface-spec.md",
             "current_rev": "1",
             "rev_index": 1,
-            "revise_count": 0,
+            "rev_index": 0,
             "review_history": [],
             "review_requests": {},
             "current_reviews": {"entries": {}},

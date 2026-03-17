@@ -432,18 +432,6 @@ def get_notification_for_state(
 
     # 現在はシステム側でCCを動かしているため使っていないが、残しておく
     if state == "IMPLEMENTATION":
-        issues_str = ", ".join(
-            f"#{i['issue']}" for i in batch if not i.get("commit")
-        ) or "（全Issue）"
-        msg = (
-            f"[devbar] {project}: 実装フェーズ\n"
-            f"— あなた（実装担当）がClaude Codeを使用して全ての対象Issueを一括で Plan => Impl して、devbarに完了報告してください。\n"
-            f"対象Issue: {issues_str}\n"
-            f"手順:\n"
-            f"1. `claude --model {CC_MODEL_PLAN}` で、全対象Issueをまとめて設計確認（Plan）\n"
-            f"2. `claude --model {CC_MODEL_IMPL}` で、全対象Issueをまとめて実装（Impl）\n"
-            f"3. 完了後: `{DEVBAR_CLI} commit --project {project} --issue N [N...] --hash <commit>`"
-        )
         return TransitionAction(run_cc=True, reset_reviewers=True)
 
     return TransitionAction()
@@ -797,21 +785,8 @@ def _start_cc(project: str, batch: list, gitlab: str, repo_path: str, pipeline_p
     comment = data.get("comment", "")
     from config import OWNER_NAME as _owner
     comment_line = f"{_owner}からの要望: {comment}\n\n" if comment else ""
-    plan_prompt = (
-        f"以下のIssueを実装する計画を立ててください。\n"
-        f"{comment_line}"
-        f"\n{issues_block}\n\n"
-        f"コミットメッセージに {closes} を必ず含めること。\n\n"
-        f"計画を立てた後、最後に以下のフォーマットで実装申し送りを出力せよ:\n\n"
-        f"## 実装申し送り\n"
-        f"### 変更対象\n"
-        f"- ファイルパスと変更内容（箇条書き）\n\n"
-        f"### 触るな\n"
-        f"- 既存コードで変更してはいけない箇所・理由\n\n"
-        f"### 罠・エッジケース\n"
-        f"- 実装時に注意すべき点（見つけたもの全て）\n\n"
-        f"### テスト観点\n"
-        f"- テストすべきケース（正常系・異常系・境界値）"
+    plan_prompt = render("dev.implementation", "cc_plan",
+        issues_block=issues_block, closes=closes, comment_line=comment_line,
     )
     # Issue #92: テストベースライン埋め込み
     test_baseline_section = ""
@@ -829,17 +804,12 @@ def _start_cc(project: str, batch: list, gitlab: str, repo_path: str, pipeline_p
                 if len(bl_output) > MAX_BASELINE_EMBED_CHARS:
                     bl_output = "(truncated)\n..." + bl_output[-(MAX_BASELINE_EMBED_CHARS - 20):]
                 if bl_exit == 0:
-                    test_baseline_section = (
-                        "\n\n## テストベースライン（impl 開始前の状態）\n"
-                        f"exit_code: 0 (全パス)\n\n{bl_output}\n\n"
-                        "あなたの変更でテストを壊さないこと。"
+                    test_baseline_section = render("dev.implementation", "test_baseline_pass",
+                        bl_output=bl_output,
                     )
                 else:
-                    test_baseline_section = (
-                        "\n\n## テストベースライン（impl 開始前の状態）\n"
-                        f"exit_code: {bl_exit} (一部失敗)\n\n{bl_output}\n\n"
-                        "⚠️ 上記の失敗は impl 開始前から存在するもの。\n"
-                        "あなたの変更で新たに壊してはいけない。"
+                    test_baseline_section = render("dev.implementation", "test_baseline_fail",
+                        bl_exit=bl_exit, bl_output=bl_output,
                     )
                 log(f"[{project}] test baseline embedded (exit_code={bl_exit})")
             else:
@@ -848,25 +818,17 @@ def _start_cc(project: str, batch: list, gitlab: str, repo_path: str, pipeline_p
             log(f"[{project}] WARNING: test baseline embed failed: {e}")
 
     if skip_plan:
-        scope_warning = (
-            "\n\n⚠️ スコープ厳守: Issue本文に記載された変更対象ファイル・変更内容のみを実装せよ。"
-            "「変更しないファイル」に記載されたファイルは絶対に変更するな。"
-            "Issue本文に記載のない改善・リファクタ・バグ修正は一切行うな。"
-        )
-        impl_prompt = (
-            f"以下のIssueを実装してください。\n"
-            f"{comment_line}"
-            f"\n{issues_block}\n\n"
-            f"コミットメッセージに {closes} を必ず含めること。"
-            f"{scope_warning}"
-            f"{test_baseline_section}"
+        scope_warning = render("dev.implementation", "scope_warning_skip_plan")
+        impl_prompt = render("dev.implementation", "cc_impl_skip_plan",
+            issues_block=issues_block, closes=closes, comment_line=comment_line,
+            scope_warning=scope_warning, test_baseline_section=test_baseline_section,
         )
     else:
-        scope_warning = (
-            "\n\n⚠️ スコープ厳守: Issue本文に記載された変更のみを実装せよ。"
-            "Issue本文に記載のない改善・リファクタ・バグ修正は一切行うな。"
+        scope_warning = render("dev.implementation", "scope_warning_normal")
+        impl_prompt = render("dev.implementation", "cc_impl_resume",
+            closes=closes, scope_warning=scope_warning,
+            test_baseline_section=test_baseline_section,
         )
-        impl_prompt = f"計画OK。実装して commit して。コミットメッセージに {closes} を必ず含めること。{scope_warning}{test_baseline_section}"
 
     # mkstemp で安全に一時ファイル作成
     plan_path: str | None = None
@@ -2970,10 +2932,7 @@ def process(path: Path):
             elif nudge_state == "DESIGN_PLAN":
                 nudge_msg = render("dev.design_plan", "nudge")
             elif nudge_state == "IMPLEMENTATION":
-                nudge_msg = (
-                    "[Remind] 実装を進め、完了してください。\n"
-                    "devbar commit --pj <project> --issue <N> --hash <commit> でコミットを報告してください。"
-                )
+                nudge_msg = render("dev.implementation", "nudge")
             else:
                 nudge_msg = "[Remind] 作業を進め、完了してください。"
 

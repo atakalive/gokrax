@@ -116,6 +116,14 @@ def cc_commit_retry(closes: str, **_kw) -> str:
     )
 
 
+def nudge(**_kw) -> str:
+    """IMPLEMENTATION 催促メッセージ。"""
+    return (
+        "[Remind] 実装を進め、完了してください。\n"
+        "devbar commit --pj <project> --issue <N> --hash <commit> でコミットを報告してください。"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Discord通知（CC進捗、bashスクリプト内の _notify 呼び出し用）
 # ---------------------------------------------------------------------------

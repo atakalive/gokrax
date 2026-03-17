@@ -565,3 +565,94 @@ class TestSpecNotifyFunctionsParity:
         new = render("spec.revise", "notify_self_review_failed",
             project="MyProj", failed_count=3)
         assert old == new
+
+
+# ---------------------------------------------------------------------------
+# dev mode: merge_summary_sent — language-independent tests
+# ---------------------------------------------------------------------------
+
+class TestDevMergeSummaryMessages:
+    """format_merge_summary の分岐テスト（言語非依存）。"""
+
+    @staticmethod
+    def _make_batch():
+        return [{"issue": 1, "title": "Test", "commit": "abc123",
+                 "code_reviews": {"reviewer1": {"verdict": "APPROVE", "summary": "ok"}}}]
+
+    def test_automerge_excludes_footer(self):
+        """automerge=True → MERGE_SUMMARY_FOOTER が含まれない"""
+        from config import MERGE_SUMMARY_FOOTER
+        content = render("dev.merge_summary_sent", "format_merge_summary",
+            project="P", batch=self._make_batch(), automerge=True,
+            MERGE_SUMMARY_FOOTER=MERGE_SUMMARY_FOOTER,
+        )
+        assert MERGE_SUMMARY_FOOTER not in content
+
+    def test_no_automerge_includes_footer(self):
+        """automerge=False → MERGE_SUMMARY_FOOTER がそのまま含まれる"""
+        from config import MERGE_SUMMARY_FOOTER
+        content = render("dev.merge_summary_sent", "format_merge_summary",
+            project="P", batch=self._make_batch(), automerge=False,
+            MERGE_SUMMARY_FOOTER=MERGE_SUMMARY_FOOTER,
+        )
+        assert MERGE_SUMMARY_FOOTER in content
+
+    def test_automerge_and_no_automerge_differ(self):
+        """automerge フラグで出力が分岐する"""
+        from config import MERGE_SUMMARY_FOOTER
+        batch = self._make_batch()
+        on = render("dev.merge_summary_sent", "format_merge_summary",
+            project="P", batch=batch, automerge=True,
+            MERGE_SUMMARY_FOOTER=MERGE_SUMMARY_FOOTER,
+        )
+        off = render("dev.merge_summary_sent", "format_merge_summary",
+            project="P", batch=batch, automerge=False,
+            MERGE_SUMMARY_FOOTER=MERGE_SUMMARY_FOOTER,
+        )
+        assert on != off
+
+    def test_queue_mode_prefix(self):
+        """queue_mode=True → プロジェクト名の前に [Queue] が付く"""
+        from config import MERGE_SUMMARY_FOOTER
+        content = render("dev.merge_summary_sent", "format_merge_summary",
+            project="P", batch=self._make_batch(), queue_mode=True,
+            MERGE_SUMMARY_FOOTER=MERGE_SUMMARY_FOOTER,
+        )
+        assert "[Queue]" in content
+
+    def test_no_queue_mode_no_prefix(self):
+        """queue_mode=False → [Queue] が含まれない"""
+        from config import MERGE_SUMMARY_FOOTER
+        content = render("dev.merge_summary_sent", "format_merge_summary",
+            project="P", batch=self._make_batch(), queue_mode=False,
+            MERGE_SUMMARY_FOOTER=MERGE_SUMMARY_FOOTER,
+        )
+        assert "[Queue]" not in content
+
+    def test_batch_items_in_output(self):
+        """バッチの issue番号・commit が出力に含まれる"""
+        from config import MERGE_SUMMARY_FOOTER
+        batch = [{"issue": 42, "title": "Fix bug", "commit": "def456"}]
+        content = render("dev.merge_summary_sent", "format_merge_summary",
+            project="P", batch=batch, MERGE_SUMMARY_FOOTER=MERGE_SUMMARY_FOOTER,
+        )
+        assert "#42" in content
+        assert "def456" in content
+
+    def test_verdict_emoji_mapping(self):
+        """各verdict値に対応する絵文字が出力される"""
+        from config import MERGE_SUMMARY_FOOTER
+        batch = [{"issue": 1, "title": "T", "commit": "c",
+                  "code_reviews": {
+                      "r1": {"verdict": "APPROVE", "summary": ""},
+                      "r2": {"verdict": "P0", "summary": ""},
+                      "r3": {"verdict": "P1", "summary": ""},
+                      "r4": {"verdict": "P2", "summary": ""},
+                  }}]
+        content = render("dev.merge_summary_sent", "format_merge_summary",
+            project="P", batch=batch, MERGE_SUMMARY_FOOTER=MERGE_SUMMARY_FOOTER,
+        )
+        assert "🟢" in content  # APPROVE
+        assert "🔴" in content  # P0
+        assert "🟡" in content  # P1
+        assert "🔵" in content  # P2

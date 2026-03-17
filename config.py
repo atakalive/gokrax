@@ -52,7 +52,7 @@ JST = timezone(timedelta(hours=9))
 MAX_BATCH = 5
 MAX_HISTORY = 100
 MIN_REVIEWS = 3
-MAX_REVISE_CYCLES = 3  # REVISE→REVIEWの最大サイクル数
+MAX_REVISE_CYCLES = 4  # REVISE→REVIEWの最大サイクル数
 VALID_VERDICTS = ["APPROVE", "P0", "P1", "P2", "REJECT"]
 VALID_FLAG_VERDICTS = ["P0", "P1", "P2"]
 

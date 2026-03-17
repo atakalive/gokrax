@@ -191,7 +191,7 @@ def cmd_spec_start(args):
 
     update_pipeline(path, do_start)
     if not skip_review:
-        from watchdog import _reset_reviewers
+        from engine.reviewer import _reset_reviewers
         excluded = _reset_reviewers(review_mode, implementer=args.implementer or "")
         # excluded から純粋なレビュアーのみ抽出（implementer を除外計算に含めない）
         mode_config = REVIEW_MODES.get(review_mode, REVIEW_MODES["standard"])

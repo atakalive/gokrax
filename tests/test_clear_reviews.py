@@ -8,7 +8,7 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from watchdog import clear_reviews
+from engine.reviewer import clear_reviews
 
 
 class TestClearReviews:

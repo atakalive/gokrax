@@ -1260,36 +1260,36 @@ class TestCleanupReviewFiles:
 
     def test_removes_project_files_only(self, tmp_path, monkeypatch):
         """当該プロジェクトのファイルのみ削除されること（ダブルハイフンセパレータ）"""
-        import watchdog
+        import engine.reviewer
         monkeypatch.setattr(config, "REVIEW_FILE_DIR", tmp_path)
         (tmp_path / "projA--pascal-uuid1.md").write_text("a")
         (tmp_path / "projA--euler-uuid2.md").write_text("b")
         (tmp_path / "projB--pascal-uuid3.md").write_text("c")
-        watchdog._cleanup_review_files("projA")
+        engine.reviewer._cleanup_review_files("projA")
         remaining = sorted(f.name for f in tmp_path.iterdir())
         assert remaining == ["projB--pascal-uuid3.md"]
 
     def test_no_prefix_collision_cleanup(self, tmp_path, monkeypatch):
         """プレフィックスが部分一致するプロジェクトのファイルを誤削除しないこと"""
-        import watchdog
+        import engine.reviewer
         monkeypatch.setattr(config, "REVIEW_FILE_DIR", tmp_path)
         (tmp_path / "foo--pascal-uuid1.md").write_text("a")
         (tmp_path / "foo-bar--pascal-uuid2.md").write_text("b")
-        watchdog._cleanup_review_files("foo")
+        engine.reviewer._cleanup_review_files("foo")
         remaining = sorted(f.name for f in tmp_path.iterdir())
         assert remaining == ["foo-bar--pascal-uuid2.md"]
 
     def test_directory_not_exists(self, tmp_path, monkeypatch):
         """ディレクトリが存在しない場合にエラーにならないこと"""
-        import watchdog
+        import engine.reviewer
         monkeypatch.setattr(config, "REVIEW_FILE_DIR", tmp_path / "nonexistent")
-        watchdog._cleanup_review_files("proj")  # no error
+        engine.reviewer._cleanup_review_files("proj")  # no error
 
     def test_directory_preserved(self, tmp_path, monkeypatch):
         """ディレクトリ自体は削除されないこと"""
-        import watchdog
+        import engine.reviewer
         monkeypatch.setattr(config, "REVIEW_FILE_DIR", tmp_path)
         (tmp_path / "proj--pascal-uuid.md").write_text("x")
-        watchdog._cleanup_review_files("proj")
+        engine.reviewer._cleanup_review_files("proj")
         assert tmp_path.exists()
         assert tmp_path.is_dir()

@@ -87,7 +87,7 @@ class TestPendingWrittenOnTransition:
         with patch("watchdog.notify_implementer"), \
              patch("watchdog.notify_reviewers", side_effect=capture_pending), \
              patch("watchdog.notify_discord"), \
-             patch("watchdog._reset_reviewers", return_value=[]):
+             patch("engine.reviewer._reset_reviewers", return_value=[]):
             process(path)
 
         # notify_reviewers 呼び出し時点で pending.review が存在していた
@@ -115,7 +115,7 @@ class TestPendingClearedAfterNotification:
         with patch("watchdog.notify_implementer"), \
              patch("watchdog.notify_reviewers"), \
              patch("watchdog.notify_discord"), \
-             patch("watchdog._reset_reviewers", return_value=[]):
+             patch("engine.reviewer._reset_reviewers", return_value=[]):
             process(path)
 
         result = _read_pipeline(path)
@@ -269,7 +269,7 @@ class TestCliTransitionPendingAtomic:
              patch("devbar.notify_implementer"), \
              patch("devbar.notify_reviewers"), \
              patch("devbar.notify_discord"), \
-             patch("watchdog._reset_reviewers", return_value=[]):
+             patch("engine.reviewer._reset_reviewers", return_value=[]):
             cmd_transition(args)
 
         # callback 内で state と pending が同時に書かれている
@@ -307,7 +307,7 @@ class TestCliTransitionPendingCleared:
         with patch("devbar.notify_implementer"), \
              patch("devbar.notify_reviewers"), \
              patch("devbar.notify_discord"), \
-             patch("watchdog._reset_reviewers", return_value=[]):
+             patch("engine.reviewer._reset_reviewers", return_value=[]):
             cmd_transition(args)
 
         result = _read_pipeline(path)

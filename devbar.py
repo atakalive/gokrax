@@ -458,7 +458,8 @@ def _reset_to_idle(data: dict) -> None:
     spec_mode のクリーンアップは行わない（それは cmd_spec_stop の責務）。
     """
     # --- リソース解放（pop より先に実行）---
-    from watchdog import _kill_pytest_baseline, _cleanup_review_files
+    from watchdog import _kill_pytest_baseline
+    from engine.reviewer import _cleanup_review_files
     pj = data.get("project", "")
     _kill_pytest_baseline(data, pj)
     _cleanup_review_files(pj)
@@ -633,7 +634,7 @@ def cmd_transition(args):
         if skip_reset:
             print(f"[{pj}] reset_reviewers SKIPPED (keep_ctx for {args.to})")
         else:
-            from watchdog import _reset_reviewers
+            from engine.reviewer import _reset_reviewers
             impl = ""
             if args.to == "DESIGN_PLAN":
                 from config import DEVBAR_STATE_PATH

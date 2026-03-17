@@ -541,8 +541,8 @@ class TestCmdReviewDisputeAutoResolve:
 class TestAwaitingDisputeReReview:
 
     def _call(self, batch, review_key="design_reviews"):
-        import watchdog
-        return watchdog._awaiting_dispute_re_review(batch, review_key)
+        import engine.reviewer
+        return engine.reviewer._awaiting_dispute_re_review(batch, review_key)
 
     def test_no_disputes(self):
         batch = [{"issue": 1, "design_reviews": {}, "disputes": []}]
@@ -720,8 +720,8 @@ class TestAwaitingDisputeExcluded:
     """excluded_reviewers が _awaiting_dispute_re_review で除外されること"""
 
     def _call(self, batch, review_key="design_reviews", excluded=None):
-        import watchdog
-        return watchdog._awaiting_dispute_re_review(batch, review_key, excluded=excluded)
+        import engine.reviewer
+        return engine.reviewer._awaiting_dispute_re_review(batch, review_key, excluded=excluded)
 
     def test_excluded_reviewer_not_in_awaiting(self):
         """excluded に入ったレビュアーの pending dispute は awaiting に含まれない"""

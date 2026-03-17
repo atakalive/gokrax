@@ -3375,7 +3375,7 @@ class TestFlag:
 
     def test_flag_does_not_count_as_review(self):
         """Flags do not count toward min_reviews"""
-        from watchdog import count_reviews
+        from engine.reviewer import count_reviews
 
         batch = [{
             "issue": 1,
@@ -3546,7 +3546,7 @@ class TestVerdictObligation:
 
     def test_count_reviews_returns_4_tuple(self):
         """count_reviews が (min_n, has_p0, has_p1, has_p2) の 4-tuple を返す"""
-        from watchdog import count_reviews
+        from engine.reviewer import count_reviews
 
         batch = [{
             "issue": 1,
@@ -3564,7 +3564,7 @@ class TestVerdictObligation:
 
     def test_count_reviews_no_p1_no_p2(self):
         """P1/P2 なしの場合"""
-        from watchdog import count_reviews
+        from engine.reviewer import count_reviews
 
         batch = [{
             "issue": 1,

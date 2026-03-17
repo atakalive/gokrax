@@ -326,7 +326,7 @@ class TestKeepCtx:
         args = argparse.Namespace(
             project="test-pj", to="DESIGN_PLAN", actor="cli", force=False, resume=False,
         )
-        with patch("watchdog._reset_reviewers") as mock_reset, \
+        with patch("engine.reviewer._reset_reviewers") as mock_reset, \
              patch("devbar.notify_implementer"), \
              patch("devbar.notify_reviewers"):
             cmd_transition(args)
@@ -341,7 +341,7 @@ class TestKeepCtx:
         args = argparse.Namespace(
             project="test-pj", to="DESIGN_PLAN", actor="cli", force=False, resume=False,
         )
-        with patch("watchdog._reset_reviewers", return_value=[]) as mock_reset, \
+        with patch("engine.reviewer._reset_reviewers", return_value=[]) as mock_reset, \
              patch("devbar.notify_implementer"), \
              patch("devbar.notify_reviewers"):
             cmd_transition(args)
@@ -358,7 +358,7 @@ class TestKeepCtx:
         args = argparse.Namespace(
             project="test-pj", to="IMPLEMENTATION", actor="cli", force=False, resume=False,
         )
-        with patch("watchdog._reset_reviewers") as mock_reset, \
+        with patch("engine.reviewer._reset_reviewers") as mock_reset, \
              patch("devbar.notify_implementer"), \
              patch("devbar.notify_reviewers"):
             cmd_transition(args)
@@ -374,7 +374,7 @@ class TestKeepCtx:
         args = argparse.Namespace(
             project="test-pj", to="IMPLEMENTATION", actor="cli", force=False, resume=False,
         )
-        with patch("watchdog._reset_reviewers", return_value=[]) as mock_reset, \
+        with patch("engine.reviewer._reset_reviewers", return_value=[]) as mock_reset, \
              patch("devbar.notify_implementer"), \
              patch("devbar.notify_reviewers"):
             cmd_transition(args)
@@ -390,7 +390,7 @@ class TestKeepCtx:
         args = argparse.Namespace(
             project="test-pj", to="DESIGN_PLAN", actor="cli", force=False, resume=False,
         )
-        with patch("watchdog._reset_reviewers", return_value=[]) as mock_reset, \
+        with patch("engine.reviewer._reset_reviewers", return_value=[]) as mock_reset, \
              patch("devbar.notify_implementer"), \
              patch("devbar.notify_reviewers"):
             cmd_transition(args)
@@ -407,7 +407,7 @@ class TestKeepCtx:
         args = argparse.Namespace(
             project="test-pj", to="IMPLEMENTATION", actor="cli", force=False, resume=False,
         )
-        with patch("watchdog._reset_reviewers", return_value=[]) as mock_reset, \
+        with patch("engine.reviewer._reset_reviewers", return_value=[]) as mock_reset, \
              patch("devbar.notify_implementer"), \
              patch("devbar.notify_reviewers"):
             cmd_transition(args)
@@ -430,7 +430,7 @@ class TestKeepCtx:
             args = argparse.Namespace(
                 project="test-pj", to=to_state, actor="cli", force=False, resume=False,
             )
-            with patch("watchdog._reset_reviewers") as mock_reset, \
+            with patch("engine.reviewer._reset_reviewers") as mock_reset, \
                  patch("devbar.notify_implementer"), \
                  patch("devbar.notify_reviewers"):
                 cmd_transition(args)

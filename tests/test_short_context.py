@@ -220,14 +220,14 @@ class TestResetShortContextReviewers:
     def test_keep_ctx_sends_new_to_short_context(self, monkeypatch):
         """keep_ctx=True + short-context tier メンバーがいるモードで /new が short-context メンバーに送信されること。"""
         import config
-        import watchdog
+        import engine.reviewer
 
         mode = self._setup(monkeypatch, short_ctx_members=["basho", "hanfei"], other_members=["regular1"])
         monkeypatch.setattr(config, "DRY_RUN", True)
 
-        with patch("watchdog.send_to_agent_queued", return_value=True) as mock_queued, \
-             patch("watchdog.log"):
-            watchdog._reset_short_context_reviewers(mode)
+        with patch("engine.reviewer.send_to_agent_queued", return_value=True) as mock_queued, \
+             patch("engine.reviewer.log"):
+            engine.reviewer._reset_short_context_reviewers(mode)
 
         assert call("basho", "/new") in mock_queued.call_args_list
         assert call("hanfei", "/new") in mock_queued.call_args_list
@@ -235,14 +235,14 @@ class TestResetShortContextReviewers:
     def test_keep_ctx_does_not_send_new_to_regular(self, monkeypatch):
         """regular/semi tier のメンバーには /new が送信されないこと。"""
         import config
-        import watchdog
+        import engine.reviewer
 
         mode = self._setup(monkeypatch, short_ctx_members=["basho"], other_members=["regular1", "semi1"])
         monkeypatch.setattr(config, "DRY_RUN", True)
 
-        with patch("watchdog.send_to_agent_queued", return_value=True) as mock_queued, \
-             patch("watchdog.log"):
-            watchdog._reset_short_context_reviewers(mode)
+        with patch("engine.reviewer.send_to_agent_queued", return_value=True) as mock_queued, \
+             patch("engine.reviewer.log"):
+            engine.reviewer._reset_short_context_reviewers(mode)
 
         sent_to = [c.args[0] for c in mock_queued.call_args_list]
         assert "regular1" not in sent_to
@@ -251,24 +251,24 @@ class TestResetShortContextReviewers:
     def test_no_short_context_members_noop(self, monkeypatch):
         """short-context メンバーがいないモードでは send_to_agent_queued が呼ばれないこと。"""
         import config
-        import watchdog
+        import engine.reviewer
 
         mode = self._setup(monkeypatch, short_ctx_members=[], other_members=["regular1"])
         monkeypatch.setattr(config, "DRY_RUN", True)
 
-        with patch("watchdog.send_to_agent_queued") as mock_queued, \
-             patch("watchdog.log"):
-            watchdog._reset_short_context_reviewers(mode)
+        with patch("engine.reviewer.send_to_agent_queued") as mock_queued, \
+             patch("engine.reviewer.log"):
+            engine.reviewer._reset_short_context_reviewers(mode)
 
         mock_queued.assert_not_called()
 
     def test_unknown_review_mode_warns(self, monkeypatch):
         """未知の review_mode を渡したとき warning ログを出して早期 return し send_to_agent_queued が呼ばれないこと。"""
-        import watchdog
+        import engine.reviewer
 
-        with patch("watchdog.send_to_agent_queued") as mock_queued, \
-             patch("watchdog.log") as mock_log:
-            watchdog._reset_short_context_reviewers("nonexistent_mode_xyz")
+        with patch("engine.reviewer.send_to_agent_queued") as mock_queued, \
+             patch("engine.reviewer.log") as mock_log:
+            engine.reviewer._reset_short_context_reviewers("nonexistent_mode_xyz")
 
         mock_queued.assert_not_called()
         log_messages = [str(c.args[0]) for c in mock_log.call_args_list]
@@ -277,29 +277,29 @@ class TestResetShortContextReviewers:
     def test_dry_run_skips_sleep(self, monkeypatch):
         """DRY_RUN=True 時に time.sleep が呼ばれないこと。"""
         import config
-        import watchdog
+        import engine.reviewer
 
         mode = self._setup(monkeypatch, short_ctx_members=["basho"])
         monkeypatch.setattr(config, "DRY_RUN", True)
 
-        with patch("watchdog.send_to_agent_queued", return_value=True), \
-             patch("watchdog.log"), \
+        with patch("engine.reviewer.send_to_agent_queued", return_value=True), \
+             patch("engine.reviewer.log"), \
              patch("time.sleep") as mock_sleep:
-            watchdog._reset_short_context_reviewers(mode)
+            engine.reviewer._reset_short_context_reviewers(mode)
 
         mock_sleep.assert_not_called()
 
     def test_non_dry_run_sleeps(self, monkeypatch):
         """DRY_RUN=False 時に time.sleep(POST_NEW_COMMAND_WAIT_SEC) が呼ばれること。"""
         import config
-        import watchdog
+        import engine.reviewer
 
         mode = self._setup(monkeypatch, short_ctx_members=["basho"])
         monkeypatch.setattr(config, "DRY_RUN", False)
 
-        with patch("watchdog.send_to_agent_queued", return_value=True), \
-             patch("watchdog.log"), \
+        with patch("engine.reviewer.send_to_agent_queued", return_value=True), \
+             patch("engine.reviewer.log"), \
              patch("time.sleep") as mock_sleep:
-            watchdog._reset_short_context_reviewers(mode)
+            engine.reviewer._reset_short_context_reviewers(mode)
 
         mock_sleep.assert_called_once_with(config.POST_NEW_COMMAND_WAIT_SEC)

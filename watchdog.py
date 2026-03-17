@@ -550,23 +550,13 @@ def _resolve_review_outcome(
         current_count = data.get(counter_key, 0) if data else 0
 
         if current_count >= MAX_REVISE_CYCLES:
-            # P0 あり → BLOCKED（P0 は免除されない）
-            if has_p0:
-                phase = "設計" if "DESIGN" in state else "コード"
-                return TransitionAction(
-                    new_state="BLOCKED",
-                    impl_msg=(
-                        f"{phase}レビューサイクルが上限（{MAX_REVISE_CYCLES}回）に達しました。\n"
-                        f"P0の指摘が解消されていません。手動で対応してください。Discordで{OWNER_NAME}に報告してください。"
-                    ),
-                )
-            # P0 なし + P1 あり → BLOCKED（P0/P1 いずれも免除しない）
-            phase = "設計" if "DESIGN" in state else "コード"
+            severity = "P0" if has_p0 else "P1"
+            # P0/P1 あり → BLOCKED（いずれも免除しない）
             return TransitionAction(
                 new_state="BLOCKED",
-                impl_msg=(
-                    f"{phase}レビューサイクルが上限（{MAX_REVISE_CYCLES}回）に達しました。\n"
-                    f"P1の指摘が解消されていません。手動で対応してください。Discordで{OWNER_NAME}に報告してください。"
+                impl_msg=render("dev.blocked", "blocked_max_cycles",
+                    state=state, MAX_REVISE_CYCLES=MAX_REVISE_CYCLES,
+                    OWNER_NAME=OWNER_NAME, severity=severity,
                 ),
             )
 

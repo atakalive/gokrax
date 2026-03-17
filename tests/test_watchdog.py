@@ -3615,15 +3615,16 @@ class TestVerdictObligation:
         action = _resolve_review_outcome("CODE_REVIEW", data, batch, has_p0=False, has_p1=True, has_p2=False)
         assert action.new_state == "CODE_REVISE"
 
-    def test_resolve_review_outcome_p1_max_cycles_approve(self):
-        """P1あり + max cycles → APPROVE（フォールバック）"""
+    def test_resolve_review_outcome_p1_max_cycles_blocked(self):
+        """P1あり + max cycles → BLOCKED"""
         from watchdog import _resolve_review_outcome
         from config import MAX_REVISE_CYCLES
 
         batch = [{"issue": 1, "design_reviews": {"a": {"verdict": "P1"}}}]
         data = {"project": "Foo", "design_revise_count": MAX_REVISE_CYCLES}
         action = _resolve_review_outcome("DESIGN_REVIEW", data, batch, has_p0=False, has_p1=True, has_p2=False)
-        assert action.new_state == "DESIGN_APPROVED"
+        assert action.new_state == "BLOCKED"
+        assert "P1" in action.impl_msg
 
     def test_resolve_review_outcome_p0_max_cycles_blocked(self):
         """P0あり + max cycles → BLOCKED（従来通り）"""

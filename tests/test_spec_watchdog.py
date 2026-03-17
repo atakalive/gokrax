@@ -12,7 +12,7 @@ sys.path.insert(0, str(ROOT))
 
 import os
 
-from watchdog import (
+from engine.fsm_spec import (
     SpecTransitionAction,
     check_transition_spec,
     _check_spec_review,
@@ -260,8 +260,8 @@ class TestApplySpecAction:
             next_state="SPEC_REVISE",
             expected_state="SPEC_REVIEW",  # 不一致
         )
-        with patch("watchdog.send_to_agent_queued"), \
-             patch("watchdog.notify_discord"):
+        with patch("engine.fsm_spec.send_to_agent_queued"), \
+             patch("engine.fsm_spec.notify_discord"):
             _apply_spec_action(pj_path, action, _now(), pj_data)
 
         result = json.loads(pj_path.read_text())
@@ -284,8 +284,8 @@ class TestApplySpecAction:
             next_state="SPEC_APPROVED",
             expected_state="SPEC_REVIEW",
         )
-        with patch("watchdog.send_to_agent_queued") as mock_send, \
-             patch("watchdog.notify_discord") as mock_discord:
+        with patch("engine.fsm_spec.send_to_agent_queued") as mock_send, \
+             patch("engine.fsm_spec.notify_discord") as mock_discord:
             _apply_spec_action(pj_path, action, _now(), pj_data)
 
         result = json.loads(pj_path.read_text())
@@ -425,10 +425,10 @@ class TestApplySpecActionCleanup:
                 expected_state="SPEC_REVIEW",
             )
             mocked_action = SpecTransitionAction(next_state=state)
-            with patch("watchdog.check_transition_spec", return_value=mocked_action), \
-                 patch("watchdog.send_to_agent_queued"), \
-                 patch("watchdog.notify_discord"), \
-                 patch("watchdog._cleanup_expired_spec_files") as mock_cleanup:
+            with patch("engine.fsm_spec.check_transition_spec", return_value=mocked_action), \
+                 patch("engine.fsm_spec.send_to_agent_queued"), \
+                 patch("engine.fsm_spec.notify_discord"), \
+                 patch("engine.fsm_spec._cleanup_expired_spec_files") as mock_cleanup:
                 _apply_spec_action(pj_path, action, _now(), orig_data)
             assert mock_cleanup.call_count == 1, \
                 f"cleanup not called for terminal state {state}"
@@ -443,10 +443,10 @@ class TestApplySpecActionCleanup:
             expected_state="SPEC_DONE",
         )
         mocked_action = SpecTransitionAction(next_state="IDLE")
-        with patch("watchdog.check_transition_spec", return_value=mocked_action), \
-             patch("watchdog.send_to_agent_queued"), \
-             patch("watchdog.notify_discord"), \
-             patch("watchdog._cleanup_expired_spec_files") as mock_cleanup, \
+        with patch("engine.fsm_spec.check_transition_spec", return_value=mocked_action), \
+             patch("engine.fsm_spec.send_to_agent_queued"), \
+             patch("engine.fsm_spec.notify_discord"), \
+             patch("engine.fsm_spec._cleanup_expired_spec_files") as mock_cleanup, \
              patch("watchdog._check_queue"):
             _apply_spec_action(pj_path, action, _now(), {"spec_config": {"pipelines_dir": pd_str}})
         assert mock_cleanup.call_count == 1
@@ -461,10 +461,10 @@ class TestApplySpecActionCleanup:
             expected_state="SPEC_REVIEW",
         )
         mocked_action = SpecTransitionAction(next_state="SPEC_REVISE")
-        with patch("watchdog.check_transition_spec", return_value=mocked_action), \
-             patch("watchdog.send_to_agent_queued"), \
-             patch("watchdog.notify_discord"), \
-             patch("watchdog._cleanup_expired_spec_files") as mock_cleanup:
+        with patch("engine.fsm_spec.check_transition_spec", return_value=mocked_action), \
+             patch("engine.fsm_spec.send_to_agent_queued"), \
+             patch("engine.fsm_spec.notify_discord"), \
+             patch("engine.fsm_spec._cleanup_expired_spec_files") as mock_cleanup:
             _apply_spec_action(pj_path, action, _now(), {"spec_config": {"pipelines_dir": pd_str}})
         mock_cleanup.assert_not_called()
 
@@ -647,10 +647,10 @@ class TestSpecNudge:
         )
         # DCL 再チェックでも nudge_reviewers を返すようにする（applied=True が条件）
         nudge_action = SpecTransitionAction(next_state=None, nudge_reviewers=["pascal"])
-        with patch("watchdog.check_transition_spec", return_value=nudge_action), \
+        with patch("engine.fsm_spec.check_transition_spec", return_value=nudge_action), \
              patch("watchdog._is_agent_inactive", return_value=True), \
-             patch("watchdog.send_to_agent_queued") as mock_send, \
-             patch("watchdog.notify_discord"):
+             patch("engine.fsm_spec.send_to_agent_queued") as mock_send, \
+             patch("engine.fsm_spec.notify_discord"):
             _apply_spec_action(pj_path, action, _now(), pj_data)
         mock_send.assert_not_called()
 
@@ -685,10 +685,10 @@ class TestSpecNudge:
         )
         # DCL 再チェックでも nudge_reviewers を返すようにする（applied=True が条件）
         nudge_action = SpecTransitionAction(next_state=None, nudge_reviewers=["pascal"])
-        with patch("watchdog.check_transition_spec", return_value=nudge_action), \
+        with patch("engine.fsm_spec.check_transition_spec", return_value=nudge_action), \
              patch("watchdog._is_agent_inactive", return_value=True), \
-             patch("watchdog.send_to_agent_queued", return_value=True) as mock_send, \
-             patch("watchdog.notify_discord"):
+             patch("engine.fsm_spec.send_to_agent_queued", return_value=True) as mock_send, \
+             patch("engine.fsm_spec.notify_discord"):
             _apply_spec_action(pj_path, action, _now(), pj_data)
         mock_send.assert_called_once()
 
@@ -788,10 +788,10 @@ class TestSpecNudge:
             nudge_reviewers=["pascal"],
         )
         nudge_action = SpecTransitionAction(next_state=None, nudge_reviewers=["pascal"])
-        with patch("watchdog.check_transition_spec", return_value=nudge_action), \
+        with patch("engine.fsm_spec.check_transition_spec", return_value=nudge_action), \
              patch("watchdog._is_agent_inactive", return_value=True), \
-             patch("watchdog.send_to_agent_queued") as mock_send, \
-             patch("watchdog.notify_discord"):
+             patch("engine.fsm_spec.send_to_agent_queued") as mock_send, \
+             patch("engine.fsm_spec.notify_discord"):
             _apply_spec_action(pj_path, action, _now(), pj_data)
         mock_send.assert_not_called()
 
@@ -818,10 +818,10 @@ class TestSpecNudge:
             nudge_implementer=True,
         )
         nudge_action = SpecTransitionAction(next_state=None, nudge_implementer=True)
-        with patch("watchdog.check_transition_spec", return_value=nudge_action), \
+        with patch("engine.fsm_spec.check_transition_spec", return_value=nudge_action), \
              patch("watchdog._is_agent_inactive", return_value=True), \
-             patch("watchdog.send_to_agent_queued") as mock_send, \
-             patch("watchdog.notify_discord"):
+             patch("engine.fsm_spec.send_to_agent_queued") as mock_send, \
+             patch("engine.fsm_spec.notify_discord"):
             _apply_spec_action(pj_path, action, _now(), pj_data)
         mock_send.assert_not_called()
 

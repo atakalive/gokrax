@@ -83,7 +83,7 @@ class TestCmdSpecStart:
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, _make_pipeline(state="IDLE"))
 
-        from devbar import cmd_spec_start
+        from commands.spec import cmd_spec_start
         args = _args(
             project="test-pj", spec="docs/spec.md", implementer="kaneko",
             review_only=False, no_queue=False, skip_review=False,
@@ -114,7 +114,7 @@ class TestCmdSpecStart:
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, _make_pipeline(state="IDLE"))
 
-        from devbar import cmd_spec_start
+        from commands.spec import cmd_spec_start
         args = _args(
             project="test-pj", spec="docs/spec.md", implementer="kaneko",
             review_only=False, no_queue=False, skip_review=True,
@@ -133,7 +133,7 @@ class TestCmdSpecStart:
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, _make_pipeline(state="IDLE"))
 
-        from devbar import cmd_spec_start
+        from commands.spec import cmd_spec_start
         args = _args(
             project="test-pj", spec="docs/spec.md", implementer="kaneko",
             review_only=True, no_queue=False, skip_review=False,
@@ -153,7 +153,7 @@ class TestCmdSpecStart:
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, _make_pipeline(state="IDLE"))
 
-        from devbar import cmd_spec_start
+        from commands.spec import cmd_spec_start
         args = _args(
             project="test-pj", spec="docs/spec.md", implementer="kaneko",
             review_only=True, no_queue=False, skip_review=True,
@@ -167,7 +167,7 @@ class TestCmdSpecStart:
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, _make_pipeline(state="DESIGN_PLAN"))
 
-        from devbar import cmd_spec_start
+        from commands.spec import cmd_spec_start
         args = _args(
             project="test-pj", spec="docs/spec.md", implementer="kaneko",
             review_only=False, no_queue=False, skip_review=False,
@@ -181,7 +181,7 @@ class TestCmdSpecStart:
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, _make_pipeline(state="IDLE", spec_mode=True))
 
-        from devbar import cmd_spec_start
+        from commands.spec import cmd_spec_start
         args = _args(
             project="test-pj", spec="docs/spec.md", implementer="kaneko",
             review_only=False, no_queue=False, skip_review=False,
@@ -195,7 +195,7 @@ class TestCmdSpecStart:
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, _make_pipeline(state="IDLE"))
 
-        from devbar import cmd_spec_start
+        from commands.spec import cmd_spec_start
         args = _args(
             project="test-pj", spec="docs/nonexistent.md", implementer="kaneko",
             review_only=False, no_queue=False, skip_review=False,
@@ -209,7 +209,7 @@ class TestCmdSpecStart:
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, _make_pipeline(state="IDLE"))
 
-        from devbar import cmd_spec_start
+        from commands.spec import cmd_spec_start
         args = _args(
             project="test-pj", spec="docs/spec.md", implementer="kaneko",
             review_only=False, no_queue=False, skip_review=False,
@@ -240,7 +240,7 @@ class TestCmdSpecApprove:
         )
         write_pipeline(path, _make_pipeline(state="SPEC_REVIEW", spec_mode=True, spec_config=sc))
 
-        from devbar import cmd_spec_approve
+        from commands.spec import cmd_spec_approve
         cmd_spec_approve(_args(project="test-pj", force=False))
 
         data = json.loads(path.read_text())
@@ -258,7 +258,7 @@ class TestCmdSpecApprove:
         )
         write_pipeline(path, _make_pipeline(state="SPEC_REVIEW", spec_mode=True, spec_config=sc))
 
-        from devbar import cmd_spec_approve
+        from commands.spec import cmd_spec_approve
         with pytest.raises(SystemExit, match="Use --force"):
             cmd_spec_approve(_args(project="test-pj", force=False))
 
@@ -279,8 +279,8 @@ class TestCmdSpecApprove:
         )
         write_pipeline(path, _make_pipeline(state="SPEC_REVIEW", spec_mode=True, spec_config=sc))
 
-        from devbar import cmd_spec_approve
-        with patch("devbar.notify_discord"):
+        from commands.spec import cmd_spec_approve
+        with patch("commands.spec.notify_discord"):
             cmd_spec_approve(_args(project="test-pj", force=True))
 
         data = json.loads(path.read_text())
@@ -302,7 +302,7 @@ class TestCmdSpecApprove:
         sc = _make_spec_config()
         write_pipeline(path, _make_pipeline(state="IDLE", spec_mode=True, spec_config=sc))
 
-        from devbar import cmd_spec_approve
+        from commands.spec import cmd_spec_approve
         with pytest.raises(SystemExit, match="Cannot approve"):
             cmd_spec_approve(_args(project="test-pj", force=False))
 
@@ -311,7 +311,7 @@ class TestCmdSpecApprove:
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, _make_pipeline(state="SPEC_REVIEW", spec_mode=False))
 
-        from devbar import cmd_spec_approve
+        from commands.spec import cmd_spec_approve
         with pytest.raises(SystemExit, match="spec_mode"):
             cmd_spec_approve(_args(project="test-pj", force=False))
 
@@ -326,7 +326,7 @@ class TestCmdSpecContinue:
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, _make_active_pipeline(state="SPEC_APPROVED"))
 
-        from devbar import cmd_spec_continue
+        from commands.spec import cmd_spec_continue
         cmd_spec_continue(_args(project="test-pj"))
 
         data = json.loads(path.read_text())
@@ -337,7 +337,7 @@ class TestCmdSpecContinue:
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, _make_active_pipeline(state="SPEC_REVIEW"))
 
-        from devbar import cmd_spec_continue
+        from commands.spec import cmd_spec_continue
         with pytest.raises(SystemExit, match="expected SPEC_APPROVED"):
             cmd_spec_continue(_args(project="test-pj"))
 
@@ -352,7 +352,7 @@ class TestCmdSpecDone:
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, _make_active_pipeline(state="SPEC_DONE"))
 
-        from devbar import cmd_spec_done
+        from commands.spec import cmd_spec_done
         cmd_spec_done(_args(project="test-pj"))
 
         data = json.loads(path.read_text())
@@ -383,7 +383,7 @@ class TestCmdSpecRetry:
             state="SPEC_REVIEW_FAILED", spec_mode=True, spec_config=sc
         ))
 
-        from devbar import cmd_spec_retry
+        from commands.spec import cmd_spec_retry
         cmd_spec_retry(_args(project="test-pj"))
 
         data = json.loads(path.read_text())
@@ -400,7 +400,7 @@ class TestCmdSpecRetry:
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, _make_active_pipeline(state="SPEC_REVIEW"))
 
-        from devbar import cmd_spec_retry
+        from commands.spec import cmd_spec_retry
         with pytest.raises(SystemExit, match="expected SPEC_REVIEW_FAILED"):
             cmd_spec_retry(_args(project="test-pj"))
 
@@ -420,7 +420,7 @@ class TestCmdSpecResume:
         )
         write_pipeline(path, _make_pipeline(state="SPEC_PAUSED", spec_mode=True, spec_config=sc))
 
-        from devbar import cmd_spec_resume
+        from commands.spec import cmd_spec_resume
         cmd_spec_resume(_args(project="test-pj"))
 
         data = json.loads(path.read_text())
@@ -441,7 +441,7 @@ class TestCmdSpecResume:
         )
         write_pipeline(path, _make_pipeline(state="SPEC_PAUSED", spec_mode=True, spec_config=sc))
 
-        from devbar import cmd_spec_resume
+        from commands.spec import cmd_spec_resume
         cmd_spec_resume(_args(project="test-pj"))
 
         data = json.loads(path.read_text())
@@ -465,7 +465,7 @@ class TestCmdSpecResume:
         )
         write_pipeline(path, _make_pipeline(state="SPEC_PAUSED", spec_mode=True, spec_config=sc))
 
-        from devbar import cmd_spec_resume
+        from commands.spec import cmd_spec_resume
         cmd_spec_resume(_args(project="test-pj"))
 
         data = json.loads(path.read_text())
@@ -487,7 +487,7 @@ class TestCmdSpecResume:
         )
         write_pipeline(path, _make_pipeline(state="SPEC_PAUSED", spec_mode=True, spec_config=sc))
 
-        from devbar import cmd_spec_resume
+        from commands.spec import cmd_spec_resume
         cmd_spec_resume(_args(project="test-pj"))
 
         data = json.loads(path.read_text())
@@ -500,7 +500,7 @@ class TestCmdSpecResume:
         sc = _make_spec_config(spec_path="docs/spec.md", paused_from=None)
         write_pipeline(path, _make_pipeline(state="SPEC_PAUSED", spec_mode=True, spec_config=sc))
 
-        from devbar import cmd_spec_resume
+        from commands.spec import cmd_spec_resume
         with pytest.raises(SystemExit, match="paused_from is null"):
             cmd_spec_resume(_args(project="test-pj"))
 
@@ -516,7 +516,7 @@ class TestCmdSpecExtend:
         sc = _make_spec_config(spec_path="docs/spec.md", max_revise_cycles=5)
         write_pipeline(path, _make_pipeline(state="SPEC_STALLED", spec_mode=True, spec_config=sc))
 
-        from devbar import cmd_spec_extend
+        from commands.spec import cmd_spec_extend
         cmd_spec_extend(_args(project="test-pj", cycles=3))
 
         data = json.loads(path.read_text())
@@ -529,7 +529,7 @@ class TestCmdSpecExtend:
         sc = _make_spec_config(spec_path="docs/spec.md", max_revise_cycles=5)
         write_pipeline(path, _make_pipeline(state="SPEC_STALLED", spec_mode=True, spec_config=sc))
 
-        from devbar import cmd_spec_extend
+        from commands.spec import cmd_spec_extend
         cmd_spec_extend(_args(project="test-pj", cycles=2))
 
         data = json.loads(path.read_text())
@@ -548,7 +548,7 @@ class TestCmdSpecExtend:
         )
         write_pipeline(path, _make_pipeline(state="SPEC_STALLED", spec_mode=True, spec_config=sc))
 
-        from devbar import cmd_spec_extend
+        from commands.spec import cmd_spec_extend
         cmd_spec_extend(_args(project="test-pj", cycles=2))
 
         data = json.loads(path.read_text())
@@ -580,7 +580,7 @@ class TestCmdSpecStatus:
             state="SPEC_REVIEW", spec_mode=True, spec_config=sc, review_mode="full"
         ))
 
-        from devbar import cmd_spec_status
+        from commands.spec import cmd_spec_status
         cmd_spec_status(_args(project="test-pj"))
 
         captured = capsys.readouterr()
@@ -597,7 +597,7 @@ class TestCmdSpecStatus:
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, _make_pipeline(state="IDLE", spec_mode=False))
 
-        from devbar import cmd_spec_status
+        from commands.spec import cmd_spec_status
         cmd_spec_status(_args(project="test-pj"))
 
         captured = capsys.readouterr()

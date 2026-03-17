@@ -12,7 +12,7 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from watchdog import (
+from engine.fsm_spec import (
     SpecTransitionAction,
     check_transition_spec,
     _check_spec_review,
@@ -29,7 +29,7 @@ from spec_review import (
     _reset_review_requests,
 )
 from spec_revise import build_revise_completion_updates
-from devbar import cmd_spec_start
+from commands.spec import cmd_spec_start
 from tests.conftest import write_pipeline
 import config
 
@@ -682,8 +682,8 @@ class TestDCL:
             next_state="SPEC_REVISE",
             expected_state="SPEC_REVIEW",  # 不一致
         )
-        with patch("watchdog.send_to_agent_queued") as mock_send, \
-             patch("watchdog.notify_discord") as mock_discord:
+        with patch("engine.fsm_spec.send_to_agent_queued") as mock_send, \
+             patch("engine.fsm_spec.notify_discord") as mock_discord:
             _apply_spec_action(pj_path, action, _now(), pj_data)
 
         result = json.loads(pj_path.read_text())
@@ -704,8 +704,8 @@ class TestDCL:
             next_state="SPEC_APPROVED",
             expected_state="SPEC_REVIEW",
         )
-        with patch("watchdog.send_to_agent_queued"), \
-             patch("watchdog.notify_discord"):
+        with patch("engine.fsm_spec.send_to_agent_queued"), \
+             patch("engine.fsm_spec.notify_discord"):
             _apply_spec_action(pj_path, action, _now(), pj_data)
 
         result = json.loads(pj_path.read_text())
@@ -1023,7 +1023,7 @@ class TestApprovedTransitionFix:
         write_pipeline(path, data)
 
         args = _args(project="test-pj")
-        from devbar import cmd_spec_continue
+        from commands.spec import cmd_spec_continue
         cmd_spec_continue(args)
 
         result = load_pipeline(path)
@@ -1075,7 +1075,7 @@ class TestApprovedTransitionFix:
             review_file = f.name
 
         args = _args(project="test-pj", reviewer="pascal", file=review_file)
-        from devbar import cmd_spec_review_submit
+        from commands.spec import cmd_spec_review_submit
         cmd_spec_review_submit(args)
 
         result = load_pipeline(path)
@@ -1107,7 +1107,7 @@ class TestSpecDoneAutoTransition:
 
     def test_spec_done_not_in_terminal_states(self):
         """_SPEC_TERMINAL_STATES に SPEC_DONE が含まれない。"""
-        from watchdog import _SPEC_TERMINAL_STATES
+        from engine.fsm_spec import _SPEC_TERMINAL_STATES
         assert "SPEC_DONE" not in _SPEC_TERMINAL_STATES
         assert "SPEC_STALLED" in _SPEC_TERMINAL_STATES
         assert "SPEC_REVIEW_FAILED" in _SPEC_TERMINAL_STATES

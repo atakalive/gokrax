@@ -99,50 +99,14 @@ def build_issue_plan_prompt(spec_config: dict, data: dict) -> str:
         suggestions_text += yaml.dump(suggestion, allow_unicode=True, default_flow_style=False)
         suggestions_text += "\n"
 
-    spec_name = spec_path.replace("/", "_").replace(".", "_") if spec_path else project
     spec_filename = spec_path.split("/")[-1] if spec_path else "spec"
     gitlab = data.get("gitlab", f"atakalive/{project}")
 
-    return f"""【指示】このタスクは中断せず最後まで一気に完了してください。途中で確認を求めないこと。
-
-以下のレビュアー提案を統合して、GitLab Issue を起票せよ。
-
-プロジェクト: {project}
-仕様書: {spec_path} (rev{current_rev})
-
-## レビュアー提案
-{suggestions_text}
-## 統合指示
-複数レビュアーの提案を統合し、重複を排除して最終的なIssue一覧を決定せよ。
-類似または重複するIssueは1つにまとめ、依存関係を整理せよ。
-
-## 起票ルール
-- Issue タイトルには `[spec:{spec_filename}:S-{{N}}]` プレフィックスを付ける（N は連番）。
-- `glab issue list -R {gitlab} -O json` で既存Issueを確認し、重複起票を避けろ。
-- Issueコメントは使用禁止。
-- 各Issueの本文に「期待する振る舞い」と「テスト」セクションを必ず含めろ。
-- 起票コマンド: `glab issue create -R {gitlab} --title "..." --description "..." --label "spec-mode"`
-- 実装上の注意事項は本文に ⚠️ 注記として記載せよ。
-- **[重要] 起票するIssueの冒頭に、仕様書のファイルパスを明記せよ。(例: `仕様書: {spec_path}`)**
-
-## 完了報告フォーマット
-```yaml
-status: done
-created_issues:
-  - 51
-  - 52
-  - 53
-```
-
-※ created_issues は起票したIssue番号（整数）のリスト
-
-## 提出方法
-完了報告を YAML ファイルに保存し、以下のコマンドで投入してください:
-```
-python3 /home/ataka/.openclaw/shared/bin/devbar spec issue-submit --pj {project} --file <YAMLファイルパス>
-```
-
-【重要】Issue起票・完了報告の提出まで、中断せず一気に完了すること。"""
+    return render("spec.issue_plan", "plan",
+        project=project, spec_path=spec_path, current_rev=current_rev,
+        suggestions_text=suggestions_text, gitlab=gitlab,
+        spec_filename=spec_filename, DEVBAR_CLI=str(DEVBAR_CLI),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -196,58 +160,10 @@ def build_queue_plan_prompt(spec_config: dict, data: dict) -> str:
 
     issues_text = " ".join(str(n) for n in created_issues)
 
-    return f"""【指示】このタスクは中断せず最後まで一気に完了してください。途中で確認を求めないこと。
-
-起票済みIssueをバッチ実行キューに登録してください。
-
-プロジェクト: {project}
-仕様書: {spec_path}
-起票済みIssue番号: {issues_text}
-キューファイル: {queue_file_path}
-
-## バッチ行フォーマット
-```
-{{project}} {{issue_nums}} full [--keep-context] # 理由
-```
-
-- `issue_nums` はカンマ区切り（例: `{project} 51,52,53 full # Phase 1`）
-- 1バッチ内のIssueは並列実装される。依存関係があるIssueは別バッチにすること
-- review_mode は full / lite から選択。簡単で間違いそうにない場合、lite でよい。
-
-### 実装フェーズで使用するCCモデルは、問題の難易度に応じて選択する。
-- デフォルト: Sonnet （指定不要）
-- 計画は難しいが実装はSonnetで十分な場合、`plan=opus` のみ指定。
-- Opusで計画・実装まで行うほうが良い場合: `plan=opus` および `impl=opus`
-
-### コンテキスト引き継ぎは、必要に応じて指定可能。実装作業は、DESIGN_REVIEW->IMPLEMENTATION->CODE_REVIEW と進行する。
-- `--keep-ctx-intra` はDESIGNレビュー -> CODEレビューの間でコンテキストを引き継ぐ場合に付与
-- `--keep-ctx-batch` は前バッチのCODEレビュー -> 次バッチのDESIGNレビューにコンテキストを引き継ぐ場合に付与
-- `--keep-ctx-all` は batch, intra 両方のコンテキストを引き継ぐ場合に付与（つまりコンテキストリセット無し）
-
-- 依存関係がある場合は別バッチに分ける
-- 並列実行可能で、簡単なIssueは同じ行にまとめる
-- 難しいタスクではコスト節約しすぎないこと。メリハリをつける。
-
-## 登録手順
-1. 既存のキューファイル（{queue_file_path}）の末尾にバッチ行を追記する
-2. Issue番号の依存関係を分析し、適切なバッチ分割を行う
-
-## 完了報告フォーマット
-```yaml
-status: done
-batches: 3
-queue_file: "{queue_file_path}"
-```
-
-※ batches は追記したバッチ行数（1以上の整数）
-
-## 提出方法
-完了報告を YAML ファイルに保存し、以下のコマンドで投入してください:
-```
-python3 /home/ataka/.openclaw/shared/bin/devbar spec queue-submit --pj {project} --file <YAMLファイルパス>
-```
-
-【重要】キュー登録・完了報告の提出まで、中断せず一気に完了すること。"""
+    return render("spec.queue_plan", "plan",
+        project=project, spec_path=spec_path, issues_text=issues_text,
+        queue_file_path=queue_file_path, DEVBAR_CLI=str(DEVBAR_CLI),
+    )
 
 
 # ---------------------------------------------------------------------------

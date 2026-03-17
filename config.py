@@ -98,22 +98,25 @@ TRIAGE_ALLOWED_STATES = ["IDLE", "TRIAGE"]
 
 # エージェント
 AGENTS = {
-    "kaneko":   "agent:kaneko:main",    # Opus, Lead
+    "kaneko":   "agent:kaneko:main",    # Opus, Implementer
     "pascal":   "agent:pascal:main",    # Gemini 3 Pro
-    "leibniz":  "agent:leibniz:main",   # GPT-4.1 (GitHub)
-    "hanfei":   "agent:hanfei:main",    # GPT-4.1 (GitHub)
+    "leibniz":  "agent:leibniz:main",   # GPT-4.1 64k-ctx (GitHub)
+    "hanfei":   "agent:hanfei:main",    # GPT-4.1 64k-ctx (GitHub)
     "dijkstra": "agent:dijkstra:main",  # Opus
-    "neumann":  "agent:neumann:main",   # Opus, Lead
+    "neumann":  "agent:neumann:main",   # Opus, Implementer
     "euler":    "agent:euler:main",     # ChatGPT-5.4
     "basho":    "agent:basho:main",     # Local, Qwen3.5-27B 
 }
 
-# Reviewer tiers: regular, semi, free, short-context
+# Reviewer tiers means that their infrastructure capability
+# Regular: Good connection, context length, token usage
+# Free: Limited daily token usage, unstable connection. (Author did not test them well)
+# Short-context: Shorter context length. Local LLM etc. (64k-ctx model might be unstable)
 REVIEWER_TIERS: dict[str, list[str]] = {
     "regular": ["dijkstra", "euler", "pascal"],
     "semi": [],
-    "free": [],
-    "short-context": ["basho", "hanfei", "leibniz"],  # ローカルLLM等、コンテキスト長が短いレビュアー
+    "free": [],  # ping-test did not work well so far
+    "short-context": ["basho", "hanfei", "leibniz"],
 }
 
 # Review modes: project-level reviewer assignment

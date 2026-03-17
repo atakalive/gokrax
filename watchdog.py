@@ -412,21 +412,9 @@ def get_notification_for_state(
         if p2_fix:
             p2_note = "\n⚠️ --p2-fix モード: P2 指摘も全件修正が必要です。P0/P1 がなくても P2 が残っていれば再度 REVISE に差し戻されます。\n"
         fix_label = "P0/P1/P2指摘" if p2_fix else "P0/P1指摘"
-        msg = (
-            f"[devbar] {project}: 設計修正フェーズ\n"
-            f"{comment_line}"
-            f"対象Issue: {issues_str}\n"
-            f"{p2_note}"
-            f"【手順】\n"
-            f"1. {fix_label}を読み、Issue本文を修正する（glab issue update）\n"
-            f"2. devbar に完了報告:\n"
-            f"   {DEVBAR_CLI} design-revise --pj {project} --issue N [N...]\n\n"
-            f"複数レビュアーから同一のP2/Suggestionがある場合、その指摘は正しい可能性が高いため修正せよ。\n"
-            f"レビュアー指摘と設計判断が相違する場合は、新規Issueを立てて設計判断を議論する場所を用意せよ。\n"
-            f"※ P0/P1指摘に誤りがあると確信した場合、revise完了前に異議を申し立てることができます:\n"
-            f"{DEVBAR_CLI} dispute --pj {project} --issue N --reviewer REVIEWER --reason \"理由\"\n"
-            f"理由は詳細に、子供でも理解できる粒度で記載してください。disputeが認められた場合、該当P0/P1は取り下げられます。\n"
-            f"[お願い] 仕事は中断せず、完了まで一気にやること。"
+        msg = render("dev.design_revise", "transition",
+            project=project, issues_str=issues_str, comment_line=comment_line,
+            fix_label=fix_label, p2_note=p2_note, DEVBAR_CLI=DEVBAR_CLI,
         )
         return TransitionAction(impl_msg=msg)
 
@@ -2990,10 +2978,7 @@ def process(path: Path):
             nudge_state = action.nudge  # e.g. "DESIGN_REVISE", "CODE_REVISE", etc.
 
             if nudge_state == "DESIGN_REVISE":
-                nudge_msg = (
-                    "[Remind] 予定のリバイス作業を進め、完了してください。\n"
-                    "devbar design-revise --pj <project> --issue <N> で完了報告してください。"
-                )
+                nudge_msg = render("dev.design_revise", "nudge")
             elif nudge_state == "CODE_REVISE":
                 nudge_msg = (
                     "[Remind] 予定のリバイス作業を進め、完了してください。\n"
@@ -3044,7 +3029,9 @@ def process(path: Path):
                 if parts:
                     lines.append(f"#{item['issue']}: {', '.join(parts)}")
             if lines:
-                notify_discord(f"{q_prefix}[{pj}] REVISE対象:\n" + "\n".join(lines))
+                notify_discord(render("dev.design_revise", "notify_revise_summary",
+                    project=pj, revise_lines="\n".join(lines), q_prefix=q_prefix,
+                ))
 
         # バッチ開始時のみIssue一覧を別メッセージで通知
         if action.new_state == "DESIGN_PLAN":

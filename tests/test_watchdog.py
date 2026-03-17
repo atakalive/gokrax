@@ -438,7 +438,7 @@ class TestIsAgentInactive:
 
     def test_active_when_cc_pid_exists_and_alive(self):
         """cc_pidが存在し、プロセスが生存していればアクティブ"""
-        from watchdog import _is_agent_inactive
+        from engine.shared import _is_agent_inactive
 
         data = {"cc_pid": 12345}
 
@@ -448,7 +448,7 @@ class TestIsAgentInactive:
 
     def test_inactive_when_cc_pid_exists_but_dead(self):
         """cc_pidが存在するがプロセス消滅時、セッション判定へ"""
-        from watchdog import _is_agent_inactive
+        from engine.shared import _is_agent_inactive
 
         data = {"cc_pid": 99999}
 
@@ -460,7 +460,7 @@ class TestIsAgentInactive:
 
     def test_inactive_when_no_cc_pid(self):
         """cc_pidがない場合、セッション判定へ"""
-        from watchdog import _is_agent_inactive
+        from engine.shared import _is_agent_inactive
 
         data = {}
 
@@ -470,7 +470,7 @@ class TestIsAgentInactive:
 
     def test_inactive_when_cc_pid_is_none(self):
         """cc_pidがNoneの場合、セッション判定へ"""
-        from watchdog import _is_agent_inactive
+        from engine.shared import _is_agent_inactive
 
         data = {"cc_pid": None}
 
@@ -480,7 +480,7 @@ class TestIsAgentInactive:
 
     def test_active_with_valid_session_when_no_cc_pid(self):
         """cc_pidなし、セッションが最近更新されていればアクティブ"""
-        from watchdog import _is_agent_inactive
+        from engine.shared import _is_agent_inactive
         from datetime import datetime
         from config import JST
         import json
@@ -502,7 +502,7 @@ class TestIsAgentInactive:
 
     def test_inactive_with_old_session_when_no_cc_pid(self):
         """cc_pidなし、セッションが古ければ非アクティブ"""
-        from watchdog import _is_agent_inactive
+        from engine.shared import _is_agent_inactive
         from datetime import datetime
         from config import JST
         import json
@@ -525,7 +525,7 @@ class TestIsAgentInactive:
 
     def test_pipeline_data_none_uses_session_fallback(self):
         """pipeline_data=None の場合、セッション判定のみ使用"""
-        from watchdog import _is_agent_inactive
+        from engine.shared import _is_agent_inactive
 
         # セッションJSONが存在しない
         with patch("pathlib.Path.read_text", side_effect=FileNotFoundError):
@@ -533,7 +533,7 @@ class TestIsAgentInactive:
 
     def test_is_cc_running_helper(self):
         """_is_cc_running() ヘルパー関数のテスト"""
-        from watchdog import _is_cc_running
+        from engine.shared import _is_cc_running
 
         # cc_pid が存在し、プロセス生存
         with patch.object(Path, "exists", return_value=True):

@@ -980,7 +980,7 @@ def _ensure_pipelines_dir(pipelines_dir: str) -> None:
     - mkdir(mode=0o700) でアトミックにパーミッション設定
     - chmod 失敗（/mnt 等の非互換FS）はログのみで続行
     """
-    from watchdog import log
+    from engine.shared import log
     pd = Path(pipelines_dir)
     if pd.exists():
         if not pd.is_dir():
@@ -1003,7 +1003,7 @@ def _cleanup_expired_spec_files(pipelines_dir: str) -> None:
     mtime基準でSPEC_REVIEW_RAW_RETENTION_DAYS超過を判定。
     ディレクトリ不在・is_dir失敗はログのみで安全にreturn。
     """
-    from watchdog import log
+    from engine.shared import log
     pd = Path(pipelines_dir)
     if not pd.is_dir():
         return
@@ -1032,7 +1032,7 @@ def _apply_spec_action(
     orig_data: dict,
 ) -> None:
     """DCLパターン: ディスクから再読み込み + state一致確認 + 再計算。"""
-    from watchdog import log
+    from engine.shared import log
     applied = False
     applied_action: SpecTransitionAction | None = None
     pj = orig_data.get("project", pipeline_path.stem)
@@ -1103,7 +1103,7 @@ def _apply_spec_action(
                     notify_discord(render("spec.paused", "notify_failure", project=pj, kind="送信失敗", detail=f"agent={agent_id}"))
         # spec mode レビュアー催促（#76）
         if applied_action.nudge_reviewers:
-            from watchdog import _is_agent_inactive
+            from engine.shared import _is_agent_inactive
             from config import INACTIVE_THRESHOLD_SEC
             # 最新の pipeline を再読込（並行プロセス/連続tickでの二重催促防止）
             fresh_data = load_pipeline(pipeline_path)
@@ -1148,7 +1148,7 @@ def _apply_spec_action(
                 notify_discord(f"[Spec][{pj_fresh}] レビュアーを催促: {', '.join(woken)} ({ts})")
         # spec mode implementer 催促（#76）
         if applied_action.nudge_implementer:
-            from watchdog import _is_agent_inactive
+            from engine.shared import _is_agent_inactive
             from config import INACTIVE_THRESHOLD_SEC
             # 最新の pipeline を再読込（二重催促防止）
             fresh_data = load_pipeline(pipeline_path)

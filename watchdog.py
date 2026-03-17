@@ -46,6 +46,7 @@ from notify import (
     send_to_agent, send_to_agent_queued, ping_agent,
 )
 from messages import render
+from engine.shared import log, _is_ok_reply, _is_cc_running, _is_agent_inactive
 from spec_review import (
     should_continue_review, _reset_review_requests,
     parse_review_yaml, validate_received_entry,
@@ -142,19 +143,6 @@ def _reset_short_context_reviewers(review_mode: str) -> None:
         time.sleep(POST_NEW_COMMAND_WAIT_SEC)
 
 
-def log(msg: str):
-    ts = datetime.now(JST).strftime("%Y-%m-%d %H:%M:%S")
-    line = f"[{ts}] {msg}"
-    # crontabの >> リダイレクトと直接書き込みの二重出力を防止
-    # ファイルのみに書き込み、stdoutには出さない
-    with open(LOG_FILE, "a") as f:
-        f.write(line + "\n")
-
-
-def _is_ok_reply(content: str) -> bool:
-    """マージサマリーへのOK返信を判定。ok, OK, おk, おｋ 等に対応。"""
-    s = content.strip().lower()
-    return s.startswith("ok") or s.startswith("おk") or s.startswith("おｋ")
 
 
 def count_reviews(batch: list, key: str) -> tuple:
@@ -942,14 +930,6 @@ _notify "{q_tag}[{project}] ✅ CC Impl 完了"
     log(f"[{project}] CC started (pid={proc.pid}, session={session_id})")
 
 
-def _is_cc_running(data: dict) -> bool:
-    """パイプラインに記録されたCC PIDが生存中か判定。"""
-    pid = data.get("cc_pid")
-    if not pid:
-        return False
-    return Path(f"/proc/{pid}").exists()
-
-
 # ── Issue #92: pytest ベースライン ──────────────────────────────────────────
 
 def _has_pytest(repo_path: str) -> bool:
@@ -1097,27 +1077,6 @@ def _poll_pytest_baseline(path: Path, pj: str) -> None:
 
 
 # ────────────────────────────────────────────────────────────────────────────
-
-def _is_agent_inactive(agent_id: str, pipeline_data: dict | None = None) -> bool:
-    """エージェントが非アクティブ(81秒以上更新なし)かどうか判定。
-
-    CC実行中（cc_pid が /proc に存在）はアクティブと判定する。
-    """
-    # CC実行中ならアクティブ
-    if pipeline_data is not None and _is_cc_running(pipeline_data):
-        return False
-    try:
-        path = SESSIONS_BASE / agent_id / "sessions" / "sessions.json"
-        data = _json.loads(path.read_text())
-        session = data.get(f"agent:{agent_id}:main")
-        if not session or "updatedAt" not in session:
-            return True  # 情報なし = 非アクティブ扱い
-        last_active = _datetime.fromtimestamp(session["updatedAt"] / 1000, JST)
-        elapsed = (_datetime.now(JST) - last_active).total_seconds()
-        return elapsed >= INACTIVE_THRESHOLD_SEC
-    except (FileNotFoundError, _json.JSONDecodeError, KeyError):
-        return True  # 読めない = 非アクティブ扱い
-
 
 def _get_pending_reviewers(batch: list, review_key: str, reviewers: list, excluded=None) -> list:
     """全Issueのレビューを完了していないレビュアーのリストを返す。

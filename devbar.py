@@ -231,7 +231,7 @@ def cmd_extend(args):
 
     対象状態: DESIGN_PLAN, DESIGN_REVISE, IMPLEMENTATION, CODE_REVISE
     """
-    from watchdog import EXTENDABLE_STATES
+    from config import EXTENDABLE_STATES
 
     path = get_path(args.project)
 
@@ -408,7 +408,7 @@ def cmd_start(args):
     has_comment = bool(getattr(args, "comment", None))
     has_skip_cc_plan = getattr(args, "skip_cc_plan", False)
     if getattr(args, "mode", None) or has_keep_ctx or has_p2_fix or has_comment or has_skip_cc_plan:
-        from watchdog import REVIEW_MODES
+        from config import REVIEW_MODES
         if getattr(args, "mode", None) and args.mode not in REVIEW_MODES:
             raise SystemExit(f"Invalid mode: {args.mode} (valid: {list(REVIEW_MODES)})")
         def do_mode(data):

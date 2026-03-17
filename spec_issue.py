@@ -5,7 +5,8 @@ import re
 
 import yaml
 
-from config import QUEUE_FILE
+from config import DEVBAR_CLI, QUEUE_FILE
+from messages import render
 
 # ---------------------------------------------------------------------------
 # 定数
@@ -26,64 +27,10 @@ def build_issue_suggestion_prompt(spec_config: dict, data: dict, reviewer: str =
     project = data.get("project", "")
     spec_path = spec_config.get("spec_path", "")
     current_rev = spec_config.get("current_rev", "1")
-    return f"""【指示】このタスクは中断せず最後まで一気に完了してください。途中で確認を求めないこと。
-
-承認された仕様書に基づき、GitLab Issue への分割提案を行ってください。
-
-プロジェクト: {project}
-仕様書: {spec_path} (rev{current_rev})
-
-## 依頼内容
-仕様書を実装可能な単位のIssueに分割し、フェーズごとに整理した提案を作成してください。
-各Issueは独立して実装・レビューできる単位にしてください。
-1 Issue = 1 PR = 1つの明確なゴール。巨大Issueは分割すること。
-既存コードの変更量が多い場合は、リファクタリングと機能追加を別Issueにすること。
-
-## 出力フォーマット
-```yaml
-phases:
-  - name: "Phase 1: 基盤実装"
-    issues:
-      - title: "実装タイトル"
-        files:
-          - "path/to/file.py"
-        lines: "100-200"
-        spec_refs:
-          - "§6.1"
-        depends_on: []
-      - title: "別の実装タイトル"
-        files:
-          - "path/to/other.py"
-        lines: ""
-        spec_refs:
-          - "§7"
-        depends_on:
-          - "実装タイトル"
-  - name: "Phase 2: 統合・テスト"
-    issues:
-      - title: "統合テスト実装"
-        files:
-          - "tests/test_foo.py"
-        lines: ""
-        spec_refs:
-          - "§11"
-        depends_on:
-          - "実装タイトル"
-```
-
-## 注意事項
-- phases は実装順序を表す（Phase 1 → Phase 2 の順に実装）
-- depends_on には同フェーズ内または前フェーズのIssueタイトルを列挙
-- files は変更予定ファイルのリスト（既存 or 新規）
-- spec_refs は対応する仕様書セクション番号のリスト
-
-## 提出方法
-提案を YAML ファイルに保存し、以下のコマンドで投入してください:
-```
-python3 /home/ataka/.openclaw/shared/bin/devbar spec suggestion-submit --pj {project} --reviewer {reviewer} --file <YAMLファイルパス>
-```
-
-【重要】提案作成・提出まで、中断せず一気に完了すること。"""
+    return render("spec.issue_suggestion", "suggestion",
+        project=project, spec_path=spec_path, current_rev=current_rev,
+        reviewer=reviewer, DEVBAR_CLI=str(DEVBAR_CLI),
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -3125,14 +3125,8 @@ def process(path: Path):
                 # 実装者セッションに通知 (Issue #48)
                 pipeline_data_fresh = load_pipeline(path)
                 implementer = pipeline_data_fresh.get("implementer") or "kaneko"
-                prompt = (
-                    f"[devbar] {pj}: バッチ完了\n"
-                    f"{content}\n\n"
-                    "上記の作業を振り返り、以下だけを記録してください:\n"
-                    "- 踏んだ罠、ハマったこと（あれば）\n"
-                    "- レビュアー指摘で学んだこと（あれば）\n"
-                    "- 今後の作業に影響する判断（あれば）\n"
-                    "記録すべきことがなければ NO_REPLY で構いません。"
+                prompt = render("dev.done", "batch_done",
+                    project=pj, content=content,
                 )
                 try:
                     notify_implementer(implementer, prompt)

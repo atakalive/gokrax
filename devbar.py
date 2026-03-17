@@ -1181,7 +1181,8 @@ def cmd_merge_summary(args):
     logger = logging.getLogger(__name__)
     from config import DISCORD_CHANNEL
     from notify import post_discord, notify_implementer
-    from watchdog import _format_merge_summary
+    from config import MERGE_SUMMARY_FOOTER
+    from messages import render
 
     path = get_path(args.project)
     data = load_pipeline(path)
@@ -1192,7 +1193,12 @@ def cmd_merge_summary(args):
     batch = data.get("batch", [])
     project = data.get("project", args.project)
     automerge = data.get("automerge", False)
-    content = _format_merge_summary(project, batch, automerge=automerge)
+    queue_mode = data.get("queue_mode", False)
+    content = render("dev.merge_summary_sent", "format_merge_summary",
+        project=project, batch=batch, automerge=automerge,
+        queue_mode=queue_mode,
+        MERGE_SUMMARY_FOOTER=MERGE_SUMMARY_FOOTER,
+    )
 
     message_id = post_discord(DISCORD_CHANNEL, content)
     if not message_id:

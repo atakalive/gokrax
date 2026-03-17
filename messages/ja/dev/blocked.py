@@ -2,6 +2,7 @@
 
 Variables:
     phase: str              - フェーズ名（"設計" or "コード"）
+    severity: str           - 重大度（"P0" or "P1"）
     MAX_REVISE_CYCLES: int  - 最大リバイスサイクル数
     OWNER_NAME: str         - オーナー名
 """
@@ -11,12 +12,13 @@ def blocked_max_cycles(
     phase: str,
     MAX_REVISE_CYCLES: int,
     OWNER_NAME: str,
+    severity: str = "P0",
     **_kw,
 ) -> str:
-    """P0 残存 + max cycles 超過時の BLOCKED メッセージ（_resolve_review_outcome）。"""
+    """P0/P1 残存 + max cycles 超過時の BLOCKED メッセージ（_resolve_review_outcome）。"""
     return (
         f"{phase}レビューサイクルが上限（{MAX_REVISE_CYCLES}回）に達しました。\n"
-        f"P0の指摘が解消されていません。手動で対応してください。Discordで{OWNER_NAME}に報告してください。"
+        f"{severity}の指摘が解消されていません。手動で対応してください。Discordで{OWNER_NAME}に報告してください。"
     )
 
 

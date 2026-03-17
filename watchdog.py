@@ -2976,8 +2976,12 @@ def process(path: Path):
             if woken:
                 ts = _datetime.now(JST).strftime("%m/%d %H:%M")
                 q_prefix = "[Queue]" if notification.get("queue_mode") else ""
-                log(f"[{pj}] レビュアーを催促: {', '.join(woken)} ({ts})")
-                notify_discord(f"{q_prefix}[{pj}] レビュアーを催促: {', '.join(woken)} ({ts})")
+                reviewers_with_ts = f"{', '.join(woken)} ({ts})"
+                review_module = "dev.code_review" if is_code else "dev.design_review"
+                log(f"[{pj}] レビュアーを催促: {reviewers_with_ts}")
+                notify_discord(render(review_module, "notify_nudge_reviewers",
+                    project=pj, reviewers=reviewers_with_ts, q_prefix=q_prefix,
+                ))
             return
 
         if action.nudge:

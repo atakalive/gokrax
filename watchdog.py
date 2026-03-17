@@ -2932,6 +2932,8 @@ def process(path: Path):
                     round_num = get_current_round(pipeline_data)
                     msg_parts = []
 
+                    review_module = "dev.code_review" if is_code else "dev.design_review"
+
                     if dispute_items:
                         lines = []
                         for issue_num, reason in dispute_items:
@@ -2940,22 +2942,19 @@ def process(path: Path):
                                 f"    {DEVBAR_CLI} review --pj {pj} --issue {issue_num} "
                                 f"--reviewer {reviewer} --verdict <APPROVE/P0/P1/P2> --summary \"...\" --force"
                             )
-                        msg_parts.append(
-                            f"【異議申し立て — 回答催促】\n"
-                            f"{pj} であなたの判定に対して異議が出ています。\n"
-                            f"再評価した上で --force 付きで判定を報告してください:\n\n"
-                            + "\n".join(lines)
-                        )
+                        msg_parts.append(render(review_module, "nudge_dispute",
+                            project=pj, dispute_lines="\n".join(lines),
+                        ))
 
                     if normal_pending_issues:
                         cmd_lines = "\n".join(
                             review_command(pj, num, reviewer, round_num=round_num if round_num > 0 else None) for num in normal_pending_issues
                         )
-                        msg_parts.append(
-                            f"[Remind] {pj} のレビューが未完了です。対象: {', '.join(f'#{n}' for n in normal_pending_issues)}\n"
-                            f"以下のコマンドで各 Issue のレビューを報告してください:\n"
-                            f"{cmd_lines}"
-                        )
+                        msg_parts.append(render(review_module, "nudge_review",
+                            project=pj,
+                            issues_display=", ".join(f"#{n}" for n in normal_pending_issues),
+                            cmd_lines=cmd_lines,
+                        ))
 
                     msg = "\n\n".join(msg_parts)
 

@@ -56,6 +56,9 @@ def file_review_request(
     )
 
 
+def phase_note(**_kw) -> str:
+    """設計レビューのフェーズ注記。"""
+    return "\n⚠️ これは設計レビュー DESIGN_REVIEW です。コードやdiffはまだ存在しません。\n"
 def guidance_design(**_kw) -> str:
     """設計レビュー観点テキスト。"""
     return (

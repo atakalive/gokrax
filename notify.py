@@ -181,14 +181,10 @@ def _build_file_review_message(
 
     cmds_block = "\n".join(review_cmds)
 
-    msg = (
-        f"[devbar] {project}: {phase}レビュー依頼（{n}件）\n\n"
-        f"レビューデータファイルを読み込み、全件レビューせよ。\n\n"
-        f"Read {file_path}\n\n"
-        f"完了後、各Issueについて以下を実行:\n"
-        f"{cmds_block}\n"
-        f"（上記コマンドを各Issue分繰り返す）\n\n"
-        f"⚠️ 全Issueのreviewコマンドを実行するまでタスク未完了。途中で止めるな。"
+    from messages import render
+    review_module = "dev.code_review" if is_code else "dev.design_review"
+    msg = render(review_module, "file_review_request",
+        project=project, n=n, file_path=str(file_path), cmds_block=cmds_block,
     )
 
     # スキルブロック付与
@@ -763,29 +759,11 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
                     f"  `git -C {repo_path} show {commit_hash}`\n"
                 )
 
+    from messages import render
     if is_code:
-        guidance = (
-            "レビュー観点:\n"
-            "- 設計レビューで承認された仕様通りに実装されているか\n"
-            "- バグ、エッジケース、型ヒントの欠落\n"
-            "- テストの妥当性を判定\n\n"
-            "スコープ制約:\n"
-            "- P0/P1 を出す場合、該当コードが今回の diff に含まれることを確認せよ\n"
-            "- 前バッチで既に入った変更を現バッチの責任にしない\n"
-            "- diff 外で気づいた問題は P2（提案）として報告せよ\n\n"
-            "コンテキスト制約（重要）:\n"
-            "- あなたに見えているのは diff とその周辺コンテキストのみである。リポジトリ全体のコードは見えていない\n"
-            "- diff に含まれないファイル・関数・変数について「存在しない」と断定してはならない\n"
-            "- 「〜が見当たらない」という指摘は P2（提案）に留め、P0/P1 にしてはならない\n"
-            "- diff 外のコードに依存する指摘を P0/P1 で出す場合、その根拠が diff 内に明示的に存在することを確認せよ"
-        )
+        guidance = render("dev.code_review", "guidance_code")
     else:
-        guidance = (
-            "レビュー観点:\n"
-            "- 数理的に精確か（厳しく検証せよ）\n"
-            "- Issue本文の仕様が明確か、実装可能か\n"
-            "- 矛盾やエッジケースがないか、思わぬ落とし穴がないか"
-        )
+        guidance = render("dev.design_review", "guidance_design")
 
     # --- 完了コマンド一覧（末尾） ---
     cmds_block = "\n".join(pending_cmds)
@@ -797,8 +775,13 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
 
     from config import OWNER_NAME
     comment_line = f"\n{OWNER_NAME}からの要望: {comment}" if comment else ""
-    phase_note = "" if is_code else "\n⚠️ これは設計レビュー DESIGN_REVIEW です。コードやdiffはまだ存在しません。\n"
-    final_message = f"[devbar] {project}: {phase}レビュー依頼{comment_line}{phase_note}\n\n{todo_header}\n\n{guidance}\n\n{body}{completion}"
+    phase_note = "" if is_code else render("dev.design_review", "phase_note")
+    review_module = "dev.code_review" if is_code else "dev.design_review"
+    final_message = render(review_module, "review_request",
+        project=project, todo_header=todo_header, guidance=guidance,
+        body=body, completion=completion, comment_line=comment_line,
+        phase_note=phase_note,
+    )
     # skill_block が非空なら先頭に挿入
     if skill_block:
         final_message = f"{skill_block}\n\n{final_message}"

@@ -23,8 +23,18 @@ def transition(
         f"Claude Codeが確実に実装できる粒度まで、**対象Issue本文の説明を修正せよ** (glab issue update)。\n"
         f"コメントによる補足は禁止する。\n"
         f"全て修正後、問題がなければ plan-done して完了せよ（一括報告できる）。\n"
-        f"python3 {DEVBAR_CLI} plan-done --project {project} --issue N [N...]\n"
+        f"{DEVBAR_CLI} plan-done --project {project} --issue N [N...]\n"
         f"[お願い] 仕事は中断せず、完了まで一気にやること。"
+    )
+
+
+def nudge(
+    **_kw,
+) -> str:
+    """DESIGN_PLAN 催促メッセージ。"""
+    return (
+        "[Remind] 設計確認を進め、完了してください。\n"
+        "devbar plan-done --project <project> --issue <N> で完了報告してください。"
     )
 
 

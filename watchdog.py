@@ -400,15 +400,9 @@ def get_notification_for_state(
         issues_str = ", ".join(
             f"#{i['issue']}" for i in batch if not i.get("design_ready")
         ) or "（全Issue）"
-        msg = (
-            f"[devbar] {project}: 設計確認フェーズ\n"
-            f"{comment_line}"
-            f"対象Issue: {issues_str}\n"
-            f"Claude Codeが確実に実装できる粒度まで、**対象Issue本文の説明を修正せよ** (glab issue update)。\n"
-            f"コメントによる補足は禁止する。\n"
-            f"全て修正後、問題がなければ plan-done して完了せよ（一括報告できる）。\n"
-            f"{DEVBAR_CLI} plan-done --project {project} --issue N [N...]\n"
-            f"[お願い] 仕事は中断せず、完了まで一気にやること。"
+        msg = render("dev.design_plan", "transition",
+            project=project, issues_str=issues_str,
+            comment_line=comment_line, DEVBAR_CLI=DEVBAR_CLI,
         )
         return TransitionAction(impl_msg=msg, reset_reviewers=True)
 
@@ -3002,10 +2996,7 @@ def process(path: Path):
                     "devbar code-revise --pj <project> --issue <N> --hash <commit> で修正コミットを報告してください。"
                 )
             elif nudge_state == "DESIGN_PLAN":
-                nudge_msg = (
-                    "[Remind] 設計確認を進め、完了してください。\n"
-                    "devbar plan-done --project <project> --issue <N> で完了報告してください。"
-                )
+                nudge_msg = render("dev.design_plan", "nudge")
             elif nudge_state == "IMPLEMENTATION":
                 nudge_msg = (
                     "[Remind] 実装を進め、完了してください。\n"
@@ -3056,7 +3047,9 @@ def process(path: Path):
             batch = notification["batch"]
             if batch:
                 issue_lines = [f"#{i['issue']}: {i.get('title', '')}" for i in batch]
-                notify_discord(f"{q_prefix}[{pj}] 対象Issue:\n" + "\n".join(issue_lines))
+                notify_discord(render("dev.design_plan", "notify_issues",
+                    project=pj, issue_lines="\n".join(issue_lines), q_prefix=q_prefix,
+                ))
 
         # MERGE_SUMMARY_SENT遷移時: #dev-bar にサマリーを投稿（リトライ付き）
         if action.send_merge_summary:

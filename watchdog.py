@@ -2966,10 +2966,7 @@ def process(path: Path):
             if nudge_state == "DESIGN_REVISE":
                 nudge_msg = render("dev.design_revise", "nudge")
             elif nudge_state == "CODE_REVISE":
-                nudge_msg = (
-                    "[Remind] 予定のリバイス作業を進め、完了してください。\n"
-                    "devbar code-revise --pj <project> --issue <N> --hash <commit> で修正コミットを報告してください。"
-                )
+                nudge_msg = render("dev.code_revise", "nudge")
             elif nudge_state == "DESIGN_PLAN":
                 nudge_msg = render("dev.design_plan", "nudge")
             elif nudge_state == "IMPLEMENTATION":

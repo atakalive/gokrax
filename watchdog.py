@@ -2822,6 +2822,7 @@ def process(path: Path):
 
             # Determine review key based on state
             review_key = "design_reviews" if "DESIGN" in state else "code_reviews"
+            is_code = "CODE" in state
 
             # 全催促対象レビュアーを統合（重複排除）
             all_reviewers = sorted(set(

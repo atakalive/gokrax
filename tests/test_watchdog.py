@@ -3111,21 +3111,28 @@ class TestAutomerge:
 
     def test_merge_summary_footer_automerge_enabled(self):
         """automerge=True: フッター文言が変わる"""
-        from watchdog import _format_merge_summary
+        from messages import render
+        from config import MERGE_SUMMARY_FOOTER
 
         batch = _make_batch(1, commit="abc123")
-        content = _format_merge_summary("TestProj", batch, automerge=True)
+        content = render("dev.merge_summary_sent", "format_merge_summary",
+            project="TestProj", batch=batch, automerge=True,
+            MERGE_SUMMARY_FOOTER=MERGE_SUMMARY_FOOTER,
+        )
 
         assert "⚡ automerge有効" in content
         assert "「OK」とリプライ" not in content
 
     def test_merge_summary_footer_automerge_disabled(self):
         """automerge=False: 通常のフッター"""
-        from watchdog import _format_merge_summary
+        from messages import render
         from config import MERGE_SUMMARY_FOOTER
 
         batch = _make_batch(1, commit="abc123")
-        content = _format_merge_summary("TestProj", batch, automerge=False)
+        content = render("dev.merge_summary_sent", "format_merge_summary",
+            project="TestProj", batch=batch, automerge=False,
+            MERGE_SUMMARY_FOOTER=MERGE_SUMMARY_FOOTER,
+        )
 
         assert MERGE_SUMMARY_FOOTER in content
         assert "⚡ automerge有効" not in content

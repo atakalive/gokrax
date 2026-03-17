@@ -372,50 +372,6 @@ def _check_nudge(state: str, data: dict) -> TransitionAction | None:
     return nudge
 
 
-_VERDICT_EMOJI = {"APPROVE": "🟢", "P0": "🔴", "P1": "🟡", "P2": "🔵"}
-
-
-def _format_merge_summary(project: str, batch: list, automerge: bool = False, queue_mode: bool = False) -> str:
-    """#dev-bar 投稿用マージサマリーを生成する。
-
-    2000文字超は post_discord が自動分割するので、ここでは切り詰めない。
-
-    Args:
-        project: プロジェクト名
-        batch: バッチアイテム
-        automerge: automerge有効時は True (Issue #45)
-        queue_mode: qrun実行時は True (Issue #60)
-    """
-    from config import MERGE_SUMMARY_FOOTER
-    q_prefix = "[Queue]" if queue_mode else ""
-    lines = [f"**{q_prefix}[{project}] マージサマリー**\n"]
-    for item in batch:
-        num = item["issue"]
-        title = item.get("title", "")
-        commit = item.get("commit", "?")
-        lines.append(f"**#{num}: {title}** (`{commit}`)")
-        # コードレビュー結果を表示（なければ設計レビュー）
-        reviews = item.get("code_reviews") or item.get("design_reviews") or {}
-        for reviewer, rev in reviews.items():
-            verdict = rev.get("verdict", "?")
-            emoji = _VERDICT_EMOJI.get(verdict, "⚪")
-            summary = rev.get("summary", "")
-            # summary の1行目だけ使う（長いレビューは切る）
-            first_line = summary.split("\n")[0][:120] if summary else ""
-            if first_line:
-                lines.append(f"  {emoji} **{reviewer}**: {verdict} — {first_line}")
-            else:
-                lines.append(f"  {emoji} **{reviewer}**: {verdict}")
-        lines.append("")  # 空行で区切り
-
-    # Footer (Issue #45: automerge時は文言変更)
-    if automerge:
-        lines.append("\n---\n⚡ automerge有効 — 自動マージします")
-    else:
-        lines.append(MERGE_SUMMARY_FOOTER)
-
-    return "\n".join(lines)
-
 
 def get_notification_for_state(
     state: str,
@@ -1360,14 +1316,14 @@ def _recover_pending_notifications(pj: str, pending: dict, data: dict) -> None:
 
     if "merge_summary" in pending:
         try:
-            notify_discord(f"[{pj}] ⚠️ merge_summary通知が中断されていました。手動確認してください。")
+            notify_discord(render("dev.blocked", "notify_recovery_merge_summary", project=pj))
             clear_pending_notification(pj, "merge_summary")
         except Exception as e:
             log(f"[{pj}] WARNING: merge_summary recovery warning failed, will retry: {e}")
 
     if "run_cc" in pending:
         try:
-            notify_discord(f"[{pj}] ⚠️ CC起動が中断されていました。手動確認してください。")
+            notify_discord(render("dev.blocked", "notify_recovery_cc", project=pj))
             clear_pending_notification(pj, "run_cc")
         except Exception as e:
             log(f"[{pj}] WARNING: run_cc recovery warning failed, will retry: {e}")
@@ -3111,7 +3067,12 @@ def process(path: Path):
             path = get_path(pj)
             pipeline_data = load_pipeline(path)
             automerge = pipeline_data.get("automerge", False)
-            content = _format_merge_summary(pj, batch, automerge=automerge, queue_mode=notification.get("queue_mode", False))
+            from config import MERGE_SUMMARY_FOOTER
+            content = render("dev.merge_summary_sent", "format_merge_summary",
+                project=pj, batch=batch, automerge=automerge,
+                queue_mode=notification.get("queue_mode", False),
+                MERGE_SUMMARY_FOOTER=MERGE_SUMMARY_FOOTER,
+            )
             message_id = post_discord(DISCORD_CHANNEL, content)
             if message_id:
                 # summary_message_id をパイプラインに保存

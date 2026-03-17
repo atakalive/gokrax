@@ -458,7 +458,7 @@ def _reset_to_idle(data: dict) -> None:
     spec_mode のクリーンアップは行わない（それは cmd_spec_stop の責務）。
     """
     # --- リソース解放（pop より先に実行）---
-    from watchdog import _kill_pytest_baseline
+    from engine.cc import _kill_pytest_baseline
     from engine.reviewer import _cleanup_review_files
     pj = data.get("project", "")
     _kill_pytest_baseline(data, pj)

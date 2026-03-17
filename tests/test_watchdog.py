@@ -585,7 +585,7 @@ class TestStartCc:
 
     def test_start_cc_launches_popen(self, tmp_pipelines, monkeypatch):
         """Popen で起動し cc_pid/cc_session_id を記録"""
-        from watchdog import _start_cc
+        from engine.cc import _start_cc
         path = tmp_pipelines / "test-pj.json"
         data = {
             "project": "test-pj", "gitlab": "atakalive/test-pj",
@@ -619,7 +619,7 @@ class TestStartCc:
 
     def test_start_cc_plan_prompt_contains_handover_sections(self, tmp_pipelines, monkeypatch):
         """plan_promptに実装申し送りの各セクション見出しが含まれること"""
-        from watchdog import _start_cc
+        from engine.cc import _start_cc
         import tempfile as _tempfile
         from pathlib import Path as _Path
         path = tmp_pipelines / "test-pj.json"
@@ -674,7 +674,7 @@ class TestStartCc:
 
     def test_start_cc_skips_committed(self, tmp_pipelines, monkeypatch):
         """commit済みIssueはスキップ"""
-        from watchdog import _start_cc
+        from engine.cc import _start_cc
         path = tmp_pipelines / "test-pj.json"
         data = {
             "project": "test-pj", "gitlab": "atakalive/test-pj",
@@ -700,7 +700,7 @@ class TestStartCc:
 
     def test_start_cc_cleans_up_on_failure(self, tmp_pipelines, monkeypatch):
         """Popen失敗時に一時ファイル削除"""
-        from watchdog import _start_cc
+        from engine.cc import _start_cc
         import os
         path = tmp_pipelines / "test-pj.json"
         data = {
@@ -738,7 +738,7 @@ class TestStartCc:
 
     def test_start_cc_records_base_commit(self, tmp_pipelines, monkeypatch):
         """_start_cc 呼び出し後に pipeline に base_commit が保存されること"""
-        from watchdog import _start_cc
+        from engine.cc import _start_cc
         import json
 
         path = tmp_pipelines / "test-pj.json"
@@ -772,7 +772,7 @@ class TestStartCc:
 
     def test_start_cc_does_not_overwrite_base_commit(self, tmp_pipelines, monkeypatch):
         """既に base_commit が設定済みの場合は上書きされないこと"""
-        from watchdog import _start_cc
+        from engine.cc import _start_cc
         import json
 
         path = tmp_pipelines / "test-pj.json"
@@ -801,7 +801,7 @@ class TestStartCc:
 
     def test_start_cc_skip_cc_plan_no_plan_phase(self, tmp_pipelines, monkeypatch):
         """skip_cc_plan=True 時: スクリプトに Plan フェーズが含まれず、impl_prompt に issues_block が含まれること"""
-        from watchdog import _start_cc
+        from engine.cc import _start_cc
         import tempfile as _tempfile
         from pathlib import Path as _Path
         path = tmp_pipelines / "test-pj.json"
@@ -865,7 +865,7 @@ class TestStartCc:
 
     def test_start_cc_skip_cc_plan_false_keeps_two_phase(self, tmp_pipelines, monkeypatch):
         """skip_cc_plan=False（デフォルト）時: 既存の2段階フローが維持されること"""
-        from watchdog import _start_cc
+        from engine.cc import _start_cc
         import tempfile as _tempfile
         from pathlib import Path as _Path
         path = tmp_pipelines / "test-pj.json"
@@ -921,7 +921,7 @@ class TestStartCc:
 
     def test_start_cc_skip_cc_plan_with_keep_ctx(self, tmp_pipelines, monkeypatch):
         """skip_cc_plan=True + keep_ctx_batch=True (prev_session あり): --resume が使われること"""
-        from watchdog import _start_cc
+        from engine.cc import _start_cc
         import tempfile as _tempfile
         from pathlib import Path as _Path
         path = tmp_pipelines / "test-pj.json"
@@ -982,7 +982,7 @@ class TestStartCc:
 
     def test_start_cc_skip_cc_plan_with_comment(self, tmp_pipelines, monkeypatch):
         """skip_cc_plan=True + comment あり: impl_prompt に comment_line が含まれること"""
-        from watchdog import _start_cc
+        from engine.cc import _start_cc
         import tempfile as _tempfile
         from pathlib import Path as _Path
         path = tmp_pipelines / "test-pj.json"
@@ -1034,7 +1034,7 @@ class TestStartCc:
 
     def test_start_cc_skip_cc_plan_cleanup_on_failure(self, tmp_pipelines, monkeypatch):
         """skip_cc_plan=True + Popen 失敗時: impl/script は削除され plan_path (None) は触られないこと"""
-        from watchdog import _start_cc
+        from engine.cc import _start_cc
         import os
         path = tmp_pipelines / "test-pj.json"
         data = {
@@ -1074,7 +1074,7 @@ class TestStartCc:
 
     def test_start_cc_preserves_existing_base_commit(self, tmp_pipelines, monkeypatch):
         """REVISE→再IMPL: base_commit 設定済み → _start_cc は上書きしない"""
-        from watchdog import _start_cc
+        from engine.cc import _start_cc
         existing_base = "a" * 40
         path = tmp_pipelines / "test-pj.json"
         data = {
@@ -1100,7 +1100,7 @@ class TestStartCc:
 
     def test_start_cc_fallback_records_full_sha(self, tmp_pipelines, monkeypatch):
         """base_commit 未設定 → _start_cc が fallback で full SHA を記録"""
-        from watchdog import _start_cc
+        from engine.cc import _start_cc
         path = tmp_pipelines / "test-pj.json"
         data = {
             "project": "test-pj", "state": "IMPLEMENTATION", "enabled": True,
@@ -3115,7 +3115,7 @@ class TestCCModelOverride:
 
     def test_cc_model_from_pipeline(self, tmp_path, monkeypatch):
         """_start_cc: pipeline JSON から cc_plan_model / cc_impl_model を読む"""
-        from watchdog import _start_cc
+        from engine.cc import _start_cc
 
         # Pipeline JSON を作成
         pipeline_path = tmp_path / "test.json"
@@ -3153,7 +3153,7 @@ class TestCCModelOverride:
 
     def test_cc_model_defaults(self, tmp_path, monkeypatch):
         """cc_plan_model / cc_impl_model 未指定 → デフォルト値を使用"""
-        from watchdog import _start_cc
+        from engine.cc import _start_cc
         from config import CC_MODEL_PLAN, CC_MODEL_IMPL
 
         # Pipeline JSON (cc_model フィールドなし)
@@ -3897,42 +3897,42 @@ class TestHasPytest:
 
     def test_pyproject_toml_with_tool_pytest(self, tmp_path):
         """pyproject.toml に [tool.pytest.ini_options] がある → True"""
-        from watchdog import _has_pytest
+        from engine.cc import _has_pytest
         (tmp_path / "pyproject.toml").write_text("[tool.pytest.ini_options]\n")
         assert _has_pytest(str(tmp_path)) is True
 
     def test_pyproject_toml_with_pytest_section(self, tmp_path):
         """pyproject.toml に [pytest] がある → True"""
-        from watchdog import _has_pytest
+        from engine.cc import _has_pytest
         (tmp_path / "pyproject.toml").write_text("[pytest]\naddopts = -v\n")
         assert _has_pytest(str(tmp_path)) is True
 
     def test_setup_cfg_with_tool_pytest(self, tmp_path):
         """setup.cfg に [tool:pytest] がある → True"""
-        from watchdog import _has_pytest
+        from engine.cc import _has_pytest
         (tmp_path / "setup.cfg").write_text("[tool:pytest]\n")
         assert _has_pytest(str(tmp_path)) is True
 
     def test_tests_dir_only(self, tmp_path):
         """tests/ ディレクトリだけ存在 → True"""
-        from watchdog import _has_pytest
+        from engine.cc import _has_pytest
         (tmp_path / "tests").mkdir()
         assert _has_pytest(str(tmp_path)) is True
 
     def test_none_of_the_above(self, tmp_path):
         """何もなし → False"""
-        from watchdog import _has_pytest
+        from engine.cc import _has_pytest
         assert _has_pytest(str(tmp_path)) is False
 
     def test_pyproject_without_pytest_section(self, tmp_path):
         """pyproject.toml に pytest 設定なし → False"""
-        from watchdog import _has_pytest
+        from engine.cc import _has_pytest
         (tmp_path / "pyproject.toml").write_text("[tool.black]\n")
         assert _has_pytest(str(tmp_path)) is False
 
     def test_read_error_returns_false(self, tmp_path):
         """ファイル読み込みエラー → False"""
-        from watchdog import _has_pytest
+        from engine.cc import _has_pytest
         p = tmp_path / "pyproject.toml"
         p.write_text("[tool.pytest.ini_options]\n")
         p.chmod(0o000)
@@ -3950,7 +3950,7 @@ class TestKillPytestBaseline:
 
     def test_no_info_does_nothing(self):
         """_pytest_baseline なし → 何もしない"""
-        from watchdog import _kill_pytest_baseline
+        from engine.cc import _kill_pytest_baseline
         data = {}
         with patch("watchdog.os.killpg") as mock_kill, \
              patch("watchdog.os.unlink") as mock_unlink:
@@ -3963,7 +3963,7 @@ class TestKillPytestBaseline:
         """pid が生きている → killpg(SIGTERM) + killpg(SIGKILL) + ファイル削除"""
         import signal as _signal
         import os
-        from watchdog import _kill_pytest_baseline
+        from engine.cc import _kill_pytest_baseline
 
         out_path = str(tmp_path / "out.txt")
         exit_path = str(tmp_path / "out.txt.exit")
@@ -4005,7 +4005,7 @@ class TestKillPytestBaseline:
 
     def test_dead_pid_only_cleans_files(self, tmp_path):
         """pid が既に死んでいる → ファイル削除のみ"""
-        from watchdog import _kill_pytest_baseline
+        from engine.cc import _kill_pytest_baseline
 
         out_path = str(tmp_path / "out.txt")
         (tmp_path / "out.txt").write_text("")
@@ -4038,7 +4038,7 @@ class TestPollPytestBaseline:
 
     def test_no_info_does_nothing(self, tmp_pipelines):
         """_pytest_baseline なし → pipeline 変更なし"""
-        from watchdog import _poll_pytest_baseline
+        from engine.cc import _poll_pytest_baseline
         path = tmp_pipelines / "pj.json"
         data = {"enabled": True, "project": "pj", "state": "DESIGN_PLAN", "history": []}
         self._write_pipeline(path, data)
@@ -4049,7 +4049,7 @@ class TestPollPytestBaseline:
     def test_exit_code_path_exists_saves_baseline(self, tmp_pipelines, tmp_path):
         """exit_code_path が存在 → test_baseline 書き込み、ファイル削除、_pytest_baseline 削除"""
         import os
-        from watchdog import _poll_pytest_baseline
+        from engine.cc import _poll_pytest_baseline
 
         out_path = str(tmp_path / "out.txt")
         exit_path = str(tmp_path / "out.txt.exit")
@@ -4084,7 +4084,7 @@ class TestPollPytestBaseline:
 
     def test_proc_alive_no_exit_code_does_nothing(self, tmp_pipelines):
         """exit_code_path なし + /proc あり → 何もしない（実行中）"""
-        from watchdog import _poll_pytest_baseline
+        from engine.cc import _poll_pytest_baseline
         from datetime import datetime, timedelta, timezone
 
         JST = timezone(timedelta(hours=9))
@@ -4120,7 +4120,7 @@ class TestPollPytestBaseline:
 
     def test_proc_dead_no_exit_code_saves_minus1(self, tmp_pipelines):
         """exit_code_path なし + /proc なし → 異常終了として exit_code=-1 で保存"""
-        from watchdog import _poll_pytest_baseline
+        from engine.cc import _poll_pytest_baseline
 
         path = tmp_pipelines / "pj.json"
         data = {
@@ -4146,7 +4146,7 @@ class TestPollPytestBaseline:
 
     def test_timeout_kills_and_records(self, tmp_pipelines):
         """started_at から 5分超過 → kill + タイムアウト記録"""
-        from watchdog import _poll_pytest_baseline
+        from engine.cc import _poll_pytest_baseline
         from datetime import datetime, timedelta, timezone
 
         JST = timezone(timedelta(hours=9))
@@ -4179,7 +4179,7 @@ class TestPollPytestBaseline:
 
     def test_output_truncated_at_limit(self, tmp_pipelines, tmp_path):
         """出力が MAX_BASELINE_OUTPUT_CHARS 超過 → 切り詰め + '(truncated)' prefix"""
-        from watchdog import _poll_pytest_baseline, MAX_BASELINE_OUTPUT_CHARS
+        from engine.cc import _poll_pytest_baseline, MAX_BASELINE_OUTPUT_CHARS
 
         big_output = "x" * (MAX_BASELINE_OUTPUT_CHARS + 1000)
         out_path = str(tmp_path / "out.txt")
@@ -4231,7 +4231,7 @@ class TestImplPromptTestBaseline:
         """_start_cc() を呼んで impl プロンプトファイルの内容を返す"""
         import tempfile as _tempfile
         from pathlib import Path as _Path
-        from watchdog import _start_cc
+        from engine.cc import _start_cc
 
         path, data = self._make_path_and_data(tmp_pipelines, extra_data)
         monkeypatch.setattr("watchdog.PIPELINES_DIR", tmp_pipelines)
@@ -4279,7 +4279,7 @@ class TestImplPromptTestBaseline:
         """HEAD 一致 + exit_code=0 → 全パス文言が埋め込まれる"""
         import tempfile as _tempfile
         from pathlib import Path as _Path
-        from watchdog import _start_cc
+        from engine.cc import _start_cc
 
         # git rev-parse HEAD が "abc12345" を返す → baseline.commit と一致させる
         path, data = self._make_path_and_data(
@@ -4320,7 +4320,7 @@ class TestImplPromptTestBaseline:
         """HEAD 一致 + exit_code=1 → 失敗文言 + 警告が埋め込まれる"""
         import tempfile as _tempfile
         from pathlib import Path as _Path
-        from watchdog import _start_cc
+        from engine.cc import _start_cc
 
         path, data = self._make_path_and_data(
             tmp_pipelines,
@@ -4360,7 +4360,7 @@ class TestImplPromptTestBaseline:
         """出力が MAX_BASELINE_EMBED_CHARS 超過 → 切り詰め"""
         import tempfile as _tempfile
         from pathlib import Path as _Path
-        from watchdog import _start_cc, MAX_BASELINE_EMBED_CHARS
+        from engine.cc import _start_cc, MAX_BASELINE_EMBED_CHARS
 
         big_output = "y" * (MAX_BASELINE_EMBED_CHARS + 5000)
         path, data = self._make_path_and_data(

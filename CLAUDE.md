@@ -7,19 +7,43 @@
 ### アーキテクチャ
 
 ```
-devbar.py         # CLI エントリポイント（全コマンド定義）
-watchdog.py       # watchdog デーモン（状態遷移、CC起動、レビュー管理）
-config.py         # 状態定義、遷移テーブル、定数
-notify.py         # 通知（Discord、エージェント間通信）
-pipeline_io.py    # パイプライン JSON の読み書き（flock排他）
-task_queue.py     # タスクキュー管理
-spec.md           # 仕様書
-spec_issue.py     # spec mode: Issue 自動起票
-spec_review.py    # spec mode: 仕様レビュー
-spec_revise.py    # spec mode: 仕様修正
-reviews/          # レビュー依頼の外部化ファイル置き場
-tests/            # pytest テスト
-docs/             # ドキュメント
+# === CLI ===
+devbar.py              # CLI エントリポイント（全コマンド定義）
+commands/spec.py       # spec mode CLI サブコマンド群
+
+# === watchdog デーモン ===
+watchdog.py            # メインループ(process)、Discord handler、キュー管理
+                       # ※ #127-#129 で大部分を engine/ へ切り出し済み
+
+# === engine/ — watchdog から分離されたコアロジック ===
+engine/shared.py       # watchdog/devbar 共通ユーティリティ (#127)
+engine/reviewer.py     # レビュー管理（レビュアー選定・リセット等）(#128)
+engine/cc.py           # CC CLI 自動化（plan/impl 起動、pytest baseline）(#129)
+engine/fsm.py          # 通常モード状態遷移（check_transition 等）(#131 で追加予定)
+engine/fsm_spec.py     # spec mode 状態遷移（check_transition_spec 等）
+
+# === 基盤 ===
+config.py              # 状態定義、遷移テーブル、定数、パス
+notify.py              # 通知（Discord 投稿、エージェント間通信）
+pipeline_io.py         # パイプライン JSON の読み書き（flock 排他）
+task_queue.py          # タスクキュー管理
+
+# === spec mode ===
+spec_issue.py          # spec mode: Issue 自動起票
+spec_review.py         # spec mode: 仕様レビュー
+spec_revise.py         # spec mode: 仕様修正
+
+# === メッセージ外部化 ===
+messages/              # プロンプト・通知テンプレート
+  __init__.py          # render() エントリポイント
+  ja/dev/              # 通常モード（design_plan, code_review 等）
+  ja/spec/             # spec mode（review, revise, approved 等）
+
+# === その他 ===
+scripts/               # 検証スクリプト（verify_spec_messages.py 等）
+reviews/               # レビュー依頼の外部化ファイル置き場
+tests/                 # pytest テスト
+docs/                  # ドキュメント
 ```
 
 ## コーディング規約

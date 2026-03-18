@@ -120,7 +120,7 @@ def nudge(**_kw) -> str:
     """IMPLEMENTATION 催促メッセージ。"""
     return (
         "[Remind] 実装を進め、完了してください。\n"
-        "devbar commit --pj <project> --issue <N> --hash <commit> でコミットを報告してください。"
+        "gokrax commit --pj <project> --issue <N> --hash <commit> でコミットを報告してください。"
     )
 
 

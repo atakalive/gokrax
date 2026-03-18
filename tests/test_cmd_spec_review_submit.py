@@ -105,7 +105,7 @@ class TestReviewSubmitNormal:
         review_file = tmp_path / "review.yaml"
         review_file.write_text(FENCED_YAML, encoding="utf-8")
 
-        from devbar import cmd_spec_review_submit
+        from gokrax import cmd_spec_review_submit
         args = _args(project="test-pj", reviewer="leibniz", file=str(review_file))
         cmd_spec_review_submit(args)
 
@@ -130,7 +130,7 @@ class TestReviewSubmitNormal:
         review_file = tmp_path / "review.yaml"
         review_file.write_text(RAW_YAML, encoding="utf-8")
 
-        from devbar import cmd_spec_review_submit
+        from gokrax import cmd_spec_review_submit
         args = _args(project="test-pj", reviewer="leibniz", file=str(review_file))
         cmd_spec_review_submit(args)
 
@@ -168,7 +168,7 @@ class TestReviewSubmitIdempotency:
         review_file = tmp_path / "review.yaml"
         review_file.write_text(FENCED_YAML, encoding="utf-8")
 
-        from devbar import cmd_spec_review_submit
+        from gokrax import cmd_spec_review_submit
         args = _args(project="test-pj", reviewer="leibniz", file=str(review_file))
         cmd_spec_review_submit(args)
 
@@ -192,7 +192,7 @@ class TestReviewSubmitErrors:
         review_file = tmp_path / "review.yaml"
         review_file.write_text(FENCED_YAML, encoding="utf-8")
 
-        from devbar import cmd_spec_review_submit
+        from gokrax import cmd_spec_review_submit
         args = _args(project="test-pj", reviewer="leibniz", file=str(review_file))
         with pytest.raises(SystemExit, match="Not in SPEC_REVIEW state"):
             cmd_spec_review_submit(args)
@@ -205,7 +205,7 @@ class TestReviewSubmitErrors:
         review_file = tmp_path / "review.yaml"
         review_file.write_text(FENCED_YAML, encoding="utf-8")
 
-        from devbar import cmd_spec_review_submit
+        from gokrax import cmd_spec_review_submit
         args = _args(project="test-pj", reviewer="unknown", file=str(review_file))
         with pytest.raises(SystemExit, match="not in review_requests"):
             cmd_spec_review_submit(args)
@@ -218,7 +218,7 @@ class TestReviewSubmitErrors:
         review_file = tmp_path / "review.yaml"
         review_file.write_text("this is not valid yaml: [[[", encoding="utf-8")
 
-        from devbar import cmd_spec_review_submit
+        from gokrax import cmd_spec_review_submit
         args = _args(project="test-pj", reviewer="leibniz", file=str(review_file))
         with pytest.raises(SystemExit, match="Failed to parse review YAML"):
             cmd_spec_review_submit(args)
@@ -228,7 +228,7 @@ class TestReviewSubmitErrors:
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, _active_pipeline())
 
-        from devbar import cmd_spec_review_submit
+        from gokrax import cmd_spec_review_submit
         args = _args(project="test-pj", reviewer="leibniz", file="/nonexistent/review.yaml")
         with pytest.raises(SystemExit, match="File not found"):
             cmd_spec_review_submit(args)
@@ -249,7 +249,7 @@ class TestReviewSubmitArchive:
         review_file = tmp_path / "review.yaml"
         review_file.write_text(FENCED_YAML, encoding="utf-8")
 
-        from devbar import cmd_spec_review_submit
+        from gokrax import cmd_spec_review_submit
         args = _args(project="test-pj", reviewer="leibniz", file=str(review_file))
         cmd_spec_review_submit(args)
 
@@ -271,7 +271,7 @@ class TestReviewSubmitArchive:
         review_file = tmp_path / "review.yaml"
         review_file.write_text(FENCED_YAML, encoding="utf-8")
 
-        from devbar import cmd_spec_review_submit
+        from gokrax import cmd_spec_review_submit
         args = _args(project="test-pj", reviewer="leibniz", file=str(review_file))
         # SystemExit が発生しないこと（正常終了）
         cmd_spec_review_submit(args)

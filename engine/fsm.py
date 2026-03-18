@@ -6,7 +6,7 @@ from datetime import datetime as _datetime
 
 from config import (
     BLOCK_TIMERS,
-    DEVBAR_CLI,
+    GOKRAX_CLI,
     EXTENDABLE_STATES,
     EXTEND_NOTICE_THRESHOLD,
     JST,
@@ -33,7 +33,7 @@ class TransitionAction:
     impl_msg: str | None = None
     send_review: bool = False
     reset_reviewers: bool = False  # レビュアーに /new を先行送信
-    send_merge_summary: bool = False  # #dev-bar にマージサマリーを投稿
+    send_merge_summary: bool = False  # #gokrax にマージサマリーを投稿
     run_cc: bool = False  # CC CLI を直接起動
     nudge: str | None = None   # 催促通知が必要な状態名
     nudge_reviewers: list | None = None  # 催促が必要なレビュアーのリスト
@@ -95,7 +95,7 @@ def _check_nudge(state: str, data: dict) -> TransitionAction | None:
         if extend_count < max_extends:
             nudge.extend_notice = (
                 f"\n\n⏰ タイムアウトまで残り{int(remaining)}秒（延長残り{max_extends - extend_count}回）。延長が必要なら:\n"
-                f"{DEVBAR_CLI} extend --project {project} --by 600"
+                f"{GOKRAX_CLI} extend --project {project} --by 600"
             )
         else:
             nudge.extend_notice = (
@@ -135,7 +135,7 @@ def get_notification_for_state(
         ) or "（全Issue）"
         msg = render("dev.design_plan", "transition",
             project=project, issues_str=issues_str,
-            comment_line=comment_line, DEVBAR_CLI=DEVBAR_CLI,
+            comment_line=comment_line, GOKRAX_CLI=GOKRAX_CLI,
         )
         return TransitionAction(impl_msg=msg, reset_reviewers=True)
 
@@ -147,7 +147,7 @@ def get_notification_for_state(
         fix_label = "P0/P1/P2指摘" if p2_fix else "P0/P1指摘"
         msg = render("dev.design_revise", "transition",
             project=project, issues_str=issues_str, comment_line=comment_line,
-            fix_label=fix_label, p2_note=p2_note, DEVBAR_CLI=DEVBAR_CLI,
+            fix_label=fix_label, p2_note=p2_note, GOKRAX_CLI=GOKRAX_CLI,
         )
         return TransitionAction(impl_msg=msg)
 
@@ -159,7 +159,7 @@ def get_notification_for_state(
         fix_label = "P0/P1/P2指摘" if p2_fix else "P0/P1指摘"
         msg = render("dev.code_revise", "transition",
             project=project, issues_str=issues_str, comment_line=comment_line,
-            fix_label=fix_label, p2_note=p2_note, DEVBAR_CLI=DEVBAR_CLI,
+            fix_label=fix_label, p2_note=p2_note, GOKRAX_CLI=GOKRAX_CLI,
         )
         return TransitionAction(impl_msg=msg)
 
@@ -475,7 +475,7 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
 def _format_nudge_message(state: str, project: str, batch: list) -> str:
     """催促メッセージ生成。get_notification_for_state() に委譲。"""
     notif = get_notification_for_state(state, project=project, batch=batch)
-    return notif.impl_msg or f"[devbar] {project}: {state} — 対応してください。"
+    return notif.impl_msg or f"[gokrax] {project}: {state} — 対応してください。"
 
 
 def _recover_pending_notifications(pj: str, pending: dict, data: dict) -> None:

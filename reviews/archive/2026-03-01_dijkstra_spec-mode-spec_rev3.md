@@ -35,7 +35,7 @@ rev2 の Critical 3件、Major 5件は**全て適切に反映**:
 
 process() 内の DCL ブロックで、ロック内の再計算に stale な spec_config を使用。既存 watchdog.py は `update_pipeline(path, callback)` 内でディスクから再読み込みする。仕様の擬似コードはこの重要なステップが欠落。
 
-並行実行（watchdog tick と devbar spec approve が同時）で古い spec_config に基づいて遷移し、approve の効果が消失する等の競合が起きる。
+並行実行（watchdog tick と gokrax spec approve が同時）で古い spec_config に基づいて遷移し、approve の効果が消失する等の競合が起きる。
 
 **修正案:** 既存パターンに合わせ update_pipeline(path, callback) を使用:
 ```python

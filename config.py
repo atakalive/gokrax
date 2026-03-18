@@ -1,4 +1,4 @@
-"""devbar config — 定数の一元管理"""
+"""gokrax config — 定数の一元管理"""
 
 from __future__ import annotations
 
@@ -14,31 +14,31 @@ from typing import Any
 OWNER_NAME: str = "M"
 PROMPT_LANG: str = "ja"
 
-DRY_RUN: bool = os.environ.get("DEVBAR_DRY_RUN", "").strip() not in ("", "0", "false")
+DRY_RUN: bool = os.environ.get("GOKRAX_DRY_RUN", "").strip() not in ("", "0", "false")
 
 # パス（テスト時は環境変数で上書き可能）
-PIPELINES_DIR = Path(os.environ["DEVBAR_PIPELINES_DIR"]) if "DEVBAR_PIPELINES_DIR" in os.environ else Path.home() / ".openclaw/shared/pipelines"
-DEVBAR_CLI = PurePosixPath("/home/ataka/.openclaw/shared/bin/devbar")
+PIPELINES_DIR = Path(os.environ["GOKRAX_PIPELINES_DIR"]) if "GOKRAX_PIPELINES_DIR" in os.environ else Path.home() / ".openclaw/shared/pipelines"
+GOKRAX_CLI = PurePosixPath("/home/ataka/.openclaw/shared/bin/gokrax")
 GLAB_BIN = "/home/ataka/bin/glab"
 # GATEWAY_TOKEN_PATH removed — using direct bot token
 GATEWAY_PORT = int(os.environ.get("OPENCLAW_GATEWAY_PORT", "18789"))
-LOG_FILE = Path("/tmp/devbar-watchdog.log")
-QUEUE_FILE = PIPELINES_DIR / "devbar-queue.txt"  # Default. Don't delete this line.
-QUEUE_FILE = Path("/mnt/s/wsl/work/project/DevBar/devbar-queue.txt")
+LOG_FILE = Path("/tmp/gokrax-watchdog.log")
+QUEUE_FILE = PIPELINES_DIR / "gokrax-queue.txt"  # Default. Don't delete this line.
+QUEUE_FILE = Path("/mnt/s/wsl/work/project/gokrax/gokrax-queue.txt")
 
 
 # watchdog-loop
 WATCHDOG_LOOP_SCRIPT = Path(__file__).resolve().parent / "watchdog-loop.sh"
-WATCHDOG_LOOP_PIDFILE = Path("/tmp/devbar-watchdog-loop.pid")
+WATCHDOG_LOOP_PIDFILE = Path("/tmp/gokrax-watchdog-loop.pid")
 WATCHDOG_LOOP_CRON_MARKER = "watchdog-loop"  # crontab行のgrep用マーカー
 WATCHDOG_LOOP_CRON_ENTRY = (
-    f"* * * * * flock -n /tmp/devbar-watchdog-loop.lock"
+    f"* * * * * flock -n /tmp/gokrax-watchdog-loop.lock"
     f" setsid bash {Path(__file__).resolve().parent / 'watchdog-loop.sh'}"
     f" > /dev/null 2>&1 &"
 )
 
 # Discord
-DISCORD_CHANNEL = "1474050582049329213"  # #dev-bar channel ID
+DISCORD_CHANNEL = "1474050582049329213"  # #gokrax channel ID
 DISCORD_BOT_TOKEN = "***REDACTED***"
 
 # CC model
@@ -270,7 +270,7 @@ MAX_DIFF_CHARS: int = 5_000_000
 MAX_INLINE_MESSAGE_BYTES: int = 120_000
 
 # レビューデータ外部化のディレクトリ
-REVIEW_FILE_DIR: Path = Path("/tmp/devbar-review")
+REVIEW_FILE_DIR: Path = Path("/tmp/gokrax-review")
 
 # ファイル書き出しリトライ設定
 REVIEW_FILE_WRITE_RETRIES: int = 3
@@ -316,10 +316,10 @@ BOT_USER_ID = "1313244623396913212"
 MERGE_SUMMARY_FOOTER = "\n---\n✅ このメッセージに「OK」とリプライすると、マージが実行されます。"
 
 # グローバル状態ファイル（PJ 間セッション管理用）
-DEVBAR_STATE_PATH = PIPELINES_DIR.parent / "devbar-state.json"
+GOKRAX_STATE_PATH = PIPELINES_DIR.parent / "gokrax-state.json"
 
 # メトリクス JSONL ファイル（Issue #81）
-METRICS_FILE = PIPELINES_DIR.parent / "devbar-metrics.jsonl"
+METRICS_FILE = PIPELINES_DIR.parent / "gokrax-metrics.jsonl"
 
 
 def _validate_reviewer_tiers():
@@ -375,7 +375,7 @@ def get_current_round(data: dict[str, Any]) -> int:
 def review_command(project: str, issue: int, reviewer: str, round_num: int | None = None) -> str:
     """レビュー報告コマンド文字列を生成する。単一ソース。"""
     cmd = (
-        f'python3 {DEVBAR_CLI} review'
+        f'python3 {GOKRAX_CLI} review'
         f' --project {project}'
         f' --issue {issue}'
         f' --reviewer {reviewer}'

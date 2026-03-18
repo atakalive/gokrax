@@ -1,4 +1,4 @@
-# DevBar Spec Mode — 仕様書レビュー（Leibniz, やりすぎ版）
+# gokrax Spec Mode — 仕様書レビュー（Leibniz, やりすぎ版）
 
 対象: `docs/spec-mode-spec_rev1.md` (rev1)
 
@@ -13,14 +13,14 @@ items:
     severity: critical
     section: "§3.1, §5.2"
     title: "pipeline.jsonのbatch要素が既存実装と型不整合（issueがstrになる）"
-    description: "仕様では spec mode の batch item 例が `\"issue\": \"spec\"` と文字列になっているが、既存 devbar コードは issue を int 前提で扱う（`devbar.py` の argparse で `--issue` は int、`pipeline_io.find_issue` も int 比較、`notify.format_review_request` は Issue本文取得に `glab issue show <int>` を呼ぶ）。このままでは spec mode を既存の batch 機構に載せると各所で例外/誤動作する。"
+    description: "仕様では spec mode の batch item 例が `\"issue\": \"spec\"` と文字列になっているが、既存 gokrax コードは issue を int 前提で扱う（`gokrax.py` の argparse で `--issue` は int、`pipeline_io.find_issue` も int 比較、`notify.format_review_request` は Issue本文取得に `glab issue show <int>` を呼ぶ）。このままでは spec mode を既存の batch 機構に載せると各所で例外/誤動作する。"
     suggestion: "spec mode のデータモデルを既存 batch と分離（`spec_batch` を導入）するか、issueを常にintに統一（spec専用は iid=0/負数など予約）し、全関数の型契約を更新せよ。"
 
   - id: C-2
     severity: critical
     section: "§5.1, §6.1"
     title: "メッセージ送信インターフェースが現実コードと不整合（sessions_send 前提）"
-    description: "仕様は `sessions_send` を前提にプロンプトを設計しているが、現行 devbar は `openclaw agent --message`（notify.send_to_agent）と gateway-send（send_to_agent_queued）で送信している。セッションキー/送信制約（改行が消える等）が違い、プロンプト設計・パース成功率・運用が変わる。仕様のまま実装すると『どの送信路を使うか』で破綻する。"
+    description: "仕様は `sessions_send` を前提にプロンプトを設計しているが、現行 gokrax は `openclaw agent --message`（notify.send_to_agent）と gateway-send（send_to_agent_queued）で送信している。セッションキー/送信制約（改行が消える等）が違い、プロンプト設計・パース成功率・運用が変わる。仕様のまま実装すると『どの送信路を使うか』で破綻する。"
     suggestion: "仕様内で送信路を固定し、その制約（改行保持/最大長/エラー時挙動）を明文化せよ。例: レビュー依頼は send_to_agent（改行保持）で必須、催促のみ queued、など。"
 
   - id: C-3
@@ -34,7 +34,7 @@ items:
     severity: critical
     section: "§6.3（終了判定の擬似コード）"
     title: "should_continue_review擬似コードが未定義変数を参照し、ループ条件が仕様§2.4と齟齬"
-    description: "擬似コード `if revise_count >= max_revise_cycles` はローカル変数が存在せず、直前で `config = pipeline[\"spec_config\"]` を作っているのに利用していない。また終了条件の定義が『P1以上なし』と『全レビュアーのverdictにP1/P0が無い』のどちらなのか揺れている。現行 devbar は P0 のみが revise トリガ（P1ではREVISEにならない設計）なので、spec側の“P1以上あり: ループ継続”は大きな方針変更になる。"
+    description: "擬似コード `if revise_count >= max_revise_cycles` はローカル変数が存在せず、直前で `config = pipeline[\"spec_config\"]` を作っているのに利用していない。また終了条件の定義が『P1以上なし』と『全レビュアーのverdictにP1/P0が無い』のどちらなのか揺れている。現行 gokrax は P0 のみが revise トリガ（P1ではREVISEにならない設計）なので、spec側の“P1以上あり: ループ継続”は大きな方針変更になる。"
     suggestion: "終了判定を『merged_counts の critical/major が0』のように1つに固定し、擬似コードは `config[\"revise_count\"]` 等の実在キーで書け。さらに P1 で revise するなら既存設計との差分（CODE_REVISEの条件）も明記せよ。"
 
   - id: C-5
@@ -55,14 +55,14 @@ items:
     severity: critical
     section: "§3.2, §9, 現行config.py"
     title: "キューファイル定数が仕様と現行実装で二重定義・名前も不一致"
-    description: "仕様は `SPEC_QUEUE_FILE = PIPELINES_DIR / \"devbar-queue.txt\"` とするが、現行 config.py は `QUEUE_FILE = PIPELINES_DIR / \"devbar-queue.txt\"` の直後に `QUEUE_FILE = Path(\"/mnt/s/wsl/work/project/DevBar/devbar-queue.txt\")` で上書きしている（プロジェクト名の大小も違う: DevBar vs devbar）。spec mode が `SPEC_QUEUE_FILE` を導入すると“どれが真の出力先か”が崩壊する。"
+    description: "仕様は `SPEC_QUEUE_FILE = PIPELINES_DIR / \"gokrax-queue.txt\"` とするが、現行 config.py は `QUEUE_FILE = PIPELINES_DIR / \"gokrax-queue.txt\"` の直後に `QUEUE_FILE = Path(\"/mnt/s/wsl/work/project/gokrax/gokrax-queue.txt\")` で上書きしている（プロジェクト名の大小も違う: gokrax vs gokrax）。spec mode が `SPEC_QUEUE_FILE` を導入すると“どれが真の出力先か”が崩壊する。"
     suggestion: "キュー出力先は単一定数（例: `QUEUE_FILE`）に統一し、上書きは環境変数で行う（既にPIPELINES_DIRがそうしている）。spec側は既存名に合わせるか、既存をSPEC_QUEUE_FILEへリネームして全箇所更新せよ。"
 
   - id: C-8
     severity: critical
     section: "§5.3"
     title: "YAMLパースの『正規表現抽出→フォールバックLLM』が安全性/決定性を欠く"
-    description: "レビュー結果の抽出を正規表現に依存すると、コードブロック入れ子・途中欠落・複数yamlブロック等で壊れる。さらに“フォールバックでLLMにパース依頼”は決定性が無く、同一入力で異なる結果（重篤度が変わる）になり得る。devbar はオーケストレータなので、状態遷移条件の非決定化は致命的。"
+    description: "レビュー結果の抽出を正規表現に依存すると、コードブロック入れ子・途中欠落・複数yamlブロック等で壊れる。さらに“フォールバックでLLMにパース依頼”は決定性が無く、同一入力で異なる結果（重篤度が変わる）になり得る。gokrax はオーケストレータなので、状態遷移条件の非決定化は致命的。"
     suggestion: "フォーマットを厳格化（YAMLは先頭から1ブロックのみ、JSONでも可）、失敗時は『遷移停止+人間介入』に倒すか、LLMフォールバックを使うなら結果を raw と並記し、最終決定は“元テキストのまま”に固定するなどの安全弁を設けよ。"
 
   - id: C-9
@@ -83,7 +83,7 @@ items:
     severity: critical
     section: "§12.1"
     title: "レビュー保存パスの同一リポジトリ書き込みは権限/CI/ブランチ運用が未定義"
-    description: "specと同じrepoに `reviews/` を保存すると、(1) ブランチはどれか、(2) push権限、(3) 生成物の肥大化、(4) 秘匿情報（レビュー原文）の扱い、が問題になる。現行 devbar は /tmp や pipelines ディレクトリ中心で、repo更新は CC のコミットに依存している。"
+    description: "specと同じrepoに `reviews/` を保存すると、(1) ブランチはどれか、(2) push権限、(3) 生成物の肥大化、(4) 秘匿情報（レビュー原文）の扱い、が問題になる。現行 gokrax は /tmp や pipelines ディレクトリ中心で、repo更新は CC のコミットに依存している。"
     suggestion: "保存先を (A) repo内（バージョン管理する）か (B) pipelines側（運用ログ）か決め、(A)ならブランチ/コミット規約、(B)ならファイルパス規約を仕様化せよ。"
 
   - id: M-1
@@ -97,8 +97,8 @@ items:
     severity: major
     section: "§4.2"
     title: "CLIのオプションとpipeline.jsonのフィールドが対応していない"
-    description: "`devbar spec start` は `--model` を取るが、どこに保存するか（pipelineのどのキーか）が未定義。現行実装は `cc_plan_model/cc_impl_model` のように pipeline に保存している。spec mode でも同様の保存場所が必要。"
-    suggestion: "CLI→pipelineへの写像表（フラグ名→spec_configキー）を仕様に追加し、devbar.pyで一意に書けるようにせよ。"
+    description: "`gokrax spec start` は `--model` を取るが、どこに保存するか（pipelineのどのキーか）が未定義。現行実装は `cc_plan_model/cc_impl_model` のように pipeline に保存している。spec mode でも同様の保存場所が必要。"
+    suggestion: "CLI→pipelineへの写像表（フラグ名→spec_configキー）を仕様に追加し、gokrax.pyで一意に書けるようにせよ。"
 
   - id: M-3
     severity: major
@@ -118,7 +118,7 @@ items:
     severity: major
     section: "§2.4, §4.3"
     title: "手動approveの権限・監査・安全性が未定義"
-    description: "`devbar spec approve` が誰でも実行できるとP0を握り潰せる。現行devbarはDiscordコマンドやCLIをローカルで叩く前提だが、spec mode でも“誰がいつ強制終了したか”は history に残すべき。"
+    description: "`gokrax spec approve` が誰でも実行できるとP0を握り潰せる。現行gokraxはDiscordコマンドやCLIをローカルで叩く前提だが、spec mode でも“誰がいつ強制終了したか”は history に残すべき。"
     suggestion: "actor を必須にして history に `actor: M` 等を必ず記録、また approve 実行時にDiscordへ監査ログ投稿する等を仕様化せよ。"
 
   - id: M-6
@@ -146,7 +146,7 @@ items:
     severity: minor
     section: "§5.1"
     title: "初回プロンプトに {spec_content} を入れると巨大化しやすい（MAX_EMBED_CHARS戦略が無い）"
-    description: "現行 devbar は `MAX_EMBED_CHARS` を持ち、埋め込みが長い場合はtruncationを行う。一方 spec mode は spec全文送付が前提で、長大specで送信失敗・遅延・コスト増になる。"
+    description: "現行 gokrax は `MAX_EMBED_CHARS` を持ち、埋め込みが長い場合はtruncationを行う。一方 spec mode は spec全文送付が前提で、長大specで送信失敗・遅延・コスト増になる。"
     suggestion: "サイズ上限と分割戦略（章ごとに分割送信、またはURL/パス参照＋要約）を仕様に含めよ。"
 
   - id: m-4
@@ -154,13 +154,13 @@ items:
     section: "§8.1"
     title: "Issue起票ルール『注記を削除不可』は運用上強制不能"
     description: "“削除不可”は技術的強制が無い限り規約であり、実装者が誤って消す。watchdogが検査してBLOCKする等の仕組みがないと規約として機能しない。"
-    suggestion: "起票後にdevbarが Issue本文を読み戻して注記存在を検査し、欠落なら自動で追記/またはBLOCKする、等を設計に入れよ。"
+    suggestion: "起票後にgokraxが Issue本文を読み戻して注記存在を検査し、欠落なら自動で追記/またはBLOCKする、等を設計に入れよ。"
 
   - id: s-1
     severity: suggestion
     section: "§5.3"
     title: "severity/verdictの正規化ルール（大小・別名）を先に固定すべき"
-    description: "現行 devbar は verdict を upper で比較している。spec mode でも `P0/P1/APPROVE` と `critical/major/...` の対応が必要。今の仕様だと 'Major' 等の表記揺れで集計が壊れる。"
+    description: "現行 gokrax は verdict を upper で比較している。spec mode でも `P0/P1/APPROVE` と `critical/major/...` の対応が必要。今の仕様だと 'Major' 等の表記揺れで集計が壊れる。"
     suggestion: "受理する値の列挙と正規化（例: case-insensitive、絵文字付きも許容）を仕様化し、パーサはそれにだけ従う。"
 
   - id: s-2

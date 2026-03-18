@@ -188,11 +188,11 @@ class TestBuildPrompts:
     # 20. build_issue_suggestion_prompt: spec_path/rev/project が埋め込まれること
     def test_build_issue_suggestion_prompt(self):
         sc = {"spec_path": "docs/spec.md", "current_rev": "3"}
-        data = {"project": "devbar"}
+        data = {"project": "gokrax"}
         prompt = build_issue_suggestion_prompt(sc, data)
         assert "docs/spec.md" in prompt
         assert "rev3" in prompt
-        assert "devbar" in prompt
+        assert "gokrax" in prompt
         assert "phases" in prompt  # YAML テンプレート含む
 
     # 21. build_issue_plan_prompt: issue_suggestions の各 reviewer 提案が含まれること + 統合指示
@@ -220,7 +220,7 @@ class TestBuildPrompts:
             "spec_path": "docs/spec.md",
             "created_issues": [51, 52, 53],
         }
-        data = {"project": "devbar"}
+        data = {"project": "gokrax"}
         prompt = build_queue_plan_prompt(sc, data)
         queue_path = str(config.QUEUE_FILE)
         assert queue_path in prompt
@@ -248,7 +248,7 @@ class TestCheckIssueSuggestion:
     # 23. 未送信 reviewer → send_to にプロンプトが積まれる
     def test_unsent_reviewer_sends_prompt(self):
         sc = self._base_sc()
-        action = _check_issue_suggestion(sc, _now(), {"project": "devbar"})
+        action = _check_issue_suggestion(sc, _now(), {"project": "gokrax"})
         assert action.send_to is not None
         assert "leibniz" in action.send_to
         assert len(action.send_to["leibniz"]) > 0
@@ -264,7 +264,7 @@ class TestCheckIssueSuggestion:
             "sent_at": past.isoformat(),
             "timeout_at": past.isoformat(),  # 既に超過
         })
-        action = _check_issue_suggestion(sc, _now(), {"project": "devbar"})
+        action = _check_issue_suggestion(sc, _now(), {"project": "gokrax"})
         rr_patch = action.pipeline_updates["review_requests_patch"]
         assert rr_patch["leibniz"]["status"] == "timeout"
         assert "sent_at" in rr_patch["leibniz"]
@@ -290,7 +290,7 @@ class TestCheckIssueSuggestion:
             "status": "received",
             "raw_text": raw,
         }
-        action = _check_issue_suggestion(sc, _now(), {"project": "devbar"})
+        action = _check_issue_suggestion(sc, _now(), {"project": "gokrax"})
         # dijkstra はまだ pending → all_complete=False → review_requests_patch に "received" が残る
         rr_patch = action.pipeline_updates["review_requests_patch"]
         assert rr_patch["leibniz"]["status"] == "received"
@@ -303,7 +303,7 @@ class TestCheckIssueSuggestion:
             "status": "received",
             "raw_text": "this is not valid yaml suggestion",
         }
-        action = _check_issue_suggestion(sc, _now(), {"project": "devbar"})
+        action = _check_issue_suggestion(sc, _now(), {"project": "gokrax"})
         rr_patch = action.pipeline_updates["review_requests_patch"]
         assert rr_patch["leibniz"]["status"] == "parse_failed"
 
@@ -321,7 +321,7 @@ class TestCheckIssueSuggestion:
             "status": "received",
             "raw_text": raw,
         }
-        action = _check_issue_suggestion(sc, _now(), {"project": "devbar"})
+        action = _check_issue_suggestion(sc, _now(), {"project": "gokrax"})
         assert action.next_state == "ISSUE_PLAN"
         assert "[Spec] Issue分割提案回収完了" in action.discord_notify
         # review_requests 完全リセット確認
@@ -340,7 +340,7 @@ class TestCheckIssueSuggestion:
             "status": "received",
             "raw_text": "not a valid suggestion",
         }
-        action = _check_issue_suggestion(sc, _now(), {"project": "devbar"})
+        action = _check_issue_suggestion(sc, _now(), {"project": "gokrax"})
         assert action.next_state == "SPEC_PAUSED"
         assert "有効応答なし" in action.discord_notify
         assert action.pipeline_updates.get("paused_from") == "ISSUE_SUGGESTION"
@@ -367,7 +367,7 @@ class TestCheckIssuePlan:
     # 29. 未送信 → send_to に implementer プロンプト
     def test_unsent_sends_prompt(self):
         sc = self._base_sc()
-        action = _check_issue_plan(sc, _now(), {"project": "devbar"})
+        action = _check_issue_plan(sc, _now(), {"project": "gokrax"})
         assert action.send_to is not None
         assert "hanfei" in action.send_to
         assert action.pipeline_updates.get("_issue_plan_sent") is not None
@@ -376,7 +376,7 @@ class TestCheckIssuePlan:
     def test_response_valid_no_queue_false(self):
         raw = _yaml_block("status: done\ncreated_issues:\n  - 51\n  - 52\n")
         sc = self._base_sc(_issue_plan_response=raw, _issue_plan_sent=_now().isoformat())
-        action = _check_issue_plan(sc, _now(), {"project": "devbar"})
+        action = _check_issue_plan(sc, _now(), {"project": "gokrax"})
         assert action.next_state == "QUEUE_PLAN"
         assert action.pipeline_updates["created_issues"] == [51, 52]
         assert action.pipeline_updates.get("_issue_plan_response") is None
@@ -390,7 +390,7 @@ class TestCheckIssuePlan:
             _issue_plan_sent=_now().isoformat(),
             no_queue=True,
         )
-        action = _check_issue_plan(sc, _now(), {"project": "devbar"})
+        action = _check_issue_plan(sc, _now(), {"project": "gokrax"})
         assert action.next_state == "SPEC_DONE"
         assert action.pipeline_updates["created_issues"] == [51]
 
@@ -400,7 +400,7 @@ class TestCheckIssuePlan:
             _issue_plan_response="invalid response",
             _issue_plan_sent=_now().isoformat(),
         )
-        action = _check_issue_plan(sc, _now(), {"project": "devbar"})
+        action = _check_issue_plan(sc, _now(), {"project": "gokrax"})
         assert action.next_state == "SPEC_PAUSED"
         assert "パース失敗" in action.discord_notify
         assert action.pipeline_updates.get("paused_from") == "ISSUE_PLAN"
@@ -412,7 +412,7 @@ class TestCheckIssuePlan:
             _issue_plan_sent=old_time.isoformat(),
             retry_counts={"ISSUE_PLAN": 0},
         )
-        action = _check_issue_plan(sc, _now(), {"project": "devbar"})
+        action = _check_issue_plan(sc, _now(), {"project": "gokrax"})
         assert action.next_state is None
         assert action.pipeline_updates.get("_issue_plan_sent") is None
         assert "タイムアウト" in action.discord_notify
@@ -425,7 +425,7 @@ class TestCheckIssuePlan:
             _issue_plan_sent=old_time.isoformat(),
             retry_counts={"ISSUE_PLAN": config.MAX_SPEC_RETRIES},
         )
-        action = _check_issue_plan(sc, _now(), {"project": "devbar"})
+        action = _check_issue_plan(sc, _now(), {"project": "gokrax"})
         assert action.next_state == "SPEC_PAUSED"
         assert "タイムアウト" in action.discord_notify
 
@@ -448,7 +448,7 @@ class TestCheckQueuePlan:
     # 35. 未送信 → send_to に implementer プロンプト
     def test_unsent_sends_prompt(self):
         sc = self._base_sc()
-        action = _check_queue_plan(sc, _now(), {"project": "devbar"})
+        action = _check_queue_plan(sc, _now(), {"project": "gokrax"})
         assert action.send_to is not None
         assert "hanfei" in action.send_to
         assert action.pipeline_updates.get("_queue_plan_sent") is not None
@@ -463,7 +463,7 @@ class TestCheckQueuePlan:
             _queue_plan_response=raw,
             _queue_plan_sent=_now().isoformat(),
         )
-        action = _check_queue_plan(sc, _now(), {"project": "devbar"})
+        action = _check_queue_plan(sc, _now(), {"project": "gokrax"})
         assert action.next_state == "SPEC_DONE"
         assert "3バッチ" in action.discord_notify
         assert action.pipeline_updates.get("_queue_plan_response") is None
@@ -474,7 +474,7 @@ class TestCheckQueuePlan:
             _queue_plan_response="not valid",
             _queue_plan_sent=_now().isoformat(),
         )
-        action = _check_queue_plan(sc, _now(), {"project": "devbar"})
+        action = _check_queue_plan(sc, _now(), {"project": "gokrax"})
         assert action.next_state == "SPEC_PAUSED"
         assert "パース失敗" in action.discord_notify
         assert action.pipeline_updates.get("paused_from") == "QUEUE_PLAN"
@@ -511,7 +511,7 @@ class TestCheckQueuePlan:
             "spec_path": "docs/spec.md",
             "current_rev": "1",
         }
-        action1 = _check_issue_suggestion(sc, _now(), {"project": "devbar"})
+        action1 = _check_issue_suggestion(sc, _now(), {"project": "gokrax"})
         # pascal は received になり、issue_suggestions に格納される
         assert action1.pipeline_updates["issue_suggestions"]["pascal"] is not None
         assert action1.next_state is None  # leibniz がまだ pending
@@ -537,7 +537,7 @@ class TestCheckQueuePlan:
             "spec_path": "docs/spec.md",
             "current_rev": "1",
         }
-        action2 = _check_issue_suggestion(sc2, _now(), {"project": "devbar"})
+        action2 = _check_issue_suggestion(sc2, _now(), {"project": "gokrax"})
         # all_complete (pascal=received, leibniz=timeout) → ISSUE_PLAN
         assert action2.next_state == "ISSUE_PLAN"
         # pascal の提案が保持されていること

@@ -35,10 +35,10 @@ echo ""
 
 # 3. watchdog.logからsend失敗
 echo "--- Watchdog Send Failures ---"
-if [ -f /tmp/devbar-watchdog.log ]; then
+if [ -f /tmp/gokrax-watchdog.log ]; then
     cutoff=$(date -d "${MINUTES} minutes ago" "+%Y-%m-%d %H:%M:%S" 2>/dev/null || date "+%Y-%m-%d %H:%M:%S")
     for agent in $REVIEWERS; do
-        recent=$(tail -100 /tmp/devbar-watchdog.log 2>/dev/null | grep -cE "agent=${agent}.*(timed out|failed)" || true)
+        recent=$(tail -100 /tmp/gokrax-watchdog.log 2>/dev/null | grep -cE "agent=${agent}.*(timed out|failed)" || true)
         recent=${recent:-0}
         if [ "$recent" -gt 0 ] 2>/dev/null; then
             echo "⚠️  $agent: $recent recent failure(s) in last 100 log lines"

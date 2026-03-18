@@ -24,7 +24,7 @@ class TestTransitionForce:
         """通常遷移（IDLE→INITIALIZE）→ 成功"""
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
-        from devbar import cmd_transition
+        from gokrax import cmd_transition
         import argparse
         args = argparse.Namespace(project="test-pj", to="INITIALIZE", actor="cli", force=False)
         cmd_transition(args)
@@ -36,10 +36,10 @@ class TestTransitionForce:
         sample_pipeline["state"] = "INITIALIZE"
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
-        from devbar import cmd_transition
+        from gokrax import cmd_transition
         import argparse
         args = argparse.Namespace(project="test-pj", to="DESIGN_PLAN", actor="cli", force=False, resume=False)
-        with patch("devbar.notify_implementer"), patch("devbar.notify_reviewers"):
+        with patch("gokrax.notify_implementer"), patch("gokrax.notify_reviewers"):
             cmd_transition(args)
         with open(path) as f:
             assert json.load(f)["state"] == "DESIGN_PLAN"
@@ -48,7 +48,7 @@ class TestTransitionForce:
         """不正遷移（IDLE→CODE_REVIEW）→ SystemExit"""
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
-        from devbar import cmd_transition
+        from gokrax import cmd_transition
         import argparse
         args = argparse.Namespace(project="test-pj", to="CODE_REVIEW", actor="cli", force=False)
         with pytest.raises(SystemExit, match="Invalid transition"):
@@ -58,9 +58,9 @@ class TestTransitionForce:
         """--force で不正遷移 → 成功"""
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
-        from devbar import cmd_transition
+        from gokrax import cmd_transition
         args = argparse.Namespace(project="test-pj", to="CODE_REVIEW", actor="cli", force=True)
-        with patch("devbar.notify_implementer"), patch("devbar.notify_reviewers"):
+        with patch("gokrax.notify_implementer"), patch("gokrax.notify_reviewers"):
             cmd_transition(args)
         with open(path) as f:
             assert json.load(f)["state"] == "CODE_REVIEW"
@@ -70,7 +70,7 @@ class TestTransitionForce:
         sample_pipeline["state"] = "IMPLEMENTATION"
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
-        from devbar import cmd_transition
+        from gokrax import cmd_transition
         import argparse
         args = argparse.Namespace(project="test-pj", to="BLOCKED", actor="M", force=True)
         cmd_transition(args)
@@ -85,7 +85,7 @@ class TestTransitionForce:
         """存在しない状態名 → --force でも SystemExit"""
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
-        from devbar import cmd_transition
+        from gokrax import cmd_transition
         import argparse
         args = argparse.Namespace(project="test-pj", to="NONEXISTENT", actor="cli", force=True)
         with pytest.raises(SystemExit, match="Invalid state"):
@@ -96,9 +96,9 @@ class TestTransitionForce:
         sample_pipeline["state"] = "BLOCKED"
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
-        from devbar import cmd_transition
+        from gokrax import cmd_transition
         args = argparse.Namespace(project="test-pj", to="IDLE", actor="cli", force=False)
-        with patch("devbar.notify_implementer"), patch("devbar.notify_reviewers"):
+        with patch("gokrax.notify_implementer"), patch("gokrax.notify_reviewers"):
             cmd_transition(args)
         with open(path) as f:
             data = json.load(f)
@@ -121,12 +121,12 @@ class TestTransitionNotifications:
         sample_pipeline["batch"] = [dict(self._BATCH_ITEM)]
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
-        from devbar import cmd_transition
+        from gokrax import cmd_transition
         args = argparse.Namespace(
             project="test-pj", to="DESIGN_APPROVED", actor="cli", force=False, resume=False,
         )
-        with patch("devbar.notify_implementer") as mock_impl, \
-             patch("devbar.notify_reviewers") as mock_rev:
+        with patch("gokrax.notify_implementer") as mock_impl, \
+             patch("gokrax.notify_reviewers") as mock_rev:
             cmd_transition(args)
         mock_impl.assert_not_called()
         mock_rev.assert_not_called()
@@ -136,12 +136,12 @@ class TestTransitionNotifications:
         path = tmp_pipelines / "test-pj.json"
         sample_pipeline["batch"] = [dict(self._BATCH_ITEM)]
         write_pipeline(path, sample_pipeline)
-        from devbar import cmd_transition
+        from gokrax import cmd_transition
         args = argparse.Namespace(
             project="test-pj", to="IMPLEMENTATION", actor="cli", force=True, resume=False,
         )
-        with patch("devbar.notify_implementer") as mock_impl, \
-             patch("devbar.notify_reviewers") as mock_rev:
+        with patch("gokrax.notify_implementer") as mock_impl, \
+             patch("gokrax.notify_reviewers") as mock_rev:
             cmd_transition(args)
         # IMPLEMENTATION は run_cc=True で impl_msg なし → notify_implementer は呼ばれない
         mock_impl.assert_not_called()
@@ -153,12 +153,12 @@ class TestTransitionNotifications:
         sample_pipeline["batch"] = [dict(self._BATCH_ITEM)]
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
-        from devbar import cmd_transition
+        from gokrax import cmd_transition
         args = argparse.Namespace(
             project="test-pj", to="DESIGN_PLAN", actor="cli", force=False, resume=True,
         )
-        with patch("devbar.notify_implementer") as mock_impl, \
-             patch("devbar.notify_reviewers"):
+        with patch("gokrax.notify_implementer") as mock_impl, \
+             patch("gokrax.notify_reviewers"):
             cmd_transition(args)
         mock_impl.assert_called_once()
         call_msg = mock_impl.call_args[0][1]
@@ -169,12 +169,12 @@ class TestTransitionNotifications:
         """--resume は --force と同様にバリデーションをスキップする"""
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
-        from devbar import cmd_transition
+        from gokrax import cmd_transition
         # IDLE → CODE_REVIEW は通常遷移では不正
         args = argparse.Namespace(
             project="test-pj", to="CODE_REVIEW", actor="cli", force=False, resume=True,
         )
-        with patch("devbar.notify_implementer"), patch("devbar.notify_reviewers"):
+        with patch("gokrax.notify_implementer"), patch("gokrax.notify_reviewers"):
             cmd_transition(args)
         with open(path) as f:
             assert json.load(f)["state"] == "CODE_REVIEW"
@@ -184,13 +184,13 @@ class TestTransitionNotifications:
         sample_pipeline["state"] = "INITIALIZE"
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
-        from devbar import cmd_transition
+        from gokrax import cmd_transition
         args = argparse.Namespace(
             project="test-pj", to="DESIGN_PLAN", actor="cli", force=False, resume=False,
         )
-        with patch("devbar.notify_implementer") as mock_impl, \
-             patch("devbar.notify_reviewers") as mock_rev, \
-             patch("devbar.notify_discord"):
+        with patch("gokrax.notify_implementer") as mock_impl, \
+             patch("gokrax.notify_reviewers") as mock_rev, \
+             patch("gokrax.notify_discord"):
             cmd_transition(args)
         mock_impl.assert_called_once()
         mock_rev.assert_not_called()
@@ -200,13 +200,13 @@ class TestTransitionNotifications:
         sample_pipeline["state"] = "INITIALIZE"
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
-        from devbar import cmd_transition
+        from gokrax import cmd_transition
         args = argparse.Namespace(
             project="test-pj", to="DESIGN_PLAN", actor="cli", force=False, resume=False,
         )
-        with patch("devbar.notify_implementer"), \
-             patch("devbar.notify_reviewers"), \
-             patch("devbar.notify_discord") as mock_discord:
+        with patch("gokrax.notify_implementer"), \
+             patch("gokrax.notify_reviewers"), \
+             patch("gokrax.notify_discord") as mock_discord:
             cmd_transition(args)
         mock_discord.assert_called_once()
         msg = mock_discord.call_args[0][0]
@@ -220,13 +220,13 @@ class TestTransitionNotifications:
         """--force 遷移でも notify_discord が呼ばれること"""
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
-        from devbar import cmd_transition
+        from gokrax import cmd_transition
         args = argparse.Namespace(
             project="test-pj", to="CODE_REVIEW", actor="M", force=True, resume=False,
         )
-        with patch("devbar.notify_implementer"), \
-             patch("devbar.notify_reviewers"), \
-             patch("devbar.notify_discord") as mock_discord:
+        with patch("gokrax.notify_implementer"), \
+             patch("gokrax.notify_reviewers"), \
+             patch("gokrax.notify_discord") as mock_discord:
             cmd_transition(args)
         mock_discord.assert_called_once()
         msg = mock_discord.call_args[0][0]
@@ -238,13 +238,13 @@ class TestTransitionNotifications:
         sample_pipeline["state"] = "INITIALIZE"
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
-        from devbar import cmd_transition
+        from gokrax import cmd_transition
         args = argparse.Namespace(
             project="test-pj", to="DESIGN_PLAN", actor="cli", force=False, resume=True,
         )
-        with patch("devbar.notify_implementer"), \
-             patch("devbar.notify_reviewers"), \
-             patch("devbar.notify_discord") as mock_discord:
+        with patch("gokrax.notify_implementer"), \
+             patch("gokrax.notify_reviewers"), \
+             patch("gokrax.notify_discord") as mock_discord:
             cmd_transition(args)
         mock_discord.assert_called_once()
         msg = mock_discord.call_args[0][0]
@@ -304,13 +304,13 @@ class TestKeepCtx:
         sample_pipeline["keep_ctx_batch"] = True
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
-        from devbar import cmd_transition
+        from gokrax import cmd_transition
         args = argparse.Namespace(
             project="test-pj", to="DESIGN_PLAN", actor="cli", force=False, resume=False,
         )
         with patch("engine.reviewer._reset_reviewers") as mock_reset, \
-             patch("devbar.notify_implementer"), \
-             patch("devbar.notify_reviewers"):
+             patch("gokrax.notify_implementer"), \
+             patch("gokrax.notify_reviewers"):
             cmd_transition(args)
         mock_reset.assert_not_called()
 
@@ -319,13 +319,13 @@ class TestKeepCtx:
         sample_pipeline["state"] = "INITIALIZE"
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
-        from devbar import cmd_transition
+        from gokrax import cmd_transition
         args = argparse.Namespace(
             project="test-pj", to="DESIGN_PLAN", actor="cli", force=False, resume=False,
         )
         with patch("engine.reviewer._reset_reviewers", return_value=[]) as mock_reset, \
-             patch("devbar.notify_implementer"), \
-             patch("devbar.notify_reviewers"):
+             patch("gokrax.notify_implementer"), \
+             patch("gokrax.notify_reviewers"):
             cmd_transition(args)
         mock_reset.assert_called_once()
 
@@ -336,13 +336,13 @@ class TestKeepCtx:
         sample_pipeline["batch"] = [{"issue": 1, "title": "T"}]
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
-        from devbar import cmd_transition
+        from gokrax import cmd_transition
         args = argparse.Namespace(
             project="test-pj", to="IMPLEMENTATION", actor="cli", force=False, resume=False,
         )
         with patch("engine.reviewer._reset_reviewers") as mock_reset, \
-             patch("devbar.notify_implementer"), \
-             patch("devbar.notify_reviewers"):
+             patch("gokrax.notify_implementer"), \
+             patch("gokrax.notify_reviewers"):
             cmd_transition(args)
         mock_reset.assert_not_called()
 
@@ -352,13 +352,13 @@ class TestKeepCtx:
         sample_pipeline["batch"] = [{"issue": 1, "title": "T"}]
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
-        from devbar import cmd_transition
+        from gokrax import cmd_transition
         args = argparse.Namespace(
             project="test-pj", to="IMPLEMENTATION", actor="cli", force=False, resume=False,
         )
         with patch("engine.reviewer._reset_reviewers", return_value=[]) as mock_reset, \
-             patch("devbar.notify_implementer"), \
-             patch("devbar.notify_reviewers"):
+             patch("gokrax.notify_implementer"), \
+             patch("gokrax.notify_reviewers"):
             cmd_transition(args)
         mock_reset.assert_called_once()
 
@@ -368,13 +368,13 @@ class TestKeepCtx:
         sample_pipeline["keep_ctx_intra"] = True
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
-        from devbar import cmd_transition
+        from gokrax import cmd_transition
         args = argparse.Namespace(
             project="test-pj", to="DESIGN_PLAN", actor="cli", force=False, resume=False,
         )
         with patch("engine.reviewer._reset_reviewers", return_value=[]) as mock_reset, \
-             patch("devbar.notify_implementer"), \
-             patch("devbar.notify_reviewers"):
+             patch("gokrax.notify_implementer"), \
+             patch("gokrax.notify_reviewers"):
             cmd_transition(args)
         mock_reset.assert_called_once()
 
@@ -385,13 +385,13 @@ class TestKeepCtx:
         sample_pipeline["batch"] = [{"issue": 1, "title": "T"}]
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
-        from devbar import cmd_transition
+        from gokrax import cmd_transition
         args = argparse.Namespace(
             project="test-pj", to="IMPLEMENTATION", actor="cli", force=False, resume=False,
         )
         with patch("engine.reviewer._reset_reviewers", return_value=[]) as mock_reset, \
-             patch("devbar.notify_implementer"), \
-             patch("devbar.notify_reviewers"):
+             patch("gokrax.notify_implementer"), \
+             patch("gokrax.notify_reviewers"):
             cmd_transition(args)
         mock_reset.assert_called_once()
 
@@ -408,13 +408,13 @@ class TestKeepCtx:
             sample_pipeline.pop("keep_ctx_intra", None)
             path = tmp_pipelines / "test-pj.json"
             write_pipeline(path, sample_pipeline)
-            from devbar import cmd_transition
+            from gokrax import cmd_transition
             args = argparse.Namespace(
                 project="test-pj", to=to_state, actor="cli", force=False, resume=False,
             )
             with patch("engine.reviewer._reset_reviewers") as mock_reset, \
-                 patch("devbar.notify_implementer"), \
-                 patch("devbar.notify_reviewers"):
+                 patch("gokrax.notify_implementer"), \
+                 patch("gokrax.notify_reviewers"):
                 cmd_transition(args)
             mock_reset.assert_not_called()
 
@@ -428,11 +428,11 @@ class TestKeepCtx:
         sample_pipeline["batch"] = [{"issue": 1, "title": "T"}]
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
-        from devbar import cmd_transition
+        from gokrax import cmd_transition
         args = argparse.Namespace(
             project="test-pj", to="IDLE", actor="cli", force=False, resume=False,
         )
-        with patch("devbar.notify_implementer"), patch("devbar.notify_reviewers"):
+        with patch("gokrax.notify_implementer"), patch("gokrax.notify_reviewers"):
             cmd_transition(args)
         with open(path) as f:
             data = json.load(f)
@@ -447,11 +447,11 @@ class TestKeepCtx:
         sample_pipeline["batch"] = [{"issue": 1, "title": "T"}]
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
-        from devbar import cmd_transition
+        from gokrax import cmd_transition
         args = argparse.Namespace(
             project="test-pj", to="IDLE", actor="cli", force=False, resume=False,
         )
-        with patch("devbar.notify_implementer"), patch("devbar.notify_reviewers"):
+        with patch("gokrax.notify_implementer"), patch("gokrax.notify_reviewers"):
             cmd_transition(args)
         with open(path) as f:
             data = json.load(f)
@@ -489,11 +489,11 @@ class TestKeepCtx:
         sample_pipeline["batch"] = [{"issue": 1, "title": "T"}]
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
-        from devbar import cmd_transition
+        from gokrax import cmd_transition
         args = argparse.Namespace(
             project="test-pj", to="IDLE", actor="cli", force=False, resume=False,
         )
-        with patch("devbar.notify_implementer"), patch("devbar.notify_reviewers"):
+        with patch("gokrax.notify_implementer"), patch("gokrax.notify_reviewers"):
             cmd_transition(args)
         with open(path) as f:
             data = json.load(f)

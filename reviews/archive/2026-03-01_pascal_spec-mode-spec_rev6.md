@@ -1,4 +1,4 @@
-# DevBar Spec Mode rev6 — レビュー結果 (Pascal)
+# gokrax Spec Mode rev6 — レビュー結果 (Pascal)
 
 **レビュアー:** Pascal (g-reviewer)
 **対象:** docs/spec-mode-spec_rev6.md (rev6)

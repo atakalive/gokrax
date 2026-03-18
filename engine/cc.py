@@ -8,7 +8,7 @@ import signal
 from datetime import datetime as _datetime
 from pathlib import Path
 
-from config import CC_MODEL_PLAN, CC_MODEL_IMPL, JST, DEVBAR_CLI
+from config import CC_MODEL_PLAN, CC_MODEL_IMPL, JST, GOKRAX_CLI
 from pipeline_io import load_pipeline, update_pipeline, now_iso
 from engine.shared import log
 from messages import render
@@ -130,12 +130,12 @@ def _start_cc(project: str, batch: list, gitlab: str, repo_path: str, pipeline_p
 
     try:
         if skip_plan:
-            fd_impl, impl_path = tempfile.mkstemp(suffix=".txt", prefix="devbar-impl-")
-            fd_script, script_path = tempfile.mkstemp(suffix=".sh", prefix="devbar-cc-")
+            fd_impl, impl_path = tempfile.mkstemp(suffix=".txt", prefix="gokrax-impl-")
+            fd_script, script_path = tempfile.mkstemp(suffix=".sh", prefix="gokrax-cc-")
         else:
-            fd_plan, plan_path = tempfile.mkstemp(suffix=".txt", prefix="devbar-plan-")
-            fd_impl, impl_path = tempfile.mkstemp(suffix=".txt", prefix="devbar-impl-")
-            fd_script, script_path = tempfile.mkstemp(suffix=".sh", prefix="devbar-cc-")
+            fd_plan, plan_path = tempfile.mkstemp(suffix=".txt", prefix="gokrax-plan-")
+            fd_impl, impl_path = tempfile.mkstemp(suffix=".txt", prefix="gokrax-impl-")
+            fd_script, script_path = tempfile.mkstemp(suffix=".sh", prefix="gokrax-cc-")
 
         if plan_path is not None:
             os.write(fd_plan, plan_prompt.encode())
@@ -165,12 +165,12 @@ done
 
 if [ "$HASH" = "$BEFORE_HASH" ]; then
     _notify "{q_tag}[{project}] ❌ CC がコミットを作成しなかった（2回リトライ後）→ BLOCKED"
-    "{DEVBAR_CLI}" transition --project "{project}" --to BLOCKED --force --comment "CC がコミットを作成しなかった（2回リトライ後）"
+    "{GOKRAX_CLI}" transition --project "{project}" --to BLOCKED --force --comment "CC がコミットを作成しなかった（2回リトライ後）"
     exit 1
 fi
 
-# devbar commit
-"{DEVBAR_CLI}" commit --project "{project}" --issue {issue_args} --hash "$HASH" --session-id "{session_id}"
+# gokrax commit
+"{GOKRAX_CLI}" commit --project "{project}" --issue {issue_args} --hash "$HASH" --session-id "{session_id}"
 '''
 
         if skip_plan:
@@ -181,7 +181,7 @@ trap cleanup EXIT
 
 cd "{repo_path}"
 
-_notify() {{ local ts=$(date +"%m/%d %H:%M"); python3 -c "import sys; sys.path.insert(0,'{Path(DEVBAR_CLI).resolve().parent}'); from notify import notify_discord; notify_discord(sys.argv[1])" "$1 ($ts)" 2>/dev/null || true; }}
+_notify() {{ local ts=$(date +"%m/%d %H:%M"); python3 -c "import sys; sys.path.insert(0,'{Path(GOKRAX_CLI).resolve().parent}'); from notify import notify_discord; notify_discord(sys.argv[1])" "$1 ($ts)" 2>/dev/null || true; }}
 
 BEFORE_HASH=$(git rev-parse --short HEAD)
 
@@ -199,7 +199,7 @@ trap cleanup EXIT
 
 cd "{repo_path}"
 
-_notify() {{ local ts=$(date +"%m/%d %H:%M"); python3 -c "import sys; sys.path.insert(0,'{Path(DEVBAR_CLI).resolve().parent}'); from notify import notify_discord; notify_discord(sys.argv[1])" "$1 ($ts)" 2>/dev/null || true; }}
+_notify() {{ local ts=$(date +"%m/%d %H:%M"); python3 -c "import sys; sys.path.insert(0,'{Path(GOKRAX_CLI).resolve().parent}'); from notify import notify_discord; notify_discord(sys.argv[1])" "$1 ($ts)" 2>/dev/null || true; }}
 
 BEFORE_HASH=$(git rev-parse --short HEAD)
 

@@ -655,9 +655,9 @@ class TestStartCc:
              patch("subprocess.Popen", return_value=mock_proc):
             _start_cc("test-pj", data["batch"], "atakalive/test-pj", "/tmp", path)
 
-        # devbar-plan- プレフィックスのファイルを特定
-        plan_files = [p for p in created_paths if "devbar-plan-" in _Path(p).name]
-        assert plan_files, "devbar-plan- ファイルが作られていない"
+        # gokrax-plan- プレフィックスのファイルを特定
+        plan_files = [p for p in created_paths if "gokrax-plan-" in _Path(p).name]
+        assert plan_files, "gokrax-plan- ファイルが作られていない"
         plan_text = _Path(plan_files[0]).read_text()
         # 後片付け
         for p in created_paths:
@@ -839,19 +839,19 @@ class TestStartCc:
             _start_cc("test-pj", data["batch"], "atakalive/test-pj", "/tmp", path)
 
         # plan ファイルが作られていないこと
-        plan_files = [p for p in created_paths if "devbar-plan-" in _Path(p).name]
-        assert not plan_files, "skip_cc_plan=True なのに devbar-plan- ファイルが作られた"
+        plan_files = [p for p in created_paths if "gokrax-plan-" in _Path(p).name]
+        assert not plan_files, "skip_cc_plan=True なのに gokrax-plan- ファイルが作られた"
 
         # impl ファイルに issues_block が含まれること
-        impl_files = [p for p in created_paths if "devbar-impl-" in _Path(p).name]
-        assert impl_files, "devbar-impl- ファイルが作られていない"
+        impl_files = [p for p in created_paths if "gokrax-impl-" in _Path(p).name]
+        assert impl_files, "gokrax-impl- ファイルが作られていない"
         impl_text = _Path(impl_files[0]).read_text()
         assert "issue body text" in impl_text
         assert "Closes #1" in impl_text
 
         # スクリプトに "CC Plan" が含まれないこと
-        script_files = [p for p in created_paths if "devbar-cc-" in _Path(p).name]
-        assert script_files, "devbar-cc- スクリプトが作られていない"
+        script_files = [p for p in created_paths if "gokrax-cc-" in _Path(p).name]
+        assert script_files, "gokrax-cc- スクリプトが作られていない"
         script_text = _Path(script_files[0]).read_text()
         assert "CC Plan" not in script_text
         assert "plan skip" in script_text
@@ -902,11 +902,11 @@ class TestStartCc:
             _start_cc("test-pj", data["batch"], "atakalive/test-pj", "/tmp", path)
 
         # plan ファイルが作られていること
-        plan_files = [p for p in created_paths if "devbar-plan-" in _Path(p).name]
-        assert plan_files, "skip_cc_plan=False なのに devbar-plan- ファイルが作られなかった"
+        plan_files = [p for p in created_paths if "gokrax-plan-" in _Path(p).name]
+        assert plan_files, "skip_cc_plan=False なのに gokrax-plan- ファイルが作られなかった"
 
         # スクリプトに "CC Plan" が含まれること
-        script_files = [p for p in created_paths if "devbar-cc-" in _Path(p).name]
+        script_files = [p for p in created_paths if "gokrax-cc-" in _Path(p).name]
         assert script_files
         script_text = _Path(script_files[0]).read_text()
         assert "CC Plan" in script_text
@@ -961,11 +961,11 @@ class TestStartCc:
              patch("subprocess.Popen", return_value=mock_proc):
             _start_cc("test-pj", data["batch"], "atakalive/test-pj", "/tmp", path)
 
-        script_files = [p for p in created_paths if "devbar-cc-" in _Path(p).name]
+        script_files = [p for p in created_paths if "gokrax-cc-" in _Path(p).name]
         assert script_files
         script_text = _Path(script_files[0]).read_text()
         # prev_session があるので claude 呼び出しに --resume を使う（--session-id ではない）
-        # Note: --session-id は devbar commit 行にも現れるため claude 行だけを確認
+        # Note: --session-id は gokrax commit 行にも現れるため claude 行だけを確認
         claude_line = next(
             (ln for ln in script_text.splitlines() if ln.strip().startswith("claude ")),
             ""
@@ -1020,7 +1020,7 @@ class TestStartCc:
              patch("subprocess.Popen", return_value=mock_proc):
             _start_cc("test-pj", data["batch"], "atakalive/test-pj", "/tmp", path)
 
-        impl_files = [p for p in created_paths if "devbar-impl-" in _Path(p).name]
+        impl_files = [p for p in created_paths if "gokrax-impl-" in _Path(p).name]
         assert impl_files
         impl_text = _Path(impl_files[0]).read_text()
         assert "テスト用コメントです" in impl_text
@@ -1836,8 +1836,8 @@ class TestDiscordStatusCommand:
 
     def test_m_posts_status_gets_response(self, tmp_path, monkeypatch):
         """M posts 'status' → bot responds with status text."""
-        from config import M_DISCORD_USER_ID, DISCORD_CHANNEL, DEVBAR_STATE_PATH
-        import watchdog, devbar
+        from config import M_DISCORD_USER_ID, DISCORD_CHANNEL, GOKRAX_STATE_PATH
+        import watchdog, gokrax
 
         # Setup pipeline
         path = tmp_path / "test-pj.json"
@@ -1845,11 +1845,11 @@ class TestDiscordStatusCommand:
         _write_pipeline(path, data)
 
         # Setup state path
-        state_path = tmp_path / "devbar-state.json"
-        monkeypatch.setattr(config, "DEVBAR_STATE_PATH", state_path)
+        state_path = tmp_path / "gokrax-state.json"
+        monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
-        monkeypatch.setattr(devbar, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(gokrax, "PIPELINES_DIR", tmp_path)
 
         # Mock Discord API
         messages = [_mock_discord_message("1001", M_DISCORD_USER_ID, "status")]
@@ -1870,13 +1870,13 @@ class TestDiscordStatusCommand:
     def test_case_insensitive_status(self, tmp_path, monkeypatch):
         """'Status' and 'STATUS' both trigger response."""
         from config import M_DISCORD_USER_ID
-        import watchdog, devbar
+        import watchdog, gokrax
 
-        state_path = tmp_path / "devbar-state.json"
-        monkeypatch.setattr(config, "DEVBAR_STATE_PATH", state_path)
+        state_path = tmp_path / "gokrax-state.json"
+        monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
-        monkeypatch.setattr(devbar, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(gokrax, "PIPELINES_DIR", tmp_path)
 
         messages = [
             _mock_discord_message("1001", M_DISCORD_USER_ID, "Status"),
@@ -1895,8 +1895,8 @@ class TestDiscordStatusCommand:
         from config import M_DISCORD_USER_ID
         import watchdog
 
-        state_path = tmp_path / "devbar-state.json"
-        monkeypatch.setattr(config, "DEVBAR_STATE_PATH", state_path)
+        state_path = tmp_path / "gokrax-state.json"
+        monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
 
@@ -1914,8 +1914,8 @@ class TestDiscordStatusCommand:
         from config import BOT_USER_ID
         import watchdog
 
-        state_path = tmp_path / "devbar-state.json"
-        monkeypatch.setattr(config, "DEVBAR_STATE_PATH", state_path)
+        state_path = tmp_path / "gokrax-state.json"
+        monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
 
@@ -1933,10 +1933,10 @@ class TestDiscordStatusCommand:
         from config import M_DISCORD_USER_ID
         import watchdog
 
-        state_path = tmp_path / "devbar-state.json"
+        state_path = tmp_path / "gokrax-state.json"
         state_path.write_text(json.dumps({"last_command_message_id": "1001"}))
 
-        monkeypatch.setattr(config, "DEVBAR_STATE_PATH", state_path)
+        monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
 
@@ -1954,8 +1954,8 @@ class TestDiscordStatusCommand:
         from config import M_DISCORD_USER_ID
         import watchdog
 
-        state_path = tmp_path / "devbar-state.json"
-        monkeypatch.setattr(config, "DEVBAR_STATE_PATH", state_path)
+        state_path = tmp_path / "gokrax-state.json"
+        monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
 
@@ -1975,7 +1975,7 @@ class TestDiscordStatusCommand:
         """Only enabled [ON] projects shown in response."""
         from config import M_DISCORD_USER_ID
         import watchdog
-        import devbar
+        import gokrax
 
         # Create enabled and disabled pipelines
         enabled_path = tmp_path / "enabled-pj.json"
@@ -1984,11 +1984,11 @@ class TestDiscordStatusCommand:
         disabled_path = tmp_path / "disabled-pj.json"
         _write_pipeline(disabled_path, {"project": "disabled-pj", "state": "IDLE", "enabled": False, "batch": [], "review_mode": "standard"})
 
-        state_path = tmp_path / "devbar-state.json"
-        monkeypatch.setattr(config, "DEVBAR_STATE_PATH", state_path)
+        state_path = tmp_path / "gokrax-state.json"
+        monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
-        monkeypatch.setattr(devbar, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(gokrax, "PIPELINES_DIR", tmp_path)
 
         messages = [_mock_discord_message("1001", M_DISCORD_USER_ID, "status")]
 
@@ -2004,13 +2004,13 @@ class TestDiscordStatusCommand:
         """No pipelines → 'No active pipelines.'"""
         from config import M_DISCORD_USER_ID
         import watchdog
-        import devbar
+        import gokrax
 
-        state_path = tmp_path / "devbar-state.json"
-        monkeypatch.setattr(config, "DEVBAR_STATE_PATH", state_path)
+        state_path = tmp_path / "gokrax-state.json"
+        monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
-        monkeypatch.setattr(devbar, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(gokrax, "PIPELINES_DIR", tmp_path)
 
         messages = [_mock_discord_message("1001", M_DISCORD_USER_ID, "status")]
 
@@ -2026,8 +2026,8 @@ class TestDiscordStatusCommand:
         from config import M_DISCORD_USER_ID
         import watchdog
 
-        state_path = tmp_path / "devbar-state.json"
-        monkeypatch.setattr(config, "DEVBAR_STATE_PATH", state_path)
+        state_path = tmp_path / "gokrax-state.json"
+        monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
 
@@ -2053,8 +2053,8 @@ class TestDiscordStatusCommand:
         """fetch_discord_latest() returns [] → skip gracefully."""
         import watchdog
 
-        state_path = tmp_path / "devbar-state.json"
-        monkeypatch.setattr(config, "DEVBAR_STATE_PATH", state_path)
+        state_path = tmp_path / "gokrax-state.json"
+        monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
 
@@ -2074,18 +2074,18 @@ class TestDiscordQrunCommand:
 
     def test_qrun_success_path(self, tmp_path, monkeypatch):
         """M posts 'qrun' → bot pops queue, starts project, posts success."""
-        from config import M_DISCORD_USER_ID, DISCORD_CHANNEL, DEVBAR_STATE_PATH, QUEUE_FILE
-        import watchdog, devbar, task_queue
+        from config import M_DISCORD_USER_ID, DISCORD_CHANNEL, GOKRAX_STATE_PATH, QUEUE_FILE
+        import watchdog, gokrax, task_queue
 
         # Setup state path
-        state_path = tmp_path / "devbar-state.json"
-        monkeypatch.setattr(config, "DEVBAR_STATE_PATH", state_path)
+        state_path = tmp_path / "gokrax-state.json"
+        monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
-        monkeypatch.setattr(devbar, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(gokrax, "PIPELINES_DIR", tmp_path)
 
         # Setup queue
-        queue_path = tmp_path / "devbar-queue.txt"
+        queue_path = tmp_path / "gokrax-queue.txt"
         queue_path.write_text("test-pj 1,2,3\n")
         monkeypatch.setattr(config, "QUEUE_FILE", queue_path)
 
@@ -2104,7 +2104,7 @@ class TestDiscordQrunCommand:
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
              patch("notify.post_discord") as mock_post, \
-             patch("devbar.cmd_start") as mock_start:
+             patch("gokrax.cmd_start") as mock_start:
             watchdog.check_discord_commands()
 
         # Should call cmd_start
@@ -2131,12 +2131,12 @@ class TestDiscordQrunCommand:
         from config import M_DISCORD_USER_ID, DISCORD_CHANNEL
         import watchdog
 
-        state_path = tmp_path / "devbar-state.json"
-        monkeypatch.setattr(config, "DEVBAR_STATE_PATH", state_path)
+        state_path = tmp_path / "gokrax-state.json"
+        monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
 
         # Empty queue
-        queue_path = tmp_path / "devbar-queue.txt"
+        queue_path = tmp_path / "gokrax-queue.txt"
         queue_path.write_text("")
         monkeypatch.setattr(config, "QUEUE_FILE", queue_path)
 
@@ -2152,14 +2152,14 @@ class TestDiscordQrunCommand:
     def test_qrun_cmd_start_exception(self, tmp_path, monkeypatch):
         """cmd_start raises Exception → restore queue, post error."""
         from config import M_DISCORD_USER_ID, QUEUE_FILE
-        import watchdog, devbar, task_queue
+        import watchdog, gokrax, task_queue
 
-        state_path = tmp_path / "devbar-state.json"
-        monkeypatch.setattr(config, "DEVBAR_STATE_PATH", state_path)
+        state_path = tmp_path / "gokrax-state.json"
+        monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
-        monkeypatch.setattr(devbar, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(gokrax, "PIPELINES_DIR", tmp_path)
 
-        queue_path = tmp_path / "devbar-queue.txt"
+        queue_path = tmp_path / "gokrax-queue.txt"
         queue_path.write_text("test-pj all\n")
         monkeypatch.setattr(config, "QUEUE_FILE", queue_path)
 
@@ -2189,7 +2189,7 @@ class TestDiscordQrunCommand:
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
              patch("notify.post_discord") as mock_post, \
-             patch("devbar.cmd_start", side_effect=Exception("Test error")):
+             patch("gokrax.cmd_start", side_effect=Exception("Test error")):
             watchdog.check_discord_commands()
 
         # Should post error
@@ -2205,14 +2205,14 @@ class TestDiscordQrunCommand:
     def test_qrun_cmd_start_system_exit(self, tmp_path, monkeypatch):
         """cmd_start raises SystemExit → restore queue, post error."""
         from config import M_DISCORD_USER_ID
-        import watchdog, devbar
+        import watchdog, gokrax
 
-        state_path = tmp_path / "devbar-state.json"
-        monkeypatch.setattr(config, "DEVBAR_STATE_PATH", state_path)
+        state_path = tmp_path / "gokrax-state.json"
+        monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
-        monkeypatch.setattr(devbar, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(gokrax, "PIPELINES_DIR", tmp_path)
 
-        queue_path = tmp_path / "devbar-queue.txt"
+        queue_path = tmp_path / "gokrax-queue.txt"
         queue_path.write_text("test-pj 1\n")
         monkeypatch.setattr(config, "QUEUE_FILE", queue_path)
 
@@ -2242,7 +2242,7 @@ class TestDiscordQrunCommand:
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
              patch("notify.post_discord") as mock_post, \
-             patch("devbar.cmd_start", side_effect=SystemExit("Cannot start: validation error")):
+             patch("gokrax.cmd_start", side_effect=SystemExit("Cannot start: validation error")):
             watchdog.check_discord_commands()
 
         # Should post error
@@ -2262,11 +2262,11 @@ class TestDiscordQrunCommand:
 
         monkeypatch.setattr(config, "DRY_RUN", True)
 
-        state_path = tmp_path / "devbar-state.json"
-        monkeypatch.setattr(config, "DEVBAR_STATE_PATH", state_path)
+        state_path = tmp_path / "gokrax-state.json"
+        monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
 
-        queue_path = tmp_path / "devbar-queue.txt"
+        queue_path = tmp_path / "gokrax-queue.txt"
         queue_path.write_text("test-pj 1\n")
         monkeypatch.setattr(config, "QUEUE_FILE", queue_path)
 
@@ -2274,7 +2274,7 @@ class TestDiscordQrunCommand:
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
              patch("notify.post_discord") as mock_post, \
-             patch("devbar.cmd_start") as mock_start:
+             patch("gokrax.cmd_start") as mock_start:
             watchdog.check_discord_commands()
 
         # Should NOT call cmd_start
@@ -2295,10 +2295,10 @@ class TestDiscordQrunCommand:
         from config import M_DISCORD_USER_ID
         import watchdog
 
-        state_path = tmp_path / "devbar-state.json"
+        state_path = tmp_path / "gokrax-state.json"
         state_path.write_text(json.dumps({"last_command_message_id": "1001"}))
 
-        monkeypatch.setattr(config, "DEVBAR_STATE_PATH", state_path)
+        monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
 
         messages = [_mock_discord_message("1001", M_DISCORD_USER_ID, "qrun")]
@@ -2313,15 +2313,15 @@ class TestDiscordQrunCommand:
     def test_qrun_with_automerge_option(self, tmp_path, monkeypatch):
         """qrun with automerge option → pipeline updated with automerge flag."""
         from config import M_DISCORD_USER_ID
-        import watchdog, devbar
+        import watchdog, gokrax
 
-        state_path = tmp_path / "devbar-state.json"
-        monkeypatch.setattr(config, "DEVBAR_STATE_PATH", state_path)
+        state_path = tmp_path / "gokrax-state.json"
+        monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
-        monkeypatch.setattr(devbar, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(gokrax, "PIPELINES_DIR", tmp_path)
 
-        queue_path = tmp_path / "devbar-queue.txt"
+        queue_path = tmp_path / "gokrax-queue.txt"
         queue_path.write_text("test-pj 1 automerge\n")
         monkeypatch.setattr(config, "QUEUE_FILE", queue_path)
 
@@ -2351,7 +2351,7 @@ class TestDiscordQrunCommand:
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
              patch("notify.post_discord") as mock_post, \
-             patch("devbar.cmd_start"):
+             patch("gokrax.cmd_start"):
             watchdog.check_discord_commands()
 
         # Success message should include automerge=True
@@ -2369,11 +2369,11 @@ class TestDiscordQrunCommand:
         from config import M_DISCORD_USER_ID
         import watchdog
 
-        state_path = tmp_path / "devbar-state.json"
-        monkeypatch.setattr(config, "DEVBAR_STATE_PATH", state_path)
+        state_path = tmp_path / "gokrax-state.json"
+        monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
 
-        queue_path = tmp_path / "devbar-queue.txt"
+        queue_path = tmp_path / "gokrax-queue.txt"
         queue_path.write_text("test-pj1 1\ntest-pj2 2\n")
         monkeypatch.setattr(config, "QUEUE_FILE", queue_path)
 
@@ -2384,7 +2384,7 @@ class TestDiscordQrunCommand:
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
              patch("notify.post_discord") as mock_post, \
-             patch("devbar.cmd_start"):
+             patch("gokrax.cmd_start"):
             watchdog.check_discord_commands()
 
         # Both should trigger (2 posts - queue becomes empty on 2nd)
@@ -2395,8 +2395,8 @@ class TestDiscordQrunCommand:
         from config import M_DISCORD_USER_ID
         import watchdog
 
-        state_path = tmp_path / "devbar-state.json"
-        monkeypatch.setattr(config, "DEVBAR_STATE_PATH", state_path)
+        state_path = tmp_path / "gokrax-state.json"
+        monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
 
         messages = [_mock_discord_message("1001", "999999999999999999", "qrun")]
@@ -2411,15 +2411,15 @@ class TestDiscordQrunCommand:
     def test_status_and_qrun_mixed(self, tmp_path, monkeypatch):
         """Both status and qrun commands in same batch → both processed."""
         from config import M_DISCORD_USER_ID
-        import watchdog, devbar
+        import watchdog, gokrax
 
-        state_path = tmp_path / "devbar-state.json"
-        monkeypatch.setattr(config, "DEVBAR_STATE_PATH", state_path)
+        state_path = tmp_path / "gokrax-state.json"
+        monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
-        monkeypatch.setattr(devbar, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(gokrax, "PIPELINES_DIR", tmp_path)
 
-        queue_path = tmp_path / "devbar-queue.txt"
+        queue_path = tmp_path / "gokrax-queue.txt"
         queue_path.write_text("test-pj 1\n")
         monkeypatch.setattr(config, "QUEUE_FILE", queue_path)
 
@@ -2454,7 +2454,7 @@ class TestDiscordQrunCommand:
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
              patch("notify.post_discord") as mock_post, \
-             patch("devbar.cmd_start"):
+             patch("gokrax.cmd_start"):
             watchdog.check_discord_commands()
 
         # Should post twice (status + qrun success)
@@ -2702,15 +2702,15 @@ class TestNudgeMessages:
     """催促メッセージの内容テスト (Issue #39)"""
 
     def test_reviewer_nudge_message_content(self):
-        """レビュアー催促: メッセージに'devbar review'コマンドが含まれること"""
+        """レビュアー催促: メッセージに'gokrax review'コマンドが含まれること"""
         # The actual message is defined in watchdog.py:920-924
         # This test verifies the message content matches our requirements
-        expected_keywords = ["[Remind]", "devbar review", "完了報告"]
+        expected_keywords = ["[Remind]", "gokrax review", "完了報告"]
 
         # Check the message directly from the code (line 920-924 in watchdog.py)
         msg = (
             "[Remind] 予定のレビュー作業を進め、完了してください。\n"
-            "devbar review コマンドで、依頼された全てのレビューを完了報告してください。"
+            "gokrax review コマンドで、依頼された全てのレビューを完了報告してください。"
         )
 
         for keyword in expected_keywords:
@@ -3232,11 +3232,11 @@ class TestQueueFieldLifecycle:
 # ── TestFlag (Issue #46) ──────────────────────────────────────────────────────
 
 class TestFlag:
-    """Tests for devbar flag command (Issue #46)"""
+    """Tests for gokrax flag command (Issue #46)"""
 
     def test_flag_p0_during_implementation(self, tmp_path):
         """Flag P0 can be posted during IMPLEMENTATION (code phase)"""
-        from devbar import cmd_flag
+        from gokrax import cmd_flag
         import argparse
 
         pipeline = tmp_path / "myproject.json"
@@ -3254,8 +3254,8 @@ class TestFlag:
             summary="Critical bug found"
         )
 
-        with patch("devbar.get_path", return_value=pipeline):
-            with patch("devbar._post_gitlab_note", return_value=True):
+        with patch("gokrax.get_path", return_value=pipeline):
+            with patch("gokrax._post_gitlab_note", return_value=True):
                 cmd_flag(args)
 
         data = json.loads(pipeline.read_text())
@@ -3268,7 +3268,7 @@ class TestFlag:
 
     def test_flag_p0_during_design_plan(self, tmp_path):
         """Flag P0 can be posted during DESIGN_PLAN (design phase)"""
-        from devbar import cmd_flag
+        from gokrax import cmd_flag
         import argparse
 
         pipeline = tmp_path / "myproject.json"
@@ -3286,8 +3286,8 @@ class TestFlag:
             summary="Minor concern"
         )
 
-        with patch("devbar.get_path", return_value=pipeline):
-            with patch("devbar._post_gitlab_note", return_value=True):
+        with patch("gokrax.get_path", return_value=pipeline):
+            with patch("gokrax._post_gitlab_note", return_value=True):
                 cmd_flag(args)
 
         data = json.loads(pipeline.read_text())
@@ -3299,7 +3299,7 @@ class TestFlag:
 
     def test_flag_fails_in_idle(self, tmp_path):
         """Flag fails when batch is empty (IDLE state)"""
-        from devbar import cmd_flag
+        from gokrax import cmd_flag
         import argparse
 
         pipeline = tmp_path / "myproject.json"
@@ -3317,14 +3317,14 @@ class TestFlag:
             summary="Should fail"
         )
 
-        with patch("devbar.get_path", return_value=pipeline):
+        with patch("gokrax.get_path", return_value=pipeline):
             with pytest.raises(SystemExit) as exc_info:
                 cmd_flag(args)
             assert "not in batch" in str(exc_info.value)
 
     def test_flag_fails_in_blocked(self, tmp_path):
         """Flag fails when state is BLOCKED (batch empty)"""
-        from devbar import cmd_flag
+        from gokrax import cmd_flag
         import argparse
 
         pipeline = tmp_path / "myproject.json"
@@ -3342,14 +3342,14 @@ class TestFlag:
             summary="Should fail"
         )
 
-        with patch("devbar.get_path", return_value=pipeline):
+        with patch("gokrax.get_path", return_value=pipeline):
             with pytest.raises(SystemExit) as exc_info:
                 cmd_flag(args)
             assert "not in batch" in str(exc_info.value)
 
     def test_flag_fails_in_done(self, tmp_path):
         """Flag fails when state is DONE (batch empty)"""
-        from devbar import cmd_flag
+        from gokrax import cmd_flag
         import argparse
 
         pipeline = tmp_path / "myproject.json"
@@ -3367,7 +3367,7 @@ class TestFlag:
             summary="Should fail"
         )
 
-        with patch("devbar.get_path", return_value=pipeline):
+        with patch("gokrax.get_path", return_value=pipeline):
             with pytest.raises(SystemExit) as exc_info:
                 cmd_flag(args)
             assert "not in batch" in str(exc_info.value)
@@ -3508,7 +3508,7 @@ class TestFlag:
 
     def test_multiple_flags_single_issue(self, tmp_path):
         """Multiple flags can be posted on a single issue"""
-        from devbar import cmd_flag
+        from gokrax import cmd_flag
         import argparse
 
         pipeline = tmp_path / "myproject.json"
@@ -3521,14 +3521,14 @@ class TestFlag:
 
         # Post first flag
         args1 = argparse.Namespace(project="myproject", issue=1, verdict="P1", summary="Issue 1")
-        with patch("devbar.get_path", return_value=pipeline):
-            with patch("devbar._post_gitlab_note", return_value=True):
+        with patch("gokrax.get_path", return_value=pipeline):
+            with patch("gokrax._post_gitlab_note", return_value=True):
                 cmd_flag(args1)
 
         # Post second flag
         args2 = argparse.Namespace(project="myproject", issue=1, verdict="P0", summary="Issue 2")
-        with patch("devbar.get_path", return_value=pipeline):
-            with patch("devbar._post_gitlab_note", return_value=True):
+        with patch("gokrax.get_path", return_value=pipeline):
+            with patch("gokrax._post_gitlab_note", return_value=True):
                 cmd_flag(args2)
 
         data = json.loads(pipeline.read_text())
@@ -4253,8 +4253,8 @@ class TestImplPromptTestBaseline:
              patch("subprocess.Popen", return_value=mock_proc):
             _start_cc("test-pj", data["batch"], "atakalive/test-pj", "/repo", path)
 
-        impl_files = [p for p in created if "devbar-impl-" in _Path(p).name]
-        assert impl_files, "devbar-impl- ファイルが作られていない"
+        impl_files = [p for p in created if "gokrax-impl-" in _Path(p).name]
+        assert impl_files, "gokrax-impl- ファイルが作られていない"
         content = _Path(impl_files[0]).read_text()
         for p in created:
             try: _Path(p).unlink()
@@ -4305,7 +4305,7 @@ class TestImplPromptTestBaseline:
              patch("subprocess.Popen", return_value=mock_proc):
             _start_cc("test-pj", data["batch"], "atakalive/test-pj", "/repo", path)
 
-        impl_files = [p for p in created if "devbar-impl-" in _Path(p).name]
+        impl_files = [p for p in created if "gokrax-impl-" in _Path(p).name]
         content = _Path(impl_files[0]).read_text()
         for p in created:
             try: _Path(p).unlink()
@@ -4345,7 +4345,7 @@ class TestImplPromptTestBaseline:
              patch("subprocess.Popen", return_value=mock_proc):
             _start_cc("test-pj", data["batch"], "atakalive/test-pj", "/repo", path)
 
-        impl_files = [p for p in created if "devbar-impl-" in _Path(p).name]
+        impl_files = [p for p in created if "gokrax-impl-" in _Path(p).name]
         content = _Path(impl_files[0]).read_text()
         for p in created:
             try: _Path(p).unlink()
@@ -4386,7 +4386,7 @@ class TestImplPromptTestBaseline:
              patch("subprocess.Popen", return_value=mock_proc):
             _start_cc("test-pj", data["batch"], "atakalive/test-pj", "/repo", path)
 
-        impl_files = [p for p in created if "devbar-impl-" in _Path(p).name]
+        impl_files = [p for p in created if "gokrax-impl-" in _Path(p).name]
         content = _Path(impl_files[0]).read_text()
         for p in created:
             try: _Path(p).unlink()
@@ -4573,7 +4573,7 @@ class TestHandleQrun:
 
     def _make_queue(self, tmp_path, line):
         """キューファイルを作成。"""
-        queue_file = tmp_path / "devbar-queue.txt"
+        queue_file = tmp_path / "gokrax-queue.txt"
         queue_file.write_text(line + "\n")
         return queue_file
 
@@ -4602,7 +4602,7 @@ class TestHandleQrun:
             captured_args["p2_fix"] = getattr(args, "p2_fix", "MISSING")
             captured_args["comment"] = getattr(args, "comment", "MISSING")
 
-        with patch("devbar.cmd_start", side_effect=mock_cmd_start), \
+        with patch("gokrax.cmd_start", side_effect=mock_cmd_start), \
              patch("notify.post_discord"):
             from watchdog import _handle_qrun
             _handle_qrun("test-msg-001")
@@ -4626,7 +4626,7 @@ class TestHandleQrun:
             captured_args["comment"] = getattr(args, "comment", "MISSING")
             captured_args["skip_cc_plan"] = getattr(args, "skip_cc_plan", "MISSING")
 
-        with patch("devbar.cmd_start", side_effect=mock_cmd_start), \
+        with patch("gokrax.cmd_start", side_effect=mock_cmd_start), \
              patch("notify.post_discord"):
             from watchdog import _handle_qrun
             _handle_qrun("test-msg-002")
@@ -4646,7 +4646,7 @@ class TestHandleQrun:
         )
         self._patch_config(monkeypatch, pipelines_dir, queue_file)
 
-        with patch("devbar.cmd_start"), \
+        with patch("gokrax.cmd_start"), \
              patch("notify.post_discord"):
             from watchdog import _handle_qrun
             _handle_qrun("test-msg-003")

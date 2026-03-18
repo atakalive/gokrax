@@ -150,15 +150,15 @@ class TestHelpers:
 
 
 class TestDevbarCLIIntegration:
-    """devbar.py の全サブコマンドが pipeline_io 経由で正常動作"""
+    """gokrax.py の全サブコマンドが pipeline_io 経由で正常動作"""
 
     def _run(self, *cmd_args, pipelines_dir=None):
-        cli = str(ROOT / "devbar.py")
+        cli = str(ROOT / "gokrax.py")
         env = os.environ.copy()
         if pipelines_dir:
-            env["DEVBAR_PIPELINES_DIR"] = str(pipelines_dir)
+            env["GOKRAX_PIPELINES_DIR"] = str(pipelines_dir)
         # DRY_RUN mode to avoid actual glab/git commands
-        env["DEVBAR_DRY_RUN"] = "1"
+        env["GOKRAX_DRY_RUN"] = "1"
         result = subprocess.run(
             [sys.executable, cli] + list(cmd_args),
             capture_output=True, text=True, timeout=10, env=env,

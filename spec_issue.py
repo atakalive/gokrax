@@ -5,7 +5,7 @@ import re
 
 import yaml
 
-from config import DEVBAR_CLI, QUEUE_FILE
+from config import GOKRAX_CLI, QUEUE_FILE
 from messages import render
 
 # ---------------------------------------------------------------------------
@@ -29,7 +29,7 @@ def build_issue_suggestion_prompt(spec_config: dict, data: dict, reviewer: str =
     current_rev = spec_config.get("current_rev", "1")
     return render("spec.issue_suggestion", "suggestion",
         project=project, spec_path=spec_path, current_rev=current_rev,
-        reviewer=reviewer, DEVBAR_CLI=str(DEVBAR_CLI),
+        reviewer=reviewer, GOKRAX_CLI=str(GOKRAX_CLI),
     )
 
 
@@ -105,7 +105,7 @@ def build_issue_plan_prompt(spec_config: dict, data: dict) -> str:
     return render("spec.issue_plan", "plan",
         project=project, spec_path=spec_path, current_rev=current_rev,
         suggestions_text=suggestions_text, gitlab=gitlab,
-        spec_filename=spec_filename, DEVBAR_CLI=str(DEVBAR_CLI),
+        spec_filename=spec_filename, GOKRAX_CLI=str(GOKRAX_CLI),
     )
 
 
@@ -162,7 +162,7 @@ def build_queue_plan_prompt(spec_config: dict, data: dict) -> str:
 
     return render("spec.queue_plan", "plan",
         project=project, spec_path=spec_path, issues_text=issues_text,
-        queue_file_path=queue_file_path, DEVBAR_CLI=str(DEVBAR_CLI),
+        queue_file_path=queue_file_path, GOKRAX_CLI=str(GOKRAX_CLI),
     )
 
 

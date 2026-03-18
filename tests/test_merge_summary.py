@@ -56,7 +56,7 @@ class TestCmdMergeSummary:
         """post_discord をモックして message_id が pipeline JSON に保存されること"""
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, _make_pipeline())
-        from devbar import cmd_merge_summary
+        from gokrax import cmd_merge_summary
         args = argparse.Namespace(project="test-pj")
         with patch("notify.post_discord", return_value="1234567890") as mock_post, \
              patch("notify.send_to_agent", return_value=True):
@@ -71,7 +71,7 @@ class TestCmdMergeSummary:
         """CODE_APPROVED 以外の状態では SystemExit が発生すること"""
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, _make_pipeline(state="IMPLEMENTATION"))
-        from devbar import cmd_merge_summary
+        from gokrax import cmd_merge_summary
         args = argparse.Namespace(project="test-pj")
         with pytest.raises(SystemExit, match="Cannot send merge summary"):
             cmd_merge_summary(args)
@@ -80,7 +80,7 @@ class TestCmdMergeSummary:
         """post_discord が None を返したとき SystemExit が発生すること"""
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, _make_pipeline())
-        from devbar import cmd_merge_summary
+        from gokrax import cmd_merge_summary
         args = argparse.Namespace(project="test-pj")
         with patch("notify.post_discord", return_value=None), \
              patch("notify.send_to_agent", return_value=True):
@@ -91,7 +91,7 @@ class TestCmdMergeSummary:
         """投稿内容にプロジェクト名・Issue番号・commit が含まれること"""
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, _make_pipeline())
-        from devbar import cmd_merge_summary
+        from gokrax import cmd_merge_summary
         args = argparse.Namespace(project="test-pj")
         posted_content = []
         def mock_post(channel_id, content):
@@ -112,7 +112,7 @@ class TestCmdMergeSummary:
         from config import MERGE_SUMMARY_FOOTER
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, _make_pipeline())
-        from devbar import cmd_merge_summary
+        from gokrax import cmd_merge_summary
         args = argparse.Namespace(project="test-pj")
         posted_content = []
         def mock_post(channel_id, content):
@@ -133,7 +133,7 @@ class TestCmdMergeSummary:
         })
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, data)
-        from devbar import cmd_merge_summary
+        from gokrax import cmd_merge_summary
         args = argparse.Namespace(project="test-pj")
         posted_content = []
         def mock_post(channel_id, content):
@@ -151,7 +151,7 @@ class TestCmdMergeSummary:
         """merge-summary が完了時に implementer に通知すること (Issue #48)"""
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, _make_pipeline())
-        from devbar import cmd_merge_summary
+        from gokrax import cmd_merge_summary
         args = argparse.Namespace(project="test-pj")
 
         with patch("notify.post_discord", return_value="1234567890"), \
@@ -167,7 +167,7 @@ class TestCmdMergeSummary:
         message = call_args[0][1]
 
         assert agent_id == "kaneko"
-        assert "[devbar] test-pj: バッチ完了" in message
+        assert "[gokrax] test-pj: バッチ完了" in message
         assert "上記の作業を振り返り" in message
         assert "NO_REPLY で構いません" in message
         assert "#1" in message  # Issue from batch
@@ -178,7 +178,7 @@ class TestCmdMergeSummary:
         data = _make_pipeline()
         data["implementer"] = "pascal"
         write_pipeline(path, data)
-        from devbar import cmd_merge_summary
+        from gokrax import cmd_merge_summary
         args = argparse.Namespace(project="test-pj")
 
         with patch("notify.post_discord", return_value="1234567890"), \
@@ -193,7 +193,7 @@ class TestCmdMergeSummary:
         """send_to_agent が失敗してもフローが継続すること (Issue #48)"""
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, _make_pipeline())
-        from devbar import cmd_merge_summary
+        from gokrax import cmd_merge_summary
         args = argparse.Namespace(project="test-pj")
 
         with patch("notify.post_discord", return_value="1234567890"), \
@@ -211,7 +211,7 @@ class TestCmdMergeSummary:
         """send_to_agent が例外を投げてもフローが継続すること (Issue #48)"""
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, _make_pipeline())
-        from devbar import cmd_merge_summary
+        from gokrax import cmd_merge_summary
         args = argparse.Namespace(project="test-pj")
 
         with patch("notify.post_discord", return_value="1234567890"), \

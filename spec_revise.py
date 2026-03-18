@@ -8,7 +8,7 @@ from pathlib import Path
 
 from config import (
     GLAB_BIN, SPEC_REVIEW_TIMEOUT_SEC, SPEC_REVISE_SELF_REVIEW_PASSES,
-    PIPELINES_DIR, DEVBAR_CLI,
+    PIPELINES_DIR, GOKRAX_CLI,
 )
 from spec_review import (
     _reset_review_requests,
@@ -110,7 +110,7 @@ def build_revise_prompt(
     new_spec_path = make_rev_path(spec_path, next_rev)
     return render("spec.revise", "revise",
         project=project, spec_path=spec_path, current_rev=current_rev,
-        DEVBAR_CLI=DEVBAR_CLI, next_rev=next_rev, new_spec_path=new_spec_path,
+        GOKRAX_CLI=GOKRAX_CLI, next_rev=next_rev, new_spec_path=new_spec_path,
         merged_report_md=merged_report_md,
     )
 
@@ -157,7 +157,7 @@ def build_self_review_prompt(
 
     return render("spec.revise", "self_review",
         project=project, spec_path=spec_path, current_rev=new_rev,
-        DEVBAR_CLI=DEVBAR_CLI, last_commit=last_commit,
+        GOKRAX_CLI=GOKRAX_CLI, last_commit=last_commit,
         checklist_text=checklist_text, example_yaml=example_yaml,
     )
 

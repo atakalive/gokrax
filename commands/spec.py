@@ -210,7 +210,7 @@ def cmd_spec_start(args):
                 if effective_count < min_reviews:
                     data["min_reviews_override"] = max(1, effective_count)
             update_pipeline(path, _save_excluded)
-    from devbar import _start_loop
+    from gokrax import _start_loop
     _start_loop()
 
     # Discord 通知（除外後の正確な reviewer_count を使用）
@@ -353,7 +353,7 @@ def cmd_spec_stop(args):
         add_history(data, old_state, "IDLE", actor="cli:spec-stop")
 
     update_pipeline(path, do_stop)
-    from devbar import _any_pj_enabled, _stop_loop
+    from gokrax import _any_pj_enabled, _stop_loop
     if not _any_pj_enabled():
         _stop_loop()
         print(f"{args.project}: spec mode stopped ({old_state} → IDLE, watchdog disabled, loop stopped)")
@@ -459,7 +459,7 @@ def cmd_spec_status(args):
         retry_parts.append(f"{k}={v}/{MAX_SPEC_RETRIES}")
     retries = ", ".join(retry_parts) if retry_parts else "none"
 
-    print(f"DevBar [{state}] rev{rev} (cycle {cycle}, retries: {retries})")
+    print(f"gokrax [{state}] rev{rev} (cycle {cycle}, retries: {retries})")
     print(f"  spec: {sc.get('spec_path', '?')}")
     print(f"  implementer: {sc.get('spec_implementer', '?')}")
 
@@ -948,7 +948,7 @@ def cmd_spec(args):
     }
     if not args.spec_command:
         raise SystemExit(
-            "usage: devbar spec {start|stop|approve|continue|done|retry|resume|extend|status"
+            "usage: gokrax spec {start|stop|approve|continue|done|retry|resume|extend|status"
             "|review-submit|revise-submit|self-review-submit|issue-submit|queue-submit|suggestion-submit}"
         )
     spec_cmds[args.spec_command](args)

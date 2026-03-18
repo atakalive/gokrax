@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""devbar notify — エージェントへの通知とDiscord投稿
+"""gokrax notify — エージェントへの通知とDiscord投稿
 
 watchdog.pyから呼ばれる。LLM不要。
 """
@@ -17,14 +17,14 @@ import requests
 
 import config
 from config import (
-    DEVBAR_CLI, GLAB_BIN, DISCORD_CHANNEL, DISCORD_BOT_TOKEN,
+    GOKRAX_CLI, GLAB_BIN, DISCORD_CHANNEL, DISCORD_BOT_TOKEN,
     AGENTS, REVIEW_MODES, MAX_DIFF_CHARS, GLAB_TIMEOUT,
     AGENT_SEND_TIMEOUT, DISCORD_POST_TIMEOUT, POST_NEW_COMMAND_WAIT_SEC,
     MAX_INLINE_MESSAGE_BYTES, REVIEW_FILE_DIR, REVIEW_FILE_WRITE_RETRIES,
     REVIEW_FILE_WRITE_RETRY_DELAY,
 )
 
-logger = logging.getLogger("devbar.notify")
+logger = logging.getLogger("gokrax.notify")
 
 
 
@@ -117,7 +117,7 @@ def _write_review_file(
     Returns:
         書き出し先のPathオブジェクト。全リトライ失敗時はNone。
 
-    ファイルパス: /tmp/devbar-review/{project}-{reviewer}-{uuid4}.md
+    ファイルパス: /tmp/gokrax-review/{project}-{reviewer}-{uuid4}.md
     プロジェクト名の正規化: スラッシュ・空白を '-' に置換してパストラバーサルを防止する。
         sanitized = re.sub(r'[/\\\\\\s]', '-', project)
     リトライ: REVIEW_FILE_WRITE_RETRIES回、間隔REVIEW_FILE_WRITE_RETRY_DELAY秒。
@@ -199,7 +199,7 @@ def _trigger_blocked(project: str, reason: str) -> None:
     """パイプラインをBLOCKED状態に遷移させる。
 
     notify.pyからのBLOCKED遷移は異常系のみ。
-    devbar CLI経由で遷移する。
+    gokrax CLI経由で遷移する。
     --force を使う理由: notify_reviewers() は DESIGN_REVIEW/CODE_REVIEW 状態から
     呼ばれるが、BLOCKED への遷移は正規遷移表に含まれるため --force は本来不要。
     ただし、watchdog の状態遷移タイミングと競合した場合（例: REVISE への遷移中）の
@@ -209,7 +209,7 @@ def _trigger_blocked(project: str, reason: str) -> None:
     """
     try:
         result = subprocess.run(
-            [str(config.DEVBAR_CLI), "transition",
+            [str(config.GOKRAX_CLI), "transition",
              "--project", project, "--to", "BLOCKED", "--force"],
             capture_output=True, text=True, timeout=30, check=False,
         )
@@ -482,16 +482,16 @@ def notify_dispute(
         f"理由: {reason}\n\n"
         f"再評価した上で、以下のいずれかのコマンドで判定を報告してください:\n\n"
         f"# 判定を変更する場合:\n"
-        f"{DEVBAR_CLI} review --pj {project} --issue {issue_num} "
+        f"{GOKRAX_CLI} review --pj {project} --issue {issue_num} "
         f"--reviewer {reviewer} --verdict APPROVE --force\n"
-        f"{DEVBAR_CLI} review --pj {project} --issue {issue_num} "
+        f"{GOKRAX_CLI} review --pj {project} --issue {issue_num} "
         f"--reviewer {reviewer} --verdict P2 --summary \"理由\" --force\n"
-        f"{DEVBAR_CLI} review --pj {project} --issue {issue_num} "
+        f"{GOKRAX_CLI} review --pj {project} --issue {issue_num} "
         f"--reviewer {reviewer} --verdict P1 --summary \"理由\" --force\n\n"
         f"# 現在の判定を維持する場合:\n"
-        f"{DEVBAR_CLI} review --pj {project} --issue {issue_num} "
+        f"{GOKRAX_CLI} review --pj {project} --issue {issue_num} "
         f"--reviewer {reviewer} --verdict P0 --summary \"維持理由\" --force\n"
-        f"{DEVBAR_CLI} review --pj {project} --issue {issue_num} "
+        f"{GOKRAX_CLI} review --pj {project} --issue {issue_num} "
         f"--reviewer {reviewer} --verdict P1 --summary \"維持理由\" --force\n\n"
         f"※ --force は必須です（既存レビューの上書きに必要）。\n"
         f"※ 維持する場合も必ずコマンドで明示してください。\n"
@@ -730,7 +730,7 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
         pending_issues.append(f"□ #{num}: {title}")
         round_arg = f" --round {round_num}" if round_num is not None else ""
         pending_cmds.append(
-            f"{DEVBAR_CLI} review --project {project} --issue {num} "
+            f"{GOKRAX_CLI} review --project {project} --issue {num} "
             f"--reviewer {reviewer} --verdict <APPROVE|P0|P1|P2> "
             f"--summary $'レビュー本文\n2行目\n3行目..'"
             f"{round_arg}"

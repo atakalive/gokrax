@@ -88,7 +88,7 @@ class TestRoundValidation:
         mock_result.returncode = 0
         mock_result.stderr = ""
 
-        import devbar
+        import gokrax
         args = argparse.Namespace(
             project="test-pj",
             issue=1,
@@ -98,9 +98,9 @@ class TestRoundValidation:
             force=False,
             round=1,
         )
-        with patch("devbar.subprocess.run", return_value=mock_result):
-            with patch("devbar.time.sleep"):
-                devbar.cmd_review(args)
+        with patch("gokrax.subprocess.run", return_value=mock_result):
+            with patch("gokrax.time.sleep"):
+                gokrax.cmd_review(args)
 
         path = tmp_pipelines / "test-pj.json"
         data = json.loads(path.read_text())
@@ -112,7 +112,7 @@ class TestRoundValidation:
         """--round が現在のラウンドと不一致 → SystemExit、design_reviews は空のまま"""
         _make_pipeline(tmp_pipelines, state="DESIGN_REVIEW", design_revise_count=0)
 
-        import devbar
+        import gokrax
         args = argparse.Namespace(
             project="test-pj",
             issue=1,
@@ -123,7 +123,7 @@ class TestRoundValidation:
             round=2,  # 現在は round 1 なのに round 2 を指定
         )
         with pytest.raises(SystemExit) as exc_info:
-            devbar.cmd_review(args)
+            gokrax.cmd_review(args)
 
         assert "Round mismatch" in str(exc_info.value)
 
@@ -140,7 +140,7 @@ class TestRoundValidation:
         mock_result.returncode = 0
         mock_result.stderr = ""
 
-        import devbar
+        import gokrax
         args = argparse.Namespace(
             project="test-pj",
             issue=1,
@@ -150,9 +150,9 @@ class TestRoundValidation:
             force=False,
             round=None,  # 省略
         )
-        with patch("devbar.subprocess.run", return_value=mock_result):
-            with patch("devbar.time.sleep"):
-                devbar.cmd_review(args)
+        with patch("gokrax.subprocess.run", return_value=mock_result):
+            with patch("gokrax.time.sleep"):
+                gokrax.cmd_review(args)
 
         path = tmp_pipelines / "test-pj.json"
         data = json.loads(path.read_text())

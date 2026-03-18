@@ -22,7 +22,7 @@ class TestTriageMultiIssue:
         """複数Issue一括投入 → 全件バッチに追加されること"""
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
-        from devbar import cmd_triage
+        from gokrax import cmd_triage
         import argparse
         args = argparse.Namespace(project="test-pj", issue=[35, 36, 37], title=[])
         cmd_triage(args)
@@ -42,7 +42,7 @@ class TestTriageMultiIssue:
         ]
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
-        from devbar import cmd_triage
+        from gokrax import cmd_triage
         import argparse
         args = argparse.Namespace(project="test-pj", issue=[10, 11, 12], title=[])
         with pytest.raises(SystemExit, match="Batch overflow"):
@@ -56,7 +56,7 @@ class TestTriageMultiIssue:
         ]
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
-        from devbar import cmd_triage
+        from gokrax import cmd_triage
         import argparse
         args = argparse.Namespace(project="test-pj", issue=[42, 43], title=[])
         with pytest.raises(SystemExit, match="already in batch"):
@@ -66,7 +66,7 @@ class TestTriageMultiIssue:
         """--title 省略時 → 空文字がセットされること"""
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
-        from devbar import cmd_triage
+        from gokrax import cmd_triage
         import argparse
         args = argparse.Namespace(project="test-pj", issue=[1, 2], title=[])
         cmd_triage(args)
@@ -79,7 +79,7 @@ class TestTriageMultiIssue:
         """--title が --issue より少ない → 不足分は空文字"""
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
-        from devbar import cmd_triage
+        from gokrax import cmd_triage
         import argparse
         args = argparse.Namespace(project="test-pj", issue=[1, 2, 3], title=["機能A"])
         cmd_triage(args)
@@ -94,7 +94,7 @@ class TestTriageMultiIssue:
         sample_pipeline["state"] = "IMPLEMENTATION"
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
-        from devbar import cmd_triage
+        from gokrax import cmd_triage
         import argparse
         args = argparse.Namespace(project="test-pj", issue=[1], title=[])
         with pytest.raises(SystemExit, match="Cannot add issues"):

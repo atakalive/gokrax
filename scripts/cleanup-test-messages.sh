@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# #dev-bar から [test-pj] で始まるメッセージを削除
+# #gokrax から [test-pj] で始まるメッセージを削除
 # 使い方: bash scripts/cleanup-test-messages.sh
 
 set -euo pipefail

@@ -1,4 +1,4 @@
-"""tests/test_reviewer_choices.py — devbar review --reviewer の choices 制限テスト"""
+"""tests/test_reviewer_choices.py — gokrax review --reviewer の choices 制限テスト"""
 
 import sys
 import argparse
@@ -11,8 +11,8 @@ sys.path.insert(0, str(ROOT))
 
 
 def _build_review_parser():
-    """devbar の review サブコマンド用 argparse パーサーを単独で構築。"""
-    import devbar
+    """gokrax の review サブコマンド用 argparse パーサーを単独で構築。"""
+    import gokrax
     import config
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="command")

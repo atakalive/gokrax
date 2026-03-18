@@ -5,13 +5,13 @@ Variables:
     spec_path: str     - 仕様書ファイルパス
     current_rev: str   - 現在のリビジョン番号
     reviewer: str      - レビュアー名
-    DEVBAR_CLI: str    - devbar CLIパス
+    GOKRAX_CLI: str    - gokrax CLIパス
 """
 
 
 
 def suggestion(
-    project: str, spec_path: str, current_rev: str, reviewer: str, DEVBAR_CLI: str,
+    project: str, spec_path: str, current_rev: str, reviewer: str, GOKRAX_CLI: str,
     **_kw,
 ) -> str:
     """Issue分割提案プロンプト（§7）。"""
@@ -69,7 +69,7 @@ phases:
 ## 提出方法
 提案を YAML ファイルに保存し、以下のコマンドで投入してください:
 ```
-{DEVBAR_CLI} spec suggestion-submit --pj {project} --reviewer {reviewer} --file <YAMLファイルパス>
+{GOKRAX_CLI} spec suggestion-submit --pj {project} --reviewer {reviewer} --file <YAMLファイルパス>
 ```
 
 【重要】提案作成・提出まで、中断せず一気に完了すること。"""

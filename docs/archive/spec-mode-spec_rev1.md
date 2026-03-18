@@ -1,4 +1,4 @@
-# DevBar Spec Mode — 仕様書
+# gokrax Spec Mode — 仕様書
 
 **Version:** 1.0 (draft)
 **Date:** 2026-02-28
@@ -20,20 +20,20 @@
 6. git commit & push
 7. 2〜6 を繰り返し（TrajOpt は 5 ラウンド）
 8. 完成した spec から手動で GitLab Issue を起票（TrajOpt は 19件）
-9. devbar-queue.txt にバッチ実行順・モデル指定を手動で記述
+9. gokrax-queue.txt にバッチ実行順・モデル指定を手動で記述
 
 TrajOpt unified-gui-spec では rev1 → rev4A まで 5 ラウンド、延べ 60+ 件のレビュー指摘を処理した。各ラウンドで数時間の手作業が発生している。
 
 ### 1.2 目標
 
-devbar に **spec mode** を追加し、上記 1〜9 を自動化する:
+gokrax に **spec mode** を追加し、上記 1〜9 を自動化する:
 
-- spec ファイルのレビュー依頼・回収・状態遷移を devbar が管理
+- spec ファイルのレビュー依頼・回収・状態遷移を gokrax が管理
 - レビュー結果の構造化パース・重複統合を自動実行
 - spec 改訂（revN+1 作成）をエージェント（spec_implementer）が自動実行
 - レビューループの終了判定（P1 以上なし or MAX_CYCLES 到達）
 - 完成 spec から Issue 分割案の収集・統合・GitLab 起票
-- devbar-queue.txt へのバッチ行生成（モデル・keep-context・理由コメント付き）
+- gokrax-queue.txt へのバッチ行生成（モデル・keep-context・理由コメント付き）
 
 ### 1.3 スコープ
 
@@ -44,7 +44,7 @@ devbar に **spec mode** を追加し、上記 1〜9 を自動化する:
 
 **スコープ外:**
 - spec 叩き台の自動生成（人間 + エージェントが事前に作成する前提）
-- devbar 実装フロー（DESIGN_PLAN → IMPLEMENTATION → ...）との直接接続（将来課題）
+- gokrax 実装フロー（DESIGN_PLAN → IMPLEMENTATION → ...）との直接接続（将来課題）
 - spec mode 自身の spec を spec mode で回すこと（ブートストラップ問題）
 
 ---
@@ -54,7 +54,7 @@ devbar に **spec mode** を追加し、上記 1〜9 を自動化する:
 ### 2.1 状態遷移図
 
 ```
-[devbar spec start]
+[gokrax spec start]
         │
         ├─── [--skip-review] ───→ SPEC_APPROVED
         │
@@ -79,7 +79,7 @@ devbar に **spec mode** を追加し、上記 1〜9 を自動化する:
         │ (spec_implementer が統合 → GitLab 起票)
         ▼
   QUEUE_PLAN ──────────────── [--no-queue 指定時: ここで終了]
-        │ (devbar-queue.txt 生成)
+        │ (gokrax-queue.txt 生成)
         ▼
   SPEC_DONE
         │ (M 確認)
@@ -91,12 +91,12 @@ devbar に **spec mode** を追加し、上記 1〜9 を自動化する:
 
 | 状態 | 説明 | 入り口 | 出口 |
 |---|---|---|---|
-| `SPEC_REVIEW` | レビュアーに spec を送信し、レビュー回収を待つ | `devbar spec start` or SPEC_REVISE 完了 | 全レビュアー回収 or grace_period 満了 |
+| `SPEC_REVIEW` | レビュアーに spec を送信し、レビュー回収を待つ | `gokrax spec start` or SPEC_REVISE 完了 | 全レビュアー回収 or grace_period 満了 |
 | `SPEC_REVISE` | レビュー結果を統合し、spec_implementer が改訂を実行 | SPEC_REVIEW 完了 | 改訂 commit & push 完了 |
 | `SPEC_APPROVED` | spec 改訂サイクル完了。Issue 分割に進むか終了 | SPEC_REVISE（終了条件成立）| 自動遷移 or 終了（`--no-issue`）|
 | `ISSUE_SUGGESTION` | レビュアーに Issue 分割案を問い合わせ | SPEC_APPROVED | 全レビュアー回収 or タイムアウト |
 | `ISSUE_PLAN` | spec_implementer が分割案を統合し、GitLab Issue を起票 | ISSUE_SUGGESTION 完了 | Issue 起票完了 |
-| `QUEUE_PLAN` | Issue 依存関係を分析し、devbar-queue.txt にバッチ行を生成 | ISSUE_PLAN 完了 | queue 書き込み完了 |
+| `QUEUE_PLAN` | Issue 依存関係を分析し、gokrax-queue.txt にバッチ行を生成 | ISSUE_PLAN 完了 | queue 書き込み完了 |
 | `SPEC_DONE` | 全工程完了。M の確認待ち | QUEUE_PLAN 完了 | M が確認 → IDLE |
 
 ### 2.3 既存ステートとの共存
@@ -113,7 +113,7 @@ SPEC_REVISE → SPEC_REVIEW ループの終了判定:
 |---|---|
 | 全レビュアーの最高重篤度が Suggestion 以下（P1 なし）| → SPEC_APPROVED |
 | `MAX_SPEC_REVISE_CYCLES` 到達 | → SPEC_APPROVED（警告付き）|
-| M が手動で `devbar spec approve --pj X` | → SPEC_APPROVED（強制）|
+| M が手動で `gokrax spec approve --pj X` | → SPEC_APPROVED（強制）|
 
 **`MAX_SPEC_REVISE_CYCLES`**: デフォルト 5（コード実装の `MAX_REVISE_CYCLES=3` より多い。spec は設計議論のため収束が遅い）。`config.py` で設定。
 
@@ -194,7 +194,7 @@ SPEC_REVIEW_TIMEOUT_SEC = 600       # レビュアー個別のタイムアウト
 SPEC_REVISE_TIMEOUT_SEC = 1800      # 改訂作業のタイムアウト（30分）
 SPEC_ISSUE_SUGGESTION_TIMEOUT_SEC = 300  # Issue分割提案のタイムアウト（5分）
 SPEC_REVISE_SELF_REVIEW_PASSES = 2  # 改訂後のセルフレビュー回数（反映漏れ防止）
-SPEC_QUEUE_FILE = PIPELINES_DIR / "devbar-queue.txt"  # キュー出力先
+SPEC_QUEUE_FILE = PIPELINES_DIR / "gokrax-queue.txt"  # キュー出力先
 ```
 
 ---
@@ -203,18 +203,18 @@ SPEC_QUEUE_FILE = PIPELINES_DIR / "devbar-queue.txt"  # キュー出力先
 
 ### 4.1 コマンド体系
 
-既存の `devbar` サブコマンドと並列に `devbar spec` サブコマンドグループを追加:
+既存の `gokrax` サブコマンドと並列に `gokrax spec` サブコマンドグループを追加:
 
 ```
-devbar spec start     起動（spec mode パイプライン開始）
-devbar spec approve   手動で SPEC_APPROVED に遷移（ループ強制終了）
-devbar spec status    spec mode 固有のステータス表示
+gokrax spec start     起動（spec mode パイプライン開始）
+gokrax spec approve   手動で SPEC_APPROVED に遷移（ループ強制終了）
+gokrax spec status    spec mode 固有のステータス表示
 ```
 
-### 4.2 devbar spec start
+### 4.2 gokrax spec start
 
 ```
-devbar spec start --pj PROJECT --spec SPEC_PATH --implementer AGENT_ID
+gokrax spec start --pj PROJECT --spec SPEC_PATH --implementer AGENT_ID
                   [--no-issue] [--no-queue] [--skip-review]
                   [--max-cycles N] [--review-mode full|standard|lite|min]
                   [--model MODEL]
@@ -243,18 +243,18 @@ devbar spec start --pj PROJECT --spec SPEC_PATH --implementer AGENT_ID
 3. SPEC_REVIEW に遷移
 4. watchdog が検知してレビュー依頼を送信
 
-### 4.3 devbar spec approve
+### 4.3 gokrax spec approve
 
 ```
-devbar spec approve --pj PROJECT
+gokrax spec approve --pj PROJECT
 ```
 
 現在の SPEC_REVIEW / SPEC_REVISE ループを強制終了し、SPEC_APPROVED に遷移する。「もう十分だからこれで行く」場合に使用。
 
-### 4.4 devbar spec status
+### 4.4 gokrax spec status
 
 ```
-devbar spec status [--pj PROJECT]
+gokrax spec status [--pj PROJECT]
 ```
 
 出力例:
@@ -335,7 +335,7 @@ items:
 
 ### 5.2 レビュー回収
 
-既存の devbar レビュー回収メカニズムを流用:
+既存の gokrax レビュー回収メカニズムを流用:
 
 - レビュアーの応答を `spec_reviews` に格納（pipeline.json）
 - 全レビュアー回収 or `grace_period` 満了で SPEC_REVISE に遷移
@@ -611,16 +611,16 @@ issues:
 
 ## 9. QUEUE_PLAN フェーズ
 
-> キュー出力先は `config.SPEC_QUEUE_FILE`（デフォルト: `PIPELINES_DIR / "devbar-queue.txt"`）。
+> キュー出力先は `config.SPEC_QUEUE_FILE`（デフォルト: `PIPELINES_DIR / "gokrax-queue.txt"`）。
 
 ### 9.1 キュー行の生成
 
-Issue 起票結果と spec の内容から、devbar-queue.txt に追記するバッチ行を生成する。
+Issue 起票結果と spec の内容から、gokrax-queue.txt に追記するバッチ行を生成する。
 
 **spec_implementer への依頼プロンプト:**
 
 ```
-以下の Issue リストから devbar-queue.txt のバッチ行を生成してください。
+以下の Issue リストから gokrax-queue.txt のバッチ行を生成してください。
 
 ## Issue リスト
 {issue_list_with_deps}
@@ -636,7 +636,7 @@ Issue 起票結果と spec の内容から、devbar-queue.txt に追記するバ
 5. 各バッチにコメントで理由を付記
 
 ## 出力フォーマット
-devbar-queue.txt に直接追記できる形式:
+gokrax-queue.txt に直接追記できる形式:
 
 ```
 # {project} {spec_name} — 依存順キュー ({n} Issues, spec rev{rev})
@@ -650,7 +650,7 @@ devbar-queue.txt に直接追記できる形式:
 
 ### 9.2 M の確認
 
-QUEUE_PLAN 完了後、SPEC_DONE に遷移。Discord #dev-bar に完了通知を送信:
+QUEUE_PLAN 完了後、SPEC_DONE に遷移。Discord #gokrax に完了通知を送信:
 
 ```
 [Spec Mode] {project}: 全工程完了
@@ -662,7 +662,7 @@ Queue: {n_batches} バッチ
 キュー内容:
 {queue_preview}
 
-M の確認を待っています。`devbar qrun` で実行開始できます。
+M の確認を待っています。`gokrax qrun` で実行開始できます。
 ```
 
 ---
@@ -718,7 +718,7 @@ def check_spec_mode(project: str, pipeline: dict):
 
 ### 11.1 spec mode 固有の通知
 
-Discord #dev-bar への通知を追加:
+Discord #gokrax への通知を追加:
 
 | イベント | 通知内容 |
 |---|---|
@@ -774,7 +774,7 @@ Discord #dev-bar への通知を追加:
 
 | ファイル | 変更内容 | 規模 |
 |---|---|---|
-| `devbar.py` | `spec` サブコマンドグループ（start/approve/status）| +200行 |
+| `gokrax.py` | `spec` サブコマンドグループ（start/approve/status）| +200行 |
 | `watchdog.py` | `check_spec_mode()` + 各状態の処理 | +250行 |
 | `notify.py` | spec mode 通知テンプレート | +80行 |
 | `config.py` | spec mode 定数（タイムアウト、MAX_CYCLES）| +15行 |
@@ -790,7 +790,7 @@ Discord #dev-bar への通知を追加:
 | Issue | タイトル | 依存 | 概算行数 |
 |---|---|---|---|
 | S-1 | config.py + pipeline_io.py: spec mode 基盤定数・初期化 | なし | +45行 |
-| S-2 | devbar.py: `spec start/approve/status` CLI | S-1 | +200行 |
+| S-2 | gokrax.py: `spec start/approve/status` CLI | S-1 | +200行 |
 | S-3 | spec_review.py: レビュー結果パース + 重複検出 + 統合レポート | S-1 | +300行 |
 | S-4 | watchdog.py: SPEC_REVIEW + SPEC_REVISE ステート処理 | S-2, S-3 | +150行 |
 | S-5 | spec_revise.py: 改訂依頼プロンプト + 完了パース + 終了判定 | S-3 | +200行 |
@@ -815,7 +815,7 @@ S-1 ──┬── S-2 ──┐
 
 ## 14. 将来の拡張
 
-- **devbar 実装フローとの接続**: SPEC_DONE → 自動的に `devbar qrun` 開始
+- **gokrax 実装フローとの接続**: SPEC_DONE → 自動的に `gokrax qrun` 開始
 - **spec 叩き台の自動生成**: 既存コードベースから spec 初稿を生成
 - **差分レビュー**: rev 間の diff のみをレビュアーに送信（全文送信のトークン節約）
 - **レビュアー学習**: 過去のレビュー傾向から、どのレビュアーがどの種の指摘に強いかを分析

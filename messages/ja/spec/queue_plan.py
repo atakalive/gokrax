@@ -5,13 +5,13 @@ Variables:
     spec_path: str        - 仕様書ファイルパス
     issues_text: str      - 起票済みIssue番号（スペース区切り）
     queue_file_path: str  - キューファイルパス
-    DEVBAR_CLI: str       - devbar CLIパス
+    GOKRAX_CLI: str       - gokrax CLIパス
 """
 
 
 
 def plan(
-    project: str, spec_path: str, issues_text: str, queue_file_path: str, DEVBAR_CLI: str,
+    project: str, spec_path: str, issues_text: str, queue_file_path: str, GOKRAX_CLI: str,
     **_kw,
 ) -> str:
     """キュー生成指示プロンプト（§9）。"""
@@ -63,7 +63,7 @@ queue_file: "{queue_file_path}"
 ## 提出方法
 完了報告を YAML ファイルに保存し、以下のコマンドで投入してください:
 ```
-{DEVBAR_CLI} spec queue-submit --pj {project} --file <YAMLファイルパス>
+{GOKRAX_CLI} spec queue-submit --pj {project} --file <YAMLファイルパス>
 ```
 
 【重要】キュー登録・完了報告の提出まで、中断せず一気に完了すること。"""

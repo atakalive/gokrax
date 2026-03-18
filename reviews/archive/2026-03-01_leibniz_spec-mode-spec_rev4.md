@@ -1,4 +1,4 @@
-# DevBar Spec Mode — 仕様書レビュー（Leibniz, rev4 / やりすぎ版）
+# gokrax Spec Mode — 仕様書レビュー（Leibniz, rev4 / やりすぎ版）
 
 対象: `docs/spec-mode-spec_rev4.md` (rev4, 1136行)
 commit: rev3=`50a375b` → rev4=`45dca2b`

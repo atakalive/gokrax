@@ -4,7 +4,7 @@ Variables (common):
     project: str           - プロジェクト名
     spec_path: str         - 仕様書ファイルパス
     current_rev: str       - 現在のリビジョン番号
-    DEVBAR_CLI: str        - devbar CLIパス
+    GOKRAX_CLI: str        - gokrax CLIパス
 """
 
 
@@ -14,7 +14,7 @@ Variables (common):
 # ---------------------------------------------------------------------------
 
 def revise(
-    project: str, spec_path: str, current_rev: str, DEVBAR_CLI: str,
+    project: str, spec_path: str, current_rev: str, GOKRAX_CLI: str,
     next_rev: int, new_spec_path: str, merged_report_md: str,
     **_kw,
 ) -> str:
@@ -59,14 +59,14 @@ changes:
 ## 提出方法
 完了報告を YAML ファイルに保存し、以下のコマンドで投入してください:
 ```
-{DEVBAR_CLI} spec revise-submit --pj {project} --file <YAMLファイルパス>
+{GOKRAX_CLI} spec revise-submit --pj {project} --file <YAMLファイルパス>
 ```
 
 【重要】改訂・コミット・完了報告の提出まで、中断せず一気に完了すること。"""
 
 
 def self_review(
-    project: str, spec_path: str, current_rev: str, DEVBAR_CLI: str,
+    project: str, spec_path: str, current_rev: str, GOKRAX_CLI: str,
     last_commit: str, checklist_text: str, example_yaml: str,
     **_kw,
 ) -> str:
@@ -93,7 +93,7 @@ result が "No" の場合は evidence に具体的な問題箇所を記述して
 
 ## 提出方法
 チェック結果を YAML ファイルに保存し、以下のコマンドで投入してください:
-{DEVBAR_CLI} spec self-review-submit --pj {project} --file <YAMLファイルパス>
+{GOKRAX_CLI} spec self-review-submit --pj {project} --file <YAMLファイルパス>
 
 ※ YAMLブロック（```yaml ... ```）で囲うことを推奨します。囲わなくても CLI が自動でフェンスを補完しますが、確実なパースのため囲ってください。
 
@@ -104,12 +104,12 @@ result が "No" の場合は evidence に具体的な問題箇所を記述して
 # 催促
 # ---------------------------------------------------------------------------
 
-def nudge(project: str, current_rev: str, DEVBAR_CLI: str, **_kw) -> str:
+def nudge(project: str, current_rev: str, GOKRAX_CLI: str, **_kw) -> str:
     """spec改訂催促メッセージ。"""
     return (
         f"[Remind] {project} spec rev{current_rev} のリバイス作業が未完了です。\n"
         f"レビュー指摘を反映し、以下のコマンドで完了報告してください:\n"
-        f"{DEVBAR_CLI} spec revise-submit --pj {project} --file <完了報告YAMLファイルパス>"
+        f"{GOKRAX_CLI} spec revise-submit --pj {project} --file <完了報告YAMLファイルパス>"
     )
 
 

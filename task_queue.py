@@ -1,6 +1,6 @@
-"""task_queue.py — devbar タスクキューの管理
+"""task_queue.py — gokrax タスクキューの管理
 
-循環 import 回避のため、devbar.py と watchdog.py の両方から import される純粋関数群。
+循環 import 回避のため、gokrax.py と watchdog.py の両方から import される純粋関数群。
 Note: Python 標準ライブラリの queue モジュールとの衝突を避けるため task_queue.py とした。
 """
 

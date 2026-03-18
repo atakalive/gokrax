@@ -7,7 +7,7 @@ from datetime import datetime as _datetime, timedelta as _timedelta
 from pathlib import Path
 
 from config import (
-    JST, DEVBAR_CLI,
+    JST, GOKRAX_CLI,
     SPEC_STATES, SPEC_REVIEW_TIMEOUT_SEC, SPEC_REVISE_TIMEOUT_SEC,
     SPEC_ISSUE_SUGGESTION_TIMEOUT_SEC, SPEC_ISSUE_PLAN_TIMEOUT_SEC,
     SPEC_QUEUE_PLAN_TIMEOUT_SEC,
@@ -79,18 +79,18 @@ def _check_spec_review(
         if status == "pending" and req.get("sent_at") is None:
             # 未送信 → レビュー依頼プロンプト生成
             # rev_index > 1 でも last_changes がない場合は初回プロンプトを使う
-            # （devbar spec start --rev 2 で初回起動した場合など）
+            # （gokrax spec start --rev 2 で初回起動した場合など）
             has_prior_review = bool(spec_config.get("last_changes"))
             if rev_index <= 1 or not has_prior_review:
                 prompt = render("spec.review", "initial",
                     project=project, spec_path=spec_path,
-                    current_rev=current_rev, DEVBAR_CLI=DEVBAR_CLI,
+                    current_rev=current_rev, GOKRAX_CLI=GOKRAX_CLI,
                 )
             else:
                 last_changes = spec_config.get("last_changes") or {}
                 prompt = render("spec.review", "revision",
                     project=project, spec_path=spec_path,
-                    current_rev=current_rev, DEVBAR_CLI=DEVBAR_CLI,
+                    current_rev=current_rev, GOKRAX_CLI=GOKRAX_CLI,
                     changelog=last_changes.get("changelog_summary", "変更履歴なし"),
                     added=str(last_changes.get("added_lines", "?")),
                     removed=str(last_changes.get("removed_lines", "?")),
@@ -1131,7 +1131,7 @@ def _apply_spec_action(
                 nudge_msg = render("spec.review", "nudge",
                     project=project_fresh, current_rev=current_rev_fresh,
                     spec_path=spec_path_fresh, reviewer=reviewer,
-                    DEVBAR_CLI=DEVBAR_CLI,
+                    GOKRAX_CLI=GOKRAX_CLI,
                 )
                 if send_to_agent_queued(reviewer, nudge_msg):
                     woken.append(reviewer)
@@ -1172,7 +1172,7 @@ def _apply_spec_action(
                 if should_nudge:
                     nudge_msg = render("spec.revise", "nudge",
                         project=project_fresh, current_rev=current_rev_fresh,
-                        DEVBAR_CLI=DEVBAR_CLI,
+                        GOKRAX_CLI=GOKRAX_CLI,
                     )
                     if send_to_agent_queued(implementer, nudge_msg):
                         def _set_impl_nudge(data, impl=implementer):

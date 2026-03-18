@@ -84,7 +84,7 @@ class TestAppendMetric:
         monkeypatch.setattr(config, "METRICS_FILE", bad_path)
 
         from pipeline_io import append_metric
-        with caplog.at_level(logging.WARNING, logger="devbar.metrics"):
+        with caplog.at_level(logging.WARNING, logger="gokrax.metrics"):
             append_metric("test_event", pj="test-pj", issue=1)
 
         assert "metrics write failed" in caplog.text
@@ -216,10 +216,10 @@ class TestReviewResponseMetric:
             history=[{"from": "IMPLEMENTATION", "to": "CODE_REVIEW", "at": entered_at}],
         ))
 
-        from devbar import cmd_review
+        from gokrax import cmd_review
 
         with patch("pipeline_io.append_metric") as mock_metric, \
-             patch("devbar._post_gitlab_note", return_value=False):
+             patch("gokrax._post_gitlab_note", return_value=False):
             cmd_review(self._make_args())
 
         mock_metric.assert_called_once()
@@ -251,10 +251,10 @@ class TestReviewResponseMetric:
                       "at": "2025-01-01T00:00:00+09:00"}],
         ))
 
-        from devbar import cmd_review
+        from gokrax import cmd_review
 
         with patch("pipeline_io.append_metric") as mock_metric, \
-             patch("devbar._post_gitlab_note", return_value=False):
+             patch("gokrax._post_gitlab_note", return_value=False):
             cmd_review(self._make_args())
 
         mock_metric.assert_not_called()
@@ -274,10 +274,10 @@ class TestReviewResponseMetric:
             history=[{"from": "DESIGN_PLAN", "to": "DESIGN_REVIEW", "at": naive_at}],
         ))
 
-        from devbar import cmd_review
+        from gokrax import cmd_review
 
         with patch("pipeline_io.append_metric") as mock_metric, \
-             patch("devbar._post_gitlab_note", return_value=False):
+             patch("gokrax._post_gitlab_note", return_value=False):
             cmd_review(self._make_args(verdict="P0"))
 
         call_kwargs = mock_metric.call_args.kwargs

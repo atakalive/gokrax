@@ -272,11 +272,11 @@ class TestBuildSelfReviewPrompt:
     def test_build_self_review_prompt_default_checklist(self):
         """デフォルトチェックリスト 4 項目がプロンプトに含まれる。"""
         sc = {"spec_path": "docs/spec.md", "current_rev": "2", "last_commit": "abc1234"}
-        prompt = build_self_review_prompt(sc, {"project": "devbar"})
+        prompt = build_self_review_prompt(sc, {"project": "gokrax"})
         for item in DEFAULT_SELF_REVIEW_CHECKLIST:
             assert item["id"] in prompt
             assert item["question"] in prompt
-        assert "devbar" in prompt
+        assert "gokrax" in prompt
         assert "self-review-submit" in prompt
 
     def test_build_self_review_prompt_custom_checklist(self):
@@ -587,7 +587,7 @@ class TestCmdSpecSelfReviewSubmit:
         f = tmp_path / "self_review.yaml"
         f.write_text(_default_yaml_all_yes(), encoding="utf-8")
 
-        from devbar import cmd_spec_self_review_submit
+        from gokrax import cmd_spec_self_review_submit
         cmd_spec_self_review_submit(_args(project="test-pj", file=str(f)))
 
         data = json.loads(path.read_text())
@@ -602,7 +602,7 @@ class TestCmdSpecSelfReviewSubmit:
         f = tmp_path / "self_review.yaml"
         f.write_text(_default_yaml_all_yes(), encoding="utf-8")
 
-        from devbar import cmd_spec_self_review_submit
+        from gokrax import cmd_spec_self_review_submit
         with pytest.raises(SystemExit, match="Self-review not requested"):
             cmd_spec_self_review_submit(_args(project="test-pj", file=str(f)))
 
@@ -618,7 +618,7 @@ class TestCmdSpecSelfReviewSubmit:
         f = tmp_path / "self_review.yaml"
         f.write_text(_default_yaml_all_yes(), encoding="utf-8")
 
-        from devbar import cmd_spec_self_review_submit
+        from gokrax import cmd_spec_self_review_submit
         cmd_spec_self_review_submit(_args(project="test-pj", file=str(f)))
 
         out = capsys.readouterr().out
@@ -655,7 +655,7 @@ checklist:
         f = tmp_path / "self_review.yaml"
         f.write_text(raw_yaml, encoding="utf-8")
 
-        from devbar import cmd_spec_self_review_submit
+        from gokrax import cmd_spec_self_review_submit
         cmd_spec_self_review_submit(_args(project="test-pj", file=str(f)))
 
         data = json.loads(path.read_text())

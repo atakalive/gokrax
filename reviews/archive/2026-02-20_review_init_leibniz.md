@@ -1,16 +1,16 @@
-# DevBar 全文レビュー（Leibniz）
+# gokrax 全文レビュー（Leibniz）
 
-対象: spec.md / config.py / devbar.py / watchdog.py / notify.py
+対象: spec.md / config.py / gokrax.py / watchdog.py / notify.py
 
 ## Verdict: **P0**
-主因は **pipeline JSON の書き込みが原子的でなく、同時読取/書込で破損し得る** 点（devbar.save / watchdog.save_pipeline）。これは状態機械の基盤を壊すのでP0です。加えて、状態遷移の前提条件（空バッチ等）の検証不足がP1相当で複数あります。
+主因は **pipeline JSON の書き込みが原子的でなく、同時読取/書込で破損し得る** 点（gokrax.save / watchdog.save_pipeline）。これは状態機械の基盤を壊すのでP0です。加えて、状態遷移の前提条件（空バッチ等）の検証不足がP1相当で複数あります。
 
 ---
 
 ## P0（必須修正）
 
 ### P0-1: JSON書き込みが非原子的（truncate→lock の順）で破損し得る
-- devbar.py: `save()`
+- gokrax.py: `save()`
 - watchdog.py: `save_pipeline()`
 
 現状:
@@ -52,7 +52,7 @@ cron運用では事実上ブラックホールです。
 冒頭に **Version: 0.6** とある一方、依頼文では「仕様書 v0.7」。レビュー/運用の参照点が揺れるので、specのヘッダを更新するか、変更履歴を明記すべき。
 
 ### P1-2: 状態遷移の前提条件（不変条件）をCLIで検証していない
-devbar.py `cmd_transition()` は「許可遷移」だけを検証し、**状態に付随する不変条件**を検証しない。
+gokrax.py `cmd_transition()` は「許可遷移」だけを検証し、**状態に付随する不変条件**を検証しない。
 例:
 - `IDLE → DESIGN_PLAN` を **空バッチでも許す**（watchdogは `batch empty` でWARNINGして停止）。
 - `DESIGN_PLAN → DESIGN_REVIEW` もCLIで可能だが、`design_ready` の充足を検証しない（watchdogは自動遷移のみだが、CLIを唯一インターフェースとするならCLI側が守るべき）。

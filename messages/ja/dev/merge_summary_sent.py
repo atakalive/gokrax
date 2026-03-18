@@ -18,7 +18,7 @@ def format_merge_summary(
     MERGE_SUMMARY_FOOTER: str = "",
     **_kw,
 ) -> str:
-    """#dev-bar 投稿用マージサマリーを生成する。
+    """#gokrax 投稿用マージサマリーを生成する。
 
     2000文字超は post_discord が自動分割するので、ここでは切り詰めない。
     """

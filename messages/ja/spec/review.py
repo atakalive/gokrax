@@ -4,7 +4,7 @@ Variables (common):
     project: str       - プロジェクト名
     spec_path: str     - 仕様書ファイルパス
     current_rev: str   - 現在のリビジョン番号
-    DEVBAR_CLI: str    - devbar CLIパス
+    GOKRAX_CLI: str    - gokrax CLIパス
 """
 
 
@@ -13,7 +13,7 @@ Variables (common):
 # エージェント向けプロンプト
 # ---------------------------------------------------------------------------
 
-def initial(project: str, spec_path: str, current_rev: str, DEVBAR_CLI: str, **_kw) -> str:
+def initial(project: str, spec_path: str, current_rev: str, GOKRAX_CLI: str, **_kw) -> str:
     """初回レビュー依頼プロンプト（§5.1）。"""
     return f"""【指示】このタスクは中断せず最後まで一気に完了してください。途中で確認を求めないこと。
 
@@ -26,7 +26,7 @@ def initial(project: str, spec_path: str, current_rev: str, DEVBAR_CLI: str, **_
 - 重篤度を必ず付与: 🔴 Critical (P0) / 🟠 Major (P1) / 🟡 Minor / 💡 Suggestion
 - セクション番号を明記（例: §6.2）
 - 擬似コード間の整合性に特に注意
-- 既存devbarコードベースとの整合性も確認
+- 既存gokraxコードベースとの整合性も確認
 - ステートマシン遷移の抜け穴・デッドロックを探せ
 - YAMLブロックは応答内で**1つだけ**
 
@@ -46,7 +46,7 @@ items:
 1. ワークスペース内にYAMLファイルを保存（パスは任意）
 2. 以下のコマンドで投入:
 ```bash
-{DEVBAR_CLI} spec review-submit --pj {project} --reviewer <YOUR_NAME> --file <保存したファイルのパス>
+{GOKRAX_CLI} spec review-submit --pj {project} --reviewer <YOUR_NAME> --file <保存したファイルのパス>
 ```
 
 ファイルは素のYAMLでも、上記「出力フォーマット」の ```yaml ... ``` ブロックを含むMarkdownでも可。
@@ -55,7 +55,7 @@ items:
 
 
 def revision(
-    project: str, spec_path: str, current_rev: str, DEVBAR_CLI: str,
+    project: str, spec_path: str, current_rev: str, GOKRAX_CLI: str,
     changelog: str, added: str, removed: str, last_commit: str,
     **_kw,
 ) -> str:
@@ -82,7 +82,7 @@ def revision(
 1. ワークスペース内にYAMLファイルを保存（パスは任意）
 2. 以下のコマンドで投入:
 ```bash
-{DEVBAR_CLI} spec review-submit --pj {project} --reviewer <YOUR_NAME> --file <保存したファイルのパス>
+{GOKRAX_CLI} spec review-submit --pj {project} --reviewer <YOUR_NAME> --file <保存したファイルのパス>
 ```
 
 ファイルは素のYAMLでも、上記「出力フォーマット」の ```yaml ... ``` ブロックを含むMarkdownでも可。
@@ -94,13 +94,13 @@ def revision(
 # 催促
 # ---------------------------------------------------------------------------
 
-def nudge(project: str, current_rev: str, spec_path: str, reviewer: str, DEVBAR_CLI: str, **_kw) -> str:
+def nudge(project: str, current_rev: str, spec_path: str, reviewer: str, GOKRAX_CLI: str, **_kw) -> str:
     """specレビュー催促メッセージ。"""
     return (
         f"[Remind] {project} spec rev{current_rev} のレビューが未完了です。\n"
         f"仕様書: {spec_path}\n"
         f"以下のコマンドでレビュー結果を提出してください:\n"
-        f"{DEVBAR_CLI} spec review-submit --pj {project} --reviewer {reviewer} --file <YAMLファイルパス>"
+        f"{GOKRAX_CLI} spec review-submit --pj {project} --reviewer {reviewer} --file <YAMLファイルパス>"
     )
 
 

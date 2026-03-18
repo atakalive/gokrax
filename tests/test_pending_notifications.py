@@ -139,7 +139,7 @@ class TestRecoveryOnRestart:
             _pending_notifications={
                 "impl": {
                     "implementer": "kaneko",
-                    "msg": "[devbar] test-pj: test message",
+                    "msg": "[gokrax] test-pj: test message",
                 },
             },
         )
@@ -152,7 +152,7 @@ class TestRecoveryOnRestart:
              patch("engine.fsm.notify_discord"):
             process(path)
 
-        mock_impl.assert_called_once_with("kaneko", "[devbar] test-pj: test message")
+        mock_impl.assert_called_once_with("kaneko", "[gokrax] test-pj: test message")
         result = _read_pipeline(path)
         assert "_pending_notifications" not in result
 
@@ -206,7 +206,7 @@ class TestRecoveryReturnsEarly:
             _pending_notifications={
                 "impl": {
                     "implementer": "kaneko",
-                    "msg": "[devbar] test-pj: old message",
+                    "msg": "[gokrax] test-pj: old message",
                 },
             },
         )
@@ -242,7 +242,7 @@ class TestCliTransitionPendingAtomic:
         )
         _write_pipeline(path, data)
 
-        from devbar import cmd_transition
+        from gokrax import cmd_transition
 
         # callback 内の data を検査するため update_pipeline を wrap
         callback_data_snapshot = {}
@@ -265,10 +265,10 @@ class TestCliTransitionPendingAtomic:
         args.dry_run = False
         args.resume = False
 
-        with patch("devbar.update_pipeline", side_effect=capturing_update), \
-             patch("devbar.notify_implementer"), \
-             patch("devbar.notify_reviewers"), \
-             patch("devbar.notify_discord"), \
+        with patch("gokrax.update_pipeline", side_effect=capturing_update), \
+             patch("gokrax.notify_implementer"), \
+             patch("gokrax.notify_reviewers"), \
+             patch("gokrax.notify_discord"), \
              patch("watchdog._reset_reviewers", return_value=[]):
             cmd_transition(args)
 
@@ -294,7 +294,7 @@ class TestCliTransitionPendingCleared:
         )
         _write_pipeline(path, data)
 
-        from devbar import cmd_transition
+        from gokrax import cmd_transition
 
         args = MagicMock()
         args.project = "test-pj"
@@ -304,9 +304,9 @@ class TestCliTransitionPendingCleared:
         args.dry_run = False
         args.resume = False
 
-        with patch("devbar.notify_implementer"), \
-             patch("devbar.notify_reviewers"), \
-             patch("devbar.notify_discord"), \
+        with patch("gokrax.notify_implementer"), \
+             patch("gokrax.notify_reviewers"), \
+             patch("gokrax.notify_discord"), \
              patch("watchdog._reset_reviewers", return_value=[]):
             cmd_transition(args)
 
@@ -417,7 +417,7 @@ class TestPendingOverwriteWarning:
             _pending_notifications={
                 "impl": {
                     "implementer": "kaneko",
-                    "msg": "[devbar] test-pj: old message",
+                    "msg": "[gokrax] test-pj: old message",
                 },
             },
         )
@@ -472,7 +472,7 @@ class TestRecoveryFailurePreservesPending:
             _pending_notifications={
                 "impl": {
                     "implementer": "kaneko",
-                    "msg": "[devbar] test-pj: test message",
+                    "msg": "[gokrax] test-pj: test message",
                 },
             },
         )

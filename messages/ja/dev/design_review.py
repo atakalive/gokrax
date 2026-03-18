@@ -29,7 +29,7 @@ def review_request(
     skill_block の挿入は呼び出し側で行う。
     """
     return (
-        f"[devbar] {project}: 設計レビュー依頼{comment_line}{phase_note}\n\n"
+        f"[gokrax] {project}: 設計レビュー依頼{comment_line}{phase_note}\n\n"
         f"{todo_header}\n\n{guidance}\n\n{body}{completion}"
     )
 
@@ -46,7 +46,7 @@ def file_review_request(
     skill_block の挿入は呼び出し側で行う。
     """
     return (
-        f"[devbar] {project}: 設計レビュー依頼（{n}件）\n\n"
+        f"[gokrax] {project}: 設計レビュー依頼（{n}件）\n\n"
         f"レビューデータファイルを読み込み、全件レビューせよ。\n\n"
         f"Read {file_path}\n\n"
         f"完了後、各Issueについて以下を実行:\n"

@@ -1,8 +1,8 @@
-# DevBar プロジェクトレビュー
+# gokrax プロジェクトレビュー
 
 **レビュアー:** 韓非（hanfei）  
 **日時:** 2026-02-20  
-**対象:** spec.md v0.6, config.py, devbar.py, watchdog.py, notify.py  
+**対象:** spec.md v0.6, config.py, gokrax.py, watchdog.py, notify.py  
 **観点:** 堅牢性・防御的プログラミング・性悪説
 
 ---
@@ -19,12 +19,12 @@
 
 ## P0: 必須修正
 
-### 1. ファイルロックの例外安全性（devbar.py, watchdog.py）
+### 1. ファイルロックの例外安全性（gokrax.py, watchdog.py）
 
 **問題:** `fcntl.flock()` の解放が `try/finally` で保護されていない。例外発生時にロックが永続的に保持され、デッドロックを引き起こす。
 
 ```python
-# ❌ 現在のコード（devbar.py load 関数）
+# ❌ 現在のコード（gokrax.py load 関数）
 def load(path: Path) -> dict:
     with open(path) as f:
         fcntl.flock(f, fcntl.LOCK_SH)
@@ -46,14 +46,14 @@ def load(path: Path) -> dict:
 ```
 
 **影響範囲:**
-- `devbar.py`: `load()`, `save()` 関数
+- `gokrax.py`: `load()`, `save()` 関数
 - `watchdog.py`: `load_pipeline()`, `save_pipeline()` 関数
 
 **根拠:** 外部入力を信用するな。`json.load()` は不正な JSON で例外を発生させる。ネットワークファイルシステム（WSL2 越しの `/mnt/s/`）では I/O エラーも発生しうる。例外経路こそが、ロック解放の漏れを生む。
 
 ---
 
-### 2. アトミック書き込みの欠如（devbar.py, watchdog.py）
+### 2. アトミック書き込みの欠如（gokrax.py, watchdog.py）
 
 **問題:** `save()` 関数が直接ファイルに書き込んでいる。書き込み中の停止でファイルが破損する。
 
@@ -97,7 +97,7 @@ def save(path: Path, data: dict):
 
 ---
 
-### 3. パストラバーサルの脆弱性（devbar.py）
+### 3. パストラバーサルの脆弱性（gokrax.py）
 
 **問題:** `--project` 引数にパストラバーサル文字列が含まれる可能性がある。
 
@@ -108,7 +108,7 @@ def get_path(project: str) -> Path:
 
 **攻撃例:**
 ```bash
-devbar triage --project ../../etc/passwd --issue 1
+gokrax triage --project ../../etc/passwd --issue 1
 ```
 
 **修正:**
@@ -204,7 +204,7 @@ with open(path, "r", encoding="utf-8") as f:
 
 ---
 
-### 7. GLAB_BIN の存在チェック（devbar.py）
+### 7. GLAB_BIN の存在チェック（gokrax.py）
 
 **問題:** `GLAB_BIN` がハードコードされているが、存在しない場合の処理がない。
 
@@ -215,7 +215,7 @@ GLAB_BIN = "/home/ataka/bin/glab"
 
 **修正:**
 ```python
-# devbar.py cmd_review() 内
+# gokrax.py cmd_review() 内
 import shutil
 glab = shutil.which("glab") or GLAB_BIN
 if not Path(glab).exists():
@@ -227,7 +227,7 @@ if not Path(glab).exists():
 
 ### 8. ログファイルのローテーション（watchdog.py）
 
-**問題:** `/tmp/devbar-watchdog.log` が無限に大きくなる。
+**問題:** `/tmp/gokrax-watchdog.log` が無限に大きくなる。
 
 **修正:**
 ```python
@@ -274,7 +274,7 @@ GLAB_TIMEOUT = 15
 
 ---
 
-### 11. エラーメッセージの改善（devbar.py）
+### 11. エラーメッセージの改善（gokrax.py）
 
 **問題:** エラーメッセージが技術的すぎて、エンドユーザー（金子）に不親切。
 
@@ -295,7 +295,7 @@ spec.md「13. 決定・解決済み」の項目について：
 
 - [x] **pipeline JSON: shared/直置き** — 妥当。ただしバックアップ戦略の検討を推奨
 - [x] **BLOCKED → 復帰** — 実装済み、問題なし
-- [x] **devbar review 一本化** — 良い設計。ただし GitLab note 失敗時の挙動を明文化すべき
+- [x] **gokrax review 一本化** — 良い設計。ただし GitLab note 失敗時の挙動を明文化すべき
 - [x] **設計完了検知** — 実装済み、問題なし
 - [x] **定数管理** — config.py への一元化、問題なし
 - [x] **Discord 投稿** — 実装済み。ただしトークン取り扱いに P0 問題あり（上記参照）

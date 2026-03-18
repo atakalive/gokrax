@@ -1,21 +1,21 @@
-# DevBar Standalone Mode — Design Spec (Draft)
+# gokrax Standalone Mode — Design Spec (Draft)
 
 **Status**: Draft  
 **Date**: 2026-03-14  
-**Goal**: OpenClaw依存を外部化し、DevBarを独立ツールとして動作可能にする
+**Goal**: OpenClaw依存を外部化し、gokraxを独立ツールとして動作可能にする
 
 ---
 
 ## 1. 現状の依存関係
 
-DevBarは現在OpenClawの以下の機能に依存している：
+gokraxは現在OpenClawの以下の機能に依存している：
 
-| 機能 | OpenClaw側 | DevBar側の利用箇所 |
+| 機能 | OpenClaw側 | gokrax側の利用箇所 |
 |------|-----------|-------------------|
 | ペルソナ注入 | SOUL.md / AGENTS.md → システムプロンプト自動注入 | レビュアーの性格・判断基準の定義 |
 | 認証管理 | auth-profiles.json（OAuth自動リフレッシュ含む） | 各LLMプロバイダーへのAPI認証 |
 | レビュー実行 | sessions_spawn / sessions_send | レビュアーエージェントの起動・応答受信 |
-| Discord通知 | messageツール（channel plugin） | #dev-bar への進捗通知 |
+| Discord通知 | messageツール（channel plugin） | #gokrax への進捗通知 |
 | 実装実行 | Claude Code CLI（exec経由） | IMPLEMENTATION状態での自動コーディング |
 
 **注**: watchdog.py（状態監視）、pipeline.json（状態管理）、task_queue.py（キュー管理）は既にOpenClaw非依存。
@@ -30,7 +30,7 @@ DevBarは現在OpenClawの以下の機能に依存している：
 
 ```
 ┌─────────────────────────────────────────────┐
-│            DevBar LLM Interface             │
+│            gokrax LLM Interface             │
 │                                             │
 │  review(prompt, system_prompt) → response   │
 │  code(prompt, system_prompt) → diff         │
@@ -153,9 +153,9 @@ backends:
 
   github-copilot:
     type: device_flow
-    # 初回: devbar auth login-github-copilot でdevice flow実行
+    # 初回: gokrax auth login-github-copilot でdevice flow実行
     # 以後: tokenファイルに保存・自動リフレッシュ
-    token_file: ~/.devbar/github-copilot-token.json
+    token_file: ~/.gokrax/github-copilot-token.json
 
   ollama:
     type: none  # ローカル、認証不要
@@ -166,7 +166,7 @@ backends:
 - Anthropic: OpenClawのrefreshAnthropicToken相当の実装が必要
 - GitHub Copilot: device flow + token refresh
 - Google: 標準OAuth2フロー
-- `devbar auth` サブコマンドで初期認証・トークンリフレッシュ
+- `gokrax auth` サブコマンドで初期認証・トークンリフレッシュ
 
 ### 2.4 Notification Abstraction
 
@@ -191,7 +191,7 @@ class OpenClawNotifier:        # 従来互換（OpenClaw経由）
 ### 3.1 Standalone Mode（新規）
 
 ```
-devbar --mode standalone --config devbar-standalone.yaml
+gokrax --mode standalone --config gokrax-standalone.yaml
 ```
 
 - OpenClaw不要
@@ -212,13 +212,13 @@ devbar --mode standalone --config devbar-standalone.yaml
 ### 3.3 設定ファイル構造
 
 ```
-~/.devbar/
+~/.gokrax/
 ├── config.yaml          # メイン設定（mode, projects, etc.）
 ├── auth.yaml            # 認証情報（or 環境変数）
 ├── reviewers.yaml       # レビュアー定義
 ├── github-copilot-token.json  # device flow token
 └── pipelines/           # 各プロジェクトのpipeline.json
-    ├── DevBar.json
+    ├── gokrax.json
     ├── EMCalibrator.json
     └── ...
 ```
@@ -271,7 +271,7 @@ class OpenClawAgent:      # sessions_spawn経由（従来互換）
 8. Claude Code CLI直接呼び出し（exec経由、OpenClaw不要）
 
 ### Phase 4: CLI / パッケージ化
-9. `devbar` CLIコマンド体系
+9. `gokrax` CLIコマンド体系
 10. pip install可能なパッケージ化
 11. ドキュメント
 
@@ -292,6 +292,6 @@ class OpenClawAgent:      # sessions_spawn経由（従来互換）
 - [ ] litellm採用 vs 自前ラッパー（依存の軽さ vs 対応範囲）
 - [ ] GitHub Copilot device flowの自前実装コスト見積り
 - [ ] Anthropic OAuthリフレッシュの自前実装 vs API key運用に割り切るか
-- [ ] `devbar` CLIのサブコマンド設計
+- [ ] `gokrax` CLIのサブコマンド設計
 - [ ] テスト戦略（モック vs 実API）
 - [ ] ライセンス選定

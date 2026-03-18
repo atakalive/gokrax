@@ -143,7 +143,7 @@ class TestReviseSubmitNormal:
         f = tmp_path / "revise.yaml"
         f.write_text(REVISE_FENCED, encoding="utf-8")
 
-        from devbar import cmd_spec_revise_submit
+        from gokrax import cmd_spec_revise_submit
         cmd_spec_revise_submit(_args(project="test-pj", file=str(f)))
 
         data = json.loads(path.read_text())
@@ -157,7 +157,7 @@ class TestReviseSubmitNormal:
         f = tmp_path / "revise.yaml"
         f.write_text(REVISE_RAW, encoding="utf-8")
 
-        from devbar import cmd_spec_revise_submit
+        from gokrax import cmd_spec_revise_submit
         cmd_spec_revise_submit(_args(project="test-pj", file=str(f)))
 
         data = json.loads(path.read_text())
@@ -173,7 +173,7 @@ class TestReviseSubmitNormal:
         f = tmp_path / "revise.yaml"
         f.write_text(REVISE_FENCED, encoding="utf-8")
 
-        from devbar import cmd_spec_revise_submit
+        from gokrax import cmd_spec_revise_submit
         cmd_spec_revise_submit(_args(project="test-pj", file=str(f)))
 
         assert "already submitted, skipping" in capsys.readouterr().out
@@ -188,7 +188,7 @@ class TestReviseSubmitErrors:
         f = tmp_path / "revise.yaml"
         f.write_text(REVISE_FENCED, encoding="utf-8")
 
-        from devbar import cmd_spec_revise_submit
+        from gokrax import cmd_spec_revise_submit
         with pytest.raises(SystemExit, match="Not in SPEC_REVISE state"):
             cmd_spec_revise_submit(_args(project="test-pj", file=str(f)))
 
@@ -200,7 +200,7 @@ class TestReviseSubmitErrors:
         f = tmp_path / "revise.yaml"
         f.write_text("not valid yaml: [[[", encoding="utf-8")
 
-        from devbar import cmd_spec_revise_submit
+        from gokrax import cmd_spec_revise_submit
         with pytest.raises(SystemExit, match="Failed to parse revise response"):
             cmd_spec_revise_submit(_args(project="test-pj", file=str(f)))
 
@@ -208,7 +208,7 @@ class TestReviseSubmitErrors:
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, _make_pipeline(state="SPEC_REVISE", spec_config=_make_spec_config()))
 
-        from devbar import cmd_spec_revise_submit
+        from gokrax import cmd_spec_revise_submit
         with pytest.raises(SystemExit, match="File not found"):
             cmd_spec_revise_submit(_args(project="test-pj", file="/nonexistent/f.yaml"))
 
@@ -226,7 +226,7 @@ class TestIssueSubmitNormal:
         f = tmp_path / "issue.yaml"
         f.write_text(ISSUE_FENCED, encoding="utf-8")
 
-        from devbar import cmd_spec_issue_submit
+        from gokrax import cmd_spec_issue_submit
         cmd_spec_issue_submit(_args(project="test-pj", file=str(f)))
 
         data = json.loads(path.read_text())
@@ -240,7 +240,7 @@ class TestIssueSubmitNormal:
         f = tmp_path / "issue.yaml"
         f.write_text(ISSUE_RAW, encoding="utf-8")
 
-        from devbar import cmd_spec_issue_submit
+        from gokrax import cmd_spec_issue_submit
         cmd_spec_issue_submit(_args(project="test-pj", file=str(f)))
 
         data = json.loads(path.read_text())
@@ -256,7 +256,7 @@ class TestIssueSubmitNormal:
         f = tmp_path / "issue.yaml"
         f.write_text(ISSUE_FENCED, encoding="utf-8")
 
-        from devbar import cmd_spec_issue_submit
+        from gokrax import cmd_spec_issue_submit
         cmd_spec_issue_submit(_args(project="test-pj", file=str(f)))
 
         assert "already submitted, skipping" in capsys.readouterr().out
@@ -271,7 +271,7 @@ class TestIssueSubmitErrors:
         f = tmp_path / "issue.yaml"
         f.write_text(ISSUE_FENCED, encoding="utf-8")
 
-        from devbar import cmd_spec_issue_submit
+        from gokrax import cmd_spec_issue_submit
         with pytest.raises(SystemExit, match="Not in ISSUE_PLAN state"):
             cmd_spec_issue_submit(_args(project="test-pj", file=str(f)))
 
@@ -282,7 +282,7 @@ class TestIssueSubmitErrors:
         f = tmp_path / "issue.yaml"
         f.write_text("not valid yaml: [[[", encoding="utf-8")
 
-        from devbar import cmd_spec_issue_submit
+        from gokrax import cmd_spec_issue_submit
         with pytest.raises(SystemExit, match="Failed to parse issue plan response"):
             cmd_spec_issue_submit(_args(project="test-pj", file=str(f)))
 
@@ -300,7 +300,7 @@ class TestQueueSubmitNormal:
         f = tmp_path / "queue.yaml"
         f.write_text(QUEUE_FENCED, encoding="utf-8")
 
-        from devbar import cmd_spec_queue_submit
+        from gokrax import cmd_spec_queue_submit
         cmd_spec_queue_submit(_args(project="test-pj", file=str(f)))
 
         data = json.loads(path.read_text())
@@ -314,7 +314,7 @@ class TestQueueSubmitNormal:
         f = tmp_path / "queue.yaml"
         f.write_text(QUEUE_RAW, encoding="utf-8")
 
-        from devbar import cmd_spec_queue_submit
+        from gokrax import cmd_spec_queue_submit
         cmd_spec_queue_submit(_args(project="test-pj", file=str(f)))
 
         data = json.loads(path.read_text())
@@ -330,7 +330,7 @@ class TestQueueSubmitNormal:
         f = tmp_path / "queue.yaml"
         f.write_text(QUEUE_FENCED, encoding="utf-8")
 
-        from devbar import cmd_spec_queue_submit
+        from gokrax import cmd_spec_queue_submit
         cmd_spec_queue_submit(_args(project="test-pj", file=str(f)))
 
         assert "already submitted, skipping" in capsys.readouterr().out
@@ -345,7 +345,7 @@ class TestQueueSubmitErrors:
         f = tmp_path / "queue.yaml"
         f.write_text(QUEUE_FENCED, encoding="utf-8")
 
-        from devbar import cmd_spec_queue_submit
+        from gokrax import cmd_spec_queue_submit
         with pytest.raises(SystemExit, match="Not in QUEUE_PLAN state"):
             cmd_spec_queue_submit(_args(project="test-pj", file=str(f)))
 
@@ -356,7 +356,7 @@ class TestQueueSubmitErrors:
         f = tmp_path / "queue.yaml"
         f.write_text("not valid yaml: [[[", encoding="utf-8")
 
-        from devbar import cmd_spec_queue_submit
+        from gokrax import cmd_spec_queue_submit
         with pytest.raises(SystemExit, match="Failed to parse queue plan response"):
             cmd_spec_queue_submit(_args(project="test-pj", file=str(f)))
 
@@ -380,7 +380,7 @@ class TestSuggestionSubmitNormal:
         f = tmp_path / "suggestion.yaml"
         f.write_text(SUGGESTION_FENCED, encoding="utf-8")
 
-        from devbar import cmd_spec_suggestion_submit
+        from gokrax import cmd_spec_suggestion_submit
         cmd_spec_suggestion_submit(_args(project="test-pj", reviewer="leibniz", file=str(f)))
 
         data = json.loads(path.read_text())
@@ -398,7 +398,7 @@ class TestSuggestionSubmitNormal:
         f = tmp_path / "suggestion.yaml"
         f.write_text(SUGGESTION_RAW, encoding="utf-8")
 
-        from devbar import cmd_spec_suggestion_submit
+        from gokrax import cmd_spec_suggestion_submit
         cmd_spec_suggestion_submit(_args(project="test-pj", reviewer="leibniz", file=str(f)))
 
         data = json.loads(path.read_text())
@@ -421,7 +421,7 @@ class TestSuggestionSubmitNormal:
         f = tmp_path / "suggestion.yaml"
         f.write_text(SUGGESTION_FENCED, encoding="utf-8")
 
-        from devbar import cmd_spec_suggestion_submit
+        from gokrax import cmd_spec_suggestion_submit
         cmd_spec_suggestion_submit(_args(project="test-pj", reviewer="leibniz", file=str(f)))
 
         assert "already submitted, skipping" in capsys.readouterr().out
@@ -445,7 +445,7 @@ class TestSuggestionSubmitErrors:
         f = tmp_path / "suggestion.yaml"
         f.write_text(SUGGESTION_FENCED, encoding="utf-8")
 
-        from devbar import cmd_spec_suggestion_submit
+        from gokrax import cmd_spec_suggestion_submit
         with pytest.raises(SystemExit, match="Not in ISSUE_SUGGESTION state"):
             cmd_spec_suggestion_submit(_args(project="test-pj", reviewer="leibniz", file=str(f)))
 
@@ -456,7 +456,7 @@ class TestSuggestionSubmitErrors:
         f = tmp_path / "suggestion.yaml"
         f.write_text(SUGGESTION_FENCED, encoding="utf-8")
 
-        from devbar import cmd_spec_suggestion_submit
+        from gokrax import cmd_spec_suggestion_submit
         with pytest.raises(SystemExit, match="not in review_requests"):
             cmd_spec_suggestion_submit(_args(project="test-pj", reviewer="unknown", file=str(f)))
 
@@ -471,7 +471,7 @@ class TestSuggestionSubmitErrors:
         f = tmp_path / "suggestion.yaml"
         f.write_text(SUGGESTION_FENCED, encoding="utf-8")
 
-        from devbar import cmd_spec_suggestion_submit
+        from gokrax import cmd_spec_suggestion_submit
         with pytest.raises(SystemExit, match="sent_at is None"):
             cmd_spec_suggestion_submit(_args(project="test-pj", reviewer="leibniz", file=str(f)))
 
@@ -482,6 +482,6 @@ class TestSuggestionSubmitErrors:
         f = tmp_path / "suggestion.yaml"
         f.write_text("not valid yaml: [[[", encoding="utf-8")
 
-        from devbar import cmd_spec_suggestion_submit
+        from gokrax import cmd_spec_suggestion_submit
         with pytest.raises(SystemExit, match="Failed to parse issue suggestion"):
             cmd_spec_suggestion_submit(_args(project="test-pj", reviewer="leibniz", file=str(f)))

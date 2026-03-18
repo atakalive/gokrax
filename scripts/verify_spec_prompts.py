@@ -2,7 +2,7 @@
 """prompts/ja/spec/ の外部化ファイルが旧関数と出力一致するか検証する。
 
 使い方:
-    cd /mnt/s/wsl/work/project/devbar
+    cd /mnt/s/wsl/work/project/gokrax
     python3 scripts/verify_spec_prompts.py
 """
 import sys
@@ -43,7 +43,7 @@ from spec_revise import (
     build_self_review_prompt,
 )
 
-DEVBAR_CLI = "/home/ataka/.openclaw/shared/bin/devbar"
+GOKRAX_CLI = "/home/ataka/.openclaw/shared/bin/gokrax"
 
 # テスト用ダミーデータ
 TEST_PROJECT = "test-project"
@@ -168,14 +168,14 @@ print("\n=== watchdog.py spec review prompts ===")
 check("review_initial",
       _build_spec_review_prompt_initial(TEST_PROJECT, TEST_SPEC_PATH, TEST_REV, TEST_SPEC_CONFIG),
       render("spec.review", "initial", project=TEST_PROJECT, spec_path=TEST_SPEC_PATH,
-             current_rev=TEST_REV, DEVBAR_CLI=DEVBAR_CLI,
+             current_rev=TEST_REV, GOKRAX_CLI=GOKRAX_CLI,
              pipelines_dir=TEST_SPEC_CONFIG.get("pipelines_dir"),
              spec_name="spec-rev3"))
 
 check("review_revision",
       _build_spec_review_prompt_revision(TEST_PROJECT, TEST_SPEC_PATH, TEST_REV, TEST_SPEC_CONFIG, TEST_DATA),
       render("spec.review", "revision", project=TEST_PROJECT, spec_path=TEST_SPEC_PATH,
-             current_rev=TEST_REV, DEVBAR_CLI=DEVBAR_CLI,
+             current_rev=TEST_REV, GOKRAX_CLI=GOKRAX_CLI,
              last_commit="abc1234",
              added=42, removed=10,
              changelog="§6.2 の擬似コードを修正"))

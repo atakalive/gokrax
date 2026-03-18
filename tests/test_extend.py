@@ -25,7 +25,7 @@ class TestCmdExtend:
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
 
-        from devbar import cmd_extend
+        from gokrax import cmd_extend
         import argparse
         args = argparse.Namespace(project="test-pj", by=600)
 
@@ -41,7 +41,7 @@ class TestCmdExtend:
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
 
-        from devbar import cmd_extend
+        from gokrax import cmd_extend
         import argparse
 
         # 1回目: +600
@@ -62,7 +62,7 @@ class TestCmdExtend:
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
 
-        from devbar import cmd_extend
+        from gokrax import cmd_extend
         import argparse
         args = argparse.Namespace(project="test-pj", by=600)
 
@@ -75,7 +75,7 @@ class TestCmdExtend:
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
 
-        from devbar import cmd_extend
+        from gokrax import cmd_extend
         import argparse
         args = argparse.Namespace(project="test-pj", by=600)
 
@@ -88,7 +88,7 @@ class TestCmdExtend:
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
 
-        from devbar import cmd_extend
+        from gokrax import cmd_extend
         import argparse
         args = argparse.Namespace(project="test-pj", by=600)
 
@@ -104,7 +104,7 @@ class TestCmdExtend:
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
 
-        from devbar import cmd_extend
+        from gokrax import cmd_extend
         import argparse
         args = argparse.Namespace(project="test-pj", by=600)
 
@@ -120,7 +120,7 @@ class TestCmdExtend:
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
 
-        from devbar import cmd_extend
+        from gokrax import cmd_extend
         import argparse
         args = argparse.Namespace(project="test-pj", by=600)
 
@@ -136,7 +136,7 @@ class TestCmdExtend:
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
 
-        from devbar import cmd_extend
+        from gokrax import cmd_extend
         import argparse
         args = argparse.Namespace(project="test-pj", by=600)
 
@@ -153,11 +153,11 @@ class TestCmdExtend:
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
 
-        from devbar import cmd_extend
+        from gokrax import cmd_extend
         import argparse
         args = argparse.Namespace(project="test-pj", by=600)
 
-        with patch("devbar.notify_discord") as mock_discord:
+        with patch("gokrax.notify_discord") as mock_discord:
             cmd_extend(args)
 
         mock_discord.assert_called_once()

@@ -52,7 +52,7 @@ class TestCmdReset:
         path = tmp_pipelines / "pj-a.json"
         write_pipeline(path, make_pipeline("pj-a", state="IDLE"))
 
-        from devbar import cmd_reset
+        from gokrax import cmd_reset
         cmd_reset(reset_args())
 
         out = capsys.readouterr().out
@@ -81,7 +81,7 @@ class TestCmdReset:
         path = tmp_pipelines / "pj-a.json"
         write_pipeline(path, pipeline)
 
-        from devbar import cmd_reset
+        from gokrax import cmd_reset
         cmd_reset(reset_args())
 
         out = capsys.readouterr().out
@@ -101,7 +101,7 @@ class TestCmdReset:
         for pj, state in [("pj-a", "DESIGN_REVIEW"), ("pj-b", "IMPLEMENTATION"), ("pj-c", "BLOCKED")]:
             write_pipeline(tmp_pipelines / f"{pj}.json", make_pipeline(pj, state=state))
 
-        from devbar import cmd_reset
+        from gokrax import cmd_reset
         cmd_reset(reset_args())
 
         out = capsys.readouterr().out
@@ -120,7 +120,7 @@ class TestCmdReset:
         write_pipeline(path, pipeline)
         original_content = path.read_text()
 
-        from devbar import cmd_reset
+        from gokrax import cmd_reset
         cmd_reset(reset_args(dry_run=True))
 
         out = capsys.readouterr().out
@@ -132,7 +132,7 @@ class TestCmdReset:
         """--force: input() が呼ばれない"""
         write_pipeline(tmp_pipelines / "pj-a.json", make_pipeline("pj-a", state="BLOCKED"))
 
-        from devbar import cmd_reset
+        from gokrax import cmd_reset
         with patch("builtins.input") as mock_input:
             cmd_reset(reset_args(force=True))
         mock_input.assert_not_called()
@@ -144,7 +144,7 @@ class TestCmdReset:
         write_pipeline(path, pipeline)
         original_content = path.read_text()
 
-        from devbar import cmd_reset
+        from gokrax import cmd_reset
         with patch("builtins.input", return_value="n"):
             cmd_reset(reset_args(force=False))
 
@@ -154,7 +154,7 @@ class TestCmdReset:
 
     def test_reset_to_idle_unit(self):
         """_reset_to_idle 単体: 全クリーンアップキーが除去される"""
-        from devbar import _reset_to_idle
+        from gokrax import _reset_to_idle
         data = {
             "state": "IMPLEMENTATION",
             "batch": [{"issue": 1}],
@@ -189,7 +189,7 @@ class TestCmdReset:
         spec_path = tmp_pipelines / "pj-spec.json"
         write_pipeline(spec_path, spec_pipeline)
 
-        from devbar import cmd_reset
+        from gokrax import cmd_reset
         cmd_reset(reset_args())
 
         out = capsys.readouterr().out
@@ -207,7 +207,7 @@ class TestCmdReset:
         write_pipeline(spec_path, make_pipeline("pj-spec", state="SPEC_REVIEW", spec_mode=True, spec_config={}))
         write_pipeline(normal_path, make_pipeline("pj-normal", state="IMPLEMENTATION"))
 
-        from devbar import cmd_reset
+        from gokrax import cmd_reset
         cmd_reset(reset_args())
 
         out = capsys.readouterr().out
@@ -229,7 +229,7 @@ class TestCmdReset:
             make_pipeline("pj-spec", state="SPEC_REVIEW", spec_mode=True, spec_config={}),
         )
 
-        from devbar import cmd_reset
+        from gokrax import cmd_reset
         cmd_reset(reset_args())
 
         out = capsys.readouterr().out
@@ -244,7 +244,7 @@ class TestCmdReset:
         """確認プロンプトで y: 実行される"""
         write_pipeline(tmp_pipelines / "pj-a.json", make_pipeline("pj-a", state="BLOCKED"))
 
-        from devbar import cmd_reset
+        from gokrax import cmd_reset
         with patch("builtins.input", return_value="y"):
             cmd_reset(reset_args(force=False))
 

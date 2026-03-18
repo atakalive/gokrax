@@ -3,7 +3,7 @@
 ## C1: review_requests未リセット
 - 検証結果: **confirmed**
 - 根拠:
-  - `devbar.py` の `cmd_spec_continue()` は状態だけを変更しており、`spec_config.review_requests` と `spec_config.current_reviews` を一切リセットしていない。
+  - `gokrax.py` の `cmd_spec_continue()` は状態だけを変更しており、`spec_config.review_requests` と `spec_config.current_reviews` を一切リセットしていない。
     ```py
     def cmd_spec_continue(args):
         ...
@@ -70,7 +70,7 @@
   ```
 
   ### 修正案B（併用推奨）: CLI `spec continue` でも同様にリセット
-  `devbar.py: cmd_spec_continue()` を以下のように変更（watchdogを通らない手動continue対策）。
+  `gokrax.py: cmd_spec_continue()` を以下のように変更（watchdogを通らない手動continue対策）。
 
   ```py
   def cmd_spec_continue(args):
@@ -95,11 +95,11 @@
 ## C2: implementer応答受領CLI未実装
 - 検証結果: **confirmed**
 - 根拠:
-  - `watchdog.py` は implementer 応答として以下フィールドを読みに行くが、投入手段は `devbar.py` に存在しない。
+  - `watchdog.py` は implementer 応答として以下フィールドを読みに行くが、投入手段は `gokrax.py` に存在しない。
     - `_check_spec_revise()` → `spec_config.get("_revise_response")`
     - `_check_issue_plan()` → `spec_config.get("_issue_plan_response")`
     - `_check_queue_plan()` → `spec_config.get("_queue_plan_response")`
-  - `devbar.py` の spec サブコマンド登録は現状 `review-submit` のみ（`revise-submit/plan-submit/queue-submit` が無い）。
+  - `gokrax.py` の spec サブコマンド登録は現状 `review-submit` のみ（`revise-submit/plan-submit/queue-submit` が無い）。
     ```py
     spec_cmds = {
         "start": ..., "review-submit": cmd_spec_review_submit,
@@ -110,11 +110,11 @@
   - **方針**: `review-submit` と同じパターンで「ファイル読み込み→パース/バリデーション→状態チェック→flock内で spec_config へ書き込み」を実装する。
 
   ### 追加コマンド案
-  - `devbar spec revise-submit --pj PROJECT --file FILE`
-  - `devbar spec plan-submit   --pj PROJECT --file FILE`
-  - `devbar spec queue-submit  --pj PROJECT --file FILE`
+  - `gokrax spec revise-submit --pj PROJECT --file FILE`
+  - `gokrax spec plan-submit   --pj PROJECT --file FILE`
+  - `gokrax spec queue-submit  --pj PROJECT --file FILE`
 
-  ### 実装例（devbar.py に追加）
+  ### 実装例（gokrax.py に追加）
   1) パーサは watchdog が使っているものを利用して整合性を取る。
   - revise: `from spec_revise import parse_revise_response`
   - issue_plan: `from spec_issue import parse_issue_plan_response`
@@ -204,7 +204,7 @@
 ## I1: reviewed_rev未設定
 - 検証結果: **confirmed**
 - 根拠:
-  - `devbar.py: cmd_spec_review_submit()` は `current_reviews.entries` は書くが、トップレベル `current_reviews["reviewed_rev"]` を設定していない。
+  - `gokrax.py: cmd_spec_review_submit()` は `current_reviews.entries` は書くが、トップレベル `current_reviews["reviewed_rev"]` を設定していない。
     ```py
     cr = sc.setdefault("current_reviews", {})
     entries = cr.setdefault("entries", {})

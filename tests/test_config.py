@@ -14,12 +14,12 @@ sys.path.insert(0, str(ROOT))
 class TestValidVerdicts:
 
     def test_verdicts_reflected_in_argparse(self, tmp_pipelines):
-        """VALID_VERDICTS が devbar review の choices に反映される。"""
+        """VALID_VERDICTS が gokrax review の choices に反映される。"""
         import importlib
         import config
-        import devbar
+        import gokrax
 
-        # devbar が config.VALID_VERDICTS を参照しているか確認
+        # gokrax が config.VALID_VERDICTS を参照しているか確認
         assert hasattr(config, "VALID_VERDICTS")
         assert "APPROVE" in config.VALID_VERDICTS
         assert "P0" in config.VALID_VERDICTS
@@ -56,22 +56,22 @@ class TestTimeoutConstants:
 
 class TestDevbarCliPath:
 
-    def test_devbar_cli_is_shared_bin_path(self):
-        """DEVBAR_CLI が shared/bin/devbar を指すこと。"""
+    def test_gokrax_cli_is_shared_bin_path(self):
+        """GOKRAX_CLI が shared/bin/gokrax を指すこと。"""
         import config
-        assert str(config.DEVBAR_CLI) == "/home/ataka/.openclaw/shared/bin/devbar"
+        assert str(config.GOKRAX_CLI) == "/home/ataka/.openclaw/shared/bin/gokrax"
 
-    def test_devbar_cli_is_absolute(self):
-        """DEVBAR_CLI が絶対パスであること。"""
+    def test_gokrax_cli_is_absolute(self):
+        """GOKRAX_CLI が絶対パスであること。"""
         import config
-        assert config.DEVBAR_CLI.is_absolute()
+        assert config.GOKRAX_CLI.is_absolute()
 
 
 class TestSysPathResolve:
 
-    def test_devbar_uses_resolve_in_sys_path(self):
-        """devbar.py の sys.path.insert が .resolve() を使っていること。"""
-        source = (ROOT / "devbar.py").read_text(encoding="utf-8")
+    def test_gokrax_uses_resolve_in_sys_path(self):
+        """gokrax.py の sys.path.insert が .resolve() を使っていること。"""
+        source = (ROOT / "gokrax.py").read_text(encoding="utf-8")
         assert "Path(__file__).resolve().parent" in source
 
     def test_watchdog_uses_resolve_in_sys_path(self):

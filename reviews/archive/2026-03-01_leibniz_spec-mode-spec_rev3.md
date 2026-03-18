@@ -1,4 +1,4 @@
-# DevBar Spec Mode — 仕様書レビュー（Leibniz, rev3 / やりすぎ版）
+# gokrax Spec Mode — 仕様書レビュー（Leibniz, rev3 / やりすぎ版）
 
 対象: `docs/spec-mode-spec_rev3.md` (rev3, 1092行)
 commit: rev2=`d7ea4d2` → rev3=`50a375b`
@@ -21,7 +21,7 @@ items:
     severity: critical
     section: "§10.1 (process統合の擬似コード)"
     title: "spec専用DCLブロックが“再読み込み/再計算”を満たしておらず、競合で二重遷移し得る"
-    description: "§10.1のprocess統合は『DCL: 再読み込み→再計算→更新』と書きつつ、擬似コード内では lock 内で pipeline/spec_config を再ロードしていない（同一変数のまま action2 を計算している）。現行devbar実装の要点（lock待ち中に状態が変わったらスキップ）を満たしておらず、並行実行で二重送信・二重遷移が起こり得る。"
+    description: "§10.1のprocess統合は『DCL: 再読み込み→再計算→更新』と書きつつ、擬似コード内では lock 内で pipeline/spec_config を再ロードしていない（同一変数のまま action2 を計算している）。現行gokrax実装の要点（lock待ち中に状態が変わったらスキップ）を満たしておらず、並行実行で二重送信・二重遷移が起こり得る。"
     suggestion: "仕様段階でも、DCLの手順を厳密化せよ（lock内で pipeline を再読込し `state0` が一致する場合のみ更新、のように）。既存watchdogの `state0` 比較と同じパターンに合わせるのが最小差分。"
 
   - id: C-3

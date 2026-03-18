@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""devbar — 開発パイプラインCLI
+"""gokrax — 開発パイプラインCLI
 
 pipeline JSONの唯一の操作インターフェース。直接JSON編集禁止。
 """
@@ -21,7 +21,7 @@ from config import (
     WATCHDOG_LOOP_SCRIPT, WATCHDOG_LOOP_PIDFILE,
     WATCHDOG_LOOP_CRON_MARKER, WATCHDOG_LOOP_CRON_ENTRY,
     VALID_FLAG_VERDICTS, STATE_PHASE_MAP,
-    DEVBAR_CLI, OWNER_NAME,
+    GOKRAX_CLI, OWNER_NAME,
 )
 from pipeline_io import (
     load_pipeline, save_pipeline, update_pipeline,
@@ -356,7 +356,7 @@ def cmd_triage(args):
 
 
 def cmd_start(args):
-    """devbar start --project X [--issue N [N...]]
+    """gokrax start --project X [--issue N [N...]]
 
     triage + DESIGN_PLAN遷移 + watchdog有効化を一括実行。
     --issue省略時はGitLab APIでopen issue全件取得。
@@ -565,7 +565,7 @@ def cmd_transition(args):
         if notif.impl_msg:
             pending["impl"] = {
                 "implementer": implementer,
-                "msg": f"[devbar] {pj}: {prefix}{notif.impl_msg}",
+                "msg": f"[gokrax] {pj}: {prefix}{notif.impl_msg}",
             }
         if notif.send_review:
             pending["review"] = {
@@ -618,10 +618,10 @@ def cmd_transition(args):
             from engine.reviewer import _reset_reviewers
             impl = ""
             if args.to == "DESIGN_PLAN":
-                from config import DEVBAR_STATE_PATH
+                from config import GOKRAX_STATE_PATH
                 # グローバル状態から前回PJを取得（PJ単位JSONではなく共有ファイル）
                 try:
-                    with open(DEVBAR_STATE_PATH) as _sf:
+                    with open(GOKRAX_STATE_PATH) as _sf:
                         _gstate = json.load(_sf)
                     last_pj = _gstate.get("last_impl_project", "")
                 except (FileNotFoundError, json.JSONDecodeError):
@@ -630,16 +630,16 @@ def cmd_transition(args):
                     impl = ctx["implementer"]
                 # グローバル状態に記録
                 try:
-                    with open(DEVBAR_STATE_PATH) as _sf:
+                    with open(GOKRAX_STATE_PATH) as _sf:
                         _gstate = json.load(_sf)
                 except (FileNotFoundError, json.JSONDecodeError):
                     _gstate = {}
                 _gstate["last_impl_project"] = pj
-                with open(DEVBAR_STATE_PATH, "w") as _sf:
+                with open(GOKRAX_STATE_PATH, "w") as _sf:
                     json.dump(_gstate, _sf, indent=2)
             _reset_reviewers(ctx["review_mode"], implementer=impl)
     if notif.impl_msg:
-        notify_implementer(ctx["implementer"], f"[devbar] {pj}: {prefix}{notif.impl_msg}")
+        notify_implementer(ctx["implementer"], f"[gokrax] {pj}: {prefix}{notif.impl_msg}")
         clear_pending_notification(pj, "impl")
     if notif.send_review:
         excluded = ctx["excluded_reviewers"]
@@ -966,7 +966,7 @@ def cmd_dispute(args):
         f"{args.project} #{args.issue}: 実装者があなたの判定に異議を申し立てました。\n\n"
         f"理由:\n{args.reason.strip()}\n\n"
         f"再評価した上で --force 付きで判定を報告してください:\n"
-        f"python3 {DEVBAR_CLI} review --pj {args.project} --issue {args.issue} "
+        f"python3 {GOKRAX_CLI} review --pj {args.project} --issue {args.issue} "
         f"--reviewer {args.reviewer} --verdict <APPROVE/P0/P1/P2> --summary \"...\" --force"
     )
     if not send_to_agent_queued(args.reviewer, dispute_msg):
@@ -1158,7 +1158,7 @@ def cmd_review_mode(args):
 
 
 def cmd_merge_summary(args):
-    """マージサマリーを #dev-bar に投稿し、MERGE_SUMMARY_SENT に遷移"""
+    """マージサマリーを #gokrax に投稿し、MERGE_SUMMARY_SENT に遷移"""
     import logging
     logger = logging.getLogger(__name__)
     from config import DISCORD_CHANNEL
@@ -1196,7 +1196,7 @@ def cmd_merge_summary(args):
     # Notify implementer of batch completion (Issue #48)
     implementer = data.get("implementer") or "kaneko"
     notification_msg = (
-        f"[devbar] {project}: バッチ完了\n"
+        f"[gokrax] {project}: バッチ完了\n"
         f"{content}\n\n"
         "上記の作業を振り返り、以下だけを記録してください:\n"
         "- 踏んだ罠、ハマったこと（あれば）\n"
@@ -1523,8 +1523,8 @@ def cmd_qedit(args):
 
 def main():
     parser = argparse.ArgumentParser(
-        prog="devbar",
-        description="DevBar — Issue→設計→実装→レビュー→マージの開発パイプラインCLI",
+        prog="gokrax",
+        description="gokrax — Issue→設計→実装→レビュー→マージの開発パイプラインCLI",
     )
     sub = parser.add_subparsers(dest="command")
 
@@ -1653,12 +1653,12 @@ def main():
                    help="full/standard/lite/min/skip")
 
     # merge-summary
-    p = sub.add_parser("merge-summary", help="マージサマリーを #dev-bar に投稿してMの承認待ちへ")
+    p = sub.add_parser("merge-summary", help="マージサマリーを #gokrax に投稿してMの承認待ちへ")
     p.add_argument("--pj", "--project", dest="project", required=True)
 
     # qrun
     p = sub.add_parser("qrun", help="キューから次のバッチを実行")
-    p.add_argument("--queue", type=Path, help="キューファイルパス (default: devbar-queue.txt)")
+    p.add_argument("--queue", type=Path, help="キューファイルパス (default: gokrax-queue.txt)")
     p.add_argument("--dry-run", action="store_true", help="実行せず内容のみ表示")
 
     # qstatus
@@ -1680,7 +1680,7 @@ def main():
     # qedit
     p = sub.add_parser("qedit", help="キューのエントリを置換")
     p.add_argument("target", help="置換対象 (インデックス番号 or 'last')")
-    p.add_argument("entry", nargs="+", help="新しいエントリ (例: devbar 105 full automerge)")
+    p.add_argument("entry", nargs="+", help="新しいエントリ (例: gokrax 105 full automerge)")
     p.add_argument("--queue", type=Path, help="キューファイルパス")
 
     # spec

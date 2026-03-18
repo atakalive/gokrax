@@ -37,7 +37,7 @@ class TestSendToAgent:
         """CLI パス: openclaw が PATH にない場合 False を返すこと。"""
         import notify
         with patch("notify.subprocess.run", side_effect=FileNotFoundError("openclaw")):
-            with caplog.at_level(logging.ERROR, logger="devbar.notify"):
+            with caplog.at_level(logging.ERROR, logger="gokrax.notify"):
                 result = notify._gateway_chat_send_cli('{"sessionKey":"x","message":"y","idempotencyKey":"z"}', 10)
         assert result is False
         assert "not found" in caplog.text.lower()
@@ -46,7 +46,7 @@ class TestSendToAgent:
         """CLI パス: タイムアウト時に False を返すこと。"""
         import notify
         with patch("notify.subprocess.run", side_effect=subprocess.TimeoutExpired("cmd", 5)):
-            with caplog.at_level(logging.WARNING, logger="devbar.notify"):
+            with caplog.at_level(logging.WARNING, logger="gokrax.notify"):
                 result = notify._gateway_chat_send_cli('{"sessionKey":"x","message":"y","idempotencyKey":"z"}', 5)
         assert result is False
         assert "timed out" in caplog.text.lower()
@@ -78,7 +78,7 @@ class TestSendToAgent:
         mock_result.returncode = 1
         mock_result.stderr = "Gateway call failed"
         with patch("notify.subprocess.run", return_value=mock_result):
-            with caplog.at_level(logging.WARNING, logger="devbar.notify"):
+            with caplog.at_level(logging.WARNING, logger="gokrax.notify"):
                 result = notify._gateway_chat_send_cli('{"sessionKey":"x","message":"y","idempotencyKey":"z"}', 10)
         assert result is False
 
@@ -133,7 +133,7 @@ class TestPostDiscord:
         mock_resp.text = "Forbidden"
         with patch.object(notify, "get_bot_token", return_value="fake-token"):
             with patch("notify.requests.post", return_value=mock_resp):
-                with caplog.at_level(logging.WARNING, logger="devbar.notify"):
+                with caplog.at_level(logging.WARNING, logger="gokrax.notify"):
                     result = notify.post_discord("123456", "test message")
         assert result is None
         assert "Discord post failed" in caplog.text
@@ -143,7 +143,7 @@ class TestPostDiscord:
         import requests
         with patch.object(notify, "get_bot_token", return_value="fake-token"):
             with patch("notify.requests.post", side_effect=requests.ConnectionError("refused")):
-                with caplog.at_level(logging.WARNING, logger="devbar.notify"):
+                with caplog.at_level(logging.WARNING, logger="gokrax.notify"):
                     result = notify.post_discord("123456", "test message")
         assert result is None
         assert "Discord post error" in caplog.text
@@ -168,8 +168,8 @@ class TestFormatReviewRequest:
             "cc_session_id": None, "added_at": "",
         }
 
-    def test_command_uses_devbar_cli_path(self):
-        """format_review_request() のコマンドが DEVBAR_CLI パスを使うこと。"""
+    def test_command_uses_gokrax_cli_path(self):
+        """format_review_request() のコマンドが GOKRAX_CLI パスを使うこと。"""
         import notify
         import config
         batch = [self._make_batch_item(42, "Test Issue", "abc123")]
@@ -177,8 +177,8 @@ class TestFormatReviewRequest:
             project="test-pj", state="DESIGN_REVIEW",
             batch=batch, gitlab="atakalive/test-pj", reviewer="pascal",
         )
-        assert str(config.DEVBAR_CLI) in result
-        assert "/home/ataka/.openclaw/shared/bin/devbar" in result
+        assert str(config.GOKRAX_CLI) in result
+        assert "/home/ataka/.openclaw/shared/bin/gokrax" in result
 
     def test_command_contains_reviewer_name(self):
         """format_review_request() のコマンドに reviewer 名が含まれること。"""
@@ -191,7 +191,7 @@ class TestFormatReviewRequest:
         assert "--reviewer leibniz" in result
 
     def test_command_structure(self):
-        """生成コマンドが <DEVBAR_CLI> review ... 形式であること（python3 prefix なし）。"""
+        """生成コマンドが <GOKRAX_CLI> review ... 形式であること（python3 prefix なし）。"""
         import notify
         import config
         batch = [self._make_batch_item(5)]
@@ -199,9 +199,9 @@ class TestFormatReviewRequest:
             project="proj", state="DESIGN_REVIEW",
             batch=batch, gitlab="atakalive/proj", reviewer="hanfei",
         )
-        assert f"{config.DEVBAR_CLI} review" in result
+        assert f"{config.GOKRAX_CLI} review" in result
         # python3 prefix がないことを確認
-        assert f"python3 {config.DEVBAR_CLI} review" not in result
+        assert f"python3 {config.GOKRAX_CLI} review" not in result
 
 
 class TestNotifyImplementer:
@@ -221,7 +221,7 @@ class TestNotifyImplementer:
         import notify
         import logging
         with patch("notify.send_to_agent") as mock_send:
-            with caplog.at_level(logging.ERROR, logger="devbar.notify"):
+            with caplog.at_level(logging.ERROR, logger="gokrax.notify"):
                 notify.notify_implementer("unknown_agent", "test message")
         mock_send.assert_not_called()
         assert "Unknown agent" in caplog.text
@@ -265,7 +265,7 @@ class TestNotifyReviewers:
         batch = [self._make_batch_item(1)]
         with patch("notify.send_to_agent") as mock_send:
             with patch("notify.fetch_issue_body", return_value="body"):
-                with caplog.at_level(logging.ERROR, logger="devbar.notify"):
+                with caplog.at_level(logging.ERROR, logger="gokrax.notify"):
                     notify.notify_reviewers("proj", "CODE_REVIEW", batch, "atakalive/proj",
                                           review_mode="test_mode")
 
@@ -304,7 +304,7 @@ class TestFetchDiscordReplies:
         mock_resp.status_code = 404
         with patch.object(notify, "get_bot_token", return_value="fake-token"):
             with patch("notify.requests.get", return_value=mock_resp):
-                with caplog.at_level(logging.WARNING, logger="devbar.notify"):
+                with caplog.at_level(logging.WARNING, logger="gokrax.notify"):
                     result = notify.fetch_discord_replies("123456", "999")
         assert result == []
         assert "Discord fetch failed" in caplog.text
@@ -314,7 +314,7 @@ class TestFetchDiscordReplies:
         import requests
         with patch.object(notify, "get_bot_token", return_value="fake-token"):
             with patch("notify.requests.get", side_effect=requests.ConnectionError("refused")):
-                with caplog.at_level(logging.WARNING, logger="devbar.notify"):
+                with caplog.at_level(logging.WARNING, logger="gokrax.notify"):
                     result = notify.fetch_discord_replies("123456", "999")
         assert result == []
         assert "Discord fetch error" in caplog.text
@@ -362,7 +362,7 @@ class TestFetchIssueBody:
         mock_result.returncode = 1
         mock_result.stderr = "issue not found"
         with patch("notify.subprocess.run", return_value=mock_result):
-            with caplog.at_level(logging.WARNING, logger="devbar.notify"):
+            with caplog.at_level(logging.WARNING, logger="gokrax.notify"):
                 result = notify.fetch_issue_body(999, "atakalive/proj")
         assert result is None
         assert "glab issue show failed" in caplog.text
@@ -379,7 +379,7 @@ class TestFetchIssueBody:
     def test_timeout_returns_none(self, caplog):
         import notify
         with patch("notify.subprocess.run", side_effect=subprocess.TimeoutExpired("cmd", 15)):
-            with caplog.at_level(logging.WARNING, logger="devbar.notify"):
+            with caplog.at_level(logging.WARNING, logger="gokrax.notify"):
                 result = notify.fetch_issue_body(5, "atakalive/proj")
         assert result is None
         assert "timed out" in caplog.text
@@ -404,7 +404,7 @@ class TestFetchCommitDiff:
         mock_result.returncode = 128
         mock_result.stderr = "bad object abc123"
         with patch("notify.subprocess.run", return_value=mock_result):
-            with caplog.at_level(logging.WARNING, logger="devbar.notify"):
+            with caplog.at_level(logging.WARNING, logger="gokrax.notify"):
                 result = notify._fetch_commit_diff("abc123", "/repo")
         assert result is None
         assert "git diff/show failed" in caplog.text
@@ -793,7 +793,7 @@ class TestNotifyReviewersSquash:
         with patch("notify.send_to_agent") as mock_send:
             with patch("notify._check_squash", return_value=["Issue #10: expected 1 commit after abc123, got 2. Squash required."]):
                 with patch("notify.fetch_issue_body", return_value="body"):
-                    with caplog.at_level(logging.WARNING, logger="devbar.notify"):
+                    with caplog.at_level(logging.WARNING, logger="gokrax.notify"):
                         notify.notify_reviewers(
                             "proj", "CODE_REVIEW", batch, "atakalive/proj",
                             base_commit="a" * 40, repo_path="/repo"
@@ -1129,7 +1129,7 @@ class TestWriteReviewFile:
         monkeypatch.setattr(config, "REVIEW_FILE_WRITE_RETRY_DELAY", 0.01)
         monkeypatch.setattr(notify, "REVIEW_FILE_WRITE_RETRY_DELAY", 0.01)
         monkeypatch.setattr(Path, "write_text", lambda *a, **kw: (_ for _ in ()).throw(OSError("fail")))
-        with caplog.at_level(logging.ERROR, logger="devbar.notify"):
+        with caplog.at_level(logging.ERROR, logger="gokrax.notify"):
             result = notify._write_review_file("proj", "pascal", "content")
         assert result is None
 

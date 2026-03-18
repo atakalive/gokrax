@@ -1,0 +1,297 @@
+# gokrax-queue.txt
+# PROJECT ISSUES [MODE] [OPTIONS...]
+#
+# 例:
+# TrajOpt 25 standard automerge plan=opus impl=sonnet
+# BeamShifter 17,18,19 full
+# TrajOpt all lite
+#
+# - ISSUES: "all" またはカンマ区切り数値 (例: "1,2,3")
+# - MODE: full / standard / lite / min / skip etc
+# - OPTIONS: no-automerge, plan=MODEL, impl=MODEL, skip-cc-plan, keep-ctx-batch, keep-ctx-intra, keep-ctx-all, p2-fix
+# - 完了行/開始行は `# done:` prefix で自動マーク
+#
+# done: WindFreqSim 7,8 min automerge
+# done: WindFreqSim 10 min automerge plan=opus keep-context
+# done: WindFreqSim 11 min keep-context
+# done: WindFreqSim 9 min automerge impl=opus
+#
+# EMCalibrator SurfaceModel — 依存順キュー
+# Phase 1a: データ型+ABC（dataclass並べるだけ。まとめてよし）
+# done: EMCalibrator 32,33 full automerge
+# Phase 1b: LHS（scipy呼ぶだけ）
+# done: EMCalibrator 35 full automerge
+# Phase 1c: RSM本体（数値計算の核。ここはOpus）
+# done: EMCalibrator 34 full automerge plan=opus impl=opus keep-context
+# Phase 1d: テスト基盤（fixture定義）
+# done: EMCalibrator 36 full automerge
+# Phase 2: CalibrationManager（状態遷移+compare_modes+dump/load。核）
+# done: EMCalibrator 37 full automerge plan=opus impl=opus keep-context
+# Phase 3: StateManager+API（薄ラッパー。まとめてよし）
+# done: EMCalibrator 38,39 full automerge plan=opus
+# Phase 4: GUI+C#（独立。まとめてよし）
+# done: EMCalibrator 40,41 full automerge plan=opus
+
+# TrajOpt 統合GUI — 依存順キュー (19 Issues, spec rev4A)
+# ===== Phase 1: GUI基盤 =====
+# Batch 1: 並行着手可能な独立3件（logging_if + argparse + GUI骨格）
+# done: TrajOpt 32,33,34 full automerge
+# Batch 2: ParamForm（GUI部品、P1-3依存）
+# done: TrajOpt 35 full automerge plan=opus keep-context
+# Batch 3: StandardOptTask + task_registry（密結合）
+# done: TrajOpt 36,37 full automerge plan=opus keep-context
+# Batch 4: RunManager（Phase 1核心。stop-file + _is_our_process）
+# done: TrajOpt 38 full plan=opus impl=opus keep-context
+# ===== Phase 2: 完全再開 =====
+# Batch 5: Greedy save/load（全オプティマイザ基盤。Sobol+schema migration）
+# done: TrajOpt 39 full automerge plan=opus impl=opus
+# Batch 6: SA + PT save/load（継承チェイン。PT _skip_full_init契約）
+# done: TrajOpt 40,41 full automerge plan=opus impl=opus keep-context
+# Batch 7: --resume実装（eval_fn復元 + stop-fileループ）
+# done: TrajOpt 42 full automerge plan=opus impl=opus keep-context
+# Batch 8: resume GUI（薄ラッパー）
+# done: TrajOpt 43 full automerge keep-context
+# ===== Phase 3: プリセット+履歴 =====
+# Batch 9: PresetManager + ResultBrowser（独立2件）
+# done: TrajOpt 44,45 full automerge plan=opus
+# Batch 10: GUI配線 + mcmc_monitor
+# done: TrajOpt 46 full automerge keep-context
+# ===== Phase 4: 並列+拡張 =====
+# Batch 11: orphan + 並列（密結合）
+# done: TrajOpt 47,48 full automerge plan=opus
+# Batch 12: Checkerboard骨格（スタブのみ）
+# done: TrajOpt 49 full automerge
+# Batch 13: 統合テスト
+# done: TrajOpt 50 full automerge plan=opus impl=opus
+
+# keep-ctx分離（spec-mode前提）
+# done: gokrax 58 full automerge plan=opus impl=opus
+# === Spec Mode Implementation (spec-mode-spec_rev7) ===
+# Phase 1: 基盤
+# done: gokrax 49 full automerge
+# Phase 2: CLI + パース（並行可だがgokraxは逐次）
+# done: gokrax 50 full automerge
+# done: gokrax 51 full automerge plan=opus impl=opus keep-ctx-intra
+# Phase 3: watchdog統合 + 改訂 + Issue系
+# done: gokrax 52 full automerge plan=opus impl=opus keep-ctx-all
+# done: gokrax 53 full automerge plan=opus keep-ctx-all
+# done: gokrax 54 full automerge keep-ctx-intra
+# Phase 4: 通知 + 異常系
+# done: gokrax 55 full automerge keep-ctx-intra
+# done: gokrax 56 full automerge plan=opus
+# Phase 5: 統合テスト
+# done: gokrax 57 full automerge plan=opus impl=opus keep-ctx-intra
+
+# Fast Imaging
+# done: fast-imaging 4 full automerge
+# done: fast-imaging 5 full automerge
+# TrajOpt 統合GUI バグ修正+改善 (Issues #52-#59)
+# Batch 1: クリティカルバグ
+# done: TrajOpt 53 full automerge plan=opus impl=opus keep-ctx-intra
+# Batch 2: 可視化バグ（#53依存）
+# done: TrajOpt 54 full automerge keep-ctx-all
+# Batch 3: 軽量リネーム2件
+# done: TrajOpt 57,59 lite automerge
+# done: TrajOpt 60 full automerge plan=opus impl=opus keep-ctx-intra
+# Batch 4: param_form.py集中改修3件
+# done: TrajOpt 58 lite automerge
+# done: TrajOpt 52 lite automerge plan=opus
+# done: TrajOpt 56 full automerge plan=opus keep-ctx-intra
+# Batch 5: T_min=0許容
+# done: TrajOpt 55 lite automerge
+# done: gokrax 60 lite automerge plan=opus
+# done: gokrax 61 full automerge plan=opus impl=opus keep-ctx-intra
+
+# BeamShifter カメラ設定パネルUC化
+# done: BeamShifter 26 full automerge plan=opus impl=opus keep-ctx-intra
+# done: BeamShifter 27,28 full automerge plan=opus keep-ctx-intra
+# done: BeamShifter 29 full automerge keep-ctx-intra
+# done: gokrax 62 lite automerge
+
+# bugfix
+# done: TrajOpt 61,62 lite automerge keep-ctx-intra
+# done: TrajOpt 63 lite automerge keep-ctx-intra
+# done: TrajOpt 64 lite3 automerge keep-ctx-intra
+# done: TrajOpt 65,66,67 lite automerge keep-ctx-intra
+# done: gokrax 65 lite3 automerge keep-ctx-intra
+# done: gokrax 66 lite3 automerge plan=opus keep-ctx-intra
+# done: gokrax 67 lite3 automerge plan=opus impl=opus keep-ctx-intra
+# done: BeamShifter 33,34 lite3 automerge keep-ctx-intra
+# done: BeamShifter 32 lite3 automerge plan=opus impl=opus keep-ctx-intra
+# done: BeamShifter 35 full automerge plan=opus impl=opus keep-ctx-intra
+# done: TrajOpt 68 full automerge plan=opus impl=opus keep-ctx-intra
+# done: gokrax 68 lite3_woGoogle automerge plan=opus impl=opus keep-ctx-intra
+# done: gokrax 69 lite3_woGoogle automerge keep-ctx-intra
+# done: BeamShifter 38,39,42 full automerge plan=opus impl=opus keep-ctx-intra
+# done: BeamShifter 40 full automerge plan=opus impl=opus keep-ctx-intra
+# done: BeamShifter 41 full automerge plan=opus impl=opus keep-ctx-intra
+# add p1-fix mode
+# done: gokrax 71 lite3_woGoogle automerge plan=opus impl=opus keep-ctx-intra
+
+# EMCalibrator TestGen Surface — 依存順キュー (14 Issues, testgen-surface-spec rev4)
+# Batch 1: 独立4件（API拡張 + 曲面レジストリ + タブ化 + docs整理）
+# done: EMCalibrator 43,44,49,56 lite3_woGoogle automerge p1-fix
+# Batch 2: BO目的関数 + SurfaceSimWorker standalone（QThread+Mutexプロトコル複雑）
+# done: EMCalibrator 45,46 full automerge plan=opus impl=opus keep-ctx-intra p1-fix
+# Batch 3: グリッド評価 + テスト + 統合BOループ + Worker完走テスト
+# done: EMCalibrator 47,48,52,55 full automerge plan=opus impl=opus keep-ctx-all p1-fix
+# Batch 4: 可視化ウィジェット + BO失敗記録
+# done: EMCalibrator 51,53 lite3_woGoogle automerge keep-ctx-batch p1-fix
+# Batch 5: SurfaceTestTab（GUI本体、多依存）
+# done: EMCalibrator 50 full automerge plan=opus keep-ctx-all p1-fix
+# Batch 6: GUI統合テスト対応（E2E）
+# done: EMCalibrator 54 full automerge keep-ctx-batch p1-fix
+
+# done: gokrax 72 lite3_woGoogle automerge plan=opus keep-ctx-intra
+# done: TrajOpt 69 full automerge p1-fix keep-ctx-intra plan=opus
+# done: gokrax 82 full automerge p1-fix plan=opus impl=opus keep-ctx-intra
+# done: gokrax 81 full automerge p1-fix plan=opus impl=opus keep-ctx-all
+# done: gokrax 78,80 lite3 automerge p1-fix
+# done: gokrax 79 full automerge p1-fix plan=opus impl=opus keep-ctx-intra
+# done: gokrax 76 lite3 automerge
+# done: gokrax 77 lite3 automerge
+# done: EMCalibrator 57 full automerge plan=opus p1-fix
+# done: gokrax 70 lite3 automerge
+# done: gokrax 83 full automerge plan=opus keep-ctx-intra
+# done: BeamShifter 43 full automerge plan=opus keep-ctx-intra
+# done: gokrax 86 full plan=opus keep-ctx-intra
+# done: gokrax 85,88 lite plan=opus keep-ctx-intra
+# done: gokrax 89 lite keep-ctx-intra
+# done: gokrax 90 full
+# done: gokrax 91 full
+# done: gokrax 92 full keep-ctx-intra
+# done: EMCalibrator 58 full plan=opus impl=opus keep-ctx-intra
+# done: EMCalibrator 59,60 full keep-ctx-intra
+# done: EMCalibrator 61 full keep-ctx-intra
+# done: EMCalibrator 62 full plan=opus keep-ctx-intra
+# done: EMCalibrator 63 full keep-ctx-intra
+# done: gokrax 93 standard keep-ctx-intra
+# done: BeamShifter 44 standard keep-ctx-intra skip-cc-plan
+# done: EMCalibrator 64 full keep-ctx-intra skip-cc-plan
+# done: gokrax 94 full keep-ctx-intra comment=今回はレビュアーが原因究明に参加することを許可する。（レビュアーによるコード修正は禁止）
+# done: EMCalibrator 65 full keep-ctx-intra skip-cc-plan
+# done: gokrax 96,97 lite skip-cc-plan keep-ctx-intra
+# done: gokrax 95 full skip-cc-plan keep-ctx-intra comment=今回はレビュアーが原因究明に参加することを許可する。（レビュアーによるコード修正は禁止）
+# done: BeamShifter 46 lite keep-ctx-intra skip-cc-plan
+# done: BeamShifter 45 full p2-fix impl=opus keep-ctx-intra skip-cc-plan
+# done: BeamShifter 47 full keep-ctx-intra skip-cc-plan p2-fix
+# done: gokrax 98 lite3_woOpus keep-ctx-intra skip-cc-plan p2-fix
+# done: gokrax 100 lite3_woOpus keep-ctx-intra skip-cc-plan p2-fix
+# done: BeamShifter 48 lite3_woOpus keep-ctx-intra skip-cc-plan p2-fix
+# done: gokrax 102 lite3_woOpus keep-ctx-intra skip-cc-plan p2-fix
+# done: ImageRestorationNN 38 lite3_woOpus keep-ctx-intra skip-cc-plan p2-fix
+# done: BeamShifter 49 lite3_woOpus keep-ctx-intra skip-cc-plan p2-fix
+# done: ImageRestorationNN 39 full keep-ctx-intra skip-cc-plan p2-fix
+# done: ImageRestorationNN 40 full keep-ctx-intra skip-cc-plan p2-fix
+
+# baybay — 家計簿アプリ MVP (27 Issues, spec rev7)
+#
+# Phase 1: プロジェクト基盤
+# B1: 骨格（ボイラープレート）
+# done: baybay 1 lite skip-cc-plan
+# B2: DBスキーマ（全テーブル定義、基盤中の基盤）
+# done: baybay 2 full skip-cc-plan keep-ctx-intra
+# Phase 2: 認証・マスタCRUD
+# B3: 認証+カテゴリ（並列、相互依存なし）
+# done: baybay 3,6 full impl=opus skip-cc-plan keep-ctx-intra
+# B4: アカウントCRUD（認証に依存）
+# done: baybay 4 full keep-ctx-batch skip-cc-plan
+# Phase 3: コアAPI群
+# B5: カード・取引・アグリゲーション・同期SM（4件並列、取引CRUDが核）
+# done: baybay 5,7,8,9 full impl=opus skip-cc-plan keep-ctx-intra
+# Phase 4: 同期エンジン＋ユーティリティ
+# B6: 同期取込・ゾンビ・残高計算・月次・オフラインキュー等（8件並列）
+# done: baybay 16,18,24 lite3_woOpus skip-cc-plan keep-ctx-intra
+# done: baybay 10,11 lite3_woOpus skip-cc-plan keep-ctx-intra
+# done: baybay 20 lite skip-cc-plan keep-ctx-intra
+# done: baybay 26 full skip-cc-plan keep-ctx-intra p2-fix
+# done: baybay 23 full skip-cc-plan keep-ctx-intra p2-fix
+# Phase 5: 重複排除・ATM・残高照合
+# B7: デビット重複排除・CARD_PAYMENT・ATM検出・reconciliation（ドメインの核）
+# done: baybay 12 full skip-cc-plan impl=opus keep-ctx-intra p2-fix
+# done: baybay 13 lite3_woOpus skip-cc-plan keep-ctx-intra
+# done: baybay 14 lite3_woOpus skip-cc-plan keep-ctx-intra
+# done: baybay 17 full skip-cc-plan impl=opus keep-ctx-intra p2-fix
+# Phase 6: 派生機能
+# B8: ATM変換・ネットワース・通知判定
+# done: baybay 15 lite3_woOpus skip-cc-plan keep-ctx-intra p2-fix
+# done: baybay 21 lite3_woOpus skip-cc-plan keep-ctx-intra p2-fix
+# done: baybay 19 lite skip-cc-plan
+# Phase 7: 通知配信
+# B9: 通知配信・再送バッチ・ステートマシン
+# done: baybay 22 full impl=opus skip-cc-plan keep-ctx-intra p2-fix
+# Phase 8: 統合
+# B10: バッチスケジューラ統合+E2Eテスト
+# done: baybay 25 lite skip-cc-plan
+# done: baybay 27 lite3_woOpus skip-cc-plan keep-ctx-intra p2-fix
+
+# done: gokrax 104,105 lite3_woOpus keep-ctx-intra skip-cc-plan
+# done: gokrax 103 full keep-ctx-intra skip-cc-plan
+# done: BeamShifter 50 full keep-ctx-intra skip-cc-plan
+# done: BeamShifter 51 lite3_woOpus keep-ctx-intra skip-cc-plan p2-fix
+# done: gokrax 107 lite3_woOpus keep-ctx-intra skip-cc-plan
+# done: gokrax 108 lite3_woOpus keep-ctx-intra skip-cc-plan
+# done: gokrax 109 lite skip-cc-plan
+# done: gokrax 110,111 cheap skip-cc-plan keep-ctx-intra
+# done: gokrax 114 min skip-cc-plan p2-fix
+# done: gokrax 112 min skip-cc-plan p2-fix
+# done: gokrax 116 lite3_woOpenAI skip-cc-plan p2-fix
+# done: gokrax 117 lite3_woOpenAI keep-ctx-intra skip-cc-plan p2-fix
+# done: gokrax 113 full p2-fix keep-ctx-intra skip-cc-plan impl=opus
+# done: gokrax 118 full impl=opus keep-ctx-intra skip-cc-plan p2-fix
+# done: gokrax 118 full impl=opus keep-ctx-intra skip-cc-plan p2-fix
+# done: gokrax 119 lite keep-ctx-intra skip-cc-plan p2-fix
+# done: gokrax 122 lite3_woOpenAI keep-ctx-intra skip-cc-plan
+
+# baybay フロントエンド (23 Issues, spec rev5)
+#
+# Phase 0: バックエンド拡張（FE前提条件）
+# B1: needs_review フィルタ + PATCH + CSV BOM（並列、簡単）
+# done: baybay 28,29,30 lite skip-cc-plan keep-ctx-intra
+# Phase 1: FE基盤
+# B2: プロジェクト初期化 + セマンティックカラー + 共通ウィジェット
+# B3: モデル定義 + APIクライアント（single-flight refreshが核）
+# done: baybay 31,32 lite skip-cc-plan keep-ctx-intra p2-fix
+# done: baybay 33 full impl=opus skip-cc-plan impl=opus keep-ctx-all p2-fix
+# B4: 認証（2段階register + session restore + 接続エラー画面）
+# done: baybay 34 lite3_woOpenAI skip-cc-plan keep-ctx-batch p2-fix
+# B5: ダッシュボード + 口座一覧（並列）
+
+#baybay 35,36 lite3_woOpenAI skip-cc-plan keep-ctx-intra p2-fix
+# B6: CLAUDE.md + 月次詳細（並列。月次詳細のprefetch+年間累計ロジック注意）
+#baybay 37 lite3_woOpenAI skip-cc-plan p2-fix
+#baybay 41 full skip-cc-plan impl=opus keep-ctx-intra
+# Phase 2-3: 取引管理 + カード/ATM/重複
+# B7: 取引一覧 + カテゴリ管理 + ATM候補（並列）
+# B8: 取引入力 + カード + 重複候補（並列。#39は#38依存）
+#baybay 38,42,43 lite skip-cc-plan keep-ctx-intra
+#baybay 44,45 lite skip-cc-plan keep-ctx-intra
+#baybay 39 lite3_woOpenAI skip-cc-plan keep-ctx-all
+# B9: 取引編集(楽観的ロック) + 設定画面 + 口座詳細（並列）
+#baybay 40 lite3_woOpenAI skip-cc-plan keep-ctx-all
+#baybay 46,47 lite3_woOpenAI skip-cc-plan keep-ctx-all
+# Phase 4: 仕上げ
+# B10: BANK残高照合 + レビュー画面（並列）
+#baybay 48 lite3_woOpenAI skip-cc-plan keep-ctx-intra p2-fix
+#baybay 49 full impl=opus skip-cc-plan keep-ctx-intra p2-fix
+# B11: エラーハンドリング統一 + Pull-to-Refresh全画面
+#baybay 50 lite3_woOpenAI skip-cc-plan keep-ctx-batch p2-fix
+### baybay setup OK
+
+# done: gokrax 126 lite3_woOpenAI impl=opus keep-ctx-intra skip-cc-plan p2-fix
+# done: gokrax 127 lite3_woOpenAI impl=opus keep-ctx-intra skip-cc-plan p2-fix
+# done: gokrax 128 lite3_woOpenAI impl=opus keep-ctx-intra skip-cc-plan p2-fix
+# done: gokrax 129 lite3_woOpenAI impl=opus keep-ctx-intra skip-cc-plan p2-fix
+# done: gokrax 123 lite3_woOpenAI keep-ctx-intra skip-cc-plan p2-fix
+# done: gokrax 131 lite3_woOpenAI impl=opus keep-ctx-intra skip-cc-plan p2-fix
+# done: gokrax 132 lite3_woOpenAI impl=opus keep-ctx-all skip-cc-plan p2-fix
+# done: BeamShifter 53 lite3_woOpenAI impl=opus keep-ctx-intra skip-cc-plan p2-fix
+# done: BeamShifter 54 lite3_woOpenAI impl=opus keep-ctx-intra skip-cc-plan p2-fix
+# done: BeamShifter 55 lite3_woOpenAI impl=opus keep-ctx-intra skip-cc-plan p2-fix
+# done: gokrax 125 lite3_woOpenAI impl=opus keep-ctx-intra skip-cc-plan p2-fix
+
+#gokrax 133 lite3_woOpenAI impl=opus keep-ctx-intra skip-cc-plan p2-fix
+#WatcherB 1 lite impl=opus keep-ctx-intra skip-cc-plan
+#WatcherB 2 lite3_woOpenAI impl=opus keep-ctx-intra skip-cc-plan p2-fix
+#gokrax 134 lite3_woOpenAI impl=opus keep-ctx-intra skip-cc-plan p2-fix
+#gokrax 124 lite3_woOpenAI impl=opus keep-ctx-intra skip-cc-plan p2-fix

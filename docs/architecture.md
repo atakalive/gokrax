@@ -1,4 +1,4 @@
-# DevBar — Architecture & State Machine Diagrams
+# gokrax — Architecture & State Machine Diagrams
 
 ## 1. System Architecture (Overall Flow)
 
@@ -9,8 +9,8 @@ graph LR
         M["Human<br/>Operator"]
     end
 
-    subgraph DevBar["DevBar (Pipeline Orchestrator)"]
-        CLI["devbar CLI"]
+    subgraph gokrax["gokrax (Pipeline Orchestrator)"]
+        CLI["gokrax CLI"]
         SM["State Machine<br/>(pipeline.json)"]
         WD["Watchdog<br/>(polling loop)"]
         TQ["Task Queue<br/>(batch execution)"]
@@ -35,7 +35,7 @@ graph LR
     end
 
     GL -->|"issue created"| CLI
-    M -->|"devbar triage/run"| CLI
+    M -->|"gokrax triage/run"| CLI
     CLI --> SM
     SM <--> WD
     WD -->|"dispatch task"| TQ
@@ -145,24 +145,24 @@ graph TD
 ```mermaid
 sequenceDiagram
     participant M as Human (M)
-    participant DB as DevBar CLI
+    participant DB as gokrax CLI
     participant WD as Watchdog
     participant CC as Claude Code
     participant RV as Reviewers
     participant GL as GitLab
     participant DC as Discord
 
-    M->>DB: devbar triage --project X --issue 42
+    M->>DB: gokrax triage --project X --issue 42
     DB->>DB: Set state → DESIGN_PLAN
     DB->>DC: 📋 Plan started
     WD->>CC: /new (design plan task)
-    CC->>DB: devbar submit (plan)
+    CC->>DB: gokrax submit (plan)
     DB->>DB: Set state → DESIGN_REVIEW
     DB->>DC: 📝 Review requested
 
     par Review Ensemble
         WD->>RV: /new (review task) × N reviewers
-        RV->>DB: devbar review --verdict APPROVE
+        RV->>DB: gokrax review --verdict APPROVE
     end
 
     DB->>DB: Set state → DESIGN_APPROVED
@@ -170,13 +170,13 @@ sequenceDiagram
     DB->>DC: 🔨 Implementation started
     WD->>CC: /new (implement task)
     CC->>GL: git push (branch)
-    CC->>DB: devbar submit (code)
+    CC->>DB: gokrax submit (code)
     DB->>DB: Set state → CODE_REVIEW
     DB->>DC: 🔍 Code review requested
 
     par Review Ensemble
         WD->>RV: /new (review task) × N reviewers
-        RV->>DB: devbar review --verdict APPROVE
+        RV->>DB: gokrax review --verdict APPROVE
     end
 
     DB->>DB: Set state → CODE_APPROVED

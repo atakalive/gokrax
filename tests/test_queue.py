@@ -767,7 +767,7 @@ class TestCmdQedit:
         queue_file.write_text("Foo 1\nBar 2\n")
         monkeypatch.setattr(config, "QUEUE_FILE", queue_file)
 
-        from devbar import cmd_qedit
+        from gokrax import cmd_qedit
         args = self._make_args("0", ["Baz", "3"])
         cmd_qedit(args)
 
@@ -781,7 +781,7 @@ class TestCmdQedit:
         queue_file.write_text("Foo 1\nBar 2\n")
         monkeypatch.setattr(config, "QUEUE_FILE", queue_file)
 
-        from devbar import cmd_qedit
+        from gokrax import cmd_qedit
         args = self._make_args("last", ["Baz", "3"])
         cmd_qedit(args)
 
@@ -798,7 +798,7 @@ class TestCmdQedit:
         queue_file.write_text("Foo 1\n")
         monkeypatch.setattr(config, "QUEUE_FILE", queue_file)
 
-        from devbar import cmd_qedit
+        from gokrax import cmd_qedit
         args = self._make_args("invalid", ["Bar", "2"])
         with pytest.raises(SystemExit) as exc:
             cmd_qedit(args)
@@ -813,7 +813,7 @@ class TestCmdQedit:
         queue_file.write_text("Foo 1\n")
         monkeypatch.setattr(config, "QUEUE_FILE", queue_file)
 
-        from devbar import cmd_qedit
+        from gokrax import cmd_qedit
         args = self._make_args("99", ["Bar", "2"])
         with pytest.raises(SystemExit) as exc:
             cmd_qedit(args)
@@ -828,7 +828,7 @@ class TestCmdQedit:
         queue_file.write_text("Foo 1\n")
         monkeypatch.setattr(config, "QUEUE_FILE", queue_file)
 
-        from devbar import cmd_qedit
+        from gokrax import cmd_qedit
         args = self._make_args("0", ["INVALID_NO_ISSUE"])
         with pytest.raises(SystemExit) as exc:
             cmd_qedit(args)
@@ -841,7 +841,7 @@ class TestCmdQedit:
 # Issue #80: get_qstatus_text / _get_running_info テスト
 # ===========================================================================
 
-from devbar import get_qstatus_text, _get_running_info
+from gokrax import get_qstatus_text, _get_running_info
 
 
 def _make_entry(idx=0, project="Foo", issues="1,2", mode="full", **kwargs):
@@ -1049,7 +1049,7 @@ class TestCmdQadd:
         queue_file.write_text("")
         monkeypatch.setattr(config, "QUEUE_FILE", queue_file)
 
-        from devbar import cmd_qadd
+        from gokrax import cmd_qadd
         args = self._make_args(entry=["Foo", "1", "full", "automerge"])
         cmd_qadd(args)
 
@@ -1066,7 +1066,7 @@ class TestCmdQadd:
         entries_file = tmp_path / "entries.txt"
         entries_file.write_text("Foo 1 full\nBar 2 lite\nBaz 3\n")
 
-        from devbar import cmd_qadd
+        from gokrax import cmd_qadd
         args = self._make_args(file=entries_file)
         cmd_qadd(args)
 
@@ -1083,7 +1083,7 @@ class TestCmdQadd:
         monkeypatch.setattr(config, "QUEUE_FILE", queue_file)
         monkeypatch.setattr("sys.stdin", io.StringIO("Foo 1 full\nBar 2 lite\n"))
 
-        from devbar import cmd_qadd
+        from gokrax import cmd_qadd
         args = self._make_args(from_stdin=True)
         cmd_qadd(args)
 
@@ -1101,7 +1101,7 @@ class TestCmdQadd:
         entries_file = tmp_path / "entries.txt"
         entries_file.write_text("Foo 1 full\nINVALID_NO_ISSUE\nBar 2 lite\n")
 
-        from devbar import cmd_qadd
+        from gokrax import cmd_qadd
         args = self._make_args(file=entries_file)
         with pytest.raises(SystemExit):
             cmd_qadd(args)
@@ -1119,7 +1119,7 @@ class TestCmdQadd:
         entries_file = tmp_path / "entries.txt"
         entries_file.write_text("Foo 1\n")
 
-        from devbar import cmd_qadd
+        from gokrax import cmd_qadd
         args = self._make_args(entry=["Foo", "1"], file=entries_file)
         with pytest.raises(SystemExit):
             cmd_qadd(args)
@@ -1131,7 +1131,7 @@ class TestCmdQadd:
         queue_file.write_text("")
         monkeypatch.setattr(config, "QUEUE_FILE", queue_file)
 
-        from devbar import cmd_qadd
+        from gokrax import cmd_qadd
         args = self._make_args()
         with pytest.raises(SystemExit):
             cmd_qadd(args)
@@ -1146,7 +1146,7 @@ class TestCmdQadd:
         entries_file = tmp_path / "entries.txt"
         entries_file.write_text("# comment\n\nFoo 1 full\n  \nBar 2 lite\n")
 
-        from devbar import cmd_qadd
+        from gokrax import cmd_qadd
         args = self._make_args(file=entries_file)
         cmd_qadd(args)
 
@@ -1177,7 +1177,7 @@ class TestCmdStartSkipCcPlan:
             "updated_at": "2025-01-01T00:00:00+09:00",
         })
         import argparse
-        from devbar import cmd_start
+        from gokrax import cmd_start
         args = argparse.Namespace(
             project="test-pj",
             issue=[1],
@@ -1190,9 +1190,9 @@ class TestCmdStartSkipCcPlan:
             comment=None,
             skip_cc_plan=True,
         )
-        with patch("devbar.cmd_triage"), \
-             patch("devbar.cmd_transition"), \
-             patch("devbar._start_loop"):
+        with patch("gokrax.cmd_triage"), \
+             patch("gokrax.cmd_transition"), \
+             patch("gokrax._start_loop"):
             cmd_start(args)
 
         data = _json.loads(path.read_text())
@@ -1211,7 +1211,7 @@ class TestCmdStartSkipCcPlan:
             "updated_at": "2025-01-01T00:00:00+09:00",
         })
         import argparse
-        from devbar import cmd_start
+        from gokrax import cmd_start
         args = argparse.Namespace(
             project="test-pj",
             issue=[1],
@@ -1224,9 +1224,9 @@ class TestCmdStartSkipCcPlan:
             comment=None,
             skip_cc_plan=False,  # フラグなし
         )
-        with patch("devbar.cmd_triage"), \
-             patch("devbar.cmd_transition"), \
-             patch("devbar._start_loop"):
+        with patch("gokrax.cmd_triage"), \
+             patch("gokrax.cmd_transition"), \
+             patch("gokrax._start_loop"):
             cmd_start(args)
 
         data = _json.loads(path.read_text())
@@ -1240,7 +1240,7 @@ class TestCmdStartSkipCcPlan:
         queue_file.write_text("Foo 1,2 automerge skip-cc-plan\n")
         monkeypatch.setattr(config, "QUEUE_FILE", queue_file)
 
-        from devbar import cmd_qrun
+        from gokrax import cmd_qrun
         args = argparse.Namespace(dry_run=True, queue=None)
         cmd_qrun(args)
 

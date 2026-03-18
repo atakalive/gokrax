@@ -5,16 +5,16 @@ Variables:
     spec_path: str            - 仕様書ファイルパス
     current_rev: str          - 現在のリビジョン番号
     suggestions_text: str     - レビュアー提案のYAMLテキスト
-    gitlab: str               - GitLabリポジトリ（例: "atakalive/DevBar"）
+    gitlab: str               - GitLabリポジトリ（例: "atakalive/gokrax"）
     spec_filename: str        - 仕様書ファイル名
-    DEVBAR_CLI: str           - devbar CLIパス
+    GOKRAX_CLI: str           - gokrax CLIパス
 """
 
 
 
 def plan(
     project: str, spec_path: str, current_rev: str,
-    suggestions_text: str, gitlab: str, spec_filename: str, DEVBAR_CLI: str,
+    suggestions_text: str, gitlab: str, spec_filename: str, GOKRAX_CLI: str,
     **_kw,
 ) -> str:
     """Issue起票指示プロンプト（§8.1）。"""
@@ -54,7 +54,7 @@ created_issues:
 ## 提出方法
 完了報告を YAML ファイルに保存し、以下のコマンドで投入してください:
 ```
-{DEVBAR_CLI} spec issue-submit --pj {project} --file <YAMLファイルパス>
+{GOKRAX_CLI} spec issue-submit --pj {project} --file <YAMLファイルパス>
 ```
 
 【重要】Issue起票・完了報告の提出まで、中断せず一気に完了すること。"""

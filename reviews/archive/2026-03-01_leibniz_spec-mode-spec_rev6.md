@@ -1,4 +1,4 @@
-# DevBar Spec Mode — 仕様書レビュー（Leibniz, rev6 / やりすぎ版）
+# gokrax Spec Mode — 仕様書レビュー（Leibniz, rev6 / やりすぎ版）
 
 対象: `docs/spec-mode-spec_rev6.md` (rev6, 1215行)
 commit: rev5=`2755ac2` → rev6=`17066db`

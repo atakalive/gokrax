@@ -89,7 +89,7 @@ class TestCmdSpecStart:
             review_only=False, no_queue=False, skip_review=False,
             max_cycles=None, review_mode=None, model=None, auto_continue=False, auto_qrun=False,
         )
-        with patch("devbar._start_loop"):
+        with patch("gokrax._start_loop"):
             cmd_spec_start(args)
 
         data = json.loads(path.read_text())
@@ -120,7 +120,7 @@ class TestCmdSpecStart:
             review_only=False, no_queue=False, skip_review=True,
             max_cycles=None, review_mode=None, model=None, auto_continue=False, auto_qrun=False,
         )
-        with patch("devbar._start_loop"):
+        with patch("gokrax._start_loop"):
             cmd_spec_start(args)
 
         data = json.loads(path.read_text())
@@ -139,7 +139,7 @@ class TestCmdSpecStart:
             review_only=True, no_queue=False, skip_review=False,
             max_cycles=None, review_mode=None, model=None, auto_continue=True, auto_qrun=False,
         )
-        with patch("devbar._start_loop"):
+        with patch("gokrax._start_loop"):
             cmd_spec_start(args)
 
         data = json.loads(path.read_text())
@@ -215,7 +215,7 @@ class TestCmdSpecStart:
             review_only=False, no_queue=False, skip_review=False,
             max_cycles=0, review_mode=None, model=None, auto_continue=False, auto_qrun=False,
         )
-        with patch("devbar._start_loop"):
+        with patch("gokrax._start_loop"):
             cmd_spec_start(args)
 
         data = json.loads(path.read_text())

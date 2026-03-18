@@ -1,13 +1,13 @@
 # Spec Mode バグレポート検証 — Leibniz
 
 検証対象: `docs/2026-03-04_spec-mode-bug-report.md` 記載の C1/C2/C3/I1。
-以下では、レポート主張が「現行ソース（/mnt/s/wsl/work/project/devbar/ 以下）に対して事実か」をコード読みにより判定する。
+以下では、レポート主張が「現行ソース（/mnt/s/wsl/work/project/gokrax/ 以下）に対して事実か」をコード読みにより判定する。
 
 ## C1: review_requests未リセット
 - 検証結果: **confirmed**
 - 根拠:
   - CLI `spec continue` は状態遷移のみで `spec_config` を一切更新しない。
-    - `devbar.py`:
+    - `gokrax.py`:
       ```py
       def cmd_spec_continue(args):
           ...
@@ -61,8 +61,8 @@
       issue_plan_response = spec_config.get("_issue_plan_response")
       queue_plan_response = spec_config.get("_queue_plan_response")
       ```
-  - しかし `devbar.py` の spec サブコマンドは現状 `review-submit` しか存在せず、上記3フィールドを書き込むCLIが存在しない。
-    - `devbar.py`:
+  - しかし `gokrax.py` の spec サブコマンドは現状 `review-submit` しか存在せず、上記3フィールドを書き込むCLIが存在しない。
+    - `gokrax.py`:
       ```py
       spec_cmds = {
           ...
@@ -73,9 +73,9 @@
 
 - 修正案（具体）:
   - `review-submit` と同型のコマンドを追加し、**flock内で** `spec_config` を更新する。
-    - `devbar spec revise-submit --pj PJ --file FILE` → `_revise_response` に raw_text を格納
-    - `devbar spec issue-plan-submit --pj PJ --file FILE` → `_issue_plan_response` に raw_text を格納
-    - `devbar spec queue-plan-submit --pj PJ --file FILE` → `_queue_plan_response` に raw_text を格納
+    - `gokrax spec revise-submit --pj PJ --file FILE` → `_revise_response` に raw_text を格納
+    - `gokrax spec issue-plan-submit --pj PJ --file FILE` → `_issue_plan_response` に raw_text を格納
+    - `gokrax spec queue-plan-submit --pj PJ --file FILE` → `_queue_plan_response` に raw_text を格納
   - 各コマンドで最低限チェック:
     - state がそれぞれ `SPEC_REVISE` / `ISSUE_PLAN` / `QUEUE_PLAN` であること
     - `spec_mode` が有効であること
@@ -108,7 +108,7 @@
 - 修正案（具体）:
   1) 仕様がレポート引用どおり（full=2, lite=1）なら、`config.MIN_VALID_REVIEWS_BY_MODE` をその値へ戻す。
   2) 概念分離を明確化する（将来の混入防止）:
-     - `REVIEW_MODES[...]["min_reviews"]`（通常devbarのレビュー収集要件）と
+     - `REVIEW_MODES[...]["min_reviews"]`（通常gokraxのレビュー収集要件）と
        `MIN_VALID_REVIEWS_BY_MODE`（spec-modeの「有効レビュー閾値」）は別概念なので、
        変数名を `SPEC_MIN_VALID_REVIEWS_BY_MODE` 等に変え、コメントで“通常レビューの min_reviews と連動させない”と明記する。
   3) テスト追加:
@@ -118,7 +118,7 @@
 - 検証結果: **confirmed**
 - 根拠:
   - `cmd_spec_review_submit()` は `current_reviews.entries[...]` を書くが、トップレベル `current_reviews["reviewed_rev"]` を設定しない。
-    - `devbar.py`:
+    - `gokrax.py`:
       ```py
       cr = sc.setdefault("current_reviews", {})
       entries = cr.setdefault("entries", {})
@@ -151,7 +151,7 @@
       }
       ```
 - 修正案:
-  - `devbar spec issue-suggestion-submit --pj PJ --reviewer R --file FILE` を追加し、
+  - `gokrax spec issue-suggestion-submit --pj PJ --reviewer R --file FILE` を追加し、
     `ISSUE_SUGGESTION` state のときに `current_reviews.entries[R] = {status:"received", raw_text: <file> ...}` を投入できるようにする。
   - あるいは `review_requests[reviewer]["response"]` を使用する設計に寄せ、`current_reviews` をレビュー専用に戻す（表記・データモデルの整理）。
 

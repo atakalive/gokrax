@@ -1,15 +1,15 @@
-# DevBar — 開発パイプライン仕様書
+# gokrax — 開発パイプライン仕様書
 
 > 現行コード（2026-02-24時点）に基づく正式仕様。金子さん含むエージェント全員はこの文書に従うこと。
 
 ## 1. 概要
 
-DevBarは **Issue → 設計 → 実装 → レビュー → マージ** のパイプラインを管理するCLI + watchdogシステム。LLMを使わない純粋なオーケストレーターで、pipeline JSONを状態マシンとして駆動する。
+gokraxは **Issue → 設計 → 実装 → レビュー → マージ** のパイプラインを管理するCLI + watchdogシステム。LLMを使わない純粋なオーケストレーターで、pipeline JSONを状態マシンとして駆動する。
 
 ## 2. アーキテクチャ
 
 ```
-devbar.py    — CLI。pipeline JSONの唯一の操作インターフェース
+gokrax.py    — CLI。pipeline JSONの唯一の操作インターフェース
 watchdog.py  — cronで1分間隔実行。条件判定→状態遷移→通知
 notify.py    — エージェント通知 + Discord投稿
 config.py    — 定数の一元管理
@@ -18,7 +18,7 @@ pipeline_io.py — JSON読み書き（排他ロック + atomic write）
 
 - **pipeline JSON**: `~/.openclaw/shared/pipelines/<project>.json`
 - **watchdog cron**: `*/1 * * * *` でflock排他実行
-- **Discord通知先**: #dev-bar (kaneko-discord アカウントで投稿)
+- **Discord通知先**: #gokrax (kaneko-discord アカウントで投稿)
 
 ## 3. ロール定義
 
@@ -31,20 +31,20 @@ pipeline_io.py — JSON読み書き（排他ロック + atomic write）
 ### 3.2 レビュアー (Reviewers) = pascal, leibniz, hanfei, dijkstra
 
 - DESIGN_REVIEWまたはCODE_REVIEWでレビュー依頼を受け取る
-- `devbar review` コマンドでverdict（APPROVE / P0 / P1）を投稿する
+- `gokrax review` コマンドでverdict（APPROVE / P0 / P1）を投稿する
 - **自分が設計・実装したものを自分でレビューしてはならない**
 - レビュアーは実装担当ではない。レビュアーが `plan-done`, `commit`, `design-revise`, `code-revise` を実行することはない
 
 ### 3.3 承認者 = M (人間)
 
-- MERGE_SUMMARY_SENT で #dev-bar にサマリーが投稿される。Mが「OK」とリプライするとDONE→マージ
-- `devbar start` や `devbar transition --force` 等の制御コマンドを実行する
+- MERGE_SUMMARY_SENT で #gokrax にサマリーが投稿される。Mが「OK」とリプライするとDONE→マージ
+- `gokrax start` や `gokrax transition --force` 等の制御コマンドを実行する
 
 ### 3.4 CC (Claude Code)
 
 - IMPLEMENTATIONフェーズでwatchdogが自動起動する
 - Plan (model: sonnet) → Impl (model: sonnet) の2段階
-- CC完了後、自動で `devbar commit` を実行する
+- CC完了後、自動で `gokrax commit` を実行する
 - **CCはIMPLEMENTATIONでのみ使用。他のフェーズでは使わない**
 
 ## 4. 状態マシン
@@ -68,16 +68,16 @@ IDLE → DESIGN_PLAN → DESIGN_REVIEW → DESIGN_APPROVED → IMPLEMENTATION
 
 | 状態 | 責任者 | やること | 次の状態への条件 |
 |------|--------|----------|-----------------|
-| IDLE | - | 何もない | `devbar start` で DESIGN_PLAN へ |
+| IDLE | - | 何もない | `gokrax start` で DESIGN_PLAN へ |
 | DESIGN_PLAN | 実装担当 | Issue本文を確認・修正し `plan-done` | 全Issueに `design_ready` フラグ |
-| DESIGN_REVIEW | レビュアー | 設計レビュー、`devbar review` で投稿 | `min_reviews` 件集まる |
+| DESIGN_REVIEW | レビュアー | 設計レビュー、`gokrax review` で投稿 | `min_reviews` 件集まる |
 | DESIGN_REVISE | 実装担当 | P0指摘に基づきIssue本文を修正、`design-revise` | 全対象Issueに `design_revised` フラグ |
 | DESIGN_APPROVED | (自動通過) | 即座にIMPLEMENTATIONに遷移 | - |
 | IMPLEMENTATION | CC (自動) | CC自動起動 → Plan + Impl → `commit` | 全Issueに `commit` ハッシュ |
-| CODE_REVIEW | レビュアー | コードレビュー、`devbar review` で投稿 | `min_reviews` 件集まる |
+| CODE_REVIEW | レビュアー | コードレビュー、`gokrax review` で投稿 | `min_reviews` 件集まる |
 | CODE_REVISE | 実装担当 | P0指摘に基づきコード修正 → `code-revise --hash` | 全対象Issueに `code_revised` フラグ |
 | CODE_APPROVED | (自動通過) | 即座にMERGE_SUMMARY_SENTに遷移 | - |
-| MERGE_SUMMARY_SENT | M (人間) | #dev-barのサマリーに「OK」リプライ | MのOKリプライ検出 |
+| MERGE_SUMMARY_SENT | M (人間) | #gokraxのサマリーに「OK」リプライ | MのOKリプライ検出 |
 | DONE | (自動) | git push + issue close → IDLE | 自動遷移 |
 | BLOCKED | M (人間) | 手動復旧が必要 | `transition --force --to IDLE` |
 
@@ -118,7 +118,7 @@ IDLE → DESIGN_PLAN → DESIGN_REVIEW → DESIGN_APPROVED → IMPLEMENTATION
 
 - 遷移直後 **180秒** は催促しない (NUDGE_GRACE_SEC)
 - 残り **300秒** 未満で延長案内を催促に付加
-- 延長は `devbar extend --pj <PJ> --by 600` (デフォルト600秒)
+- 延長は `gokrax extend --pj <PJ> --by 600` (デフォルト600秒)
 - 延長回数はフェーズごと、DONE時にリセット
 
 ## 7. watchdog動作
@@ -165,7 +165,7 @@ IDLE → DESIGN_PLAN → DESIGN_REVIEW → DESIGN_APPROVED → IMPLEMENTATION
 
 ### 7.4 Discord通知
 
-- 全状態遷移を `#dev-bar` に投稿 (形式: `[PJ] OLD → NEW (timestamp)`)
+- 全状態遷移を `#gokrax` に投稿 (形式: `[PJ] OLD → NEW (timestamp)`)
 - DESIGN_PLAN開始時のみIssue一覧を別メッセージで投稿
 - CC進捗: 📋 Plan開始 → ✅ Plan完了 → 🔨 Impl開始 → ✅ Impl完了
 - マージサマリー: 全Issue×全レビュアーの判定を一覧投稿
@@ -241,15 +241,15 @@ IDLE → DESIGN_PLAN → DESIGN_REVIEW → DESIGN_APPROVED → IMPLEMENTATION
 #### 新しい外部副作用を追加するとき
 
 1. 本番環境に影響する関数（ファイル書き込み、プロセス操作、API呼び出し）を追加したら、**conftest.pyにmockを追加すること**
-2. テストを走らせた後、本番のwatchdogが生きてることを確認すること: `cat /tmp/devbar-watchdog-loop.pid && ps -p $(cat /tmp/devbar-watchdog-loop.pid)`
+2. テストを走らせた後、本番のwatchdogが生きてることを確認すること: `cat /tmp/gokrax-watchdog-loop.pid && ps -p $(cat /tmp/gokrax-watchdog-loop.pid)`
 
 #### 事故記録
 
-- **2026-02-25**: `_stop_loop_if_idle()` がテスト中に本番のwatchdog-loop.shを殺した。テスト用tmp_pathにはdisabled PJしかないため「全PJ disabled」と誤判定。IMPLEMENTATION中のdevbarパイプラインが停止した
+- **2026-02-25**: `_stop_loop_if_idle()` がテスト中に本番のwatchdog-loop.shを殺した。テスト用tmp_pathにはdisabled PJしかないため「全PJ disabled」と誤判定。IMPLEMENTATION中のgokraxパイプラインが停止した
 
 ## 11. 禁止事項
 
-1. **pipeline JSONの直接編集禁止。** 必ずdevbar CLIを使う
+1. **pipeline JSONの直接編集禁止。** 必ずgokrax CLIを使う
 2. **実装担当が自分の設計/実装をレビュー(APPROVE)してはならない**
 3. **レビュアーが `plan-done`, `commit`, `design-revise`, `code-revise` を実行してはならない**（ロール違反）
 4. **DESIGN_PLANでCCを手動起動してはならない。** Issue確認は実装担当の責務

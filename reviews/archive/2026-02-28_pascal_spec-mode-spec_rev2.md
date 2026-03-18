@@ -1,7 +1,7 @@
-# DevBar Spec Mode rev2 — レビュー結果 (Pascal)
+# gokrax Spec Mode rev2 — レビュー結果 (Pascal)
 
 **レビュアー:** Pascal (g-reviewer)
-**対象:** /mnt/s/wsl/work/project/devbar/docs/spec-mode-spec_rev2.md (rev2)
+**対象:** /mnt/s/wsl/work/project/gokrax/docs/spec-mode-spec_rev2.md (rev2)
 
 ## 総評
 前回の致命的な欠陥（空集合の自動承認バグ、無限ループの温床等）は塞がれた。悪くない。しかし、状態機械を複雑にした代償として、「異常系からの復帰時の時間的連続性」や「エラー判定の論理矛盾」が新たに顔を出している。特に全員パース失敗時の扱いは、ドキュメントのセクション間で完全に矛盾しており、実装時に間違いなく破綻する。さらなる厳密な推敲を要求する。
@@ -25,7 +25,7 @@ items:
     severity: major
     section: "§2.2, §10.2"
     title: "resume 時のタイムアウト即死問題"
-    description: "`paused_from` を記録して `devbar spec resume` で前状態に復帰できる仕様だが、タイマー（`sent_at` や `timeout_at`）の補正について言及がない。待機中に PAUSED になり、数時間後に人間が resume した場合、復帰直後に過去の `timeout_at` に抵触し、即座にタイムアウト処理が暴発する。"
+    description: "`paused_from` を記録して `gokrax spec resume` で前状態に復帰できる仕様だが、タイマー（`sent_at` や `timeout_at`）の補正について言及がない。待機中に PAUSED になり、数時間後に人間が resume した場合、復帰直後に過去の `timeout_at` に抵触し、即座にタイムアウト処理が暴発する。"
     suggestion: "resume時に `timeout_at` を現在時刻ベースで再計算（リセット）するか、PAUSED 中の経過時間をオフセットとして補正するロジックを仕様に組み込め。"
   - id: P-4
     severity: major

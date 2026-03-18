@@ -22,7 +22,7 @@ from engine.fsm_spec import (
     _cleanup_expired_spec_files,
 )
 from messages import render
-from config import DEVBAR_CLI
+from config import GOKRAX_CLI
 
 JST = timezone(timedelta(hours=9))
 
@@ -299,11 +299,11 @@ class TestApplySpecAction:
 class TestPromptGeneration:
     def test_initial_prompt(self):
         prompt = render("spec.review", "initial",
-            project="devbar", spec_path="docs/spec.md",
-            current_rev="1", DEVBAR_CLI=DEVBAR_CLI,
+            project="gokrax", spec_path="docs/spec.md",
+            current_rev="1", GOKRAX_CLI=GOKRAX_CLI,
         )
         assert "やりすぎレビュー" in prompt
-        assert "devbar" in prompt
+        assert "gokrax" in prompt
         assert "rev1" in prompt
 
     def test_revision_prompt(self):
@@ -315,8 +315,8 @@ class TestPromptGeneration:
         }
         last_changes = sc.get("last_changes") or {}
         prompt = render("spec.review", "revision",
-            project="devbar", spec_path="docs/spec.md",
-            current_rev="2", DEVBAR_CLI=DEVBAR_CLI,
+            project="gokrax", spec_path="docs/spec.md",
+            current_rev="2", GOKRAX_CLI=GOKRAX_CLI,
             changelog=last_changes.get("changelog_summary", "変更履歴なし"),
             added=str(last_changes.get("added_lines", "?")),
             removed=str(last_changes.get("removed_lines", "?")),
@@ -744,7 +744,7 @@ class TestSpecNudge:
         """spec review nudge メッセージに spec review-submit コマンドが含まれる。"""
         msg = render("spec.review", "nudge",
             project="myproj", current_rev="2", spec_path="docs/spec.md",
-            reviewer="pascal", DEVBAR_CLI=DEVBAR_CLI,
+            reviewer="pascal", GOKRAX_CLI=GOKRAX_CLI,
         )
         assert "spec review-submit" in msg
         assert "myproj" in msg
@@ -754,7 +754,7 @@ class TestSpecNudge:
     def test_build_spec_revise_nudge_msg_contains_command(self):
         """spec revise nudge メッセージに spec revise-submit コマンドが含まれる。"""
         msg = render("spec.revise", "nudge",
-            project="myproj", current_rev="3", DEVBAR_CLI=DEVBAR_CLI,
+            project="myproj", current_rev="3", GOKRAX_CLI=GOKRAX_CLI,
         )
         assert "spec revise-submit" in msg
         assert "myproj" in msg

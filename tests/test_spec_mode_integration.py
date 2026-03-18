@@ -20,7 +20,7 @@ from engine.fsm_spec import (
     _apply_spec_action,
 )
 from messages import render
-from config import DEVBAR_CLI
+from config import GOKRAX_CLI
 from pipeline_io import default_spec_config
 from spec_review import (
     should_continue_review,
@@ -742,7 +742,7 @@ class TestCLIOptionCombinations:
     def _run_start(self, tmp_pipelines, **overrides):
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, _make_pipeline(state="IDLE"))
-        with patch("devbar._start_loop"):
+        with patch("gokrax._start_loop"):
             cmd_spec_start(self._base_args(**overrides))
         return json.loads(path.read_text())
 
@@ -925,8 +925,8 @@ class TestLastChangesVerification:
         )
         last_changes = sc.get("last_changes") or {}
         prompt = render("spec.review", "revision",
-            project="devbar", spec_path="docs/spec.md",
-            current_rev="2", DEVBAR_CLI=DEVBAR_CLI,
+            project="gokrax", spec_path="docs/spec.md",
+            current_rev="2", GOKRAX_CLI=GOKRAX_CLI,
             changelog=last_changes.get("changelog_summary", "変更履歴なし"),
             added=str(last_changes.get("added_lines", "?")),
             removed=str(last_changes.get("removed_lines", "?")),

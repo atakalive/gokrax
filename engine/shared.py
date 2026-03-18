@@ -1,4 +1,4 @@
-"""engine/shared.py - watchdog/devbar共通ユーティリティ"""
+"""engine/shared.py - watchdog/gokrax共通ユーティリティ"""
 
 import json
 from datetime import datetime

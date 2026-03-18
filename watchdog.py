@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""devbar-watchdog.py — LLM不要のパイプラインオーケストレーター
+"""gokrax-watchdog.py — LLM不要のパイプラインオーケストレーター
 
 loop.shで20秒間隔で実行。cronで1分間隔でloop.sh確認。pipeline JSONを読んで条件満たしてたら状態遷移+アクター通知。
 冪等。何回実行しても同じ結果。
@@ -21,9 +21,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config import (
     PIPELINES_DIR, JST, LOG_FILE, REVIEW_MODES, CC_MODEL_PLAN, CC_MODEL_IMPL,
-    DEVBAR_CLI, INACTIVE_THRESHOLD_SEC, SESSIONS_BASE,
+    GOKRAX_CLI, INACTIVE_THRESHOLD_SEC, SESSIONS_BASE,
     STATE_PHASE_MAP,
-    # WATCHDOG_LOOP_PIDFILE, WATCHDOG_LOOP_CRON_MARKER は devbar.py の enable/disable 専用
+    # WATCHDOG_LOOP_PIDFILE, WATCHDOG_LOOP_CRON_MARKER は gokrax.py の enable/disable 専用
 )
 from config import (
     SPEC_STATES, SPEC_REVIEW_TIMEOUT_SEC, SPEC_REVISE_TIMEOUT_SEC,
@@ -87,19 +87,19 @@ from engine.fsm_spec import (
 def _check_queue():
     """キューから次のタスクを起動 (DONE→IDLE後、または SPEC_DONE→IDLE後に呼ばれる)。
 
-    Issue #45: devbar qrun をサブプロセス経由で呼び出し、循環 import を回避。
+    Issue #45: gokrax qrun をサブプロセス経由で呼び出し、循環 import を回避。
     """
     import subprocess as _sp
-    from config import DEVBAR_CLI, QUEUE_FILE
+    from config import GOKRAX_CLI, QUEUE_FILE
 
     queue_path = QUEUE_FILE
     if not queue_path.exists():
         return
 
-    # devbar qrun を subprocess 経由で呼び出し
+    # gokrax qrun を subprocess 経由で呼び出し
     try:
         result = _sp.run(
-            [str(DEVBAR_CLI), "qrun", "--queue", str(queue_path)],
+            [str(GOKRAX_CLI), "qrun", "--queue", str(queue_path)],
             capture_output=True, text=True, timeout=180,
         )
         if result.returncode == 0 and result.stdout.strip():
@@ -323,12 +323,12 @@ def process(path: Path):
                         capture_output=True, text=True, timeout=10, check=True,
                     ).stdout.strip()
 
-                    fd_out, pytest_out_path = tempfile.mkstemp(suffix=".txt", prefix="devbar-pytest-")
+                    fd_out, pytest_out_path = tempfile.mkstemp(suffix=".txt", prefix="gokrax-pytest-")
                     os.close(fd_out)
                     exit_code_path = pytest_out_path + ".exit"
 
                     import shlex
-                    fd_sh, script_path = tempfile.mkstemp(suffix=".sh", prefix="devbar-pytest-")
+                    fd_sh, script_path = tempfile.mkstemp(suffix=".sh", prefix="gokrax-pytest-")
                     script = (
                         f'#!/bin/bash\n'
                         f'cd {shlex.quote(repo)}\n'
@@ -467,7 +467,7 @@ def process(path: Path):
         if action.impl_msg:
             pending["impl"] = {
                 "implementer": data.get("implementer", "kaneko"),
-                "msg": f"[devbar] {pj}: {action.impl_msg}",
+                "msg": f"[gokrax] {pj}: {action.impl_msg}",
             }
         if action.send_review:
             pending["review"] = {
@@ -548,7 +548,7 @@ def process(path: Path):
                         continue
 
                     # メッセージ組み立て（1通にまとめる）
-                    from config import review_command, get_current_round, DEVBAR_CLI
+                    from config import review_command, get_current_round, GOKRAX_CLI
                     round_num = get_current_round(pipeline_data)
                     msg_parts = []
 
@@ -559,7 +559,7 @@ def process(path: Path):
                         for issue_num, reason in dispute_items:
                             lines.append(
                                 f"  #{issue_num}: {reason}\n"
-                                f"    {DEVBAR_CLI} review --pj {pj} --issue {issue_num} "
+                                f"    {GOKRAX_CLI} review --pj {pj} --issue {issue_num} "
                                 f"--reviewer {reviewer} --verdict <APPROVE/P0/P1/P2> --summary \"...\" --force"
                             )
                         msg_parts.append(render(review_module, "nudge_dispute",
@@ -668,7 +668,7 @@ def process(path: Path):
                     project=pj, issue_lines="\n".join(issue_lines), q_prefix=q_prefix,
                 ))
 
-        # MERGE_SUMMARY_SENT遷移時: #dev-bar にサマリーを投稿（リトライ付き）
+        # MERGE_SUMMARY_SENT遷移時: #gokrax にサマリーを投稿（リトライ付き）
         if action.send_merge_summary:
             from config import DISCORD_CHANNEL
             from notify import post_discord
@@ -724,7 +724,7 @@ def process(path: Path):
             )
 
         # DONE→IDLE遷移後: キューモードのときだけ次行を自動起動 (Issue #45)
-        # devbar start で起動した場合は queue_mode=False なのでスキップ
+        # gokrax start で起動した場合は queue_mode=False なのでスキップ
         if (notification.get("old_state") == "DONE"
                 and action.new_state == "IDLE"
                 and notification.get("queue_mode")):
@@ -778,7 +778,7 @@ def process(path: Path):
         if action.impl_msg:
             notify_implementer(
                 notification["implementer"],
-                f"[devbar] {pj}: {action.impl_msg}",
+                f"[gokrax] {pj}: {action.impl_msg}",
             )
             clear_pending_notification(pj, "impl")
         if action.send_review:
@@ -818,31 +818,31 @@ def process(path: Path):
 # enabledチェックは process() 内の早期returnで行う。
 
 
-def _load_devbar_state() -> dict:
-    """Load devbar-state.json or return default state."""
-    from config import DEVBAR_STATE_PATH
-    if not DEVBAR_STATE_PATH.exists():
+def _load_gokrax_state() -> dict:
+    """Load gokrax-state.json or return default state."""
+    from config import GOKRAX_STATE_PATH
+    if not GOKRAX_STATE_PATH.exists():
         return {"last_command_message_id": "0"}
     try:
-        with open(DEVBAR_STATE_PATH) as f:
+        with open(GOKRAX_STATE_PATH) as f:
             return json.load(f)
     except (json.JSONDecodeError, OSError):
-        log("WARNING: devbar-state.json corrupt, using default")
+        log("WARNING: gokrax-state.json corrupt, using default")
         return {"last_command_message_id": "0"}
 
 
-def _save_devbar_state(state: dict):
-    """Atomically save devbar-state.json."""
+def _save_gokrax_state(state: dict):
+    """Atomically save gokrax-state.json."""
     import tempfile
-    from config import DEVBAR_STATE_PATH
-    DEVBAR_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=DEVBAR_STATE_PATH.parent, suffix=".tmp")
+    from config import GOKRAX_STATE_PATH
+    GOKRAX_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=GOKRAX_STATE_PATH.parent, suffix=".tmp")
     try:
         with os.fdopen(fd, "w") as f:
             json.dump(state, f, ensure_ascii=False, indent=2)
             f.flush()
             os.fsync(f.fileno())
-        os.replace(tmp, str(DEVBAR_STATE_PATH))
+        os.replace(tmp, str(GOKRAX_STATE_PATH))
     except BaseException:
         try:
             os.unlink(tmp)
@@ -870,7 +870,7 @@ def _handle_qrun(msg_id: str):
     from config import DISCORD_CHANNEL, QUEUE_FILE
     from notify import post_discord
     from task_queue import pop_next_queue_entry, restore_queue_entry
-    from devbar import cmd_start
+    from gokrax import cmd_start
     from pipeline_io import update_pipeline, get_path
     import config
     import argparse
@@ -966,7 +966,7 @@ def _handle_qstatus(msg_id: str):
     from config import DISCORD_CHANNEL, QUEUE_FILE
     from notify import post_discord
     from task_queue import get_active_entries
-    from devbar import get_qstatus_text, _get_running_info
+    from gokrax import get_qstatus_text, _get_running_info
     import config
 
     if config.DRY_RUN:
@@ -987,7 +987,7 @@ def _handle_qadd(msg_id: str, content: str):
     from config import DISCORD_CHANNEL, QUEUE_FILE
     from notify import post_discord
     from task_queue import append_entry, get_active_entries, parse_queue_line
-    from devbar import get_qstatus_text, _get_running_info
+    from gokrax import get_qstatus_text, _get_running_info
     import config
 
     if config.DRY_RUN:
@@ -1041,7 +1041,7 @@ def _handle_qdel(msg_id: str, content: str):
     from config import DISCORD_CHANNEL, QUEUE_FILE
     from notify import post_discord
     from task_queue import delete_entry, get_active_entries
-    from devbar import get_qstatus_text, _get_running_info
+    from gokrax import get_qstatus_text, _get_running_info
     import config
 
     if config.DRY_RUN:
@@ -1084,7 +1084,7 @@ def _handle_qedit(msg_id: str, content: str):
     from config import DISCORD_CHANNEL, QUEUE_FILE
     from notify import post_discord
     from task_queue import replace_entry, get_active_entries
-    from devbar import get_qstatus_text, _get_running_info
+    from gokrax import get_qstatus_text, _get_running_info
     import config
 
     if config.DRY_RUN:
@@ -1093,7 +1093,7 @@ def _handle_qedit(msg_id: str, content: str):
 
     parts = content.strip().split(None, 2)
     if len(parts) < 3:
-        post_discord(DISCORD_CHANNEL, "qedit: 引数が必要です (例: qedit 1 devbar 105 full ...)")
+        post_discord(DISCORD_CHANNEL, "qedit: 引数が必要です (例: qedit 1 gokrax 105 full ...)")
         return
 
     target = parts[1]
@@ -1129,11 +1129,11 @@ DISCORD_COMMANDS = ("status", "qrun", "qstatus", "qadd", "qdel", "qedit")
 
 
 def check_discord_commands():
-    """Check #dev-bar for commands from M and respond.
+    """Check #gokrax for commands from M and respond.
 
     Process flow:
-    1. Load last_command_message_id from devbar-state.json
-    2. Fetch latest 10 messages from #dev-bar
+    1. Load last_command_message_id from gokrax-state.json
+    2. Fetch latest 10 messages from #gokrax
     3. Filter: author is M, not bot, first word in DISCORD_COMMANDS
     4. Filter: message_id > last_command_message_id
     5. Process in chronological order (oldest → newest)
@@ -1141,11 +1141,11 @@ def check_discord_commands():
     """
     from config import DISCORD_CHANNEL, M_DISCORD_USER_ID, BOT_USER_ID
     from notify import fetch_discord_latest, post_discord
-    from devbar import get_status_text
+    from gokrax import get_status_text
     import config
 
     # 1. Load state
-    state = _load_devbar_state()
+    state = _load_gokrax_state()
     last_id = state.get("last_command_message_id", "0")
 
     # 2. Fetch latest messages
@@ -1207,7 +1207,7 @@ def check_discord_commands():
 
         # 6. Update state (even in dry-run to test deduplication)
         state["last_command_message_id"] = msg_id
-        _save_devbar_state(state)
+        _save_gokrax_state(state)
         log(f"Processed Discord {cmd_word} command (msg_id={msg_id})")
 
 

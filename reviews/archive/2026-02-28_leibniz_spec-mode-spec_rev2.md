@@ -1,9 +1,9 @@
-# DevBar Spec Mode — 仕様書レビュー（Leibniz, rev2 / やりすぎ版）
+# gokrax Spec Mode — 仕様書レビュー（Leibniz, rev2 / やりすぎ版）
 
-対象: `/mnt/s/wsl/work/project/devbar/docs/spec-mode-spec_rev2.md` (rev2, 767行)
+対象: `/mnt/s/wsl/work/project/gokrax/docs/spec-mode-spec_rev2.md` (rev2, 767行)
 差分（rev1→rev2）: +478 / -532 行（概算）
 
-rev1の私の主要懸念（型衝突、送信路、決定性、per-reviewer timeout、純粋関数化、ID体系、エラー通知など）は概ね仕様上は反映されています。だが、**現行 devbar の watchdog 実装上の前提（batch 非空）と正面衝突**しており、このままだと spec mode は一歩も動きません。ここが P0。
+rev1の私の主要懸念（型衝突、送信路、決定性、per-reviewer timeout、純粋関数化、ID体系、エラー通知など）は概ね仕様上は反映されています。だが、**現行 gokrax の watchdog 実装上の前提（batch 非空）と正面衝突**しており、このままだと spec mode は一歩も動きません。ここが P0。
 
 ---
 
@@ -21,7 +21,7 @@ items:
     severity: critical
     section: "§2.3, §10.1"
     title: "SPEC_TRANSITIONS/STATE_PHASE_MAP更新は“仕様内コード片”であり、実装適用箇所が未確定（実装漏れリスク）"
-    description: "§2.3で `VALID_STATES = VALID_STATES + SPEC_STATES` 等のコード片を示しているが、現行実装では `config.py` が単一定義ソースで、`devbar.py`/`watchdog.py` は import 時点の定数を前提に動く。仕様が『どのファイルにどう反映するか』を（少なくとも実装計画の範囲で）断言していないと、更新漏れが起きやすい。特に `STATE_PHASE_MAP` は `devbar flag` の phase 決定に直結する。"
+    description: "§2.3で `VALID_STATES = VALID_STATES + SPEC_STATES` 等のコード片を示しているが、現行実装では `config.py` が単一定義ソースで、`gokrax.py`/`watchdog.py` は import 時点の定数を前提に動く。仕様が『どのファイルにどう反映するか』を（少なくとも実装計画の範囲で）断言していないと、更新漏れが起きやすい。特に `STATE_PHASE_MAP` は `gokrax flag` の phase 決定に直結する。"
     suggestion: "`config.py` に SPEC_STATES/SPEC_TRANSITIONS を実装することを“必須要件”として明文化し、ユニットテストで `SPEC_STATES ⊂ VALID_STATES` と `∀(s→t)∈SPEC_TRANSITIONS: t∈VALID_TRANSITIONS[s]` を検査せよ。"
 
   - id: C-3
@@ -64,7 +64,7 @@ items:
     section: "§12.1"
     title: "reviews/をmainへ直接commitする運用が危険（競合・肥大化・秘密情報）"
     description: "rev2は『repo内 reviews/ をバージョン管理対象、mainへ直接commit』を採用した（§12.1）。複数レビュアーが並行で書くと競合しやすく、レビュー原文（思考過程・内部情報）がrepoに残り続ける。運用・情報管理上のコストが高い。"
-    suggestion: "(A) repo外（pipelines/log）へ保存し、必要ならリンクのみ残す、または (B) ブランチ運用（レビュー成果物は別ブランチ/別リポジトリ）を仕様化せよ。少なくとも“誰がcommitするか”（implementerかdevbarか）とコミットメッセージ規約を固定せよ。"
+    suggestion: "(A) repo外（pipelines/log）へ保存し、必要ならリンクのみ残す、または (B) ブランチ運用（レビュー成果物は別ブランチ/別リポジトリ）を仕様化せよ。少なくとも“誰がcommitするか”（implementerかgokraxか）とコミットメッセージ規約を固定せよ。"
 
   - id: M-3
     severity: major

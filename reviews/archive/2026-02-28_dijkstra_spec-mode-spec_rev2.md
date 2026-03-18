@@ -36,7 +36,7 @@ Minor/Suggestion も大半が反映済み。
 
 §2.3 の擬似コードで `SPEC_TRANSITIONS` に `"IDLE": ["SPEC_REVIEW", "SPEC_APPROVED"]` を定義し、`VALID_TRANSITIONS.update(SPEC_TRANSITIONS)` している。
 
-既存 config.py の `VALID_TRANSITIONS` は `"IDLE": ["DESIGN_PLAN"]`。`dict.update()` は同一キーを**上書き**するため、update 後は IDLE → DESIGN_PLAN が消える。既存の `devbar start`（IDLE → DESIGN_PLAN）が全て壊れる。
+既存 config.py の `VALID_TRANSITIONS` は `"IDLE": ["DESIGN_PLAN"]`。`dict.update()` は同一キーを**上書き**するため、update 後は IDLE → DESIGN_PLAN が消える。既存の `gokrax start`（IDLE → DESIGN_PLAN）が全て壊れる。
 
 **修正案:** IDLE キーは上書きではなくマージする:
 ```python
@@ -65,7 +65,7 @@ for state, targets in SPEC_TRANSITIONS.items():
 
 §4.1 に列挙されているが §4.2〜§4.4 に詳細なし。引数、前提条件、paused_from バリデーション、retry_count リセット有無が全て未定義。
 
-**修正案:** §4.5 devbar spec retry, §4.6 devbar spec resume を追加。
+**修正案:** §4.5 gokrax spec retry, §4.6 gokrax spec resume を追加。
 
 ### M-2: SPEC_PAUSED の遷移先バリデーションが不十分 (§2.3)
 
@@ -124,6 +124,6 @@ full mode (3人) で1人応答なら1人で改訂に進む。MIN_VALID_REVIEWS =
 
 rev1 の致命的問題は全て解消。batch 分離、LLM フォールバック廃止、異常系3状態追加は正しい方向。
 
-C-1（VALID_TRANSITIONS 上書き）は既存フロー全体を壊す1行バグであり最も危険。仕様の擬似コードを信じて実装すると `devbar start` が動かなくなる。
+C-1（VALID_TRANSITIONS 上書き）は既存フロー全体を壊す1行バグであり最も危険。仕様の擬似コードを信じて実装すると `gokrax start` が動かなくなる。
 
 全体的に「設計方針は正しいが詳細仕様が抜けている」傾向。セルフレビュー パス2、retry/resume、ISSUE系プロンプトなど。rev3 では C-1〜C-3 + M-1/M-5 の修正を求める。

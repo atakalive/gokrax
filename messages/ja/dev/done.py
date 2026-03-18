@@ -13,7 +13,7 @@ def batch_done(
 ) -> str:
     """バッチ完了通知（実装者への振り返り指示、watchdog.py DONE遷移時）。"""
     return (
-        f"[devbar] {project}: バッチ完了\n"
+        f"[gokrax] {project}: バッチ完了\n"
         f"{content}\n\n"
         "上記の作業を振り返り、以下だけを記録してください:\n"
         "- 踏んだ罠、ハマったこと（あれば）\n"

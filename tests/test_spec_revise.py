@@ -34,10 +34,10 @@ def _now():
 class TestBuildRevisePrompt:
     def test_contains_report(self):
         sc = {"spec_path": "docs/spec.md", "current_rev": "2"}
-        prompt = build_revise_prompt(sc, "# Report\nP0 found", {"project": "devbar"})
+        prompt = build_revise_prompt(sc, "# Report\nP0 found", {"project": "gokrax"})
         assert "Report" in prompt
         assert "P0 found" in prompt
-        assert "devbar" in prompt
+        assert "gokrax" in prompt
 
     def test_contains_yaml_format(self):
         sc = {"spec_path": "docs/spec.md", "current_rev": "1"}
@@ -65,7 +65,7 @@ class TestBuildRevisePrompt:
 class TestBuildSelfReviewPrompt:
     def test_contains_check_items(self):
         sc = {"spec_path": "docs/spec.md", "current_rev": "3", "last_commit": "abc123"}
-        prompt = build_self_review_prompt(sc, {"project": "devbar"})
+        prompt = build_self_review_prompt(sc, {"project": "gokrax"})
         # 新チェックリスト方式: デフォルト4項目が含まれること
         assert "reflected_items_match" in prompt
         assert "no_new_contradictions" in prompt

@@ -159,7 +159,7 @@ def find_issue(batch: list, issue_num: int) -> dict | None:
 
 import logging as _logging
 
-_metrics_logger = _logging.getLogger("devbar.metrics")
+_metrics_logger = _logging.getLogger("gokrax.metrics")
 
 
 def append_metric(event: str, **fields) -> None:
@@ -245,7 +245,7 @@ def check_spec_mode_exclusive(data: dict) -> None:
     """
     if data.get("spec_mode"):
         raise SystemExit(
-            "Pipeline is in spec mode. Use 'devbar spec' commands, "
+            "Pipeline is in spec mode. Use 'gokrax spec' commands, "
             "or finish/abort spec mode first."
         )
 

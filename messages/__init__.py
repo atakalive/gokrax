@@ -1,4 +1,4 @@
-"""DevBar プロンプト外部化モジュール。
+"""gokrax プロンプト外部化モジュール。
 
 Usage:
     from messages import render

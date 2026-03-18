@@ -430,10 +430,10 @@ def cmd_start(args):
         update_pipeline(path, do_mode)
 
 
-    # 7. DESIGN_PLANに遷移
+    # 7. INITIALIZEに遷移
     transition_args = argparse.Namespace(
         project=args.project,
-        to="DESIGN_PLAN",
+        to="INITIALIZE",
         actor="cli",
         force=False,
         resume=False,
@@ -448,7 +448,7 @@ def cmd_start(args):
 
     # 9. 完了メッセージ
     issues_str = ", ".join(f"#{n}" for n in issue_nums)
-    print(f"{args.project}: started with issues [{issues_str}] → DESIGN_PLAN (watchdog enabled)")
+    print(f"{args.project}: started with issues [{issues_str}] → INITIALIZE (watchdog enabled)")
 
 
 def _reset_to_idle(data: dict) -> None:
@@ -538,25 +538,6 @@ def cmd_transition(args):
         data["state"] = target
         if target == "IDLE":
             _reset_to_idle(data)
-        elif target == "DESIGN_PLAN":
-            # Reset REVISE cycle counters when starting new batch (Issue #29)
-            data.pop("design_revise_count", None)
-            data.pop("code_revise_count", None)
-            # base_commit: バッチ開始時点の HEAD を full SHA で記録
-            data.pop("base_commit", None)
-            _repo = data.get("repo_path", "")
-            if _repo:
-                try:
-                    import subprocess as _sub
-                    _result = _sub.run(
-                        ["git", "-C", _repo, "log", "--format=%H", "-1"],
-                        capture_output=True, text=True, timeout=10, check=False,
-                    )
-                    if _result.returncode == 0 and _result.stdout.strip():
-                        data["base_commit"] = _result.stdout.strip()
-                except Exception as _exc:
-                    print(f"[{args.project}] WARNING: failed to record base_commit: {_exc}")
-                    # フォールバック: _start_cc で記録される
         elif args.force and target in ("DESIGN_REVIEW", "CODE_REVIEW"):
             # Issue #41: Reset counters when force-transitioning to REVIEW states from BLOCKED
             counter_key = "design_revise_count" if "DESIGN" in target else "code_revise_count"

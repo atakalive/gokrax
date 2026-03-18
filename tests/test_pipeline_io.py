@@ -208,11 +208,11 @@ class TestDevbarCLIIntegration:
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
 
-        r = self._run("transition", "--project", "test-pj", "--to", "DESIGN_PLAN",
+        r = self._run("transition", "--project", "test-pj", "--to", "INITIALIZE",
                        pipelines_dir=tmp_pipelines)
         assert r.returncode == 0
         with open(path) as f:
-            assert json.load(f)["state"] == "DESIGN_PLAN"
+            assert json.load(f)["state"] == "INITIALIZE"
 
     def test_review(self, tmp_pipelines, sample_pipeline):
         sample_pipeline["state"] = "DESIGN_REVIEW"

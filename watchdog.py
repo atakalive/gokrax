@@ -287,8 +287,8 @@ def process(path: Path):
             _kill_pytest_baseline(data, pj)
             data.pop("test_baseline", None)
 
-        # IDLE→DESIGN_PLAN: Reset REVISE cycle counters (Issue #29)
-        if state == "IDLE" and action.new_state == "DESIGN_PLAN":
+        # INITIALIZE→DESIGN_PLAN: Reset REVISE cycle counters + 初期化処理 (Issue #29, #125)
+        if state == "INITIALIZE" and action.new_state == "DESIGN_PLAN":
             data.pop("design_revise_count", None)
             data.pop("code_revise_count", None)
             _cleanup_review_files(pj)

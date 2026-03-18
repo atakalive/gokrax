@@ -240,6 +240,19 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
     if state in ("IDLE", "TRIAGE", "BLOCKED"):
         return TransitionAction()
 
+    # INITIALIZE → DESIGN_PLAN: 自動遷移（初期化処理は watchdog の do_transition 内で実行）
+    if state == "INITIALIZE":
+        pj = data.get("project", "") if data else ""
+        comment = data.get("comment", "") if data else ""
+        notif = get_notification_for_state(
+            "DESIGN_PLAN", project=pj, batch=batch, comment=comment,
+        )
+        return TransitionAction(
+            new_state="DESIGN_PLAN",
+            impl_msg=notif.impl_msg,
+            reset_reviewers=True,
+        )
+
     if state == "MERGE_SUMMARY_SENT":
         if data is None:
             return TransitionAction()

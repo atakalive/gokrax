@@ -40,7 +40,7 @@ class TestSpecStatesIntegration:
             assert config.STATE_PHASE_MAP.get(s) == "spec"
 
     def test_existing_states_preserved(self):
-        for s in ["IDLE", "DESIGN_PLAN", "IMPLEMENTATION", "DONE", "BLOCKED"]:
+        for s in ["IDLE", "INITIALIZE", "DESIGN_PLAN", "IMPLEMENTATION", "DONE", "BLOCKED"]:
             assert s in config.VALID_STATES
 
     def test_existing_transitions_preserved(self):

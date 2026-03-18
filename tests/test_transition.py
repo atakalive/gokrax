@@ -4,7 +4,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -21,13 +21,26 @@ def write_pipeline(path: Path, data: dict):
 class TestTransitionForce:
 
     def test_normal_valid_transition(self, tmp_pipelines, sample_pipeline):
-        """通常遷移（IDLE→DESIGN_PLAN）→ 成功"""
+        """通常遷移（IDLE→INITIALIZE）→ 成功"""
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
         from devbar import cmd_transition
         import argparse
-        args = argparse.Namespace(project="test-pj", to="DESIGN_PLAN", actor="cli", force=False)
+        args = argparse.Namespace(project="test-pj", to="INITIALIZE", actor="cli", force=False)
         cmd_transition(args)
+        with open(path) as f:
+            assert json.load(f)["state"] == "INITIALIZE"
+
+    def test_initialize_to_design_plan(self, tmp_pipelines, sample_pipeline):
+        """通常遷移（INITIALIZE→DESIGN_PLAN）→ 成功"""
+        sample_pipeline["state"] = "INITIALIZE"
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, sample_pipeline)
+        from devbar import cmd_transition
+        import argparse
+        args = argparse.Namespace(project="test-pj", to="DESIGN_PLAN", actor="cli", force=False, resume=False)
+        with patch("devbar.notify_implementer"), patch("devbar.notify_reviewers"):
+            cmd_transition(args)
         with open(path) as f:
             assert json.load(f)["state"] == "DESIGN_PLAN"
 
@@ -93,41 +106,6 @@ class TestTransitionForce:
         assert data["batch"] == []
         assert data["enabled"] is False
 
-    def test_design_plan_records_fresh_base_commit(self, tmp_pipelines, sample_pipeline):
-        """前バッチの stale base_commit が cmd_transition(DESIGN_PLAN) で fresh full SHA に更新される"""
-        sample_pipeline["base_commit"] = "stale_old_hash_from_previous_batch__"  # 40文字 stale 値
-        sample_pipeline["repo_path"] = "/tmp/repo"
-        path = tmp_pipelines / "test-pj.json"
-        write_pipeline(path, sample_pipeline)
-        from devbar import cmd_transition
-        import argparse
-        fresh_sha = "f" * 40
-        mock_result = MagicMock(returncode=0, stdout=fresh_sha + "\n")
-        args = argparse.Namespace(project="test-pj", to="DESIGN_PLAN", actor="cli", force=False)
-        with patch("subprocess.run", return_value=mock_result):
-            cmd_transition(args)
-        with open(path) as f:
-            saved = json.load(f)
-        assert saved["base_commit"] == fresh_sha
-        assert len(saved["base_commit"]) == 40
-
-    def test_design_plan_clears_stale_on_git_failure(self, tmp_pipelines, sample_pipeline):
-        """git 失敗時、stale base_commit は pop され、_start_cc の fallback に委ねる"""
-        sample_pipeline["base_commit"] = "stale_old_hash_from_previous_batch__"
-        sample_pipeline["repo_path"] = "/tmp/repo"
-        path = tmp_pipelines / "test-pj.json"
-        write_pipeline(path, sample_pipeline)
-        from devbar import cmd_transition
-        import argparse
-        mock_result = MagicMock(returncode=128, stdout="", stderr="fatal")
-        args = argparse.Namespace(project="test-pj", to="DESIGN_PLAN", actor="cli", force=False)
-        with patch("subprocess.run", return_value=mock_result):
-            cmd_transition(args)
-        with open(path) as f:
-            saved = json.load(f)
-        assert "base_commit" not in saved  # stale 値が残らない
-
-
 class TestTransitionNotifications:
     """cmd_transition の通知ロジックのテスト（Issue #16）"""
 
@@ -171,8 +149,9 @@ class TestTransitionNotifications:
 
     def test_resume_transition_to_design_plan_sends_notification(self, tmp_pipelines, sample_pipeline):
         """--resume 遷移（→DESIGN_PLAN）で notify_implementer が呼ばれ「（再開）」プレフィックスが含まれる"""
-        path = tmp_pipelines / "test-pj.json"
+        sample_pipeline["state"] = "INITIALIZE"
         sample_pipeline["batch"] = [dict(self._BATCH_ITEM)]
+        path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
         from devbar import cmd_transition
         args = argparse.Namespace(
@@ -202,6 +181,7 @@ class TestTransitionNotifications:
 
     def test_design_plan_notifies_implementer(self, tmp_pipelines, sample_pipeline):
         """DESIGN_PLAN 遷移では実装担当に通知が送られる"""
+        sample_pipeline["state"] = "INITIALIZE"
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
         from devbar import cmd_transition
@@ -217,6 +197,7 @@ class TestTransitionNotifications:
 
     def test_transition_notifies_discord(self, tmp_pipelines, sample_pipeline):
         """通常遷移で notify_discord が [pj] current → target (by actor) 形式で呼ばれること"""
+        sample_pipeline["state"] = "INITIALIZE"
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
         from devbar import cmd_transition
@@ -230,7 +211,7 @@ class TestTransitionNotifications:
         mock_discord.assert_called_once()
         msg = mock_discord.call_args[0][0]
         assert "[test-pj]" in msg
-        assert "IDLE" in msg
+        assert "INITIALIZE" in msg
         assert "DESIGN_PLAN" in msg
         assert "by cli" in msg
         assert "（再開）" not in msg
@@ -254,6 +235,7 @@ class TestTransitionNotifications:
 
     def test_resume_notifies_discord_with_prefix(self, tmp_pipelines, sample_pipeline):
         """--resume 遷移で通知文に「（再開）」が含まれること"""
+        sample_pipeline["state"] = "INITIALIZE"
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
         from devbar import cmd_transition
@@ -318,7 +300,7 @@ class TestKeepCtx:
 
     def test_reset_reviewers_design_plan_batch(self, tmp_pipelines, sample_pipeline):
         """DESIGN_PLAN遷移 + keep_ctx_batch=True → reset_reviewers スキップ"""
-        sample_pipeline["state"] = "IDLE"
+        sample_pipeline["state"] = "INITIALIZE"
         sample_pipeline["keep_ctx_batch"] = True
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
@@ -334,7 +316,7 @@ class TestKeepCtx:
 
     def test_reset_reviewers_design_plan_no_batch(self, tmp_pipelines, sample_pipeline):
         """DESIGN_PLAN遷移 + keep_ctx_batch=False → reset_reviewers 実行"""
-        sample_pipeline["state"] = "IDLE"
+        sample_pipeline["state"] = "INITIALIZE"
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
         from devbar import cmd_transition
@@ -382,7 +364,7 @@ class TestKeepCtx:
 
     def test_reset_reviewers_design_plan_only_intra_does_not_skip(self, tmp_pipelines, sample_pipeline):
         """DESIGN_PLAN遷移 + keep_ctx_intra=True のみ → reset_reviewers 実行（batchがFalse）"""
-        sample_pipeline["state"] = "IDLE"
+        sample_pipeline["state"] = "INITIALIZE"
         sample_pipeline["keep_ctx_intra"] = True
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)

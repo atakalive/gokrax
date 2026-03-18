@@ -1461,11 +1461,10 @@ class TestReviseLoopLimit:
         assert "code_revise_count" not in data
         assert data["state"] == "IDLE"
 
-    def test_base_commit_cleared_on_idle_to_design_plan(self, tmp_path, monkeypatch):
-        """IDLE→DESIGN_PLAN遷移でbase_commitがクリアされること（Issue #82）
+    def test_base_commit_cleared_on_initialize_to_design_plan(self, tmp_path, monkeypatch):
+        """INITIALIZE→DESIGN_PLAN遷移でbase_commitがクリアされること（Issue #82, #125）
 
-        IDLE→DESIGN_PLAN は CLI (devbar start) で遷移するため、
-        do_transition 内のクリア処理を直接テストする。
+        INITIALIZE→DESIGN_PLAN は watchdog の do_transition 内で実行される。
         """
         import config, pipeline_io
         from pipeline_io import update_pipeline
@@ -1475,7 +1474,7 @@ class TestReviseLoopLimit:
         path = tmp_path / "test-pj.json"
         data = {
             "project": "test-pj",
-            "state": "IDLE",
+            "state": "INITIALIZE",
             "enabled": True,
             "base_commit": "old123",
             "design_revise_count": 2,
@@ -1487,11 +1486,11 @@ class TestReviseLoopLimit:
         }
         _write_pipeline(path, data)
 
-        # IDLE→DESIGN_PLAN 遷移時のクリア処理をシミュレート
+        # INITIALIZE→DESIGN_PLAN 遷移時のクリア処理をシミュレート
         def do_transition(d):
-            state = d.get("state", "IDLE")
+            state = d.get("state", "INITIALIZE")
             new_state = "DESIGN_PLAN"
-            if state == "IDLE" and new_state == "DESIGN_PLAN":
+            if state == "INITIALIZE" and new_state == "DESIGN_PLAN":
                 d.pop("design_revise_count", None)
                 d.pop("code_revise_count", None)
                 d.pop("base_commit", None)
@@ -4432,8 +4431,8 @@ class TestDoneCleanupTestBaseline:
         assert "_pytest_baseline" not in saved
 
 
-class TestIdleToDesignPlanPytest:
-    """IDLE→DESIGN_PLAN 遷移で pytest がバックグラウンド起動されることのテスト"""
+class TestInitializeToDesignPlanPytest:
+    """INITIALIZE→DESIGN_PLAN 遷移で pytest がバックグラウンド起動されることのテスト"""
 
     def test_has_pytest_true_starts_popen(self, tmp_pipelines, monkeypatch):
         """_has_pytest が True → Popen が呼ばれ _pytest_baseline が設定される"""
@@ -4444,7 +4443,7 @@ class TestIdleToDesignPlanPytest:
         path = tmp_pipelines / "pj.json"
         data = {
             "project": "pj", "gitlab": "atakalive/pj",
-            "state": "IDLE", "enabled": True,
+            "state": "INITIALIZE", "enabled": True,
             "batch": [{"issue": 1}],
             "history": [],
             "repo_path": "/fake/repo",
@@ -4478,7 +4477,7 @@ class TestIdleToDesignPlanPytest:
         path = tmp_pipelines / "pj.json"
         data = {
             "project": "pj", "gitlab": "atakalive/pj",
-            "state": "IDLE", "enabled": True,
+            "state": "INITIALIZE", "enabled": True,
             "batch": [{"issue": 1}],
             "history": [],
             "repo_path": "/fake/repo",
@@ -4513,7 +4512,7 @@ class TestIdleToDesignPlanPytest:
         path = tmp_pipelines / "pj.json"
         data = {
             "project": "pj", "gitlab": "atakalive/pj",
-            "state": "IDLE", "enabled": True,
+            "state": "INITIALIZE", "enabled": True,
             "batch": [{"issue": 1}],
             "history": [],
             "repo_path": "/fake/repo",

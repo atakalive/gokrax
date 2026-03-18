@@ -514,75 +514,74 @@ def process(path: Path):
             ))
 
             for reviewer in all_reviewers:
-                if _is_agent_inactive(reviewer):
-                    # 前回催促からINACTIVE_THRESHOLD_SEC未満ならスキップ
-                    nudge_key = f"_last_nudge_{reviewer}"
-                    last_at = pipeline_data.get(nudge_key) or pipeline_data.get(f"_nudge_failed_{reviewer}")
-                    if last_at:
-                        try:
-                            elapsed = (_datetime.now(JST) - _datetime.fromisoformat(last_at)).total_seconds()
-                            if elapsed < INACTIVE_THRESHOLD_SEC:
-                                continue
-                        except (ValueError, TypeError):
-                            pass
+                # 前回催促からINACTIVE_THRESHOLD_SEC未満ならスキップ（レート制限）
+                nudge_key = f"_last_nudge_{reviewer}"
+                last_at = pipeline_data.get(nudge_key) or pipeline_data.get(f"_nudge_failed_{reviewer}")
+                if last_at:
+                    try:
+                        elapsed = (_datetime.now(JST) - _datetime.fromisoformat(last_at)).total_seconds()
+                        if elapsed < INACTIVE_THRESHOLD_SEC:
+                            continue
+                    except (ValueError, TypeError):
+                        pass
 
-                    # このレビュアーの通常未レビュー Issue を収集
-                    normal_pending_issues = []
-                    if reviewer in notification.get("nudge_reviewers", []):
-                        normal_pending_issues = [
-                            item["issue"] for item in batch
-                            if reviewer not in item.get(review_key, {})
-                        ]
+                # このレビュアーの通常未レビュー Issue を収集
+                normal_pending_issues = []
+                if reviewer in notification.get("nudge_reviewers", []):
+                    normal_pending_issues = [
+                        item["issue"] for item in batch
+                        if reviewer not in item.get(review_key, {})
+                    ]
 
-                    # このレビュアーの pending dispute を収集
-                    dispute_items: list[tuple[int, str]] = []  # (issue番号, reason)
-                    if reviewer in notification.get("dispute_nudge_reviewers", []):
-                        for item in batch:
-                            for d in item.get("disputes", []):
-                                if (d.get("reviewer") == reviewer
-                                        and d.get("status") == "pending"):
-                                    dispute_items.append((item["issue"], d.get("reason", "(不明)")))
+                # このレビュアーの pending dispute を収集
+                dispute_items: list[tuple[int, str]] = []  # (issue番号, reason)
+                if reviewer in notification.get("dispute_nudge_reviewers", []):
+                    for item in batch:
+                        for d in item.get("disputes", []):
+                            if (d.get("reviewer") == reviewer
+                                    and d.get("status") == "pending"):
+                                dispute_items.append((item["issue"], d.get("reason", "(不明)")))
 
-                    # どちらもなければスキップ
-                    if not normal_pending_issues and not dispute_items:
-                        continue
+                # どちらもなければスキップ
+                if not normal_pending_issues and not dispute_items:
+                    continue
 
-                    # メッセージ組み立て（1通にまとめる）
-                    from config import review_command, get_current_round, GOKRAX_CLI
-                    round_num = get_current_round(pipeline_data)
-                    msg_parts = []
+                # メッセージ組み立て（1通にまとめる）
+                from config import review_command, get_current_round, GOKRAX_CLI
+                round_num = get_current_round(pipeline_data)
+                msg_parts = []
 
-                    review_module = "dev.code_review" if is_code else "dev.design_review"
+                review_module = "dev.code_review" if is_code else "dev.design_review"
 
-                    if dispute_items:
-                        lines = []
-                        for issue_num, reason in dispute_items:
-                            lines.append(
-                                f"  #{issue_num}: {reason}\n"
-                                f"    {GOKRAX_CLI} review --pj {pj} --issue {issue_num} "
-                                f"--reviewer {reviewer} --verdict <APPROVE/P0/P1/P2> --summary \"...\" --force"
-                            )
-                        msg_parts.append(render(review_module, "nudge_dispute",
-                            project=pj, dispute_lines="\n".join(lines),
-                        ))
-
-                    if normal_pending_issues:
-                        cmd_lines = "\n".join(
-                            review_command(pj, num, reviewer, round_num=round_num if round_num > 0 else None) for num in normal_pending_issues
+                if dispute_items:
+                    lines = []
+                    for issue_num, reason in dispute_items:
+                        lines.append(
+                            f"  #{issue_num}: {reason}\n"
+                            f"    {GOKRAX_CLI} review --pj {pj} --issue {issue_num} "
+                            f"--reviewer {reviewer} --verdict <APPROVE/P0/P1/P2> --summary \"...\" --force"
                         )
-                        msg_parts.append(render(review_module, "nudge_review",
-                            project=pj,
-                            issues_display=", ".join(f"#{n}" for n in normal_pending_issues),
-                            cmd_lines=cmd_lines,
-                        ))
+                    msg_parts.append(render(review_module, "nudge_dispute",
+                        project=pj, dispute_lines="\n".join(lines),
+                    ))
 
-                    msg = "\n\n".join(msg_parts)
+                if normal_pending_issues:
+                    cmd_lines = "\n".join(
+                        review_command(pj, num, reviewer, round_num=round_num if round_num > 0 else None) for num in normal_pending_issues
+                    )
+                    msg_parts.append(render(review_module, "nudge_review",
+                        project=pj,
+                        issues_display=", ".join(f"#{n}" for n in normal_pending_issues),
+                        cmd_lines=cmd_lines,
+                    ))
 
-                    if send_to_agent_queued(reviewer, msg):
-                        woken.append(reviewer)
-                    else:
-                        failed.append(reviewer)
-                        log(f"[{pj}] {reviewer}: 催促送信失敗、次回スキップ")
+                msg = "\n\n".join(msg_parts)
+
+                if send_to_agent_queued(reviewer, msg):
+                    woken.append(reviewer)
+                else:
+                    failed.append(reviewer)
+                    log(f"[{pj}] {reviewer}: 催促送信失敗、次回スキップ")
             # 催促タイムスタンプを一括更新
             nudged = woken + failed
             if nudged:

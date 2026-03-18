@@ -165,12 +165,12 @@ while IFS= read -r file; do
         rel="${file#$REPO_DIR/}"
         log_action "REPLACE" "$rel"
         if $DRY_RUN; then
-            show_text_changes "$file" && ((FILE_CHANGE_COUNT++)) || true
+            show_text_changes "$file" && FILE_CHANGE_COUNT=$((FILE_CHANGE_COUNT + 1)) || true
             count=$(grep -cE "DEVBAR|DevBar|dev-bar|devbar" "$file" 2>/dev/null || echo 0)
-            ((TEXT_CHANGE_COUNT += count))
+            TEXT_CHANGE_COUNT=$((TEXT_CHANGE_COUNT + count)) || true
         else
             apply_text_replace "$file"
-            ((FILE_CHANGE_COUNT++))
+            FILE_CHANGE_COUNT=$((FILE_CHANGE_COUNT + 1))
         fi
     fi
 done < <(collect_text_targets "$REPO_DIR")
@@ -187,12 +187,12 @@ for target in \
         rel="${target#$SHARED_DIR/}"
         log_action "REPLACE" "$rel"
         if $DRY_RUN; then
-            show_text_changes "$target" && ((FILE_CHANGE_COUNT++)) || true
+            show_text_changes "$target" && FILE_CHANGE_COUNT=$((FILE_CHANGE_COUNT + 1)) || true
             count=$(grep -cE "DEVBAR|DevBar|dev-bar|devbar" "$target" 2>/dev/null || echo 0)
-            ((TEXT_CHANGE_COUNT += count))
+            TEXT_CHANGE_COUNT=$((TEXT_CHANGE_COUNT + count)) || true
         else
             apply_text_replace "$target"
-            ((FILE_CHANGE_COUNT++))
+            FILE_CHANGE_COUNT=$((FILE_CHANGE_COUNT + 1))
         fi
     fi
 done

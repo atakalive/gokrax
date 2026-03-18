@@ -190,7 +190,7 @@ def _check_spec_review(
     # --- 催促ロジック（#76）---
     # all_complete=False の場合のみここに到達
     # 猶予期間チェック（entered_at 取得不可時は安全側=催促しない）
-    from watchdog import _get_state_entered_at
+    from engine.fsm import _get_state_entered_at
     entered_at = _get_state_entered_at(data, "SPEC_REVIEW")
     if entered_at is None:
         if send_to or updates:
@@ -558,7 +558,7 @@ def _check_spec_revise(
             baseline = None
 
     if baseline is None:
-        from watchdog import _get_state_entered_at
+        from engine.fsm import _get_state_entered_at
         baseline = _get_state_entered_at(data, "SPEC_REVISE")
 
     if baseline is None:

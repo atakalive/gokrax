@@ -28,7 +28,7 @@ from pipeline_io import (
     add_history, now_iso, get_path, find_issue,
     clear_pending_notification,
 )
-from watchdog import get_notification_for_state
+from engine.fsm import get_notification_for_state
 import os
 
 # Verdict severity for dispute resolution (Issue #86)

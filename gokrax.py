@@ -18,7 +18,7 @@ from config import (
     PIPELINES_DIR, GLAB_BIN, LOG_FILE,
     VALID_STATES, VALID_TRANSITIONS, MAX_BATCH, TRIAGE_ALLOWED_STATES,
     VALID_VERDICTS, GLAB_TIMEOUT, ALLOWED_REVIEWERS, REVIEW_MODES, JST,
-    WATCHDOG_LOOP_SCRIPT, WATCHDOG_LOOP_PIDFILE,
+    WATCHDOG_LOOP_SCRIPT, WATCHDOG_LOOP_PIDFILE, WATCHDOG_LOOP_LOCKFILE,
     WATCHDOG_LOOP_CRON_MARKER, WATCHDOG_LOOP_CRON_ENTRY,
     VALID_FLAG_VERDICTS, STATE_PHASE_MAP,
     GOKRAX_CLI, OWNER_NAME,
@@ -63,7 +63,7 @@ def _start_loop():
 
 
 def _stop_loop():
-    """watchdog-loop.sh を停止。crontabは残す（次回enable時に自動復帰）。"""
+    """watchdog-loop.sh プロセスを SIGTERM で停止する。crontab やファイルの後処理は呼び出し側で行う。"""
     if WATCHDOG_LOOP_PIDFILE.exists():
         try:
             pid = int(WATCHDOG_LOOP_PIDFILE.read_text().strip())
@@ -220,8 +220,11 @@ def cmd_disable(args):
 
     update_pipeline(path, do_disable)
     if not _any_pj_enabled():
+        _remove_cron_entry()
         _stop_loop()
-        print(f"{args.project}: watchdog disabled (loop stopped — no active projects)")
+        for f in [WATCHDOG_LOOP_PIDFILE, WATCHDOG_LOOP_LOCKFILE]:
+            f.unlink(missing_ok=True)
+        print("All projects disabled — watchdog stopped and crontab entry removed.")
     else:
         print(f"{args.project}: watchdog disabled")
 

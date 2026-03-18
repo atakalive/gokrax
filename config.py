@@ -44,9 +44,10 @@ NONE_TO_FALSE_KEYS: tuple[str, ...] = (
 # watchdog-loop
 WATCHDOG_LOOP_SCRIPT = Path(__file__).resolve().parent / "watchdog-loop.sh"
 WATCHDOG_LOOP_PIDFILE = Path("/tmp/gokrax-watchdog-loop.pid")
+WATCHDOG_LOOP_LOCKFILE = Path("/tmp/gokrax-watchdog-loop.lock")
 WATCHDOG_LOOP_CRON_MARKER = "watchdog-loop"  # crontab行のgrep用マーカー
 WATCHDOG_LOOP_CRON_ENTRY = (
-    f"* * * * * flock -n /tmp/gokrax-watchdog-loop.lock"
+    f"* * * * * flock -n {WATCHDOG_LOOP_LOCKFILE}"
     f" setsid bash {Path(__file__).resolve().parent / 'watchdog-loop.sh'}"
     f" > /dev/null 2>&1 &"
 )

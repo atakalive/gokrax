@@ -40,9 +40,8 @@ class TestShortContextTier:
         original = dict(config.REVIEWER_TIERS)
         monkeypatch.setattr(config, "REVIEWER_TIERS", {
             "regular": ["dup_reviewer"],
-            "semi": ["dup_reviewer"],
             "free": [],
-            "short-context": [],
+            "short-context": ["dup_reviewer"],
         })
 
         with caplog.at_level(logging.WARNING, logger="config"):
@@ -233,11 +232,11 @@ class TestResetShortContextReviewers:
         assert call("hanfei", "/new") in mock_queued.call_args_list
 
     def test_keep_ctx_does_not_send_new_to_regular(self, monkeypatch):
-        """regular/semi tier のメンバーには /new が送信されないこと。"""
+        """short-context 以外の tier のメンバーには /new が送信されないこと。"""
         import config
         import engine.reviewer
 
-        mode = self._setup(monkeypatch, short_ctx_members=["basho"], other_members=["regular1", "semi1"])
+        mode = self._setup(monkeypatch, short_ctx_members=["basho"], other_members=["regular1"])
         monkeypatch.setattr(config, "DRY_RUN", True)
 
         with patch("engine.reviewer.send_to_agent_queued", return_value=True) as mock_queued, \
@@ -246,7 +245,6 @@ class TestResetShortContextReviewers:
 
         sent_to = [c.args[0] for c in mock_queued.call_args_list]
         assert "regular1" not in sent_to
-        assert "semi1" not in sent_to
 
     def test_no_short_context_members_noop(self, monkeypatch):
         """short-context メンバーがいないモードでは send_to_agent_queued が呼ばれないこと。"""

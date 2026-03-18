@@ -120,7 +120,6 @@ AGENTS = {
 # Short-context: Shorter context length. Local LLM etc. (64k-ctx model might be unstable)
 REVIEWER_TIERS: dict[str, list[str]] = {
     "regular": ["dijkstra", "euler", "pascal"],
-    "semi": [],
     "free": [],  # ping-test did not work well so far
     "short-context": ["basho", "hanfei", "leibniz"],
 }

@@ -235,7 +235,7 @@ python3 gokrax.py spec start --pj TrajOpt \
 # ... REVIEW⇔REVISEループ（max-cycles回まで）
 # watchdog: 全員APPROVE → SPEC_APPROVED
 
-# 2. [M] 確認後、Issue化フェーズに進む
+# 2. [OWNER] 確認後、Issue化フェーズに進む
 python3 gokrax.py spec continue --pj TrajOpt
 
 # --- 自動 ---

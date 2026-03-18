@@ -33,7 +33,7 @@ DEFAULT_QUEUE_OPTIONS: dict[str, bool | str] = {
 
 # cmd_start で DEFAULT_QUEUE_OPTIONS 適用後に None→False 正規化する bool オプションキーの一覧。
 # DEFAULT_QUEUE_OPTIONS に含まれないキーでも、後続コードが bool を期待するものはここに含める。
-BOOL_OPTION_KEYS: tuple[str, ...] = (
+NONE_TO_FALSE_KEYS: tuple[str, ...] = (
     "keep_ctx_batch",
     "keep_ctx_intra",
     "p2_fix",

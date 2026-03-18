@@ -361,7 +361,7 @@ def cmd_start(args):
     triage + DESIGN_PLAN遷移 + watchdog有効化を一括実行。
     --issue省略時はGitLab APIでopen issue全件取得。
     """
-    from config import BOOL_OPTION_KEYS, DEFAULT_QUEUE_OPTIONS
+    from config import DEFAULT_QUEUE_OPTIONS, NONE_TO_FALSE_KEYS
 
     # 明示的な否定フラグを先に処理
     if getattr(args, "keep_ctx_none", None):
@@ -376,7 +376,7 @@ def cmd_start(args):
             setattr(args, key, default_val)
 
     # None のまま残っているオプションを False に正規化（後続コードが bool を期待するため）
-    for key in BOOL_OPTION_KEYS:
+    for key in NONE_TO_FALSE_KEYS:
         if getattr(args, key, None) is None:
             setattr(args, key, False)
 

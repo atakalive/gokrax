@@ -279,22 +279,22 @@ ALLOWED_REVIEWERS = list(AGENTS.keys())
 
 # フェーズ別タイムアウト (秒)。0 = タイムアウトなし
 BLOCK_TIMERS = {
-    "DESIGN_PLAN":    1800,  # 30分
-    "DESIGN_REVIEW":  3600,  # 60分
-    "DESIGN_REVISE":  1800,  # 30分
-    "IMPLEMENTATION": 5400,  # 90分
-    "CODE_REVIEW":    3600,  # 60分
-    "CODE_REVISE":    1800,  # 30分
+    "DESIGN_PLAN":    1800,  # 30 min
+    "DESIGN_REVIEW":  3600,  # 60 min
+    "DESIGN_REVISE":  1800,  # 30 min
+    "IMPLEMENTATION": 7200,  # 120 min
+    "CODE_REVIEW":    3600,  # 60 min
+    "CODE_REVISE":    1800,  # 30 min
 }
 
 # タイムアウト延長可能な状態
 EXTENDABLE_STATES = {"DESIGN_PLAN", "DESIGN_REVISE", "IMPLEMENTATION", "CODE_REVISE"}
 
 # 状態遷移直後の催促猶予期間（秒）
-NUDGE_GRACE_SEC = 300  # 5分
+NUDGE_GRACE_SEC = 300  # 5 min
 
 # 残り時間が閾値未満で延長案内を表示（秒）
-EXTEND_NOTICE_THRESHOLD = 300  # 5分
+EXTEND_NOTICE_THRESHOLD = 300  # 5 min
 
 # 非アクティブ判定 (秒)
 INACTIVE_THRESHOLD_SEC = 303

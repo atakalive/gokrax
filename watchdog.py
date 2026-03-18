@@ -65,18 +65,7 @@ from spec_review import (
 # BLOCKEDまでの時間 (秒)
 from config import BLOCK_TIMERS, NUDGE_GRACE_SEC, EXTENDABLE_STATES, EXTEND_NOTICE_THRESHOLD
 
-# compat aliases — removed in #132
-from engine.fsm import (
-    TransitionAction,
-    check_transition,
-    _resolve_review_outcome,
-    get_notification_for_state,
-    _check_nudge,
-    _get_state_entered_at,
-    _nudge_key,
-    _format_nudge_message,
-    _recover_pending_notifications,
-)
+from engine.fsm import check_transition, _nudge_key, _recover_pending_notifications
 
 
 from engine.fsm_spec import (

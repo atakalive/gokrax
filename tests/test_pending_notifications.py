@@ -148,8 +148,8 @@ class TestRecoveryOnRestart:
         from watchdog import process
 
         mock_impl = MagicMock()
-        with patch("watchdog.notify_implementer", mock_impl), \
-             patch("watchdog.notify_discord"):
+        with patch("engine.fsm.notify_implementer", mock_impl), \
+             patch("engine.fsm.notify_discord"):
             process(path)
 
         mock_impl.assert_called_once_with("kaneko", "[devbar] test-pj: test message")
@@ -180,8 +180,8 @@ class TestRecoveryOnRestart:
         from watchdog import process
 
         mock_review = MagicMock()
-        with patch("watchdog.notify_reviewers", mock_review), \
-             patch("watchdog.notify_discord"):
+        with patch("engine.fsm.notify_reviewers", mock_review), \
+             patch("engine.fsm.notify_discord"):
             process(path)
 
         mock_review.assert_called_once()
@@ -214,8 +214,8 @@ class TestRecoveryReturnsEarly:
 
         from watchdog import process
 
-        with patch("watchdog.notify_implementer"), \
-             patch("watchdog.notify_discord"), \
+        with patch("engine.fsm.notify_implementer"), \
+             patch("engine.fsm.notify_discord"), \
              patch("watchdog.check_transition") as mock_check:
             process(path)
 
@@ -334,8 +334,8 @@ class TestMergeSummaryPendingSkipWithDiscord:
         from watchdog import process
 
         mock_discord = MagicMock()
-        with patch("watchdog.notify_discord", mock_discord), \
-             patch("watchdog.notify_implementer"):
+        with patch("engine.fsm.notify_discord", mock_discord), \
+             patch("engine.fsm.notify_implementer"):
             process(path)
 
         # Discord に WARNING メッセージが送られた
@@ -366,8 +366,8 @@ class TestRunCcPendingSkipWithDiscord:
         from watchdog import process
 
         mock_discord = MagicMock()
-        with patch("watchdog.notify_discord", mock_discord), \
-             patch("watchdog.notify_implementer"):
+        with patch("engine.fsm.notify_discord", mock_discord), \
+             patch("engine.fsm.notify_implementer"):
             process(path)
 
         calls = [str(c) for c in mock_discord.call_args_list]
@@ -386,7 +386,7 @@ class TestNudgeNotPending:
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
 
-        from watchdog import check_transition
+        from engine.fsm import check_transition
 
         # DESIGN_PLAN で未完了 → nudge が返る場合のテスト
         batch = _make_batch(1)  # design_ready=False
@@ -481,8 +481,8 @@ class TestRecoveryFailurePreservesPending:
         from watchdog import process
 
         mock_impl = MagicMock(side_effect=Exception("send failed"))
-        with patch("watchdog.notify_implementer", mock_impl), \
-             patch("watchdog.notify_discord"):
+        with patch("engine.fsm.notify_implementer", mock_impl), \
+             patch("engine.fsm.notify_discord"):
             process(path)
 
         mock_impl.assert_called_once()
@@ -515,8 +515,8 @@ class TestRecoveryFailurePreservesPending:
         from watchdog import process
 
         mock_review = MagicMock(side_effect=Exception("send failed"))
-        with patch("watchdog.notify_reviewers", mock_review), \
-             patch("watchdog.notify_discord"):
+        with patch("engine.fsm.notify_reviewers", mock_review), \
+             patch("engine.fsm.notify_discord"):
             process(path)
 
         mock_review.assert_called_once()
@@ -554,8 +554,8 @@ class TestBaseCommitInPending:
         from watchdog import process
 
         mock_review = MagicMock()
-        with patch("watchdog.notify_reviewers", mock_review), \
-             patch("watchdog.notify_discord"):
+        with patch("engine.fsm.notify_reviewers", mock_review), \
+             patch("engine.fsm.notify_discord"):
             process(path)
 
         mock_review.assert_called_once()
@@ -586,8 +586,8 @@ class TestBaseCommitInPending:
         from watchdog import process
 
         mock_review = MagicMock()
-        with patch("watchdog.notify_reviewers", mock_review), \
-             patch("watchdog.notify_discord"):
+        with patch("engine.fsm.notify_reviewers", mock_review), \
+             patch("engine.fsm.notify_discord"):
             process(path)
 
         mock_review.assert_called_once()

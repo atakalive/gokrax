@@ -47,61 +47,61 @@ def _write_pipeline(path: Path, data: dict):
 class TestCheckTransition:
 
     def test_idle_returns_no_action(self):
-        from watchdog import check_transition
+        from engine.fsm import check_transition
         action = check_transition("IDLE", _make_batch())
         assert action.new_state is None
 
     def test_triage_returns_no_action(self):
-        from watchdog import check_transition
+        from engine.fsm import check_transition
         assert check_transition("TRIAGE", _make_batch()).new_state is None
 
     def test_merge_summary_sent_returns_no_action(self):
-        from watchdog import check_transition
+        from engine.fsm import check_transition
         assert check_transition("MERGE_SUMMARY_SENT", _make_batch()).new_state is None
 
     def test_design_approved_auto_transitions_to_implementation(self):
-        from watchdog import check_transition
+        from engine.fsm import check_transition
         action = check_transition("DESIGN_APPROVED", _make_batch())
         assert action.new_state == "IMPLEMENTATION"
 
     def test_blocked_returns_no_action(self):
-        from watchdog import check_transition
+        from engine.fsm import check_transition
         assert check_transition("BLOCKED", _make_batch()).new_state is None
 
     def test_done_always_transitions_to_idle(self):
         """DONE→IDLEは自動遷移。通知メッセージは不要（人の介入なし）。"""
-        from watchdog import check_transition
+        from engine.fsm import check_transition
         action = check_transition("DONE", [])
         assert action.new_state == "IDLE"
 
     def test_done_with_batch_still_transitions(self):
-        from watchdog import check_transition
+        from engine.fsm import check_transition
         action = check_transition("DONE", _make_batch())
         assert action.new_state == "IDLE"
 
     def test_empty_batch_returns_no_action(self):
-        from watchdog import check_transition
+        from engine.fsm import check_transition
         for state in ("DESIGN_PLAN", "DESIGN_REVIEW", "CODE_REVIEW",
                       "DESIGN_REVISE", "CODE_REVISE", "IMPLEMENTATION"):
             action = check_transition(state, [])
             assert action.new_state is None, f"state={state} should be no-op with empty batch"
 
     def test_design_plan_all_ready(self):
-        from watchdog import check_transition
+        from engine.fsm import check_transition
         batch = _make_batch(2, design_ready=True)
         action = check_transition("DESIGN_PLAN", batch)
         assert action.new_state == "DESIGN_REVIEW"
         assert action.send_review is True
 
     def test_design_plan_not_all_ready(self):
-        from watchdog import check_transition
+        from engine.fsm import check_transition
         batch = _make_batch(2)
         batch[0]["design_ready"] = True
         action = check_transition("DESIGN_PLAN", batch)
         assert action.new_state is None
 
     def test_design_review_p0_enough_reviews(self):
-        from watchdog import check_transition
+        from engine.fsm import check_transition
         import config
         reviews = _make_reviews(["APPROVE"] * (config.MIN_REVIEWS - 1) + ["P0"])
         batch = [{"issue": 1, "design_reviews": reviews, "code_reviews": {}}]
@@ -110,7 +110,7 @@ class TestCheckTransition:
         assert action.impl_msg is not None
 
     def test_design_review_approved_enough_reviews(self):
-        from watchdog import check_transition
+        from engine.fsm import check_transition
         import config
         reviews = _make_reviews(["APPROVE"] * config.MIN_REVIEWS)
         batch = [{"issue": 1, "design_reviews": reviews, "code_reviews": {}}]
@@ -118,13 +118,13 @@ class TestCheckTransition:
         assert action.new_state == "DESIGN_APPROVED"
 
     def test_design_review_not_enough_reviews(self):
-        from watchdog import check_transition
+        from engine.fsm import check_transition
         batch = [{"issue": 1, "design_reviews": _make_reviews(["APPROVE"]), "code_reviews": {}}]
         action = check_transition("DESIGN_REVIEW", batch)
         assert action.new_state is None
 
     def test_code_review_p0_enough_reviews(self):
-        from watchdog import check_transition
+        from engine.fsm import check_transition
         import config
         reviews = _make_reviews(["APPROVE"] * (config.MIN_REVIEWS - 1) + ["REJECT"])
         batch = [{"issue": 1, "code_reviews": reviews, "design_reviews": {}}]
@@ -132,7 +132,7 @@ class TestCheckTransition:
         assert action.new_state == "CODE_REVISE"
 
     def test_code_review_approved_enough_reviews(self):
-        from watchdog import check_transition
+        from engine.fsm import check_transition
         import config
         reviews = _make_reviews(["APPROVE"] * config.MIN_REVIEWS)
         batch = [{"issue": 1, "code_reviews": reviews, "design_reviews": {}}]
@@ -141,7 +141,7 @@ class TestCheckTransition:
 
     def test_design_revise_all_revised(self):
         """P0 Issue が全て revised → DESIGN_REVIEW に遷移"""
-        from watchdog import check_transition
+        from engine.fsm import check_transition
         batch = _make_batch(2)
         batch[0]["design_reviews"] = _make_reviews(["P0"])
         batch[1]["design_reviews"] = _make_reviews(["P0"])
@@ -153,7 +153,7 @@ class TestCheckTransition:
 
     def test_design_revise_not_all_revised(self):
         """P0 Issue が2つあり、1つだけ revised → 遷移しない"""
-        from watchdog import check_transition
+        from engine.fsm import check_transition
         batch = _make_batch(2)
         batch[0]["design_reviews"] = _make_reviews(["P0"])
         batch[1]["design_reviews"] = _make_reviews(["P0"])
@@ -164,7 +164,7 @@ class TestCheckTransition:
 
     def test_design_revise_empty_reviews_no_block(self):
         """reviews 空の Issue が revised なしでも遷移をブロックしない（#95/#37 修正）"""
-        from watchdog import check_transition
+        from engine.fsm import check_transition
         batch = _make_batch(2)
         batch[0]["design_reviews"] = _make_reviews(["P0"])
         batch[0]["design_revised"] = True
@@ -175,7 +175,7 @@ class TestCheckTransition:
 
     def test_code_revise_empty_reviews_no_block(self):
         """CODE_REVISE でも同様に reviews 空の Issue がブロックしない"""
-        from watchdog import check_transition
+        from engine.fsm import check_transition
         batch = _make_batch(2)
         batch[0]["code_reviews"] = _make_reviews(["P0"])
         batch[0]["code_revised"] = True
@@ -186,7 +186,7 @@ class TestCheckTransition:
 
     def test_design_revise_approve_only_no_block(self):
         """APPROVE のみの Issue は revised なしでも遷移をブロックしない"""
-        from watchdog import check_transition
+        from engine.fsm import check_transition
         batch = _make_batch(2)
         batch[0]["design_reviews"] = _make_reviews(["P0"])
         batch[0]["design_revised"] = True
@@ -197,7 +197,7 @@ class TestCheckTransition:
 
     def test_design_revise_flag_p0_blocks_without_revised(self):
         """reviews 空 + 未解決 flag P0 → revised なしでは遷移しない（flag 安全性）"""
-        from watchdog import check_transition
+        from engine.fsm import check_transition
         batch = _make_batch(1)
         batch[0]["design_reviews"] = {}
         batch[0]["flags"] = [{"verdict": "P0", "phase": "design", "resolved": False}]
@@ -206,7 +206,7 @@ class TestCheckTransition:
 
     def test_design_revise_flag_p0_resolved_no_block(self):
         """reviews 空 + 解決済み flag P0 → ブロックしない"""
-        from watchdog import check_transition
+        from engine.fsm import check_transition
         batch = _make_batch(1)
         batch[0]["design_reviews"] = {}
         batch[0]["flags"] = [{"verdict": "P0", "phase": "design", "resolved": True}]
@@ -215,7 +215,7 @@ class TestCheckTransition:
 
     def test_code_revise_flag_p0_blocks_without_revised(self):
         """CODE_REVISE でも未解決 flag P0 はブロックする"""
-        from watchdog import check_transition
+        from engine.fsm import check_transition
         batch = _make_batch(1)
         batch[0]["code_reviews"] = {}
         batch[0]["flags"] = [{"verdict": "P0", "phase": "code", "resolved": False}]
@@ -224,7 +224,7 @@ class TestCheckTransition:
 
     def test_design_revise_flag_p0_with_revised_passes(self):
         """未解決 flag P0 + revised 済み → 遷移する"""
-        from watchdog import check_transition
+        from engine.fsm import check_transition
         batch = _make_batch(1)
         batch[0]["design_reviews"] = {}
         batch[0]["flags"] = [{"verdict": "P0", "phase": "design", "resolved": False}]
@@ -233,21 +233,21 @@ class TestCheckTransition:
         assert action.new_state == "DESIGN_REVIEW"
 
     def test_code_revise_all_revised(self):
-        from watchdog import check_transition
+        from engine.fsm import check_transition
         batch = _make_batch(2, code_revised=True)
         action = check_transition("CODE_REVISE", batch)
         assert action.new_state == "CODE_REVIEW"
         assert action.send_review is True
 
     def test_implementation_all_committed(self):
-        from watchdog import check_transition
+        from engine.fsm import check_transition
         batch = _make_batch(2, commit="abc123")
         action = check_transition("IMPLEMENTATION", batch)
         assert action.new_state == "CODE_REVIEW"
         assert action.send_review is True
 
     def test_implementation_not_all_committed(self):
-        from watchdog import check_transition
+        from engine.fsm import check_transition
         batch = _make_batch(2)
         batch[0]["commit"] = "abc123"
         action = check_transition("IMPLEMENTATION", batch)
@@ -555,29 +555,29 @@ class TestStartCc:
 
     def test_check_transition_run_cc(self):
         """IMPLEMENTATION + commit未記録 + CC未実行 → run_cc=True"""
-        from watchdog import check_transition
+        from engine.fsm import check_transition
         batch = [{"issue": 1, "title": "T", "commit": None,
                   "design_reviews": {}, "code_reviews": {}}]
         data = {"state": "IMPLEMENTATION", "batch": batch, "enabled": True}
-        with patch("watchdog._is_cc_running", return_value=False):
+        with patch("engine.fsm._is_cc_running", return_value=False):
             action = check_transition("IMPLEMENTATION", batch, data)
         assert action.run_cc is True
         assert action.new_state is None
 
     def test_check_transition_cc_running(self):
         """CC実行中 → 何もしない"""
-        from watchdog import check_transition
+        from engine.fsm import check_transition
         batch = [{"issue": 1, "title": "T", "commit": None,
                   "design_reviews": {}, "code_reviews": {}}]
         data = {"state": "IMPLEMENTATION", "batch": batch, "enabled": True, "cc_pid": 12345}
-        with patch("watchdog._is_cc_running", return_value=True):
+        with patch("engine.fsm._is_cc_running", return_value=True):
             action = check_transition("IMPLEMENTATION", batch, data)
         assert action.run_cc is False
         assert action.new_state is None
 
     def test_check_transition_all_committed(self):
         """全commit済み → CODE_REVIEW"""
-        from watchdog import check_transition
+        from engine.fsm import check_transition
         batch = [{"issue": 1, "title": "T", "commit": "abc123",
                   "design_reviews": {}, "code_reviews": {}}]
         action = check_transition("IMPLEMENTATION", batch)
@@ -1134,7 +1134,7 @@ class TestTimeoutExtension:
 
     def test_check_nudge_with_timeout_extension(self):
         """_check_nudge() がtimeout_extensionを反映してタイムアウト判定すること"""
-        from watchdog import _check_nudge
+        from engine.fsm import _check_nudge
         from datetime import datetime, timedelta
         from config import JST, BLOCK_TIMERS
 
@@ -1155,7 +1155,7 @@ class TestTimeoutExtension:
 
     def test_check_nudge_blocked_with_timeout_extension(self):
         """timeout_extension加算後もタイムアウト超過でBLOCKED遷移すること"""
-        from watchdog import _check_nudge
+        from engine.fsm import _check_nudge
         from datetime import datetime, timedelta
         from config import JST, BLOCK_TIMERS
 
@@ -1177,7 +1177,7 @@ class TestTimeoutExtension:
 
     def test_check_nudge_extend_notice_shown(self):
         """残り5分未満 + EXTENDABLE_STATEでextend_noticeが付くこと"""
-        from watchdog import _check_nudge
+        from engine.fsm import _check_nudge
         from datetime import datetime, timedelta
         from config import JST, BLOCK_TIMERS, EXTEND_NOTICE_THRESHOLD
 
@@ -1201,7 +1201,7 @@ class TestTimeoutExtension:
 
     def test_check_nudge_extend_notice_not_shown_enough_time(self):
         """残り時間が十分ある場合、extend_noticeがNoneであること"""
-        from watchdog import _check_nudge
+        from engine.fsm import _check_nudge
         from datetime import datetime, timedelta
         from config import JST, BLOCK_TIMERS, NUDGE_GRACE_SEC, EXTEND_NOTICE_THRESHOLD
 
@@ -1224,7 +1224,7 @@ class TestTimeoutExtension:
 
     def test_check_nudge_extend_notice_not_shown_wrong_state(self):
         """EXTENDABLE_STATES以外の状態ではextend_noticeがNoneであること"""
-        from watchdog import _check_nudge
+        from engine.fsm import _check_nudge
         from datetime import datetime, timedelta
         from config import JST
 
@@ -2514,7 +2514,7 @@ class TestTimeoutAllStates:
 
     def test_implementation_timeout_blocked(self, monkeypatch):
         """IMPLEMENTATION: CC実行中 + タイムアウト超過 → BLOCKED"""
-        from watchdog import check_transition, _is_cc_running
+        from engine.fsm import check_transition
         from datetime import datetime, timedelta
         from config import JST, BLOCK_TIMERS
 
@@ -2530,7 +2530,7 @@ class TestTimeoutAllStates:
         }
 
         # Mock _is_cc_running to return True
-        monkeypatch.setattr("watchdog._is_cc_running", lambda d: True)
+        monkeypatch.setattr("engine.fsm._is_cc_running", lambda d: True)
 
         action = check_transition("IMPLEMENTATION", batch, data)
         assert action.new_state == "BLOCKED"
@@ -2538,7 +2538,7 @@ class TestTimeoutAllStates:
 
     def test_implementation_completion_priority_over_timeout(self):
         """IMPLEMENTATION: commit揃い + タイムアウト超過 → CODE_REVIEW (BLOCKEDにならない)"""
-        from watchdog import check_transition
+        from engine.fsm import check_transition
         from datetime import datetime, timedelta
         from config import JST, BLOCK_TIMERS
 
@@ -2558,7 +2558,7 @@ class TestTimeoutAllStates:
 
     def test_design_review_timeout_blocked(self):
         """DESIGN_REVIEW: min_reviews 未達 + タイムアウト超過 → BLOCKED"""
-        from watchdog import check_transition
+        from engine.fsm import check_transition
         from datetime import datetime, timedelta
         from config import JST, BLOCK_TIMERS
 
@@ -2579,7 +2579,7 @@ class TestTimeoutAllStates:
 
     def test_design_review_completion_priority_over_timeout(self):
         """DESIGN_REVIEW: min_reviews 到達 + タイムアウト超過 → APPROVED or REVISE (BLOCKEDにならない)"""
-        from watchdog import check_transition
+        from engine.fsm import check_transition
         from datetime import datetime, timedelta
         from config import JST, BLOCK_TIMERS, REVIEW_MODES
 
@@ -2608,7 +2608,7 @@ class TestTimeoutAllStates:
 
     def test_code_review_timeout_blocked(self):
         """CODE_REVIEW: min_reviews 未達 + タイムアウト超過 → BLOCKED"""
-        from watchdog import check_transition
+        from engine.fsm import check_transition
         from datetime import datetime, timedelta
         from config import JST, BLOCK_TIMERS
 
@@ -2629,7 +2629,7 @@ class TestTimeoutAllStates:
 
     def test_code_review_completion_priority_over_timeout(self):
         """CODE_REVIEW: min_reviews 到達 + タイムアウト超過 → APPROVED or REVISE (BLOCKEDにならない)"""
-        from watchdog import check_transition
+        from engine.fsm import check_transition
         from datetime import datetime, timedelta
         from config import JST, BLOCK_TIMERS, REVIEW_MODES
 
@@ -2659,7 +2659,7 @@ class TestTimeoutAllStates:
 
     def test_timeout_before_grace_period_no_blocked(self):
         """タイムアウト前は従来通り: elapsed < BLOCK_TIMERS のとき BLOCKED にならない"""
-        from watchdog import check_transition
+        from engine.fsm import check_transition
         from datetime import datetime, timedelta
         from config import JST, BLOCK_TIMERS, NUDGE_GRACE_SEC
 
@@ -2722,7 +2722,7 @@ class TestNudgeMessages:
         DESIGN_REVISE/CODE_REVISE/DESIGN_PLAN は遷移時に impl_msg を生成。
         IMPLEMENTATION は CC 実行中なので nudge は process() 内。
         """
-        from watchdog import check_transition
+        from engine.fsm import check_transition
         from datetime import datetime, timedelta
         from config import JST, NUDGE_GRACE_SEC
 
@@ -3035,7 +3035,7 @@ class TestDesignApprovedExcludeNoResponse:
 
     def test_code_review_skips_excluded_reviewer(self, tmp_path, monkeypatch):
         """CODE_REVIEW で excluded レビュアーに催促が飛ばない"""
-        from watchdog import check_transition
+        from engine.fsm import check_transition
 
         # Setup: CODE_REVIEW state with excluded_reviewers
         batch = [
@@ -3079,7 +3079,7 @@ class TestAutomerge:
 
     def test_automerge_skip_approval(self):
         """automerge=True: MERGE_SUMMARY_SENT → DONE 即遷移"""
-        from watchdog import check_transition
+        from engine.fsm import check_transition
 
         batch = _make_batch(1, commit="abc123")
         data = {"automerge": True, "summary_message_id": "msg_123"}
@@ -3089,7 +3089,7 @@ class TestAutomerge:
 
     def test_automerge_false_waits_for_ok(self):
         """automerge=False: M の OK リプライ待ち"""
-        from watchdog import check_transition
+        from engine.fsm import check_transition
 
         batch = _make_batch(1, commit="abc123")
         data = {"automerge": False, "summary_message_id": "msg_123"}
@@ -3100,7 +3100,7 @@ class TestAutomerge:
 
     def test_automerge_missing_field_defaults_false(self):
         """automerge フィールドなし → False として扱う"""
-        from watchdog import check_transition
+        from engine.fsm import check_transition
 
         batch = _make_batch(1, commit="abc123")
         data = {"summary_message_id": "msg_123"}  # No automerge field
@@ -3389,7 +3389,7 @@ class TestFlag:
 
     def test_p0_flag_triggers_design_revise(self):
         """Unresolved P0 flag in design phase triggers DESIGN_REVISE"""
-        from watchdog import check_transition
+        from engine.fsm import check_transition
 
         batch = [{
             "issue": 1,
@@ -3405,7 +3405,7 @@ class TestFlag:
 
     def test_p0_flag_triggers_code_revise(self):
         """Unresolved P0 flag in code phase triggers CODE_REVISE"""
-        from watchdog import check_transition
+        from engine.fsm import check_transition
 
         batch = [{
             "issue": 1,
@@ -3421,7 +3421,7 @@ class TestFlag:
 
     def test_code_flag_ignored_in_design_review(self):
         """Code phase flag does not trigger REVISE during DESIGN_REVIEW"""
-        from watchdog import check_transition
+        from engine.fsm import check_transition
 
         batch = [{
             "issue": 1,
@@ -3438,7 +3438,7 @@ class TestFlag:
 
     def test_p1_flag_does_not_trigger_revise(self):
         """P1 flags are informational only, do not trigger REVISE"""
-        from watchdog import check_transition
+        from engine.fsm import check_transition
 
         batch = [{
             "issue": 1,
@@ -3492,7 +3492,7 @@ class TestFlag:
 
     def test_resolved_flag_does_not_trigger_revise(self):
         """Resolved P0 flag does not trigger REVISE"""
-        from watchdog import check_transition
+        from engine.fsm import check_transition
 
         batch = [{
             "issue": 1,
@@ -3578,7 +3578,7 @@ class TestVerdictObligation:
 
     def test_resolve_review_outcome_p1_always_revise(self):
         """P1あり → REVISE（デフォルト動作、p2_fixなし）"""
-        from watchdog import _resolve_review_outcome
+        from engine.fsm import _resolve_review_outcome
 
         batch = [{"issue": 1, "design_reviews": {"a": {"verdict": "P1"}}}]
         data = {"project": "Foo", "design_revise_count": 0}
@@ -3587,7 +3587,7 @@ class TestVerdictObligation:
 
     def test_resolve_review_outcome_p1_always_revise_code(self):
         """P1あり (CODE) → CODE_REVISE"""
-        from watchdog import _resolve_review_outcome
+        from engine.fsm import _resolve_review_outcome
 
         batch = [{"issue": 1, "code_reviews": {"a": {"verdict": "P1"}}}]
         data = {"project": "Foo", "code_revise_count": 0}
@@ -3596,7 +3596,7 @@ class TestVerdictObligation:
 
     def test_resolve_review_outcome_p1_max_cycles_blocked(self):
         """P1あり + max cycles → BLOCKED"""
-        from watchdog import _resolve_review_outcome
+        from engine.fsm import _resolve_review_outcome
         from config import MAX_REVISE_CYCLES
 
         batch = [{"issue": 1, "design_reviews": {"a": {"verdict": "P1"}}}]
@@ -3607,7 +3607,7 @@ class TestVerdictObligation:
 
     def test_resolve_review_outcome_p0_max_cycles_blocked(self):
         """P0あり + max cycles → BLOCKED（従来通り）"""
-        from watchdog import _resolve_review_outcome
+        from engine.fsm import _resolve_review_outcome
         from config import MAX_REVISE_CYCLES
 
         batch = [{"issue": 1, "design_reviews": {"a": {"verdict": "P0"}}}]
@@ -3619,7 +3619,7 @@ class TestVerdictObligation:
 
     def test_resolve_review_outcome_p2_fix_false_default(self):
         """p2_fix=False + P2あり → APPROVE"""
-        from watchdog import _resolve_review_outcome
+        from engine.fsm import _resolve_review_outcome
 
         batch = [{"issue": 1, "design_reviews": {"a": {"verdict": "P2"}}}]
         data = {"project": "Foo"}
@@ -3628,7 +3628,7 @@ class TestVerdictObligation:
 
     def test_resolve_review_outcome_p2_fix_true_p2_present(self):
         """p2_fix=True + P2あり + cycle < max → REVISE"""
-        from watchdog import _resolve_review_outcome
+        from engine.fsm import _resolve_review_outcome
 
         batch = [{"issue": 1, "design_reviews": {"a": {"verdict": "P2"}}}]
         data = {"project": "Foo", "p2_fix": True, "design_revise_count": 0}
@@ -3637,7 +3637,7 @@ class TestVerdictObligation:
 
     def test_resolve_review_outcome_p2_fix_max_cycles_fallback(self):
         """p2_fix=True + P2あり + cycle >= max → APPROVE（フォールバック）"""
-        from watchdog import _resolve_review_outcome
+        from engine.fsm import _resolve_review_outcome
         from config import MAX_REVISE_CYCLES
 
         batch = [{"issue": 1, "design_reviews": {"a": {"verdict": "P2"}}}]
@@ -3647,7 +3647,7 @@ class TestVerdictObligation:
 
     def test_resolve_review_outcome_p2_fix_no_p2(self):
         """p2_fix=True + P2なし → APPROVE"""
-        from watchdog import _resolve_review_outcome
+        from engine.fsm import _resolve_review_outcome
 
         batch = [{"issue": 1, "design_reviews": {"a": {"verdict": "APPROVE"}}}]
         data = {"project": "Foo", "p2_fix": True}
@@ -3656,7 +3656,7 @@ class TestVerdictObligation:
 
     def test_resolve_review_outcome_p0_with_p2_fix(self):
         """p2_fix=True + P0あり → REVISE（既存動作と同じ）"""
-        from watchdog import _resolve_review_outcome
+        from engine.fsm import _resolve_review_outcome
 
         batch = [{"issue": 1, "design_reviews": {"a": {"verdict": "P0"}}}]
         data = {"project": "Foo", "p2_fix": True, "design_revise_count": 0}
@@ -3667,7 +3667,7 @@ class TestVerdictObligation:
 
     def test_resolve_review_outcome_requires_has_p1_and_has_p2(self):
         """has_p1/has_p2 省略時に TypeError"""
-        from watchdog import _resolve_review_outcome
+        from engine.fsm import _resolve_review_outcome
         import pytest
 
         batch = [{"issue": 1}]
@@ -3679,7 +3679,7 @@ class TestVerdictObligation:
 
     def test_revise_gate_requires_p1_revised(self):
         """P1 issue が revised=False → 遷移しない"""
-        from watchdog import check_transition
+        from engine.fsm import check_transition
 
         batch = [{
             "issue": 1,
@@ -3691,7 +3691,7 @@ class TestVerdictObligation:
 
     def test_revise_gate_p2_not_required_without_flag(self):
         """P2 issue が revised=False + p2_fix=False → 遷移する"""
-        from watchdog import check_transition
+        from engine.fsm import check_transition
 
         batch = [{
             "issue": 1,
@@ -3704,7 +3704,7 @@ class TestVerdictObligation:
 
     def test_revise_gate_p2_required_with_flag(self):
         """P2 issue が revised=False + p2_fix=True → 遷移しない"""
-        from watchdog import check_transition
+        from engine.fsm import check_transition
 
         batch = [{
             "issue": 1,
@@ -3719,7 +3719,7 @@ class TestVerdictObligation:
 
     def test_revise_notification_includes_p2_fix_warning(self):
         """p2_fix=True の REVISE 通知に警告文が含まれる"""
-        from watchdog import get_notification_for_state
+        from engine.fsm import get_notification_for_state
 
         batch = [{"issue": 1, "design_reviews": {"a": {"verdict": "P2"}}}]
         action = get_notification_for_state("DESIGN_REVISE", project="Foo", batch=batch, p2_fix=True)
@@ -3727,7 +3727,7 @@ class TestVerdictObligation:
 
     def test_revise_notification_default_shows_p0_p1(self):
         """デフォルトの fix_label が P0/P1指摘"""
-        from watchdog import get_notification_for_state
+        from engine.fsm import get_notification_for_state
 
         batch = [{"issue": 1, "design_reviews": {"a": {"verdict": "P0"}}}]
         action = get_notification_for_state("DESIGN_REVISE", project="Foo", batch=batch)
@@ -3736,7 +3736,7 @@ class TestVerdictObligation:
 
     def test_revise_notification_code_revise_p2_fix(self):
         """CODE_REVISE + p2_fix=True の通知に警告文が含まれる"""
-        from watchdog import get_notification_for_state
+        from engine.fsm import get_notification_for_state
 
         batch = [{"issue": 1, "code_reviews": {"a": {"verdict": "P2"}}}]
         action = get_notification_for_state("CODE_REVISE", project="Foo", batch=batch, p2_fix=True)
@@ -3746,7 +3746,7 @@ class TestVerdictObligation:
 
     def test_done_cleanup_clears_p2_fix(self):
         """DONE→IDLE遷移でp2_fixがクリアされること"""
-        from watchdog import check_transition
+        from engine.fsm import check_transition
 
         data = {
             "project": "test",
@@ -3761,7 +3761,7 @@ class TestVerdictObligation:
 
     def test_p1_fix_backward_compat_in_resolve(self):
         """pipeline JSON に p1_fix=True が残っていた場合、p2_fix=True として昇格動作する"""
-        from watchdog import _resolve_review_outcome
+        from engine.fsm import _resolve_review_outcome
 
         batch = [{"issue": 1, "design_reviews": {"a": {"verdict": "P2"}}}]
         data = {"project": "Foo", "p1_fix": True, "design_revise_count": 0}
@@ -3770,7 +3770,7 @@ class TestVerdictObligation:
 
     def test_p2_fix_not_leaked_between_batches(self):
         """p2_fix=Falseのバッチでp2_fixが残らないことの統合テスト"""
-        from watchdog import _resolve_review_outcome
+        from engine.fsm import _resolve_review_outcome
 
         # Batch A: p2_fix=True + P2 → REVISE
         data_a = {"project": "test", "p2_fix": True, "code_revise_count": 0}
@@ -3856,35 +3856,35 @@ class TestGetNotificationForStateComment:
 
     def test_design_plan_no_comment(self):
         """comment なし → Mからの要望 が含まれない"""
-        from watchdog import get_notification_for_state
+        from engine.fsm import get_notification_for_state
         batch = [{"issue": 1, "design_ready": False}]
         action = get_notification_for_state("DESIGN_PLAN", project="Foo", batch=batch)
         assert "Mからの要望" not in action.impl_msg
 
     def test_design_plan_with_comment(self):
         """comment あり → Mからの要望 が含まれる"""
-        from watchdog import get_notification_for_state
+        from engine.fsm import get_notification_for_state
         batch = [{"issue": 1, "design_ready": False}]
         action = get_notification_for_state("DESIGN_PLAN", project="Foo", batch=batch, comment="APIの互換性に注意")
         assert "Mからの要望: APIの互換性に注意" in action.impl_msg
 
     def test_design_revise_with_comment(self):
         """DESIGN_REVISE + comment → Mからの要望 が含まれる"""
-        from watchdog import get_notification_for_state
+        from engine.fsm import get_notification_for_state
         batch = [{"issue": 1, "design_reviews": {"r1": {"verdict": "P0", "summary": "x"}}}]
         action = get_notification_for_state("DESIGN_REVISE", project="Foo", batch=batch, comment="注意点")
         assert "Mからの要望: 注意点" in action.impl_msg
 
     def test_code_revise_with_comment(self):
         """CODE_REVISE + comment → Mからの要望 が含まれる"""
-        from watchdog import get_notification_for_state
+        from engine.fsm import get_notification_for_state
         batch = [{"issue": 1, "code_reviews": {"r1": {"verdict": "P0", "summary": "x"}}}]
         action = get_notification_for_state("CODE_REVISE", project="Foo", batch=batch, comment="コード注意")
         assert "Mからの要望: コード注意" in action.impl_msg
 
     def test_empty_comment_not_shown(self):
         """comment="" → Mからの要望 が含まれない"""
-        from watchdog import get_notification_for_state
+        from engine.fsm import get_notification_for_state
         batch = [{"issue": 1, "design_ready": False}]
         action = get_notification_for_state("DESIGN_PLAN", project="Foo", batch=batch, comment="")
         assert "Mからの要望" not in action.impl_msg
@@ -4402,7 +4402,8 @@ class TestDoneCleanupTestBaseline:
     def test_done_clears_test_baseline(self, tmp_pipelines, monkeypatch):
         """DONE 遷移 → test_baseline と _pytest_baseline が削除される"""
         import json as _json
-        from watchdog import process, TransitionAction
+        from watchdog import process
+        from engine.fsm import TransitionAction
 
         path = tmp_pipelines / "pj.json"
         data = {
@@ -4437,7 +4438,8 @@ class TestIdleToDesignPlanPytest:
     def test_has_pytest_true_starts_popen(self, tmp_pipelines, monkeypatch):
         """_has_pytest が True → Popen が呼ばれ _pytest_baseline が設定される"""
         import json as _json
-        from watchdog import process, TransitionAction
+        from watchdog import process
+        from engine.fsm import TransitionAction
 
         path = tmp_pipelines / "pj.json"
         data = {
@@ -4470,7 +4472,8 @@ class TestIdleToDesignPlanPytest:
     def test_has_pytest_false_no_popen(self, tmp_pipelines, monkeypatch):
         """_has_pytest が False → Popen は呼ばれない"""
         import json as _json
-        from watchdog import process, TransitionAction
+        from watchdog import process
+        from engine.fsm import TransitionAction
 
         path = tmp_pipelines / "pj.json"
         data = {
@@ -4504,7 +4507,8 @@ class TestIdleToDesignPlanPytest:
     def test_previous_baseline_killed_before_new_start(self, tmp_pipelines, monkeypatch):
         """前バッチの _pytest_baseline がある場合は kill してから新規起動する"""
         import json as _json
-        from watchdog import process, TransitionAction
+        from watchdog import process
+        from engine.fsm import TransitionAction
 
         path = tmp_pipelines / "pj.json"
         data = {

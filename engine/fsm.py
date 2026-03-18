@@ -20,20 +20,10 @@ from engine.reviewer import (
     _revise_target_issues,
     count_reviews,
 )
-from engine.shared import log
+from engine.shared import _is_cc_running, _is_ok_reply, log
 from messages import render
-
-import sys
-
-
-def _wd():
-    """Return watchdog module for test-patch compat.
-
-    Tests patch names in the watchdog namespace (e.g. patch("watchdog.notify_discord")).
-    This function resolves those names via sys.modules so patches take effect.
-    Removed in #132 when test patch targets are updated to engine.fsm.
-    """
-    return sys.modules["watchdog"]
+from notify import notify_discord, notify_implementer, notify_reviewers
+from pipeline_io import clear_pending_notification
 
 
 @dataclass
@@ -269,7 +259,7 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
             ref = msg.get("message_reference", {})
             if (ref.get("message_id") == summary_id
                     and msg.get("author", {}).get("id") == M_DISCORD_USER_ID
-                    and _wd()._is_ok_reply(msg.get("content", ""))):
+                    and _is_ok_reply(msg.get("content", ""))):
                 return TransitionAction(new_state="DONE")
         return TransitionAction()
 
@@ -460,7 +450,7 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
         if all(i.get("commit") for i in batch):
             return TransitionAction(new_state="CODE_REVIEW", send_review=True)
         # 2. CC未実行 → 起動指示
-        if data is not None and not _wd()._is_cc_running(data):
+        if data is not None and not _is_cc_running(data):
             return TransitionAction(run_cc=True)
         # 3. CC実行中だが進捗なし → タイムアウト判定
         nudge = _check_nudge(state, data) if data is not None else None
@@ -481,12 +471,11 @@ def _recover_pending_notifications(pj: str, pending: dict, data: dict) -> None:
     At-least-once 保証: 通知成功時のみ pending をクリアする。
     失敗時は pending を維持し、次回 process() で再試行する。
     """
-    wd = _wd()
     if "impl" in pending:
         info = pending["impl"]
         try:
-            wd.notify_implementer(info["implementer"], info["msg"])
-            wd.clear_pending_notification(pj, "impl")
+            notify_implementer(info["implementer"], info["msg"])
+            clear_pending_notification(pj, "impl")
         except Exception as e:
             log(f"[{pj}] WARNING: impl recovery failed, will retry next cycle: {e}")
 
@@ -494,7 +483,7 @@ def _recover_pending_notifications(pj: str, pending: dict, data: dict) -> None:
         info = pending["review"]
         try:
             excluded = data.get("excluded_reviewers", [])
-            wd.notify_reviewers(
+            notify_reviewers(
                 pj, info["new_state"], info["batch"], info["gitlab"],
                 repo_path=info.get("repo_path", ""),
                 review_mode=info.get("review_mode", "standard"),
@@ -502,20 +491,20 @@ def _recover_pending_notifications(pj: str, pending: dict, data: dict) -> None:
                 base_commit=info.get("base_commit"),
                 comment=data.get("comment", ""),
             )
-            wd.clear_pending_notification(pj, "review")
+            clear_pending_notification(pj, "review")
         except Exception as e:
             log(f"[{pj}] WARNING: review recovery failed, will retry next cycle: {e}")
 
     if "merge_summary" in pending:
         try:
-            wd.notify_discord(render("dev.blocked", "notify_recovery_merge_summary", project=pj))
-            wd.clear_pending_notification(pj, "merge_summary")
+            notify_discord(render("dev.blocked", "notify_recovery_merge_summary", project=pj))
+            clear_pending_notification(pj, "merge_summary")
         except Exception as e:
             log(f"[{pj}] WARNING: merge_summary recovery warning failed, will retry: {e}")
 
     if "run_cc" in pending:
         try:
-            wd.notify_discord(render("dev.blocked", "notify_recovery_cc", project=pj))
-            wd.clear_pending_notification(pj, "run_cc")
+            notify_discord(render("dev.blocked", "notify_recovery_cc", project=pj))
+            clear_pending_notification(pj, "run_cc")
         except Exception as e:
             log(f"[{pj}] WARNING: run_cc recovery warning failed, will retry: {e}")

@@ -231,7 +231,7 @@ class TestWatchdogCodeApprovedPostsSummary:
 
     def test_check_transition_sets_send_merge_summary(self):
         """check_transition が send_merge_summary=True を返すこと"""
-        from watchdog import check_transition
+        from engine.fsm import check_transition
         batch = [{"issue": 1, "title": "Fix", "commit": "abc123",
                   "design_reviews": {"pascal": {"verdict": "APPROVE"}},
                   "code_reviews": {"pascal": {"verdict": "APPROVE"}}}]
@@ -282,7 +282,7 @@ class TestWatchdogMergeSummary:
 
     def test_watchdog_detects_ok_reply(self):
         """3条件（message_reference + author.id + 'ok'で始まる）一致で DONE 遷移"""
-        from watchdog import check_transition
+        from engine.fsm import check_transition
         msg = _make_discord_msg("reply-1", self.SUMMARY_ID, self.M_ID, "ok")
         data = self._make_data()
         with patch("notify.fetch_discord_replies", return_value=[msg]):
@@ -293,7 +293,7 @@ class TestWatchdogMergeSummary:
 
     def test_watchdog_ignores_wrong_author(self):
         """author.id が M でなければ遷移しない"""
-        from watchdog import check_transition
+        from engine.fsm import check_transition
         msg = _make_discord_msg("reply-1", self.SUMMARY_ID, "9999999999", "ok")
         data = self._make_data()
         with patch("notify.fetch_discord_replies", return_value=[msg]):
@@ -302,7 +302,7 @@ class TestWatchdogMergeSummary:
 
     def test_watchdog_ignores_non_reply(self):
         """message_reference なしのメッセージは無視"""
-        from watchdog import check_transition
+        from engine.fsm import check_transition
         msg = {
             "id": "reply-1", "content": "ok",
             "author": {"id": self.M_ID},
@@ -315,7 +315,7 @@ class TestWatchdogMergeSummary:
 
     def test_watchdog_ignores_wrong_content(self):
         """「NG」等は承認とみなさない"""
-        from watchdog import check_transition
+        from engine.fsm import check_transition
         msg = _make_discord_msg("reply-1", self.SUMMARY_ID, self.M_ID, "NG")
         data = self._make_data()
         with patch("notify.fetch_discord_replies", return_value=[msg]):
@@ -324,7 +324,7 @@ class TestWatchdogMergeSummary:
 
     def test_watchdog_accepts_variants(self):
         """「ok」「OK」「ok.」「ok、マージして」がすべて承認"""
-        from watchdog import check_transition
+        from engine.fsm import check_transition
         for content in ["ok", "OK", "ok.", "ok、マージして"]:
             msg = _make_discord_msg("reply-1", self.SUMMARY_ID, self.M_ID, content)
             data = self._make_data()
@@ -334,7 +334,7 @@ class TestWatchdogMergeSummary:
 
     def test_watchdog_no_summary_id_returns_no_action(self):
         """summary_message_id がなければ遷移しない"""
-        from watchdog import check_transition
+        from engine.fsm import check_transition
         data = _make_pipeline(state="MERGE_SUMMARY_SENT")
         # summary_message_id なし
         action = check_transition("MERGE_SUMMARY_SENT", data["batch"], data)
@@ -342,6 +342,6 @@ class TestWatchdogMergeSummary:
 
     def test_watchdog_data_none_returns_no_action(self):
         """data=None のとき遷移しない（既存テストとの互換）"""
-        from watchdog import check_transition
+        from engine.fsm import check_transition
         action = check_transition("MERGE_SUMMARY_SENT", [], None)
         assert action.new_state is None

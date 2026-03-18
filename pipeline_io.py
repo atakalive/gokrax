@@ -7,6 +7,7 @@ import os
 import sys
 from pathlib import Path
 from datetime import datetime
+from typing import Any
 
 if sys.platform == "win32":
     import msvcrt
@@ -144,6 +145,25 @@ def clear_pending_notification(project: str, key: str) -> None:
             del data["_pending_notifications"]
 
     update_pipeline(path, _clear)
+
+
+def get_current_round(data: dict[str, Any]) -> int:
+    """現在のレビューラウンド番号を返す（1起算）。
+
+    DESIGN_REVIEW/DESIGN_REVISE → design_revise_count + 1
+    CODE_REVIEW/CODE_REVISE → code_revise_count + 1
+    その他の状態 → 0（ラウンド検証をスキップさせる）
+
+    注: "DESIGN" / "CODE" を含む状態名で判定するため、DESIGN_PLAN 等の
+    非レビュー状態でも非0を返す。ただし cmd_review の state チェックで
+    REVIEW/REVISE 以外は事前に弾かれるため、実害はない。
+    """
+    state = data.get("state", "IDLE")
+    if "DESIGN" in state:
+        return data.get("design_revise_count", 0) + 1
+    elif "CODE" in state:
+        return data.get("code_revise_count", 0) + 1
+    return 0
 
 
 def find_issue(batch: list, issue_num: int) -> dict | None:

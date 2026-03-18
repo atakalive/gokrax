@@ -1,5 +1,6 @@
 """engine/reviewer.py - レビュー関連ロジック（watchdog.pyから分離）"""
 
+import logging
 import re
 import time
 from datetime import datetime
@@ -10,6 +11,8 @@ from config import (
 )
 from engine.shared import log
 from notify import send_to_agent_queued, ping_agent
+
+_logger = logging.getLogger(__name__)
 
 
 def _reset_reviewers(review_mode: str = "standard", implementer: str = "") -> list[str]:
@@ -51,7 +54,7 @@ def _reset_reviewers(review_mode: str = "standard", implementer: str = "") -> li
     excluded = []
 
     # Check if any free tier members exist in this mode
-    free_members = [m for m in mode_config["members"] if config.get_tier(m) == "free"]
+    free_members = [m for m in mode_config["members"] if get_tier(m) == "free"]
     if not free_members:
         log("[/new] no free tier members in mode, skipping ping")
         return excluded
@@ -74,7 +77,7 @@ def _reset_short_context_reviewers(review_mode: str) -> None:
         log(f"[/new] WARNING: unknown review_mode '{review_mode}', skipping short-context reset")
         return
     short_ctx = [m for m in mode_config["members"]
-                 if config.get_tier(m) == "short-context" and m in AGENTS]
+                 if get_tier(m) == "short-context" and m in AGENTS]
     if not short_ctx:
         return
     for r in short_ctx:
@@ -238,3 +241,42 @@ def _cleanup_review_files(project: str) -> None:
                 f.unlink(missing_ok=True)
             except OSError as e:
                 log(f"Warning: failed to delete review file {f}: {e}")
+
+
+def get_tier(agent_name: str) -> str:
+    """Return tier for agent. Unknown agents are conservatively marked as 'free'."""
+    for tier, members in config.REVIEWER_TIERS.items():
+        if agent_name in members:
+            return tier
+    return "free"
+
+
+def _validate_reviewer_tiers() -> None:
+    """Warn if REVIEW_MODES contains reviewers not in REVIEWER_TIERS,
+    or if a reviewer appears in multiple tiers."""
+    all_tier_members = set()
+    member_to_tiers: dict[str, list[str]] = {}
+    for tier, members in config.REVIEWER_TIERS.items():
+        for m in members:
+            member_to_tiers.setdefault(m, []).append(tier)
+        all_tier_members.update(members)
+
+    # 一意性チェック
+    for member, tiers in member_to_tiers.items():
+        if len(tiers) > 1:
+            _logger.warning(
+                "[config] Reviewer '%s' appears in multiple tiers: %s. "
+                "get_tier() will return the first match (dict order).",
+                member, tiers
+            )
+
+    for mode_name, cfg in config.REVIEW_MODES.items():
+        for reviewer in cfg["members"]:
+            if reviewer not in all_tier_members:
+                _logger.warning(
+                    "[config] Reviewer '%s' in mode '%s' not found in REVIEWER_TIERS, will be treated as 'free'",
+                    reviewer, mode_name
+                )
+
+
+_validate_reviewer_tiers()

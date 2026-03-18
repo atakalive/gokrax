@@ -547,7 +547,9 @@ def process(path: Path):
                     continue
 
                 # メッセージ組み立て（1通にまとめる）
-                from config import review_command, get_current_round, GOKRAX_CLI
+                from notify import review_command
+                from pipeline_io import get_current_round
+                from config import GOKRAX_CLI
                 round_num = get_current_round(pipeline_data)
                 msg_parts = []
 
@@ -788,7 +790,7 @@ def process(path: Path):
             excluded = pipeline_data.get("excluded_reviewers", [])
 
             base_commit = pipeline_data.get("base_commit")
-            from config import get_current_round
+            from pipeline_io import get_current_round
             round_num = get_current_round(pipeline_data)
             notify_reviewers(
                 pj, action.new_state, notification["batch"], notification["gitlab"],

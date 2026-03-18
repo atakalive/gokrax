@@ -85,6 +85,7 @@ class TestLoadSkills:
     def test_load_skills_known_agent(self, tmp_path, monkeypatch):
         """既知エージェントのスキルファイルが正しく読み込まれること。"""
         import config
+        import notify
 
         # ダミースキルファイル作成
         skill_a = tmp_path / "skill_a.md"
@@ -100,7 +101,7 @@ class TestLoadSkills:
             "test-agent": ["skill-a", "skill-b"],
         })
 
-        result = config.load_skills("test-agent")
+        result = notify.load_skills("test-agent")
         assert result.startswith("<skills>\n")
         assert result.endswith("\n</skills>")
         assert "--- skill: skill-a ---" in result
@@ -113,13 +114,15 @@ class TestLoadSkills:
     def test_load_skills_unknown_agent(self, monkeypatch):
         """AGENT_SKILLS に存在しないエージェント名で空文字列が返ること。"""
         import config
+        import notify
         monkeypatch.setattr(config, "AGENT_SKILLS", {})
-        result = config.load_skills("nonexistent-agent")
+        result = notify.load_skills("nonexistent-agent")
         assert result == ""
 
     def test_load_skills_missing_file(self, tmp_path, monkeypatch, caplog):
         """ファイル読み込み失敗時に warning が出てスキップされること。"""
         import config
+        import notify
 
         # 存在するスキルと存在しないスキル
         skill_ok = tmp_path / "ok.md"
@@ -133,8 +136,8 @@ class TestLoadSkills:
             "test-agent": ["missing-skill", "ok-skill"],
         })
 
-        with caplog.at_level(logging.WARNING, logger="config"):
-            result = config.load_skills("test-agent")
+        with caplog.at_level(logging.WARNING, logger="gokrax.notify"):
+            result = notify.load_skills("test-agent")
 
         assert "failed to read" in caplog.text
         # 存在するスキルは正常に読み込まれる
@@ -144,14 +147,15 @@ class TestLoadSkills:
     def test_load_skills_unknown_skill_name(self, monkeypatch, caplog):
         """SKILLS に存在しないスキル名で warning が出てスキップされること。"""
         import config
+        import notify
 
         monkeypatch.setattr(config, "SKILLS", {})
         monkeypatch.setattr(config, "AGENT_SKILLS", {
             "test-agent": ["nonexistent-skill"],
         })
 
-        with caplog.at_level(logging.WARNING, logger="config"):
-            result = config.load_skills("test-agent")
+        with caplog.at_level(logging.WARNING, logger="gokrax.notify"):
+            result = notify.load_skills("test-agent")
 
         assert "unknown skill" in caplog.text
         assert result == ""
@@ -159,6 +163,7 @@ class TestLoadSkills:
     def test_load_skills_truncation(self, tmp_path, monkeypatch, caplog):
         """MAX_SKILL_CHARS 超過時に切り詰めが行われること。"""
         import config
+        import notify
 
         skill_file = tmp_path / "big.md"
         skill_file.write_text("X" * 10000, encoding="utf-8")
@@ -167,8 +172,8 @@ class TestLoadSkills:
         monkeypatch.setattr(config, "AGENT_SKILLS", {"test-agent": ["big"]})
         monkeypatch.setattr(config, "MAX_SKILL_CHARS", 100)
 
-        with caplog.at_level(logging.WARNING, logger="config"):
-            result = config.load_skills("test-agent")
+        with caplog.at_level(logging.WARNING, logger="gokrax.notify"):
+            result = notify.load_skills("test-agent")
 
         assert "truncating" in caplog.text
         assert len(result) <= 100
@@ -177,6 +182,7 @@ class TestLoadSkills:
     def test_load_skills_truncation_extreme(self, tmp_path, monkeypatch):
         """MAX_SKILL_CHARS が _MIN_SKILL_CHARS 未満の場合、空文字列が返ること。"""
         import config
+        import notify
 
         skill_file = tmp_path / "some.md"
         skill_file.write_text("content", encoding="utf-8")
@@ -185,5 +191,5 @@ class TestLoadSkills:
         monkeypatch.setattr(config, "AGENT_SKILLS", {"test-agent": ["s"]})
         monkeypatch.setattr(config, "MAX_SKILL_CHARS", 5)
 
-        result = config.load_skills("test-agent")
+        result = notify.load_skills("test-agent")
         assert result == ""

@@ -799,7 +799,7 @@ def cmd_review(args):
         # DESIGN_REVISE/CODE_REVISE 状態では dispute レビュー（--force 必須）のみ
         # ここに到達する。dispute 経由の場合、notify_dispute が --round を付与しない
         # ため _round_arg=None となり、検証はスキップされる。
-        from config import get_current_round
+        from pipeline_io import get_current_round
         _round_arg = getattr(args, "round", None)
         if _round_arg is not None:
             current_round = get_current_round(data)

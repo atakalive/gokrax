@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import logging
 import os
 from pathlib import Path, PurePosixPath
 from datetime import timezone, timedelta
-from typing import Any
 
 # ---------------------------------------------------------------------------
 # General
@@ -202,70 +200,8 @@ AGENT_SKILLS: dict[str, list[str]] = {
     "neumann": [],  # implementer
 }
 
-_logger = logging.getLogger(__name__)
-
 # スキルブロック合計の上限（文字数）。超過時は warning + 切り詰め
 MAX_SKILL_CHARS: int = 30_000
-
-
-def load_skills(agent_name: str) -> str:
-    """指定エージェントに紐付けられたスキルファイルを読み込み、結合して返す。
-
-    Args:
-        agent_name: AGENT_SKILLS のキー
-
-    Returns:
-        スキル内容を結合した文字列。スキルがない場合は空文字列。
-        - AGENT_SKILLS にキーがない場合 → 空文字列
-        - スキル名が SKILLS に存在しない場合 → warning を出してスキップ
-        - ファイル読み込みに失敗した場合 → warning を出してスキップ
-        - 結合結果が MAX_SKILL_CHARS を超える場合 → warning を出して切り詰め
-    """
-    skill_names = AGENT_SKILLS.get(agent_name)
-    if not skill_names:
-        return ""
-
-    parts: list[str] = []
-    for name in skill_names:
-        path_str = SKILLS.get(name)
-        if path_str is None:
-            _logger.warning("load_skills: unknown skill '%s' for agent '%s'", name, agent_name)
-            continue
-        try:
-            content = Path(path_str).read_text(encoding="utf-8").rstrip("\n")
-            parts.append(f"--- skill: {name} ---\n{content}")
-        except OSError as e:
-            _logger.warning("load_skills: failed to read '%s': %s", path_str, e)
-
-    if not parts:
-        return ""
-
-    block = "<skills>\n" + "\n\n".join(parts) + "\n</skills>"
-
-    _OPENING_TAG = "<skills>\n"
-    _CLOSING_TAG = "\n</skills>"
-    _MIN_SKILL_CHARS = len(_OPENING_TAG) + len(_CLOSING_TAG)
-    # 不変条件: MAX_SKILL_CHARS >= _MIN_SKILL_CHARS（開始タグ+終了タグの長さ）。
-    # これより小さい値を設定した場合、切り詰めではなく空文字列を返す。
-    if len(block) > MAX_SKILL_CHARS:
-        _logger.warning(
-            "load_skills: skill block for '%s' exceeds %d chars (%d), truncating",
-            agent_name, MAX_SKILL_CHARS, len(block),
-        )
-        if MAX_SKILL_CHARS < _MIN_SKILL_CHARS:
-            return ""
-        # 切り詰め後も closing tag を含めて MAX_SKILL_CHARS 以下を保証
-        content_limit = MAX_SKILL_CHARS - len(_CLOSING_TAG)
-        block = block[:content_limit] + _CLOSING_TAG
-
-    return block
-
-def get_tier(agent_name: str) -> str:
-    """Return tier for agent. Unknown agents are conservatively marked as 'free'."""
-    for tier, members in REVIEWER_TIERS.items():
-        if agent_name in members:
-            return tier
-    return "free"
 
 
 # diff のハードリミット（OOM 安全弁）。ファイル外部化により送信経路の制限は解消されたが、
@@ -327,74 +263,6 @@ GOKRAX_STATE_PATH = PIPELINES_DIR.parent / "gokrax-state.json"
 
 # メトリクス JSONL ファイル（Issue #81）
 METRICS_FILE = PIPELINES_DIR.parent / "gokrax-metrics.jsonl"
-
-
-def _validate_reviewer_tiers():
-    """Warn if REVIEW_MODES contains reviewers not in REVIEWER_TIERS,
-    or if a reviewer appears in multiple tiers."""
-    import logging
-    logger = logging.getLogger(__name__)
-
-    all_tier_members = set()
-    member_to_tiers: dict[str, list[str]] = {}
-    for tier, members in REVIEWER_TIERS.items():
-        for m in members:
-            member_to_tiers.setdefault(m, []).append(tier)
-        all_tier_members.update(members)
-
-    # 一意性チェック
-    for member, tiers in member_to_tiers.items():
-        if len(tiers) > 1:
-            logger.warning(
-                "[config] Reviewer '%s' appears in multiple tiers: %s. "
-                "get_tier() will return the first match (dict order).",
-                member, tiers
-            )
-
-    for mode_name, config in REVIEW_MODES.items():
-        for reviewer in config["members"]:
-            if reviewer not in all_tier_members:
-                logger.warning(
-                    "[config] Reviewer '%s' in mode '%s' not found in REVIEWER_TIERS, will be treated as 'free'",
-                    reviewer, mode_name
-                )
-
-
-def get_current_round(data: dict[str, Any]) -> int:
-    """現在のレビューラウンド番号を返す（1起算）。
-
-    DESIGN_REVIEW/DESIGN_REVISE → design_revise_count + 1
-    CODE_REVIEW/CODE_REVISE → code_revise_count + 1
-    その他の状態 → 0（ラウンド検証をスキップさせる）
-
-    注: "DESIGN" / "CODE" を含む状態名で判定するため、DESIGN_PLAN 等の
-    非レビュー状態でも非0を返す。ただし cmd_review の state チェックで
-    REVIEW/REVISE 以外は事前に弾かれるため、実害はない。
-    """
-    state = data.get("state", "IDLE")
-    if "DESIGN" in state:
-        return data.get("design_revise_count", 0) + 1
-    elif "CODE" in state:
-        return data.get("code_revise_count", 0) + 1
-    return 0
-
-
-def review_command(project: str, issue: int, reviewer: str, round_num: int | None = None) -> str:
-    """レビュー報告コマンド文字列を生成する。単一ソース。"""
-    cmd = (
-        f'python3 {GOKRAX_CLI} review'
-        f' --project {project}'
-        f' --issue {issue}'
-        f' --reviewer {reviewer}'
-        f' --verdict <APPROVE/P0/P1/P2>'
-        f' --summary "..."'
-    )
-    if round_num is not None:
-        cmd += f' --round {round_num}'
-    return cmd
-
-
-_validate_reviewer_tiers()
 
 
 # ---------------------------------------------------------------------------

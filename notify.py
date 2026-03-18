@@ -27,6 +27,73 @@ from config import (
 logger = logging.getLogger("gokrax.notify")
 
 
+def load_skills(agent_name: str) -> str:
+    """指定エージェントに紐付けられたスキルファイルを読み込み、結合して返す。
+
+    Args:
+        agent_name: AGENT_SKILLS のキー
+
+    Returns:
+        スキル内容を結合した文字列。スキルがない場合は空文字列。
+        - AGENT_SKILLS にキーがない場合 → 空文字列
+        - スキル名が SKILLS に存在しない場合 → warning を出してスキップ
+        - ファイル読み込みに失敗した場合 → warning を出してスキップ
+        - 結合結果が MAX_SKILL_CHARS を超える場合 → warning を出して切り詰め
+    """
+    skill_names = config.AGENT_SKILLS.get(agent_name)
+    if not skill_names:
+        return ""
+
+    parts: list[str] = []
+    for name in skill_names:
+        path_str = config.SKILLS.get(name)
+        if path_str is None:
+            logger.warning("load_skills: unknown skill '%s' for agent '%s'", name, agent_name)
+            continue
+        try:
+            content = Path(path_str).read_text(encoding="utf-8").rstrip("\n")
+            parts.append(f"--- skill: {name} ---\n{content}")
+        except OSError as e:
+            logger.warning("load_skills: failed to read '%s': %s", path_str, e)
+
+    if not parts:
+        return ""
+
+    block = "<skills>\n" + "\n\n".join(parts) + "\n</skills>"
+
+    _OPENING_TAG = "<skills>\n"
+    _CLOSING_TAG = "\n</skills>"
+    _MIN_SKILL_CHARS = len(_OPENING_TAG) + len(_CLOSING_TAG)
+    # 不変条件: MAX_SKILL_CHARS >= _MIN_SKILL_CHARS（開始タグ+終了タグの長さ）。
+    # これより小さい値を設定した場合、切り詰めではなく空文字列を返す。
+    if len(block) > config.MAX_SKILL_CHARS:
+        logger.warning(
+            "load_skills: skill block for '%s' exceeds %d chars (%d), truncating",
+            agent_name, config.MAX_SKILL_CHARS, len(block),
+        )
+        if config.MAX_SKILL_CHARS < _MIN_SKILL_CHARS:
+            return ""
+        # 切り詰め後も closing tag を含めて MAX_SKILL_CHARS 以下を保証
+        content_limit = config.MAX_SKILL_CHARS - len(_CLOSING_TAG)
+        block = block[:content_limit] + _CLOSING_TAG
+
+    return block
+
+
+def review_command(project: str, issue: int, reviewer: str, round_num: int | None = None) -> str:
+    """レビュー報告コマンド文字列を生成する。単一ソース。"""
+    cmd = (
+        f'python3 {GOKRAX_CLI} review'
+        f' --project {project}'
+        f' --issue {issue}'
+        f' --reviewer {reviewer}'
+        f' --verdict <APPROVE/P0/P1/P2>'
+        f' --summary "..."'
+    )
+    if round_num is not None:
+        cmd += f' --round {round_num}'
+    return cmd
+
 
 def _gateway_chat_send_cli(params_json: str, timeout: int) -> bool:
     """openclaw gateway call CLI 経由で chat.send を送信する。
@@ -176,7 +243,7 @@ def _build_file_review_message(
     # 各Issueのreviewコマンド生成
     review_cmds = []
     for i in pending_issues:
-        cmd = config.review_command(project, i["issue"], reviewer, round_num)
+        cmd = review_command(project, i["issue"], reviewer, round_num)
         review_cmds.append(cmd)
 
     cmds_block = "\n".join(review_cmds)
@@ -188,7 +255,7 @@ def _build_file_review_message(
     )
 
     # スキルブロック付与
-    skill_block = config.load_skills(reviewer)
+    skill_block = load_skills(reviewer)
     if skill_block:
         msg = f"{skill_block}\n\n{msg}"
 
@@ -459,7 +526,7 @@ def notify_implementer(agent_id: str, message: str):
     if agent_id not in AGENTS:
         logger.error("Unknown agent: %s", agent_id)
         return
-    skill_block = config.load_skills(agent_id)
+    skill_block = load_skills(agent_id)
     if skill_block:
         message = f"{skill_block}\n\n{message}"
     send_to_agent(agent_id, message)
@@ -656,7 +723,7 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
     phase = "コード" if is_code else "設計"
     sections = []
 
-    skill_block = config.load_skills(reviewer)
+    skill_block = load_skills(reviewer)
 
     diff_commits: set[str] = set()
 

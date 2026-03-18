@@ -24,18 +24,20 @@ class TestShortContextTier:
     def test_get_tier_returns_short_context(self, monkeypatch):
         """short-context tier のメンバーに get_tier() が "short-context" を返すこと。"""
         import config
+        from engine.reviewer import get_tier
         monkeypatch.setitem(config.REVIEWER_TIERS, "short-context", ["localllm"])
-        assert config.get_tier("localllm") == "short-context"
+        assert get_tier("localllm") == "short-context"
 
     def test_get_tier_unknown_still_returns_free(self):
         """未知のエージェントは "free" を返す既存挙動が維持されること。"""
-        import config
-        assert config.get_tier("unknown_agent_xyz") == "free"
+        from engine.reviewer import get_tier
+        assert get_tier("unknown_agent_xyz") == "free"
 
     def test_tier_uniqueness_warning(self, monkeypatch, caplog):
         """同一レビュアーを複数 tier に入れた場合に warning が出ること。"""
         import logging
         import config
+        from engine.reviewer import _validate_reviewer_tiers
 
         original = dict(config.REVIEWER_TIERS)
         monkeypatch.setattr(config, "REVIEWER_TIERS", {
@@ -44,8 +46,8 @@ class TestShortContextTier:
             "short-context": ["dup_reviewer"],
         })
 
-        with caplog.at_level(logging.WARNING, logger="config"):
-            config._validate_reviewer_tiers()
+        with caplog.at_level(logging.WARNING, logger="engine.reviewer"):
+            _validate_reviewer_tiers()
 
         assert any("dup_reviewer" in r.message and "multiple tiers" in r.message
                    for r in caplog.records)

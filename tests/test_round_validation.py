@@ -46,19 +46,19 @@ class TestGetCurrentRound:
 
     def test_get_current_round_design(self):
         """DESIGN_REVIEW 状態 + design_revise_count=2 → 3 を返す"""
-        from config import get_current_round
+        from pipeline_io import get_current_round
         data = {"state": "DESIGN_REVIEW", "design_revise_count": 2}
         assert get_current_round(data) == 3
 
     def test_get_current_round_code(self):
         """CODE_REVIEW 状態 + code_revise_count=0 → 1 を返す"""
-        from config import get_current_round
+        from pipeline_io import get_current_round
         data = {"state": "CODE_REVIEW", "code_revise_count": 0}
         assert get_current_round(data) == 1
 
     def test_get_current_round_idle(self):
         """IDLE 状態 → 0 を返す"""
-        from config import get_current_round
+        from pipeline_io import get_current_round
         data = {"state": "IDLE"}
         assert get_current_round(data) == 0
 
@@ -67,13 +67,13 @@ class TestReviewCommand:
 
     def test_review_command_with_round(self):
         """round_num=2 指定 → 出力文字列に --round 2 が含まれる"""
-        from config import review_command
+        from notify import review_command
         cmd = review_command("test-pj", 1, "pascal", round_num=2)
         assert "--round 2" in cmd
 
     def test_review_command_without_round(self):
         """round_num 省略 → 出力文字列に --round が含まれない"""
-        from config import review_command
+        from notify import review_command
         cmd = review_command("test-pj", 1, "pascal")
         assert "--round" not in cmd
 

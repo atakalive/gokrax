@@ -361,7 +361,7 @@ def cmd_start(args):
     triage + DESIGN_PLAN遷移 + watchdog有効化を一括実行。
     --issue省略時はGitLab APIでopen issue全件取得。
     """
-    from config import DEFAULT_QUEUE_OPTIONS
+    from config import BOOL_OPTION_KEYS, DEFAULT_QUEUE_OPTIONS
 
     # 明示的な否定フラグを先に処理
     if getattr(args, "keep_ctx_none", None):
@@ -376,7 +376,7 @@ def cmd_start(args):
             setattr(args, key, default_val)
 
     # None のまま残っているオプションを False に正規化（後続コードが bool を期待するため）
-    for key in ("keep_ctx_batch", "keep_ctx_intra", "p2_fix", "skip_cc_plan"):
+    for key in BOOL_OPTION_KEYS:
         if getattr(args, key, None) is None:
             setattr(args, key, False)
 
@@ -1575,7 +1575,7 @@ def main():
                    help="Issue番号（省略時はGitLabのopen issue全件を自動取得）")
     p.add_argument("--mode", choices=["full", "standard", "lite", "min", "skip"],
                    help="レビューモード（省略時は既存設定を維持）")
-    p.add_argument("--keep-context", action="store_true", default=False, dest="keep_context",
+    p.add_argument("--keep-context", action="store_true", default=None, dest="keep_context",
                    help="(後方互換) = --keep-ctx-all")
     p.add_argument("--keep-ctx-batch", action="store_true", default=None, dest="keep_ctx_batch")
     p.add_argument("--keep-ctx-intra", action="store_true", default=None, dest="keep_ctx_intra")

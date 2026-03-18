@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Optional
 
 from pipeline_io import load_pipeline, get_path
-from config import REVIEW_MODES
+from config import REVIEW_MODES, DEFAULT_QUEUE_OPTIONS
 
 
 def sanitize_comment(raw: str) -> str | None:
@@ -100,6 +100,7 @@ def parse_queue_line(line: str) -> dict:
         "skip_cc_plan": False,
         "original_line": line.rstrip("\n"),
     }
+    result["_explicit_keys"] = set()
 
     i = 2
     while i < len(tokens):
@@ -117,27 +118,43 @@ def parse_queue_line(line: str) -> dict:
             if result.get("_seen_no_automerge"):
                 raise ValueError("automerge and no-automerge cannot be used together")
             result["automerge"] = True
+            result["_explicit_keys"].add("automerge")
             result["_seen_automerge"] = True
         elif token == "no-automerge":
             if result.get("_seen_automerge"):
                 raise ValueError("automerge and no-automerge cannot be used together")
             result["automerge"] = False
+            result["_explicit_keys"].add("automerge")
             result["_seen_no_automerge"] = True
         elif token == "keep-ctx-batch":
             result["keep_ctx_batch"] = True
+            result["_explicit_keys"].add("keep_ctx_batch")
         elif token == "keep-ctx-intra":
             result["keep_ctx_intra"] = True
+            result["_explicit_keys"].add("keep_ctx_intra")
         elif token in ("keep-ctx-all", "keep-context"):
             result["keep_ctx_batch"] = True
             result["keep_ctx_intra"] = True
+            result["_explicit_keys"].update(("keep_ctx_batch", "keep_ctx_intra"))
+        elif token == "keep-ctx-none":
+            result["keep_ctx_batch"] = False
+            result["keep_ctx_intra"] = False
+            result["_explicit_keys"].update(("keep_ctx_batch", "keep_ctx_intra"))
         elif token.startswith("plan="):
             result["cc_plan_model"] = token.split("=", 1)[1]
+            result["_explicit_keys"].add("cc_plan_model")
         elif token in ("p1-fix", "p2-fix"):
             result["p2_fix"] = True
+            result["_explicit_keys"].add("p2_fix")
         elif token.startswith("impl="):
             result["cc_impl_model"] = token.split("=", 1)[1]
+            result["_explicit_keys"].add("cc_impl_model")
         elif token == "skip-cc-plan":
             result["skip_cc_plan"] = True
+            result["_explicit_keys"].add("skip_cc_plan")
+        elif token == "no-skip-cc-plan":
+            result["skip_cc_plan"] = False
+            result["_explicit_keys"].add("skip_cc_plan")
         elif token in REVIEW_MODES:
             if result["mode"] is not None:
                 raise ValueError(f"Duplicate mode: already {result['mode']!r}, got {token!r}")
@@ -148,6 +165,13 @@ def parse_queue_line(line: str) -> dict:
 
     result.pop("_seen_automerge", None)
     result.pop("_seen_no_automerge", None)
+    explicit = result.pop("_explicit_keys")
+    for key, default_val in DEFAULT_QUEUE_OPTIONS.items():
+        if key not in result:
+            continue  # 未知のキーは無視
+        if key in explicit:
+            continue  # 明示的に指定されたキーはスキップ
+        result[key] = default_val
     return result
 
 

@@ -26,6 +26,13 @@ LOG_FILE = Path("/tmp/gokrax-watchdog.log")
 QUEUE_FILE = PIPELINES_DIR / "gokrax-queue.txt"  # Default. Don't delete this line.
 QUEUE_FILE = Path("/mnt/s/wsl/work/project/gokrax/gokrax-queue.txt")
 
+# デフォルトオプション: start / qrun 開始時に自動適用される。
+# 明示的な CLI 引数やキュー行のオプションで上書き可能。
+DEFAULT_QUEUE_OPTIONS: dict[str, bool | str] = {
+    "skip_cc_plan": True,
+    "keep_ctx_intra": True,
+}
+
 
 # watchdog-loop
 WATCHDOG_LOOP_SCRIPT = Path(__file__).resolve().parent / "watchdog-loop.sh"

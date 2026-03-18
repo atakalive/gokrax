@@ -361,6 +361,25 @@ def cmd_start(args):
     triage + DESIGN_PLAN遷移 + watchdog有効化を一括実行。
     --issue省略時はGitLab APIでopen issue全件取得。
     """
+    from config import DEFAULT_QUEUE_OPTIONS
+
+    # 明示的な否定フラグを先に処理
+    if getattr(args, "keep_ctx_none", None):
+        args.keep_ctx_batch = False
+        args.keep_ctx_intra = False
+    if getattr(args, "no_skip_cc_plan", None):
+        args.skip_cc_plan = False
+
+    # デフォルトオプション適用: CLI 引数で明示指定されていない（None のまま）オプションにデフォルト値を注入
+    for key, default_val in DEFAULT_QUEUE_OPTIONS.items():
+        if getattr(args, key, None) is None:
+            setattr(args, key, default_val)
+
+    # None のまま残っているオプションを False に正規化（後続コードが bool を期待するため）
+    for key in ("keep_ctx_batch", "keep_ctx_intra", "p2_fix", "skip_cc_plan"):
+        if getattr(args, key, None) is None:
+            setattr(args, key, False)
+
     path = get_path(args.project)
 
     # 1. 前提条件チェック: IDLE状態でなければエラー
@@ -1558,13 +1577,15 @@ def main():
                    help="レビューモード（省略時は既存設定を維持）")
     p.add_argument("--keep-context", action="store_true", default=False, dest="keep_context",
                    help="(後方互換) = --keep-ctx-all")
-    p.add_argument("--keep-ctx-batch", action="store_true", default=False, dest="keep_ctx_batch")
-    p.add_argument("--keep-ctx-intra", action="store_true", default=False, dest="keep_ctx_intra")
-    p.add_argument("--keep-ctx-all", action="store_true", default=False, dest="keep_ctx_all")
-    p.add_argument("--p2-fix", action="store_true", default=False, dest="p2_fix")
+    p.add_argument("--keep-ctx-batch", action="store_true", default=None, dest="keep_ctx_batch")
+    p.add_argument("--keep-ctx-intra", action="store_true", default=None, dest="keep_ctx_intra")
+    p.add_argument("--keep-ctx-all", action="store_true", default=None, dest="keep_ctx_all")
+    p.add_argument("--keep-ctx-none", action="store_true", default=None, dest="keep_ctx_none")
+    p.add_argument("--p2-fix", action="store_true", default=None, dest="p2_fix")
     p.add_argument("--comment", default=None, help="バッチ全体への注意事項（プロンプトに挿入される）")
-    p.add_argument("--skip-cc-plan", action="store_true", default=False, dest="skip_cc_plan",
+    p.add_argument("--skip-cc-plan", action="store_true", default=None, dest="skip_cc_plan",
                    help="CC Plan フェーズをスキップし、直接 Impl に入る")
+    p.add_argument("--no-skip-cc-plan", action="store_true", default=None, dest="no_skip_cc_plan")
 
     # triage
     p = sub.add_parser("triage", help="指定Issueをバッチに投入")

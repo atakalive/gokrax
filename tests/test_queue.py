@@ -214,6 +214,55 @@ class TestParseQueueLine:
         result = parse_queue_line("Foo 1")
         assert result["skip_cc_plan"] is False
 
+    # --- デフォルトオプション注入テスト (Issue #133) ---
+
+    def test_parse_queue_line_default_options_applied(self, monkeypatch):
+        """DEFAULT_QUEUE_OPTIONS の値がオプション未指定行に注入される"""
+        monkeypatch.setattr("task_queue.DEFAULT_QUEUE_OPTIONS", {"skip_cc_plan": True, "keep_ctx_intra": True})
+        result = parse_queue_line("Foo 1")
+        assert result["skip_cc_plan"] is True
+        assert result["keep_ctx_intra"] is True
+
+    def test_parse_queue_line_explicit_overrides_default(self, monkeypatch):
+        """明示指定されたキーはデフォルトで上書きされない"""
+        monkeypatch.setattr("task_queue.DEFAULT_QUEUE_OPTIONS", {"skip_cc_plan": True, "keep_ctx_intra": True})
+        result = parse_queue_line("Foo 1 keep-ctx-batch")
+        assert result["keep_ctx_batch"] is True       # 明示指定
+        assert result["keep_ctx_intra"] is True       # デフォルト注入
+
+    def test_parse_queue_line_keep_ctx_none_overrides_default(self, monkeypatch):
+        """keep-ctx-none 指定時はデフォルトが適用されない"""
+        monkeypatch.setattr("task_queue.DEFAULT_QUEUE_OPTIONS", {"skip_cc_plan": True, "keep_ctx_intra": True})
+        result = parse_queue_line("Foo 1 keep-ctx-none")
+        assert result["keep_ctx_batch"] is False
+        assert result["keep_ctx_intra"] is False      # デフォルト True が適用されない
+
+    def test_parse_queue_line_no_skip_cc_plan_overrides_default(self, monkeypatch):
+        """no-skip-cc-plan 指定時はデフォルトの skip_cc_plan=True が適用されない"""
+        monkeypatch.setattr("task_queue.DEFAULT_QUEUE_OPTIONS", {"skip_cc_plan": True})
+        result = parse_queue_line("Foo 1 no-skip-cc-plan")
+        assert result["skip_cc_plan"] is False
+
+    def test_parse_queue_line_empty_defaults(self, monkeypatch):
+        """DEFAULT_QUEUE_OPTIONS が空のときは従来通りの結果"""
+        monkeypatch.setattr("task_queue.DEFAULT_QUEUE_OPTIONS", {})
+        result = parse_queue_line("Foo 1")
+        assert result["skip_cc_plan"] is False
+        assert result["keep_ctx_intra"] is False
+
+    def test_parse_queue_line_keep_ctx_none_token_valid(self, monkeypatch):
+        """keep-ctx-none トークンが ValueError を投げない"""
+        monkeypatch.setattr("task_queue.DEFAULT_QUEUE_OPTIONS", {})
+        result = parse_queue_line("Foo 1 keep-ctx-none")
+        assert result["keep_ctx_batch"] is False
+        assert result["keep_ctx_intra"] is False
+
+    def test_parse_queue_line_no_skip_cc_plan_token_valid(self, monkeypatch):
+        """no-skip-cc-plan トークンが ValueError を投げない"""
+        monkeypatch.setattr("task_queue.DEFAULT_QUEUE_OPTIONS", {})
+        result = parse_queue_line("Foo 1 no-skip-cc-plan")
+        assert result["skip_cc_plan"] is False
+
     # --- インラインコメントテスト (Issue #105) ---
 
     def test_inline_comment_space_hash_space(self):

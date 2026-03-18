@@ -38,6 +38,14 @@ def _block_external_calls(request, tmp_path):
     watchdog.LOG_FILE = orig_watchdog
 
 
+@pytest.fixture(autouse=True)
+def _clear_default_queue_options(monkeypatch):
+    """全テストで DEFAULT_QUEUE_OPTIONS を空にし、デフォルト注入を無効化する。
+    新規テストだけが明示的にデフォルトを設定してテストする。
+    """
+    monkeypatch.setattr("task_queue.DEFAULT_QUEUE_OPTIONS", {})
+
+
 @pytest.fixture
 def tmp_pipelines(tmp_path, monkeypatch):
     """PIPELINES_DIR を tmp_path に差し替え、テスト用パイプラインを返すヘルパー。"""

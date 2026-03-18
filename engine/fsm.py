@@ -20,21 +20,20 @@ from engine.reviewer import (
     _revise_target_issues,
     count_reviews,
 )
-from engine.shared import _is_cc_running, _is_ok_reply, log  # noqa: F401 (_is_cc_running, _is_ok_reply: resolved via _wd() for test compat)
+from engine.shared import log
 from messages import render
-from notify import (  # noqa: F401 (resolved via _wd() for test compat)
-    notify_discord,
-    notify_implementer,
-    notify_reviewers,
-)
-from pipeline_io import clear_pending_notification  # noqa: F401 (resolved via _wd() for test compat)
 
 import sys
 
 
 def _wd():
-    """Return watchdog module for test-patch compat (names patched in watchdog namespace)."""
-    return sys.modules['watchdog']
+    """Return watchdog module for test-patch compat.
+
+    Tests patch names in the watchdog namespace (e.g. patch("watchdog.notify_discord")).
+    This function resolves those names via sys.modules so patches take effect.
+    Removed in #132 when test patch targets are updated to engine.fsm.
+    """
+    return sys.modules["watchdog"]
 
 
 @dataclass

@@ -123,12 +123,12 @@ AGENTS = {
 }
 
 # Reviewer tiers means that their infrastructure capability
-# Regular: Good connection, context length, token usage
-# Free: Limited daily token usage, unstable connection. (Author did not test them well)
-# Short-context: Shorter context length. Local LLM etc. (64k-ctx model was tested in simple single issue)
+# Regular: Stable connection, enough context length
+# Free: Limited daily token usage, may be disconnected in workflow. (Author did not test them well)
+# Short-context: Shorter context length. Local LLM etc. (64k-ctx model was tested in single issue)
 REVIEWER_TIERS: dict[str, list[str]] = {
     "regular": ["dijkstra", "euler", "pascal"],
-    "free": [],  # ping-test did not work well so far
+    "free": [],  # ping-test did not work well so far, not reccommended
     "short-context": ["basho", "hanfei", "leibniz"],
 }
 

@@ -197,13 +197,13 @@ INACTIVE_THRESHOLD_SEC = 303
 # /new コマンド後の待ち時間（秒）
 POST_NEW_COMMAND_WAIT_SEC = 30
 
-# Discord: MのユーザーID（マージサマリー承認者）
-M_DISCORD_USER_ID = "1469758184456589550"
+# Discord: マージ承認者のユーザーID
+MERGE_APPROVER_DISCORD_ID = "1469758184456589550"
 
 # Discord: Discordコマンド実行を許可するユーザーIDリスト
 # M個人 + WatcherB bot
 ALLOWED_COMMAND_USER_IDS: tuple[str, ...] = (
-    M_DISCORD_USER_ID,       # M
+    MERGE_APPROVER_DISCORD_ID,       # マージ承認者
     "1477531618456637572",   # WatcherB bot
 )
 

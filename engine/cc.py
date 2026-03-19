@@ -181,7 +181,7 @@ done
 
 if [ "$HASH" = "$BEFORE_HASH" ]; then
     _notify "{msg_no_commit_blocked}"
-    "{GOKRAX_CLI}" transition --project "{project}" --to BLOCKED --force --comment "CC がコミットを作成しなかった（2回リトライ後）"
+    "{GOKRAX_CLI}" transition --project "{project}" --to BLOCKED --force
     exit 1
 fi
 

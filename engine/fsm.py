@@ -264,7 +264,7 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
 
         # Manual merge: wait for M's OK
         from notify import fetch_discord_replies
-        from config import M_DISCORD_USER_ID, DISCORD_CHANNEL
+        from config import MERGE_APPROVER_DISCORD_ID, DISCORD_CHANNEL
         summary_id = data.get("summary_message_id")
         if not summary_id:
             return TransitionAction()
@@ -272,7 +272,7 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
         for msg in messages:
             ref = msg.get("message_reference", {})
             if (ref.get("message_id") == summary_id
-                    and msg.get("author", {}).get("id") == M_DISCORD_USER_ID
+                    and msg.get("author", {}).get("id") == MERGE_APPROVER_DISCORD_ID
                     and _is_ok_reply(msg.get("content", ""))):
                 return TransitionAction(new_state="DONE")
         return TransitionAction()

@@ -14,7 +14,6 @@ import config
 import pipeline_io
 from config import ALLOWED_COMMAND_USER_IDS
 
-M_USER_ID = ALLOWED_COMMAND_USER_IDS[0]
 
 
 # ── ヘルパー ──────────────────────────────────────────────────────────────────
@@ -1883,7 +1882,7 @@ class TestDiscordStatusCommand:
         monkeypatch.setattr(commands_dev, "PIPELINES_DIR", tmp_path)
 
         # Mock Discord API
-        messages = [_mock_discord_message("1001", M_USER_ID, "status")]
+        messages = [_mock_discord_message("1001", ALLOWED_COMMAND_USER_IDS[0], "status")]
 
         with patch("notify.fetch_discord_latest", return_value=messages) as mock_fetch, \
              patch("notify.post_discord") as mock_post:
@@ -1948,8 +1947,8 @@ class TestDiscordStatusCommand:
         monkeypatch.setattr(commands_dev, "PIPELINES_DIR", tmp_path)
 
         messages = [
-            _mock_discord_message("1001", M_USER_ID, "Status"),
-            _mock_discord_message("1002", M_USER_ID, "STATUS"),
+            _mock_discord_message("1001", ALLOWED_COMMAND_USER_IDS[0], "Status"),
+            _mock_discord_message("1002", ALLOWED_COMMAND_USER_IDS[0], "STATUS"),
         ]
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
@@ -2009,7 +2008,7 @@ class TestDiscordStatusCommand:
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
 
-        messages = [_mock_discord_message("1001", M_USER_ID, "status")]
+        messages = [_mock_discord_message("1001", ALLOWED_COMMAND_USER_IDS[0], "status")]
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
              patch("notify.post_discord") as mock_post:
@@ -2029,8 +2028,8 @@ class TestDiscordStatusCommand:
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
 
         messages = [
-            _mock_discord_message("1001", M_USER_ID, "statusABC"),
-            _mock_discord_message("1002", M_USER_ID, "hogestatus"),
+            _mock_discord_message("1001", ALLOWED_COMMAND_USER_IDS[0], "statusABC"),
+            _mock_discord_message("1002", ALLOWED_COMMAND_USER_IDS[0], "hogestatus"),
         ]
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
@@ -2061,7 +2060,7 @@ class TestDiscordStatusCommand:
         monkeypatch.setattr(gokrax, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(commands_dev, "PIPELINES_DIR", tmp_path)
 
-        messages = [_mock_discord_message("1001", M_USER_ID, "status")]
+        messages = [_mock_discord_message("1001", ALLOWED_COMMAND_USER_IDS[0], "status")]
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
              patch("notify.post_discord") as mock_post:
@@ -2085,7 +2084,7 @@ class TestDiscordStatusCommand:
         monkeypatch.setattr(gokrax, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(commands_dev, "PIPELINES_DIR", tmp_path)
 
-        messages = [_mock_discord_message("1001", M_USER_ID, "status")]
+        messages = [_mock_discord_message("1001", ALLOWED_COMMAND_USER_IDS[0], "status")]
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
              patch("notify.post_discord") as mock_post:
@@ -2106,9 +2105,9 @@ class TestDiscordStatusCommand:
 
         # API returns newest first
         messages = [
-            _mock_discord_message("1003", M_USER_ID, "status"),
-            _mock_discord_message("1002", M_USER_ID, "status"),
-            _mock_discord_message("1001", M_USER_ID, "status"),
+            _mock_discord_message("1003", ALLOWED_COMMAND_USER_IDS[0], "status"),
+            _mock_discord_message("1002", ALLOWED_COMMAND_USER_IDS[0], "status"),
+            _mock_discord_message("1001", ALLOWED_COMMAND_USER_IDS[0], "status"),
         ]
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
@@ -2173,7 +2172,7 @@ class TestDiscordQrunCommand:
         })
 
         # Mock Discord API
-        messages = [_mock_discord_message("1001", M_USER_ID, "qrun")]
+        messages = [_mock_discord_message("1001", ALLOWED_COMMAND_USER_IDS[0], "qrun")]
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
              patch("notify.post_discord") as mock_post, \
@@ -2213,7 +2212,7 @@ class TestDiscordQrunCommand:
         queue_path.write_text("")
         monkeypatch.setattr(config, "QUEUE_FILE", queue_path)
 
-        messages = [_mock_discord_message("1001", M_USER_ID, "qrun")]
+        messages = [_mock_discord_message("1001", ALLOWED_COMMAND_USER_IDS[0], "qrun")]
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
              patch("notify.post_discord") as mock_post:
@@ -2258,7 +2257,7 @@ class TestDiscordQrunCommand:
         monkeypatch.setattr("task_queue.get_path", mock_get_path)
         monkeypatch.setattr("task_queue.load_pipeline", mock_load_pipeline)
 
-        messages = [_mock_discord_message("1001", M_USER_ID, "qrun")]
+        messages = [_mock_discord_message("1001", ALLOWED_COMMAND_USER_IDS[0], "qrun")]
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
              patch("notify.post_discord") as mock_post, \
@@ -2311,7 +2310,7 @@ class TestDiscordQrunCommand:
         monkeypatch.setattr("task_queue.get_path", mock_get_path)
         monkeypatch.setattr("task_queue.load_pipeline", mock_load_pipeline)
 
-        messages = [_mock_discord_message("1001", M_USER_ID, "qrun")]
+        messages = [_mock_discord_message("1001", ALLOWED_COMMAND_USER_IDS[0], "qrun")]
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
              patch("notify.post_discord") as mock_post, \
@@ -2343,7 +2342,7 @@ class TestDiscordQrunCommand:
         queue_path.write_text("test-pj 1\n")
         monkeypatch.setattr(config, "QUEUE_FILE", queue_path)
 
-        messages = [_mock_discord_message("1001", M_USER_ID, "qrun")]
+        messages = [_mock_discord_message("1001", ALLOWED_COMMAND_USER_IDS[0], "qrun")]
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
              patch("notify.post_discord") as mock_post, \
@@ -2374,7 +2373,7 @@ class TestDiscordQrunCommand:
         monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
 
-        messages = [_mock_discord_message("1001", M_USER_ID, "qrun")]
+        messages = [_mock_discord_message("1001", ALLOWED_COMMAND_USER_IDS[0], "qrun")]
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
              patch("notify.post_discord") as mock_post:
@@ -2420,7 +2419,7 @@ class TestDiscordQrunCommand:
         monkeypatch.setattr("task_queue.load_pipeline", mock_load_pipeline)
         monkeypatch.setattr("pipeline_io.get_path", mock_get_path)
 
-        messages = [_mock_discord_message("1001", M_USER_ID, "qrun")]
+        messages = [_mock_discord_message("1001", ALLOWED_COMMAND_USER_IDS[0], "qrun")]
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
              patch("notify.post_discord") as mock_post, \
@@ -2451,8 +2450,8 @@ class TestDiscordQrunCommand:
         monkeypatch.setattr(config, "QUEUE_FILE", queue_path)
 
         messages = [
-            _mock_discord_message("1001", M_USER_ID, "Qrun"),
-            _mock_discord_message("1002", M_USER_ID, "QRUN"),
+            _mock_discord_message("1001", ALLOWED_COMMAND_USER_IDS[0], "Qrun"),
+            _mock_discord_message("1002", ALLOWED_COMMAND_USER_IDS[0], "QRUN"),
         ]
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
@@ -2521,8 +2520,8 @@ class TestDiscordQrunCommand:
 
         # API returns newest first
         messages = [
-            _mock_discord_message("1002", M_USER_ID, "qrun"),
-            _mock_discord_message("1001", M_USER_ID, "status"),
+            _mock_discord_message("1002", ALLOWED_COMMAND_USER_IDS[0], "qrun"),
+            _mock_discord_message("1001", ALLOWED_COMMAND_USER_IDS[0], "status"),
         ]
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
@@ -2564,7 +2563,7 @@ class TestAutoCloseOnDone:
         })
 
         # MのOKリプライをモック
-        mock_messages = [{"id": "999", "author": {"id": config.M_DISCORD_USER_ID},
+        mock_messages = [{"id": "999", "author": {"id": config.MERGE_APPROVER_DISCORD_ID},
                           "content": "ok", "message_reference": {"message_id": "123456"}}]
 
         from watchdog import process

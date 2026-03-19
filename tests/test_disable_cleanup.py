@@ -9,7 +9,7 @@ sys.path.insert(0, str(ROOT))
 
 
 def test_cmd_disable_all_pj_disabled_removes_cron_and_cleans_up(tmp_path, monkeypatch):
-    """全PJがdisabledになったとき、loop停止→ファイルクリーンアップが実行される（crontabは残す）。"""
+    """全PJがdisabledになったとき、crontab削除→プロセス停止→ファイルクリーンアップが正しい順序で呼ばれる。"""
     import gokrax
 
     # PIDFILE, LOCKFILE を tmp_path に差し替え、実ファイルを作成
@@ -42,8 +42,8 @@ def test_cmd_disable_all_pj_disabled_removes_cron_and_cleans_up(tmp_path, monkey
         args.project = "test"
         gokrax.cmd_disable(args)
 
-    # _stop_loop のみ呼ばれる（crontab は残す — Issue #135）
-    assert call_order == ["_stop_loop"]
+    # 呼び出し順序を検証: _remove_cron_entry → _stop_loop の順
+    assert call_order == ["_remove_cron_entry", "_stop_loop"]
 
     # PIDFILE, LOCKFILE が削除されていることを検証
     assert not fake_pidfile.exists()

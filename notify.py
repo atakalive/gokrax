@@ -20,7 +20,7 @@ from config import (
     GOKRAX_CLI, GLAB_BIN, DISCORD_CHANNEL, DISCORD_BOT_TOKEN,
     AGENTS, REVIEW_MODES, MAX_DIFF_CHARS, GLAB_TIMEOUT,
     AGENT_SEND_TIMEOUT, DISCORD_POST_TIMEOUT, POST_NEW_COMMAND_WAIT_SEC,
-    MAX_INLINE_MESSAGE_BYTES, REVIEW_FILE_DIR, REVIEW_FILE_WRITE_RETRIES,
+    MAX_CLI_ARG_BYTES, REVIEW_FILE_DIR, REVIEW_FILE_WRITE_RETRIES,
     REVIEW_FILE_WRITE_RETRY_DELAY,
 )
 
@@ -99,7 +99,7 @@ def _gateway_chat_send_cli(params_json: str, timeout: int) -> bool:
     """openclaw gateway call CLI 経由で chat.send を送信する。
 
     CLI が device identity と全 auth mode を内部で処理する。
-    MAX_ARG_STRLEN (128KB) 未満のメッセージ専用。
+    MAX_CLI_ARG_BYTES (128KB) 未満のメッセージ専用。
 
     Args:
         params_json: JSON 文字列（sessionKey, message, idempotencyKey）
@@ -140,7 +140,7 @@ def _gateway_chat_send_cli(params_json: str, timeout: int) -> bool:
 def _gateway_chat_send(session_key: str, message: str, timeout: int) -> bool:
     """Gateway 経由で chat.send を送信する（CLI経由のみ）。
 
-    MAX_INLINE_MESSAGE_BYTES 未満のメッセージ専用。
+    MAX_CLI_ARG_BYTES 未満の params_json 専用。
     それ以上のメッセージは呼び出し元でファイル外部化すること。
     """
     params_json = json.dumps({
@@ -623,10 +623,14 @@ def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
             logger.info("No pending issues for %s — skipping review request", r)
             continue
 
-        # サイズ判定: UTF-8バイト数で閾値を超えたらファイル外部化
-        msg_bytes = len(msg.encode("utf-8"))
-        if msg_bytes >= config.MAX_INLINE_MESSAGE_BYTES:
-            logger.info("Review message for %s is %d bytes, externalizing to file", r, msg_bytes)
+        # サイズ判定: CLI引数として渡す最終形態（JSON）のバイト数で MAX_CLI_ARG_BYTES と比較
+        params_json_size = len(json.dumps({
+            "sessionKey": f"agent:{r}:main",
+            "message": msg,
+            "idempotencyKey": "00000000-0000-0000-0000-000000000000",
+        }).encode("utf-8"))
+        if params_json_size >= config.MAX_CLI_ARG_BYTES:
+            logger.info("Review message for %s is %d bytes (json), externalizing to file", r, params_json_size)
             file_path = _write_review_file(project, r, msg)
             if file_path is None:
                 # ファイル書き出し失敗 → BLOCKED遷移

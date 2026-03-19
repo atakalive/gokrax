@@ -1216,7 +1216,7 @@ class TestNotifyReviewersExternalization:
     def test_small_message_sends_inline(self, monkeypatch):
         """閾値未満のメッセージはインライン送信されること"""
         import notify
-        monkeypatch.setattr(config, "MAX_INLINE_MESSAGE_BYTES", 999_999)
+        monkeypatch.setattr(config, "MAX_CLI_ARG_BYTES", 999_999)
         with patch("notify.send_to_agent", return_value=True) as mock_send:
             with patch("notify.fetch_issue_body", return_value="body"):
                 with patch("notify._write_review_file") as mock_write:
@@ -1228,7 +1228,7 @@ class TestNotifyReviewersExternalization:
     def test_large_message_externalizes(self, tmp_path, monkeypatch):
         """閾値以上のメッセージがファイル外部化されること"""
         import notify
-        monkeypatch.setattr(config, "MAX_INLINE_MESSAGE_BYTES", 10)
+        monkeypatch.setattr(config, "MAX_CLI_ARG_BYTES", 10)
         monkeypatch.setattr(config, "REVIEW_FILE_DIR", tmp_path)
         file_path = tmp_path / "test.md"
         with patch("notify.send_to_agent", return_value=True) as mock_send:
@@ -1245,7 +1245,7 @@ class TestNotifyReviewersExternalization:
     def test_file_write_failure_triggers_blocked(self, monkeypatch):
         """ファイル書き出し失敗時にBLOCKED遷移が呼ばれること"""
         import notify
-        monkeypatch.setattr(config, "MAX_INLINE_MESSAGE_BYTES", 10)
+        monkeypatch.setattr(config, "MAX_CLI_ARG_BYTES", 10)
         with patch("notify.send_to_agent") as mock_send:
             with patch("notify.fetch_issue_body", return_value="body"):
                 with patch("notify._write_review_file", return_value=None):

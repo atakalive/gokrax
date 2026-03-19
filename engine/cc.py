@@ -466,6 +466,7 @@ def _start_code_test(project: str, data: dict, pipeline_path: Path) -> None:
             "started_at": now_iso(),
             "output_path": output_path,
             "exit_code_path": exit_code_path,
+            "script_path": script_path,
             "commit": head,
         }
         d["test_result"] = None
@@ -520,7 +521,8 @@ def _poll_code_test(path: Path, pj: str) -> None:
             d.pop("_code_test", None)
 
         update_pipeline(path, _save_timeout)
-        for p in (output_path, exit_code_path):
+        script_path = info.get("script_path", "")
+        for p in (output_path, exit_code_path, script_path):
             if p:
                 try:
                     os.unlink(p)
@@ -551,6 +553,9 @@ def _poll_code_test(path: Path, pj: str) -> None:
             with open(exit_code_path) as f:
                 exit_code = int(f.read().strip())
             os.unlink(exit_code_path)
+        script_path_result = info.get("script_path", "")
+        if script_path_result and os.path.exists(script_path_result):
+            os.unlink(script_path_result)
     except Exception as e:
         log(f"[{pj}] WARNING: code test output read failed: {e}")
 
@@ -607,7 +612,7 @@ def _kill_code_test(data: dict, pj: str) -> None:
             log(f"[{pj}] killed stale code test (pgid={pid})")
         except OSError:
             pass
-    for key in ("output_path", "exit_code_path"):
+    for key in ("output_path", "exit_code_path", "script_path"):
         p = info.get(key, "")
         if p:
             try:

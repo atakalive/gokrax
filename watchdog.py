@@ -870,18 +870,21 @@ def process(path: Path):
                 update_pipeline(path, _block_cc_fail)
                 notify_discord(f"[{pj}] ⚠️ CC テスト修正起動失敗: {e}")
 
-        # Issue #87: CODE_TEST_FIX 実装者通知
+        # Issue #87: CODE_TEST_FIX 実装者通知（CC起動成功時のみ）
         if action.new_state == "CODE_TEST_FIX":
             pipeline_data = load_pipeline(path)
-            test_output = pipeline_data.get("test_output", "")
-            retry_count = pipeline_data.get("test_retry_count", 0)
-            from config import MAX_TEST_RETRY
-            msg = render("dev.code_test_fix", "transition",
-                project=pj, test_output=test_output,
-                retry_count=retry_count, max_retry=MAX_TEST_RETRY,
-                GOKRAX_CLI=GOKRAX_CLI,
-            )
-            notify_implementer(notification["implementer"], f"[gokrax] {pj}: {msg}")
+            if pipeline_data.get("state") != "CODE_TEST_FIX":
+                log(f"[{pj}] skipping CODE_TEST_FIX notification: state is {pipeline_data.get('state')}")
+            else:
+                test_output = pipeline_data.get("test_output", "")
+                retry_count = pipeline_data.get("test_retry_count", 0)
+                from config import MAX_TEST_RETRY, GOKRAX_CLI as _GOKRAX_CLI
+                msg = render("dev.code_test_fix", "transition",
+                    project=pj, test_output=test_output,
+                    retry_count=retry_count, max_retry=MAX_TEST_RETRY,
+                    GOKRAX_CLI=_GOKRAX_CLI,
+                )
+                notify_implementer(notification["implementer"], f"[gokrax] {pj}: {msg}")
 
 
 # _stop_loop_if_idle は廃止。crontab/loop.sh は常時稼働し、

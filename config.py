@@ -225,7 +225,7 @@ MAX_DIFF_CHARS: int = 5_000_000
 
 # インライン送信の上限バイトサイズ（UTF-8エンコード後）
 # これ以上のメッセージはファイル外部化に切り替える
-MAX_INLINE_MESSAGE_BYTES: int = 120_000
+MAX_CLI_ARG_BYTES: int = 120_000  # Linux MAX_ARG_STRLEN=131072; ~8% margin. TODO #139: OS別閾値切替
 
 # レビューデータ外部化のディレクトリ
 REVIEW_FILE_DIR: Path = Path("/tmp/gokrax-review")

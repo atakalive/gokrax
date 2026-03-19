@@ -15,6 +15,7 @@ __all__ = [
     "guidance_code",
     "nudge_review",
     "nudge_dispute",
+    "notify_nudge_reviewers",
 ]
 
 
@@ -76,6 +77,11 @@ def guidance_code(**_kw) -> str:
         "- 「〜が見当たらない」という指摘は P2（提案）に留め、P0/P1 にしてはならない\n"
         "- diff 外のコードに依存する指摘を P0/P1 で出す場合、その根拠が diff 内に明示的に存在することを確認せよ"
     )
+
+
+def notify_nudge_reviewers(project: str, reviewers: str, q_prefix: str = "", **_kw) -> str:
+    """レビュアー催促の Discord 通知。reviewers は組み立て済み。"""
+    return f"{q_prefix}[{project}] レビュアーを催促: {reviewers}"
 
 
 def nudge_review(

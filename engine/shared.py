@@ -4,14 +4,15 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from config import JST, LOG_FILE, SESSIONS_BASE, INACTIVE_THRESHOLD_SEC
+import config
+from config import JST, SESSIONS_BASE, INACTIVE_THRESHOLD_SEC
 
 
 def log(msg: str) -> None:
     """タイムスタンプ付きログをLOG_FILEに書き込む。"""
     ts = datetime.now(JST).strftime("%Y-%m-%d %H:%M:%S")
     line = f"[{ts}] {msg}"
-    with open(LOG_FILE, "a") as f:
+    with open(config.LOG_FILE, "a") as f:
         f.write(line + "\n")
 
 

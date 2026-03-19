@@ -82,16 +82,16 @@ def load_skills(agent_name: str) -> str:
 
 def review_command(project: str, issue: int, reviewer: str, round_num: int | None = None) -> str:
     """レビュー報告コマンド文字列を生成する。単一ソース。"""
+    round_arg = f' --round {round_num}' if round_num is not None else ''
     cmd = (
         f'python3 {GOKRAX_CLI} review'
         f' --project {project}'
         f' --issue {issue}'
+        f'{round_arg}'
         f' --reviewer {reviewer}'
         f' --verdict <APPROVE/P0/P1/P2>'
         f' --summary "..."'
     )
-    if round_num is not None:
-        cmd += f' --round {round_num}'
     return cmd
 
 
@@ -801,10 +801,10 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
         pending_issues.append(f"□ #{num}: {title}")
         round_arg = f" --round {round_num}" if round_num is not None else ""
         pending_cmds.append(
-            f"{GOKRAX_CLI} review --project {project} --issue {num} "
-            f"--reviewer {reviewer} --verdict <APPROVE|P0|P1|P2> "
-            f"--summary $'レビュー本文\n2行目\n3行目..'"
+            f"{GOKRAX_CLI} review --project {project} --issue {num}"
             f"{round_arg}"
+            f" --reviewer {reviewer} --verdict <APPROVE|P0|P1|P2> "
+            f"--summary $'レビュー本文\n2行目\n3行目..'"
         )
 
     todo_header = (

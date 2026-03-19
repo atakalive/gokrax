@@ -78,6 +78,7 @@ ruff check *.py tests/
 ```
 
 ### テストの禁止事項
+- 本プロジェクトはLinux上で開発している。テストをWindows仕様に変更してはならない。
 - **`time.sleep()` をテストコードで直接呼ぶな。** conftest で `time.sleep` はグローバルにモック済み。プロダクションコードの sleep がテスト中に走ると累積して timeout する
 - sleep の動作を検証したい場合は `patch("time.sleep") as mock_sleep` で呼び出し回数・引数を assert する
 - **外部通信（Discord, agent 送信）はテストで実行するな。** conftest の `_block_external_calls` でモック済み。新しい外部通信関数を追加したら conftest にもモックを追加すること

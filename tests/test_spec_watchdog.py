@@ -652,7 +652,7 @@ class TestSpecNudge:
         # DCL 再チェックでも nudge_reviewers を返すようにする（applied=True が条件）
         nudge_action = SpecTransitionAction(next_state=None, nudge_reviewers=["pascal"])
         with patch("engine.fsm_spec.check_transition_spec", return_value=nudge_action), \
-             patch("watchdog._is_agent_inactive", return_value=True), \
+             patch("engine.shared._is_agent_inactive", return_value=True), \
              patch("engine.fsm_spec.send_to_agent_queued") as mock_send, \
              patch("engine.fsm_spec.notify_discord"):
             _apply_spec_action(pj_path, action, _now(), pj_data)
@@ -690,7 +690,7 @@ class TestSpecNudge:
         # DCL 再チェックでも nudge_reviewers を返すようにする（applied=True が条件）
         nudge_action = SpecTransitionAction(next_state=None, nudge_reviewers=["pascal"])
         with patch("engine.fsm_spec.check_transition_spec", return_value=nudge_action), \
-             patch("watchdog._is_agent_inactive", return_value=True), \
+             patch("engine.shared._is_agent_inactive", return_value=True), \
              patch("engine.fsm_spec.send_to_agent_queued", return_value=True) as mock_send, \
              patch("engine.fsm_spec.notify_discord"):
             _apply_spec_action(pj_path, action, _now(), pj_data)
@@ -793,7 +793,7 @@ class TestSpecNudge:
         )
         nudge_action = SpecTransitionAction(next_state=None, nudge_reviewers=["pascal"])
         with patch("engine.fsm_spec.check_transition_spec", return_value=nudge_action), \
-             patch("watchdog._is_agent_inactive", return_value=True), \
+             patch("engine.shared._is_agent_inactive", return_value=True), \
              patch("engine.fsm_spec.send_to_agent_queued") as mock_send, \
              patch("engine.fsm_spec.notify_discord"):
             _apply_spec_action(pj_path, action, _now(), pj_data)
@@ -823,7 +823,7 @@ class TestSpecNudge:
         )
         nudge_action = SpecTransitionAction(next_state=None, nudge_implementer=True)
         with patch("engine.fsm_spec.check_transition_spec", return_value=nudge_action), \
-             patch("watchdog._is_agent_inactive", return_value=True), \
+             patch("engine.shared._is_agent_inactive", return_value=True), \
              patch("engine.fsm_spec.send_to_agent_queued") as mock_send, \
              patch("engine.fsm_spec.notify_discord"):
             _apply_spec_action(pj_path, action, _now(), pj_data)

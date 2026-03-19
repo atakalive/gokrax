@@ -288,11 +288,11 @@ MAX_TEST_RETRY: int = 3
 
 TEST_CONFIG: dict[str, dict] = {
     "gokrax": {
-        "test_command": "cd /mnt/s/wsl/work/project/gokrax && python -m pytest -x --tb=short",
+        "test_command": "cd /mnt/s/wsl/work/project/gokrax && python3 -m pytest -x --tb=short",
         "test_timeout": 300,
     },
     "EMCalibrator": {
-        "test_command": "cd /mnt/s/wsl/work/project/EMCalibrator && python -m pytest -x --tb=short",
+        "test_command": "cd /mnt/s/wsl/work/project/EMCalibrator && python3 -m pytest -x --tb=short",
         "test_timeout": 300,
     },
 }

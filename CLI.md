@@ -1,371 +1,641 @@
-# gokrax CLI マニュアル
+# gokrax CLI Manual
 
-> `python3 gokrax.py <command> [options]`
-> 全コマンドで `--pj` は `--project` のエイリアス。
-
----
-
-## バッチ開始〜完了の基本フロー
-
-```bash
-# 1. バッチ開始（triage + DESIGN_PLAN遷移 + watchdog有効化を一括実行）
-python3 gokrax.py start --pj BeamShifter --issue 17 18 19 --mode full
-
-# 2. [実装担当] Issue本文を確認・修正後、設計完了を報告
-python3 gokrax.py plan-done --pj BeamShifter --issue 17 18 19
-
-# --- ここから自動 ---
-# watchdog: DESIGN_PLAN → DESIGN_REVIEW（レビュアーに自動通知）
-# watchdog: レビュー完了検出 → DESIGN_APPROVED → IMPLEMENTATION（CC自動起動）
-# CC: Plan → Impl → gokrax commit を自動実行
-# watchdog: IMPLEMENTATION → CODE_REVIEW（レビュアーに自動通知）
-# watchdog: レビュー完了検出 → CODE_APPROVED → MERGE_SUMMARY_SENT
-
-# 3. [M] #gokraxのサマリーに「OK」リプライ → DONE → git push + issue close → IDLE
-```
+> `gokrax <command> [options]`
+> `--pj` is an alias for `--project` in all commands. Noted once here and not repeated in every table below.
 
 ---
 
-## コマンド一覧
-
-### `status` — 全プロジェクトの状態表示
+## Basic Flow: Batch Start to Completion
 
 ```bash
-python3 gokrax.py status
+# 1. Start batch (triage + transition to DESIGN_PLAN + enable watchdog)
+gokrax start --pj BeamShifter --issue 17 18 19 --mode full
+
+# 2. [Implementer] Review/edit issue descriptions, then report design plan done
+gokrax plan-done --pj BeamShifter --issue 17 18 19
+
+# --- Automated from here ---
+# watchdog: DESIGN_PLAN -> DESIGN_REVIEW (reviewers notified)
+# watchdog: all reviews done -> DESIGN_APPROVED -> IMPLEMENTATION (CC auto-starts)
+# CC: Plan -> Impl -> gokrax commit (automatic)
+# watchdog: IMPLEMENTATION -> CODE_REVIEW (reviewers notified)
+# watchdog: all reviews done -> CODE_APPROVED -> MERGE_SUMMARY_SENT
+
+# 3. [M] Reply "OK" to the summary in #gokrax -> DONE -> git push + issue close -> IDLE
 ```
 
-出力例:
+---
+
+## Command List
+
+### `status` -- Show all project status
+
+```bash
+gokrax status
 ```
-[ON] BeamShifter: CODE_REVIEW  issues=[#17, #18]  ReviewerSize=full  Reviewers=["pascal", "leibniz", "hanfei", "dijkstra"]
+
+Output example:
+```
+[ON] BeamShifter: CODE_REVIEW  issues=[#17, #18]  ReviewerSize=full  Reviewers=["pascal", "dijkstra", "euler", "basho"]
   #17: 2/3 reviews (1 APPROVE, 1 P0)
   #18: 3/3 reviews (3 APPROVE)
-[OFF] gokrax: IDLE  issues=[none]  ReviewerSize=lite  Reviewers=["pascal", "leibniz"]
+[OFF] gokrax: IDLE  issues=[none]  ReviewerSize=lite  Reviewers=["basho", "pascal"]
 ```
 
-### `start` — バッチ開始（一括操作）
+No options (other than `-h`).
+
+### `init` -- Initialize a new project
 
 ```bash
-# Issue番号指定
-python3 gokrax.py start --pj BeamShifter --issue 17 18 19 --mode full
-
-# GitLabのopen issue全件を自動取得
-python3 gokrax.py start --pj BeamShifter --mode standard
+gokrax init --pj NewProject --gitlab atakalive/NewProject --repo-path /path/to/repo
 ```
 
-| オプション | 必須 | 説明 |
-|-----------|------|------|
-| `--pj` | ✅ | プロジェクト名 |
-| `--issue N [N...]` | - | Issue番号。省略時はGitLab APIで全open issue取得 |
-| `--mode` | - | レビューモード: full/standard/lite/skip |
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--pj` | Yes | project name |
+| `--gitlab GITLAB` | No | GitLab path (default: `atakalive/<project>`) |
+| `--repo-path REPO_PATH` | No | local repository path |
+| `--implementer IMPLEMENTER` | No | implementer agent (default: `kaneko`) |
 
-前提: IDLE状態であること。
-
-### `init` — 新プロジェクト作成
+### `enable` / `disable` -- Watchdog control
 
 ```bash
-python3 gokrax.py init --pj NewProject --gitlab atakalive/NewProject --repo-path /path/to/repo
+gokrax enable --pj BeamShifter
+gokrax disable --pj BeamShifter
 ```
 
-### `triage` — Issueをバッチに投入
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--pj` | Yes | project name |
+
+### `extend` -- Extend timeout
 
 ```bash
-python3 gokrax.py triage --pj BeamShifter --issue 20 21
+gokrax extend --pj BeamShifter --by 600
 ```
 
-通常は `start` が内部で呼ぶので直接使うことは少ない。
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--pj` | Yes | project name |
+| `--by BY` | No | seconds to add (default: 600) |
 
-### `plan-done` — 設計完了報告
+Applicable states: DESIGN_PLAN, DESIGN_REVISE, IMPLEMENTATION, CODE_REVISE. Max 2 extensions.
+
+### `start` -- Start a batch
 
 ```bash
-python3 gokrax.py plan-done --pj BeamShifter --issue 17 18 19
+# Specify issue numbers
+gokrax start --pj BeamShifter --issue 17 18 19 --mode full
+
+# Auto-fetch all open issues from GitLab
+gokrax start --pj BeamShifter --mode standard
 ```
 
-**DESIGN_PLAN状態でのみ実行可能。** 実装担当がIssue本文を確認・修正した後に実行する。
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--pj` | Yes | project name |
+| `--issue N [N ...]` | No | issue numbers (omit to fetch all open issues from GitLab) |
+| `--mode {full,standard,lite,min,skip}` | No | review mode (omit to keep current setting) |
+| `--keep-context` | No | (backward compat) alias for `--keep-ctx-all` |
+| `--keep-ctx-batch` | No | keep context within the batch |
+| `--keep-ctx-intra` | No | keep context within intra-issue steps |
+| `--keep-ctx-all` | No | keep context across all steps |
+| `--keep-ctx-none` | No | discard context between steps |
+| `--p2-fix` | No | enable P2-fix mode (auto-revise on P2 verdicts) |
+| `--comment COMMENT` | No | note for the entire batch (injected into prompts) |
+| `--skip-cc-plan` | No | skip CC plan phase, go directly to implementation |
+| `--no-skip-cc-plan` | No | explicitly do not skip CC plan phase |
+| `--skip-test` | No | skip CODE_TEST phase, go directly to CODE_REVIEW |
+| `--no-skip-test` | No | explicitly do not skip CODE_TEST phase |
 
-### `review` — レビュー結果投稿
+Prerequisite: project must be in IDLE state.
+
+### `triage` -- Add issues to the batch
 
 ```bash
-python3 gokrax.py review \
+gokrax triage --pj BeamShifter --issue 20 21
+```
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--pj` | Yes | project name |
+| `--issue N [N ...]` | Yes | issue numbers (multiple allowed) |
+| `--title TITLE` | No | titles (one per `--issue`; omit for empty) |
+
+Normally called internally by `start`.
+
+### `transition` -- Manual state transition
+
+```bash
+# Normal transition (with validation)
+gokrax transition --pj BeamShifter --to CODE_REVIEW
+
+# Force transition (skip validation)
+gokrax transition --pj BeamShifter --to IDLE --force
+
+# Resume (skip validation + prefix notifications with "(resumed)")
+gokrax transition --pj BeamShifter --to DESIGN_PLAN --resume
+```
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--pj` | Yes | project name |
+| `--to TO` | Yes | target state |
+| `--actor ACTOR` | No | transition actor (default: `cli`) |
+| `--force` | No | skip transition validation |
+| `--resume` | No | skip validation and prefix notifications with (resumed) |
+| `--dry-run` | No | apply transition only, skip notifications (for testing) |
+
+### `reset` -- Reset all projects to IDLE
+
+```bash
+gokrax reset
+gokrax reset --dry-run
+gokrax reset --force
+```
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--dry-run` | No | show targets without making changes |
+| `--force` | No | skip confirmation prompt |
+
+### `review` -- Record review result
+
+```bash
+gokrax review \
   --pj BeamShifter \
   --issue 17 \
   --reviewer pascal \
   --verdict APPROVE \
-  --summary $'設計は妥当。\n境界条件の処理も適切。'
+  --summary 'Design is sound. Boundary conditions handled properly.'
 ```
 
-| オプション | 必須 | 説明 |
-|-----------|------|------|
-| `--pj` | ✅ | プロジェクト名 |
-| `--issue` | ✅ | Issue番号 |
-| `--reviewer` | ✅ | レビュアー名 (pascal/leibniz/hanfei/dijkstra/kaneko) |
-| `--verdict` | ✅ | APPROVE / P0 / P1 / REJECT |
-| `--summary` | - | レビューコメント |
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--pj` | Yes | project name |
+| `--issue N` | Yes | issue number |
+| `--reviewer` | Yes | reviewer name: `{kaneko,pascal,leibniz,hanfei,dijkstra,neumann,euler,basho}` |
+| `--verdict` | Yes | verdict: `{APPROVE,P0,P1,P2,REJECT}` |
+| `--summary SUMMARY` | No | review summary |
+| `--force` | No | overwrite existing review |
+| `--round ROUND` | No | review round number (auto-filled) |
 
-**冪等:** 同一レビュアーによる二重投稿はスキップされる。
-**GitLab連携:** verdict + summaryがIssue noteとして自動投稿される。
+Idempotent: duplicate submissions from the same reviewer are skipped.
+GitLab integration: verdict + summary are posted as an issue note.
 
-### `commit` — 実装完了報告
+### `flag` -- Human (M) verdict injection
 
 ```bash
-python3 gokrax.py commit --pj BeamShifter --issue 17 18 19 --hash abc1234
+gokrax flag --pj BeamShifter --issue 17 --verdict P0 --summary "Critical bug found"
 ```
 
-複数Issueを一つのコミットで解決した場合、全Issue番号を列挙する。
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--pj` | Yes | project name |
+| `--issue N` | Yes | issue number |
+| `--verdict` | Yes | verdict: `{P0,P1,P2}` |
+| `--summary SUMMARY` | No | flag description |
 
-### `design-revise` — 設計修正完了報告
+Can be used at any time regardless of current state.
+
+### `dispute` -- Dispute a verdict
 
 ```bash
-python3 gokrax.py design-revise --pj BeamShifter --issue 17
-python3 gokrax.py design-revise --pj BeamShifter --issue 17 18
-python3 gokrax.py design-revise --pj BeamShifter --issue 17 --comment "P0指摘のIssue本文修正完了"
+gokrax dispute --pj BeamShifter --issue 17 --reviewer pascal --reason "False positive"
 ```
 
-**DESIGN_REVISE状態でのみ実行可能。複数Issue番号を並べて一括報告可能。**
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--pj` | Yes | project name |
+| `--issue N` | Yes | issue number |
+| `--reviewer` | Yes | reviewer name: `{kaneko,pascal,leibniz,hanfei,dijkstra,neumann,euler,basho}` |
+| `--reason REASON` | Yes | reason for the dispute |
 
-### `code-revise` — コード修正完了報告
+Used during REVISE to dispute a P0/P1 verdict.
+
+### `commit` -- Record implementation commit
 
 ```bash
-python3 gokrax.py code-revise --pj BeamShifter --issue 17 --hash f8f7c30
-python3 gokrax.py code-revise --pj BeamShifter --issue 17 18 19 --hash f8f7c30
-python3 gokrax.py code-revise --pj BeamShifter --issue 17 --hash f8f7c30 --comment "P0指摘のゼロ除算ガードを追加"
+gokrax commit --pj BeamShifter --issue 17 18 19 --hash abc1234
 ```
 
-**CODE_REVISE状態でのみ実行可能。`--hash` は必須。複数Issue番号を並べて一括登録可能。commit記録 + revise完了フラグを一発で設定する。**
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--pj` | Yes | project name |
+| `--issue N [N ...]` | Yes | issue numbers (multiple allowed) |
+| `--hash HASH` | Yes | git commit hash |
+| `--session-id SESSION_ID` | No | CC session ID |
 
-### `extend` — タイムアウト延長
+List all issue numbers when a single commit resolves multiple issues.
+
+### `plan-done` -- Mark design plan as done
 
 ```bash
-python3 gokrax.py extend --pj BeamShifter --by 600
+gokrax plan-done --pj BeamShifter --issue 17 18 19
 ```
 
-- デフォルト: +600秒
-- 対象状態: DESIGN_PLAN, DESIGN_REVISE, IMPLEMENTATION, CODE_REVISE
-- **最大2回まで。** 超過するとエラー
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--pj` | Yes | project name |
+| `--issue N [N ...]` | Yes | issue numbers (multiple allowed) |
 
-### `transition` — 手動状態遷移
+Only valid in DESIGN_PLAN state. Run after the implementer has reviewed and edited issue descriptions.
+
+### `design-revise` -- Mark design revision as done
 
 ```bash
-# 通常遷移（バリデーションあり）
-python3 gokrax.py transition --pj BeamShifter --to CODE_REVIEW
-
-# 強制遷移（バリデーションスキップ）
-python3 gokrax.py transition --pj BeamShifter --to IDLE --force
-
-# 再開（通知に「（再開）」プレフィックス付与）
-python3 gokrax.py transition --pj BeamShifter --to DESIGN_PLAN --resume
+gokrax design-revise --pj BeamShifter --issue 17
+gokrax design-revise --pj BeamShifter --issue 17 18
+gokrax design-revise --pj BeamShifter --issue 17 --comment "Fixed P0 issue in design"
 ```
 
-### `review-mode` — レビューモード変更
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--pj` | Yes | project name |
+| `--issue N [N ...]` | Yes | issue numbers (multiple allowed) |
+| `--comment COMMENT` | No | comment to post as GitLab issue note (optional) |
+
+Only valid in DESIGN_REVISE state.
+
+### `code-revise` -- Mark code revision as done
 
 ```bash
-python3 gokrax.py review-mode --pj BeamShifter --mode full
+gokrax code-revise --pj BeamShifter --issue 17 --hash f8f7c30
+gokrax code-revise --pj BeamShifter --issue 17 18 19 --hash f8f7c30
+gokrax code-revise --pj BeamShifter --issue 17 --hash f8f7c30 --comment "Added zero-division guard"
 ```
 
-| モード | レビュアー | （レビュアーリストは変更されている可能性が高い）
-|--------|-----------|
-| full | pascal, leibniz, hanfei, dijkstra |
-| standard | pascal, leibniz, hanfei |
-| lite | pascal, leibniz |
-| skip | (なし、自動承認) |
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--pj` | Yes | project name |
+| `--issue N [N ...]` | Yes | issue numbers (multiple allowed) |
+| `--hash HASH` | Yes | git commit hash |
+| `--comment COMMENT` | No | comment to post as GitLab issue note (optional) |
 
-### `enable` / `disable` — watchdog制御
+Only valid in CODE_REVISE state. Records commit hash and sets code_revised flag in one step.
+
+### `review-mode` -- Change review mode
 
 ```bash
-python3 gokrax.py enable --pj BeamShifter
-python3 gokrax.py disable --pj BeamShifter
+gokrax review-mode --pj BeamShifter --mode full
 ```
 
-### `cc-start` — CC PID記録
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--pj` | Yes | project name |
+| `--mode` | Yes | review mode: `{full,standard,lite3_woOpus,lite3_woGoogle,lite3_woOpenAI,lite,cheap,min,skip}` |
+
+Reviewer membership for each mode is configured in `config`, not hardcoded in CLI.
+
+### `merge-summary` -- Post merge summary
 
 ```bash
-python3 gokrax.py cc-start --pj BeamShifter --pid 12345
+gokrax merge-summary --pj BeamShifter
 ```
 
-通常はwatchdogが自動で記録するので直接使うことは少ない。
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--pj` | Yes | project name |
 
-### `merge-summary` — マージサマリー手動投稿
+Only valid in CODE_APPROVED state. Normally posted automatically by watchdog.
+
+### `cc-start` -- Record CC process PID
 
 ```bash
-python3 gokrax.py merge-summary --pj BeamShifter
+gokrax cc-start --pj BeamShifter --pid 12345
 ```
 
-CODE_APPROVED状態でのみ実行可能。通常はwatchdogが自動投稿する。
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--pj` | Yes | project name |
+| `--pid PID` | Yes | CC process PID |
+
+Normally recorded automatically by watchdog.
+
+### `qrun` -- Run next batch from queue
+
+```bash
+gokrax qrun
+gokrax qrun --dry-run
+```
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--queue QUEUE` | No | queue file path (default: `gokrax-queue.txt`) |
+| `--dry-run` | No | show entry without executing |
+
+### `qstatus` -- Show active queue entries
+
+```bash
+gokrax qstatus
+```
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--queue QUEUE` | No | queue file path |
+
+### `qadd` -- Add entries to queue
+
+```bash
+gokrax qadd BeamShifter 33,34 lite no-automerge comment=note
+gokrax qadd --file entries.txt
+echo "BeamShifter 33 full" | gokrax qadd --stdin
+```
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `entry ...` (positional) | No | entry to add (e.g. `BeamShifter 33,34 lite no-automerge comment=note`) |
+| `--file FILE` | No | file containing entries (one per line) |
+| `--stdin` | No | read entries from stdin |
+| `--queue QUEUE` | No | queue file path |
+
+### `qdel` -- Delete a queue entry
+
+```bash
+gokrax qdel 0
+gokrax qdel last
+```
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `target` (positional) | Yes | target to delete (index number or `last`) |
+| `--queue QUEUE` | No | queue file path |
+
+### `qedit` -- Replace a queue entry
+
+```bash
+gokrax qedit 0 gokrax 105 full automerge
+gokrax qedit last BeamShifter 50 standard
+```
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `target` (positional) | Yes | target to replace (index number or `last`) |
+| `entry ...` (positional) | Yes | new entry (e.g. `gokrax 105 full automerge`) |
+| `--queue QUEUE` | No | queue file path |
 
 ---
 
-## verdict の使い分け
+## Verdicts
 
-| Verdict | いつ使う |
-|---------|---------|
-| **APPROVE** | 問題なし。承認 |
-| **P0** | Critical。このIssueはREVISEに戻る |
-| **P1** | Major。ブロックするように変更 |
-| **P2 / Suggestion** | ブロックしない。p2-fix指定時、MAX_TURNまでREVISEを試みる |
-| **REJECT** | 根本的に問題あり。P0と同等（使用頻度は低い） |
+| Verdict | When to use |
+|---------|-------------|
+| **APPROVE** | No issues found. Approved. |
+| **P0** | Critical / blocker. This issue goes back to REVISE. |
+| **P1** | Major. Blocks progress. |
+| **P2** | Minor / suggestion. In `--p2-fix` mode, triggers REVISE up to MAX_TURN attempts. |
+| **REJECT** | Fundamentally flawed. Equivalent to P0 (rarely used). |
 
 ---
 
-## ログ確認
+## Log Paths
 
 ```bash
-# watchdogログ
+# watchdog log
 tail -f /tmp/gokrax-watchdog.log
 
-# pipeline JSON確認
+# pipeline JSON
 cat ~/.openclaw/shared/pipelines/BeamShifter.json | python3 -m json.tool
 ```
 
 ---
 
-## Spec Mode（仕様書レビューパイプライン）
+## Spec Mode (Specification Review Pipeline)
 
-specレビュー → 改訂ループ → Issue起票 → キュー生成を自動化する。
+Automates: spec review -> revision loop -> issue creation -> queue generation.
 
-### 基本フロー
-
-```bash
-# 1. spec-modeパイプライン開始
-python3 gokrax.py spec start --pj TrajOpt \
-  --spec /mnt/s/wsl/work/project/TrajOpt/docs/SPEC.md --implementer kaneko
-
-# --- ここから自動 ---
-# watchdog: SPEC_REVIEW（レビュアーに自動通知）
-# watchdog: P0あり → SPEC_REVISE（implementerに改訂指示）
-# watchdog: 改訂完了 → SPEC_REVIEW（再レビュー）
-# ... REVIEW⇔REVISEループ（max-cycles回まで）
-# watchdog: 全員APPROVE → SPEC_APPROVED
-
-# 2. [OWNER] 確認後、Issue化フェーズに進む
-python3 gokrax.py spec continue --pj TrajOpt
-
-# --- 自動 ---
-# ISSUE_SUGGESTION → ISSUE_PLAN → QUEUE_PLAN → SPEC_DONE
-
-# 3. 完了 → IDLEに戻す
-python3 gokrax.py spec done --pj TrajOpt
-```
-
-### コマンド一覧
-
-#### `spec start` — spec-modeパイプライン開始
+### Basic Flow
 
 ```bash
-python3 gokrax.py spec start --pj <PROJECT> --spec <PATH> --implementer <AGENT>
+# 1. Start spec mode pipeline
+gokrax spec start --pj TrajOpt \
+  --spec docs/SPEC.md --implementer kaneko
+
+# --- Automated from here ---
+# watchdog: SPEC_REVIEW (reviewers notified)
+# watchdog: P0 found -> SPEC_REVISE (implementer gets revision instructions)
+# watchdog: revision done -> SPEC_REVIEW (re-review)
+# ... REVIEW <-> REVISE loop (up to max-cycles)
+# watchdog: all APPROVE -> SPEC_APPROVED
+
+# 2. [OWNER] After review, proceed to issue creation phase
+gokrax spec continue --pj TrajOpt
+
+# --- Automated ---
+# ISSUE_SUGGESTION -> ISSUE_PLAN -> QUEUE_PLAN -> SPEC_DONE
+
+# 3. Complete -> return to IDLE
+gokrax spec done --pj TrajOpt
 ```
 
-| オプション | 説明 |
-|---|---|
-| `--pj` / `--project` | プロジェクト名（必須） |
-| `--spec` | specファイルのパス（cwd相対、必須） |
-| `--implementer` | 改訂担当エージェントID（必須） |
-| `--review-mode` | full / standard / lite / min |
-| `--max-cycles` | REVIEW⇔REVISEの最大ループ数 |
-| `--model` | CC使用モデル指定 |
-| `--skip-review` | レビュースキップ（即APPROVED） |
-| `--review-only` | レビューだけ行いIssue化しない |
-| `--no-queue` | キュー生成をスキップ |
-| `--auto-continue` | APPROVED後にM確認スキップで自動的にISSUE_SUGGESTIONへ |
-| `--auto-qrun` | spec完了後にキューを自動実行する |
+### Spec Subcommands
 
-#### `spec approve` — 手動でSPEC_APPROVEDに遷移
+#### `spec start` -- Start spec mode pipeline
 
 ```bash
-python3 gokrax.py spec approve --pj <PROJECT> [--force]
+gokrax spec start --pj <PROJECT> --spec <PATH> --implementer <AGENT>
 ```
 
-レビューが膠着した場合等に手動でAPPROVE。`--force` でmin_reviews未到達でも強制遷移。
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--pj` | Yes | project name |
+| `--spec SPEC` | Yes | path to spec file (repo-relative) |
+| `--implementer IMPLEMENTER` | Yes | revision agent ID |
+| `--review-only` | No | review only, do not proceed to issue creation |
+| `--no-queue` | No | skip queue generation |
+| `--skip-review` | No | skip review (immediately APPROVED) |
+| `--max-cycles MAX_CYCLES` | No | max REVIEW <-> REVISE loop count |
+| `--review-mode {full,standard,lite,min}` | No | review mode |
+| `--model MODEL` | No | CC model override |
+| `--auto-continue` | No | skip M confirmation after APPROVED, auto-proceed to ISSUE_SUGGESTION |
+| `--auto-qrun` | No | auto-run queue after spec completion |
+| `--rev REV` | No | initial current_rev value (default: 1) |
 
-#### `spec continue` — APPROVED → ISSUE_SUGGESTION
+#### `spec stop` -- Force-stop spec mode
 
 ```bash
-python3 gokrax.py spec continue --pj <PROJECT>
+gokrax spec stop --pj <PROJECT>
 ```
 
-SPEC_APPROVED状態でのみ有効。Issue起票フェーズに進む。
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--pj` | Yes | project name |
 
-#### `spec extend` — STALLED → REVISE（サイクル上限追加）
+Stops spec mode from any state and returns to IDLE. Disables watchdog.
+
+#### `spec approve` -- Manually approve spec
 
 ```bash
-python3 gokrax.py spec extend --pj <PROJECT> [--cycles 2]
+gokrax spec approve --pj <PROJECT> [--force]
 ```
 
-max-cyclesに到達してSTALLEDになった場合、サイクル数を追加して続行。
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--pj` | Yes | project name |
+| `--force` | No | force approve even if min_reviews not reached |
 
-#### `spec retry` — FAILED → REVIEW（やり直し）
-#### `spec resume` — PAUSED → 中断前の状態に復帰
-#### `spec stop` — spec modeを強制停止
+#### `spec continue` -- Proceed to issue creation
 
 ```bash
-python3 gokrax.py spec stop --pj <PROJECT>
+gokrax spec continue --pj <PROJECT>
 ```
 
-任意の状態からspec-modeを中断してIDLEに戻す。watchdogも無効化される。
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--pj` | Yes | project name |
 
-#### `spec done` — SPEC_DONE → IDLE
-#### `spec status` — 現在のspec-mode状態表示
+Only valid in SPEC_APPROVED state.
 
-#### `spec review-submit` — レビュー結果の投入
+#### `spec done` -- Complete spec mode
 
 ```bash
-python3 gokrax.py spec review-submit --pj <PROJECT> --reviewer <REVIEWER> --file <FILE>
+gokrax spec done --pj <PROJECT>
 ```
 
-前提: SPEC_REVIEW状態。ファイルはレビュアーのレビュー結果YAML（フェンスあり/なし両対応）。
-素YAMLが入力された場合は自動でフェンスを付与してパースする。
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--pj` | Yes | project name |
 
-#### `spec revise-submit` — SPEC_REVISE完了報告の投入
+Transitions from SPEC_DONE to IDLE.
+
+#### `spec retry` -- Retry from FAILED
 
 ```bash
-python3 gokrax.py spec revise-submit --pj <PROJECT> --file <FILE>
+gokrax spec retry --pj <PROJECT>
 ```
 
-前提: SPEC_REVISE状態。ファイルはimplementerの改訂完了YAML（フェンスあり/なし両対応）。
-パーサー `parse_revise_response` で検証後、`spec_config._revise_response` にフェンス化して格納。
-素YAMLが入力された場合は自動でフェンスを付与して保存する（watchdog再パースの整合性確保）。
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--pj` | Yes | project name |
 
-#### `spec issue-submit` — ISSUE_PLAN完了報告の投入
+Transitions from FAILED back to SPEC_REVIEW.
+
+#### `spec resume` -- Resume from PAUSED
 
 ```bash
-python3 gokrax.py spec issue-submit --pj <PROJECT> --file <FILE>
+gokrax spec resume --pj <PROJECT>
 ```
 
-前提: ISSUE_PLAN状態。ファイルはimplementerのIssue起票完了YAML（フェンスあり/なし両対応）。
-パーサー `parse_issue_plan_response` で検証後、`spec_config._issue_plan_response` にフェンス化して格納。
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--pj` | Yes | project name |
 
-#### `spec queue-submit` — QUEUE_PLAN完了報告の投入
+Returns to the state before pause.
+
+#### `spec extend` -- Extend stalled spec
 
 ```bash
-python3 gokrax.py spec queue-submit --pj <PROJECT> --file <FILE>
+gokrax spec extend --pj <PROJECT> [--cycles 2]
 ```
 
-前提: QUEUE_PLAN状態。ファイルはimplementerのキュー生成完了YAML（フェンスあり/なし両対応）。
-パーサー `parse_queue_plan_response` で検証後、`spec_config._queue_plan_response` にフェンス化して格納。
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--pj` | Yes | project name |
+| `--cycles CYCLES` | No | additional cycles to add (default: 2) |
 
-#### `spec suggestion-submit` — ISSUE_SUGGESTIONレビュアー提案の投入
+Transitions from STALLED back to SPEC_REVISE with increased max_cycles.
+
+#### `spec status` -- Show spec mode status
 
 ```bash
-python3 gokrax.py spec suggestion-submit --pj <PROJECT> --reviewer <REVIEWER> --file <FILE>
+gokrax spec status --pj <PROJECT>
 ```
 
-前提: ISSUE_SUGGESTION状態かつプロンプト送信済み(sent\_at!=None)。
-ファイルはレビュアーのIssue分割提案YAML（フェンスあり/なし両対応）。
-パーサー `parse_issue_suggestion_response` で検証後、`current_reviews.entries[REVIEWER]` にフェンス化して格納。
-review\_requestsのstatusはwatchdogが更新するためCLI側では触らない。
-素YAMLが入力された場合は自動でフェンスを付与して保存する。
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--pj` | Yes | project name |
 
-### Spec Mode 状態遷移
+#### `spec review-submit` -- Submit review result
+
+```bash
+gokrax spec review-submit --pj <PROJECT> --reviewer <REVIEWER> --file <FILE>
+```
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--pj` | Yes | project name |
+| `--reviewer REVIEWER` | Yes | reviewer name |
+| `--file FILE` | Yes | review result YAML file |
+
+Prerequisite: SPEC_REVIEW state. Accepts raw YAML or fenced YAML.
+
+#### `spec revise-submit` -- Submit revision result
+
+```bash
+gokrax spec revise-submit --pj <PROJECT> --file <FILE>
+```
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--pj` | Yes | project name |
+| `--file FILE` | Yes | revision completion YAML file |
+
+Prerequisite: SPEC_REVISE state.
+
+#### `spec self-review-submit` -- Submit self-review result
+
+```bash
+gokrax spec self-review-submit --pj <PROJECT> --file <FILE>
+```
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--pj` | Yes | project name |
+| `--file FILE` | Yes | self-review result file |
+
+#### `spec issue-submit` -- Submit issue plan result
+
+```bash
+gokrax spec issue-submit --pj <PROJECT> --file <FILE>
+```
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--pj` | Yes | project name |
+| `--file FILE` | Yes | ISSUE_PLAN completion YAML file |
+
+Prerequisite: ISSUE_PLAN state.
+
+#### `spec queue-submit` -- Submit queue plan result
+
+```bash
+gokrax spec queue-submit --pj <PROJECT> --file <FILE>
+```
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--pj` | Yes | project name |
+| `--file FILE` | Yes | QUEUE_PLAN completion YAML file |
+
+Prerequisite: QUEUE_PLAN state.
+
+#### `spec suggestion-submit` -- Submit reviewer suggestion
+
+```bash
+gokrax spec suggestion-submit --pj <PROJECT> --reviewer <REVIEWER> --file <FILE>
+```
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--pj` | Yes | project name |
+| `--reviewer REVIEWER` | Yes | reviewer name |
+| `--file FILE` | Yes | issue suggestion YAML file |
+
+Prerequisite: ISSUE_SUGGESTION state.
+
+### Spec Mode State Transitions
 
 ```
-SPEC_REVIEW ⇔ SPEC_REVISE（max-cyclesまでループ）
-    ↓ 全員APPROVE
+SPEC_REVIEW <-> SPEC_REVISE (up to max-cycles)
+    | all APPROVE
 SPEC_APPROVED
-    ↓ spec continue
-ISSUE_SUGGESTION → ISSUE_PLAN → QUEUE_PLAN → SPEC_DONE
-    ↓ spec done
+    | spec continue
+ISSUE_SUGGESTION -> ISSUE_PLAN -> QUEUE_PLAN -> SPEC_DONE
+    | spec done
 IDLE
 ```
 
-特殊状態:
-- **STALLED**: max-cycles到達。`spec extend` で続行
-- **FAILED**: エラー発生。`spec retry` でREVIEWに戻す
-- **PAUSED**: 手動中断。`spec resume` で復帰
+Special states:
+- **STALLED**: max-cycles reached. Use `spec extend` to continue.
+- **FAILED**: error occurred. Use `spec retry` to return to SPEC_REVIEW.
+- **PAUSED**: manually paused. Use `spec resume` to return to previous state.

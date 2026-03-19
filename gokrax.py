@@ -114,179 +114,179 @@ from commands.dev import (  # noqa: F401 — re-export for backwards compatibili
 def main():
     parser = argparse.ArgumentParser(
         prog="gokrax",
-        description="gokrax — Issue→設計→実装→レビュー→マージの開発パイプラインCLI",
+        description="gokrax — development pipeline CLI: issue → design → implement → review → merge",
     )
     sub = parser.add_subparsers(dest="command")
 
     # status
-    sub.add_parser("status", help="全プロジェクトの状態・バッチ・レビュー進捗を一覧表示")
+    sub.add_parser("status", help="show status of all projects (state, batch, review progress)")
 
     # init
-    p = sub.add_parser("init", help="新プロジェクトのパイプラインを初期化")
-    p.add_argument("--pj", "--project", dest="project", required=True, help="プロジェクト名")
-    p.add_argument("--gitlab", help="GitLabパス (default: atakalive/<project>)")
-    p.add_argument("--repo-path", dest="repo_path", help="ローカルリポジトリのパス")
-    p.add_argument("--implementer", default="kaneko", help="実装担当エージェント (default: kaneko)")
+    p = sub.add_parser("init", help="initialize pipeline for a new project")
+    p.add_argument("--pj", "--project", dest="project", required=True, help="project name")
+    p.add_argument("--gitlab", help="GitLab path (default: atakalive/<project>)")
+    p.add_argument("--repo-path", dest="repo_path", help="local repository path")
+    p.add_argument("--implementer", default="kaneko", help="implementer agent (default: kaneko)")
 
     # enable / disable
-    p = sub.add_parser("enable", help="watchdogによる自動遷移・催促を有効化")
+    p = sub.add_parser("enable", help="enable watchdog (automatic transitions and nudges)")
     p.add_argument("--pj", "--project", dest="project", required=True)
-    p = sub.add_parser("disable", help="watchdogを無効化（手動操作のみ）")
+    p = sub.add_parser("disable", help="disable watchdog (manual-only mode)")
     p.add_argument("--pj", "--project", dest="project", required=True)
 
     # extend
-    p = sub.add_parser("extend", help="DESIGN_PLAN/IMPL等のタイムアウトを延長")
+    p = sub.add_parser("extend", help="extend timeout for DESIGN_PLAN, IMPLEMENTATION, etc.")
     p.add_argument("--pj", "--project", dest="project", required=True)
-    p.add_argument("--by", type=int, default=600, help="延長秒数 (default: 600)")
+    p.add_argument("--by", type=int, default=600, help="seconds to add (default: 600)")
 
     # start
-    p = sub.add_parser("start", help="バッチ開始: triage→DESIGN_PLAN遷移→watchdog有効化を一括実行")
+    p = sub.add_parser("start", help="start batch: triage + transition to DESIGN_PLAN + enable watchdog")
     p.add_argument("--pj", "--project", dest="project", required=True)
     p.add_argument("--issue", type=int, nargs="+",
-                   help="Issue番号（省略時はGitLabのopen issue全件を自動取得）")
+                   help="issue numbers (omit to fetch all open issues from GitLab)")
     p.add_argument("--mode", choices=["full", "standard", "lite", "min", "skip"],
-                   help="レビューモード（省略時は既存設定を維持）")
+                   help="review mode (omit to keep current setting)")
     p.add_argument("--keep-context", action="store_true", default=None, dest="keep_context",
-                   help="(後方互換) = --keep-ctx-all")
+                   help="(backward compat) alias for --keep-ctx-all")
     p.add_argument("--keep-ctx-batch", action="store_true", default=None, dest="keep_ctx_batch")
     p.add_argument("--keep-ctx-intra", action="store_true", default=None, dest="keep_ctx_intra")
     p.add_argument("--keep-ctx-all", action="store_true", default=None, dest="keep_ctx_all")
     p.add_argument("--keep-ctx-none", action="store_true", default=None, dest="keep_ctx_none")
     p.add_argument("--p2-fix", action="store_true", default=None, dest="p2_fix")
-    p.add_argument("--comment", default=None, help="バッチ全体への注意事項（プロンプトに挿入される）")
+    p.add_argument("--comment", default=None, help="note for the entire batch (injected into prompts)")
     p.add_argument("--skip-cc-plan", action="store_true", default=None, dest="skip_cc_plan",
-                   help="CC Plan フェーズをスキップし、直接 Impl に入る")
+                   help="skip CC plan phase, go directly to implementation")
     p.add_argument("--no-skip-cc-plan", action="store_true", default=None, dest="no_skip_cc_plan")
     p.add_argument("--skip-test", action="store_true", default=None, dest="skip_test",
-                   help="CODE_TEST フェーズをスキップし、直接 CODE_REVIEW に入る")
+                   help="skip CODE_TEST phase, go directly to CODE_REVIEW")
     p.add_argument("--no-skip-test", action="store_true", default=None, dest="no_skip_test")
 
     # triage
-    p = sub.add_parser("triage", help="指定Issueをバッチに投入")
+    p = sub.add_parser("triage", help="add issues to the current batch")
     p.add_argument("--pj", "--project", dest="project", required=True)
-    p.add_argument("--issue", type=int, nargs="+", required=True, help="Issue番号（複数指定可）")
-    p.add_argument("--title", action="append", default=[], help="タイトル（--issue と同数、省略時は空文字）")
+    p.add_argument("--issue", type=int, nargs="+", required=True, help="issue numbers (multiple allowed)")
+    p.add_argument("--title", action="append", default=[], help="titles (one per --issue; omit for empty)")
 
     # transition
-    p = sub.add_parser("transition", help="手動で状態遷移（通常はwatchdogが自動実行）")
+    p = sub.add_parser("transition", help="manually trigger a state transition (normally done by watchdog)")
     p.add_argument("--pj", "--project", dest="project", required=True)
-    p.add_argument("--to", required=True, help="遷移先の状態")
-    p.add_argument("--actor", default="cli", help="遷移実行者 (default: cli)")
+    p.add_argument("--to", required=True, help="target state")
+    p.add_argument("--actor", default="cli", help="transition actor (default: cli)")
     p.add_argument("--force", action="store_true", default=False,
-                   help="遷移バリデーションをスキップ")
+                   help="skip transition validation")
     p.add_argument("--resume", action="store_true", default=False,
-                   help="バリデーションスキップ＋通知に「（再開）」プレフィックス付与")
+                   help="skip validation and prefix notifications with (resumed)")
     p.add_argument("--dry-run", action="store_true", default=False, dest="dry_run",
-                   help="遷移のみ実行し通知をスキップ（テスト用）")
+                   help="apply transition only, skip notifications (for testing)")
 
     # reset
-    p = sub.add_parser("reset", help="非IDLE状態の全PJをIDLEにリセット")
-    p.add_argument("--dry-run", action="store_true", help="変更せず対象を表示のみ")
-    p.add_argument("--force", action="store_true", help="確認プロンプトをスキップ")
+    p = sub.add_parser("reset", help="reset all non-IDLE projects to IDLE")
+    p.add_argument("--dry-run", action="store_true", help="show targets without making changes")
+    p.add_argument("--force", action="store_true", help="skip confirmation prompt")
 
     # review
-    p = sub.add_parser("review", help="レビュー結果を記録（冪等: 同一レビュアーの二重投稿はスキップ）")
+    p = sub.add_parser("review", help="record review result (idempotent: duplicate from same reviewer is skipped)")
     p.add_argument("--pj", "--project", dest="project", required=True)
     p.add_argument("--issue", type=int, required=True)
     p.add_argument("--reviewer", required=True, choices=ALLOWED_REVIEWERS)
     p.add_argument("--verdict", required=True, choices=VALID_VERDICTS,
-                   help="APPROVE/P0/P1/REJECT")
-    p.add_argument("--summary", default="", help="レビューサマリー")
+                   help="verdict: APPROVE / P0 / P1 / P2 / REJECT")
+    p.add_argument("--summary", default="", help="review summary")
     p.add_argument("--force", action="store_true", default=False,
-                   help="既存レビューを上書きする")
-    p.add_argument("--round", type=int, default=None, help="レビューラウンド番号（自動埋め込み）")
+                   help="overwrite existing review")
+    p.add_argument("--round", type=int, default=None, help="review round number (auto-filled)")
 
     # flag
-    p = sub.add_parser("flag", help="人間（M）による P0/P1 差し込み（任意タイミング）")
+    p = sub.add_parser("flag", help="human (M) P0/P1/P2 injection at any time")
     p.add_argument("--pj", "--project", dest="project", required=True)
     p.add_argument("--issue", type=int, required=True)
     p.add_argument("--verdict", required=True, choices=VALID_FLAG_VERDICTS,
-                   help="P0 (blocks progress) or P1 (informational)")
-    p.add_argument("--summary", default="", help="フラグの説明")
+                   help="verdict: P0 / P1 / P2")
+    p.add_argument("--summary", default="", help="flag description")
 
     # dispute
-    p = sub.add_parser("dispute", help="REVISE中のP0/P1判定に異議を申し立て")
+    p = sub.add_parser("dispute", help="dispute a P0/P1 verdict during REVISE")
     p.add_argument("--pj", "--project", dest="project", required=True)
     p.add_argument("--issue", type=int, required=True)
     p.add_argument("--reviewer", required=True, choices=ALLOWED_REVIEWERS)
-    p.add_argument("--reason", required=True, help="異議の理由")
+    p.add_argument("--reason", required=True, help="reason for the dispute")
 
     # commit
-    p = sub.add_parser("commit", help="実装完了: commitハッシュをバッチに記録")
+    p = sub.add_parser("commit", help="record commit hash for completed implementation")
     p.add_argument("--pj", "--project", dest="project", required=True)
-    p.add_argument("--issue", type=int, nargs="+", required=True, help="Issue番号（複数指定可）")
-    p.add_argument("--hash", required=True, help="gitコミットハッシュ")
-    p.add_argument("--session-id", default=None, help="CC セッションID")
+    p.add_argument("--issue", type=int, nargs="+", required=True, help="issue numbers (multiple allowed)")
+    p.add_argument("--hash", required=True, help="git commit hash")
+    p.add_argument("--session-id", default=None, help="CC session ID")
 
     # cc-start
-    p = sub.add_parser("cc-start", help="CC (Claude Code) 実行開始時にPIDを記録")
+    p = sub.add_parser("cc-start", help="record CC (Claude Code) process PID on start")
     p.add_argument("--pj", "--project", dest="project", required=True)
-    p.add_argument("--pid", type=int, required=True, help="CCプロセスのPID")
+    p.add_argument("--pid", type=int, required=True, help="CC process PID")
 
     # plan-done
-    p = sub.add_parser("plan-done", help="設計確認完了: 対象Issueにdesign_readyフラグを設定")
+    p = sub.add_parser("plan-done", help="mark design plan as done: set design_ready flag on issues")
     p.add_argument("--pj", "--project", dest="project", required=True)
-    p.add_argument("--issue", type=int, nargs="+", required=True, help="Issue番号（複数指定可）")
+    p.add_argument("--issue", type=int, nargs="+", required=True, help="issue numbers (multiple allowed)")
 
     # design-revise
-    p = sub.add_parser("design-revise", help="設計修正完了: DESIGN_REVISE状態でdesign_revisedフラグを設定")
+    p = sub.add_parser("design-revise", help="mark design revision as done: set design_revised flag")
     p.add_argument("--pj", "--project", dest="project", required=True)
-    p.add_argument("--issue", type=int, nargs="+", required=True, help="Issue番号（複数指定可）")
-    p.add_argument("--comment", default=None, help="GitLab issue noteに投稿するコメント（省略可）")
+    p.add_argument("--issue", type=int, nargs="+", required=True, help="issue numbers (multiple allowed)")
+    p.add_argument("--comment", default=None, help="comment to post as GitLab issue note (optional)")
 
     # code-revise
-    p = sub.add_parser("code-revise", help="コード修正完了: CODE_REVISE状態でcommit記録+code_revisedフラグを一発で設定")
+    p = sub.add_parser("code-revise", help="mark code revision as done: record commit hash + set code_revised flag")
     p.add_argument("--pj", "--project", dest="project", required=True)
-    p.add_argument("--issue", type=int, nargs="+", required=True, help="Issue番号（複数指定可）")
-    p.add_argument("--hash", required=True, help="gitコミットハッシュ")
-    p.add_argument("--comment", default=None, help="GitLab issue noteに投稿するコメント（省略可）")
+    p.add_argument("--issue", type=int, nargs="+", required=True, help="issue numbers (multiple allowed)")
+    p.add_argument("--hash", required=True, help="git commit hash")
+    p.add_argument("--comment", default=None, help="comment to post as GitLab issue note (optional)")
 
     # review-mode
-    p = sub.add_parser("review-mode", help="レビューモード変更 (full=4人/standard=3人/lite=2人/min=1人/skip=なし)")
+    p = sub.add_parser("review-mode", help="change review mode")
     p.add_argument("--pj", "--project", dest="project", required=True)
     p.add_argument("--mode", required=True, choices=list(REVIEW_MODES.keys()),
-                   help="full/standard/lite/min/skip")
+                   help="review mode (choices shown in --help)")
 
     # merge-summary
-    p = sub.add_parser("merge-summary", help="マージサマリーを #gokrax に投稿してMの承認待ちへ")
+    p = sub.add_parser("merge-summary", help="post merge summary to #gokrax and await M approval")
     p.add_argument("--pj", "--project", dest="project", required=True)
 
     # qrun
-    p = sub.add_parser("qrun", help="キューから次のバッチを実行")
-    p.add_argument("--queue", type=Path, help="キューファイルパス (default: gokrax-queue.txt)")
-    p.add_argument("--dry-run", action="store_true", help="実行せず内容のみ表示")
+    p = sub.add_parser("qrun", help="run next batch from queue")
+    p.add_argument("--queue", type=Path, help="queue file path (default: gokrax-queue.txt)")
+    p.add_argument("--dry-run", action="store_true", help="show entry without executing")
 
     # qstatus
-    p = sub.add_parser("qstatus", help="キューの有効エントリを表示")
-    p.add_argument("--queue", type=Path, help="キューファイルパス")
+    p = sub.add_parser("qstatus", help="show active queue entries")
+    p.add_argument("--queue", type=Path, help="queue file path")
 
     # qadd
-    p = sub.add_parser("qadd", help="キューに1行以上追加")
-    p.add_argument("entry", nargs="*", help="追加するエントリ (例: BeamShifter 33,34 lite no-automerge comment=注意事項) ※comment=は末尾専用")
-    p.add_argument("--file", type=Path, dest="file", help="エントリファイルパス（1行1エントリ）")
-    p.add_argument("--stdin", action="store_true", dest="from_stdin", help="stdinから複数行を読み込む")
-    p.add_argument("--queue", type=Path, help="キューファイルパス")
+    p = sub.add_parser("qadd", help="add one or more entries to the queue")
+    p.add_argument("entry", nargs="*", help="entry to add (e.g. BeamShifter 33,34 lite no-automerge comment=note)")
+    p.add_argument("--file", type=Path, dest="file", help="file containing entries (one per line)")
+    p.add_argument("--stdin", action="store_true", dest="from_stdin", help="read entries from stdin")
+    p.add_argument("--queue", type=Path, help="queue file path")
 
     # qdel
-    p = sub.add_parser("qdel", help="キューから1行削除")
-    p.add_argument("target", help="削除対象 (インデックス番号 or 'last')")
-    p.add_argument("--queue", type=Path, help="キューファイルパス")
+    p = sub.add_parser("qdel", help="delete a queue entry")
+    p.add_argument("target", help="target to delete (index number or 'last')")
+    p.add_argument("--queue", type=Path, help="queue file path")
 
     # qedit
-    p = sub.add_parser("qedit", help="キューのエントリを置換")
-    p.add_argument("target", help="置換対象 (インデックス番号 or 'last')")
-    p.add_argument("entry", nargs="+", help="新しいエントリ (例: gokrax 105 full automerge)")
-    p.add_argument("--queue", type=Path, help="キューファイルパス")
+    p = sub.add_parser("qedit", help="replace a queue entry")
+    p.add_argument("target", help="target to replace (index number or 'last')")
+    p.add_argument("entry", nargs="+", help="new entry (e.g. gokrax 105 full automerge)")
+    p.add_argument("--queue", type=Path, help="queue file path")
 
     # spec
     spec_parser = sub.add_parser("spec", help="Spec mode commands")
     spec_sub = spec_parser.add_subparsers(dest="spec_command")
 
     # spec start
-    p = spec_sub.add_parser("start", help="spec modeパイプライン開始")
+    p = spec_sub.add_parser("start", help="start spec mode pipeline")
     p.add_argument("--pj", "--project", dest="project", required=True)
-    p.add_argument("--spec", required=True, help="specファイルのリポジトリ相対パス")
-    p.add_argument("--implementer", required=True, help="改訂エージェントID")
+    p.add_argument("--spec", required=True, help="path to spec file (repo-relative)")
+    p.add_argument("--implementer", required=True, help="revision agent ID")
     p.add_argument("--review-only", action="store_true", default=False, dest="review_only")
     p.add_argument("--no-queue", action="store_true", default=False, dest="no_queue")
     p.add_argument("--skip-review", action="store_true", default=False, dest="skip_review")
@@ -297,70 +297,70 @@ def main():
     p.add_argument("--auto-continue", action="store_true", default=False, dest="auto_continue")
     p.add_argument("--auto-qrun", action="store_true", default=False, dest="auto_qrun")
     p.add_argument("--rev", type=int, default=None,
-                   help="current_revの初期値（デフォルト: 1）")
+                   help="initial current_rev value (default: 1)")
 
     # spec stop
-    p = spec_sub.add_parser("stop", help="spec modeを強制停止してIDLEに戻す")
+    p = spec_sub.add_parser("stop", help="force-stop spec mode and return to IDLE")
     p.add_argument("--pj", "--project", dest="project", required=True)
 
     # spec approve
-    p = spec_sub.add_parser("approve", help="SPEC_APPROVEDに遷移")
+    p = spec_sub.add_parser("approve", help="manually transition to SPEC_APPROVED")
     p.add_argument("--pj", "--project", dest="project", required=True)
     p.add_argument("--force", action="store_true", default=False)
 
     # spec continue
-    p = spec_sub.add_parser("continue", help="APPROVED → ISSUE_SUGGESTION")
+    p = spec_sub.add_parser("continue", help="proceed from SPEC_APPROVED to ISSUE_SUGGESTION")
     p.add_argument("--pj", "--project", dest="project", required=True)
 
     # spec done
-    p = spec_sub.add_parser("done", help="SPEC_DONE → IDLE")
+    p = spec_sub.add_parser("done", help="transition from SPEC_DONE to IDLE")
     p.add_argument("--pj", "--project", dest="project", required=True)
 
     # spec retry
-    p = spec_sub.add_parser("retry", help="FAILED → REVIEW")
+    p = spec_sub.add_parser("retry", help="retry from FAILED back to SPEC_REVIEW")
     p.add_argument("--pj", "--project", dest="project", required=True)
 
     # spec resume
-    p = spec_sub.add_parser("resume", help="PAUSED → paused_from")
+    p = spec_sub.add_parser("resume", help="resume from PAUSED to previous state")
     p.add_argument("--pj", "--project", dest="project", required=True)
 
     # spec extend
-    p = spec_sub.add_parser("extend", help="STALLED → REVISE (MAX増加)")
+    p = spec_sub.add_parser("extend", help="extend from STALLED back to SPEC_REVISE (increase max cycles)")
     p.add_argument("--pj", "--project", dest="project", required=True)
-    p.add_argument("--cycles", type=int, default=2, help="追加サイクル数 (default: 2)")
+    p.add_argument("--cycles", type=int, default=2, help="additional cycles to add (default: 2)")
 
     # spec status
-    p = spec_sub.add_parser("status", help="spec mode ステータス表示")
+    p = spec_sub.add_parser("status", help="show spec mode status")
     p.add_argument("--pj", "--project", dest="project", required=True)
 
     # spec review-submit
-    p = spec_sub.add_parser("review-submit", help="レビュー結果をYAMLファイルから投入")
+    p = spec_sub.add_parser("review-submit", help="submit review result from YAML file")
     p.add_argument("--pj", "--project", dest="project", required=True)
     p.add_argument("--reviewer", required=True)
     p.add_argument("--file", required=True)
 
     # spec revise-submit
-    p = spec_sub.add_parser("revise-submit", help="SPEC_REVISE完了報告をファイルから投入")
+    p = spec_sub.add_parser("revise-submit", help="submit SPEC_REVISE completion report from file")
     p.add_argument("--pj", "--project", dest="project", required=True)
     p.add_argument("--file", required=True)
 
     # spec self-review-submit
-    p = spec_sub.add_parser("self-review-submit", help="セルフレビュー結果をファイルから投入")
+    p = spec_sub.add_parser("self-review-submit", help="submit self-review result from file")
     p.add_argument("--pj", "--project", dest="project", required=True)
     p.add_argument("--file", required=True)
 
     # spec issue-submit
-    p = spec_sub.add_parser("issue-submit", help="ISSUE_PLAN完了報告をファイルから投入")
+    p = spec_sub.add_parser("issue-submit", help="submit ISSUE_PLAN completion report from file")
     p.add_argument("--pj", "--project", dest="project", required=True)
     p.add_argument("--file", required=True)
 
     # spec queue-submit
-    p = spec_sub.add_parser("queue-submit", help="QUEUE_PLAN完了報告をファイルから投入")
+    p = spec_sub.add_parser("queue-submit", help="submit QUEUE_PLAN completion report from file")
     p.add_argument("--pj", "--project", dest="project", required=True)
     p.add_argument("--file", required=True)
 
     # spec suggestion-submit
-    p = spec_sub.add_parser("suggestion-submit", help="ISSUE_SUGGESTIONのレビュアー提案をファイルから投入")
+    p = spec_sub.add_parser("suggestion-submit", help="submit reviewer suggestion for ISSUE_SUGGESTION from file")
     p.add_argument("--pj", "--project", dest="project", required=True)
     p.add_argument("--reviewer", required=True)
     p.add_argument("--file", required=True)

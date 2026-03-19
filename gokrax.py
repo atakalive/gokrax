@@ -220,11 +220,10 @@ def cmd_disable(args):
 
     update_pipeline(path, do_disable)
     if not _any_pj_enabled():
-        _remove_cron_entry()
         _stop_loop()
         for f in [WATCHDOG_LOOP_PIDFILE, WATCHDOG_LOOP_LOCKFILE]:
             f.unlink(missing_ok=True)
-        print("All projects disabled — watchdog stopped and crontab entry removed.")
+        print("All projects disabled — watchdog loop stopped (crontab kept for auto-restart).")
     else:
         print(f"{args.project}: watchdog disabled")
 

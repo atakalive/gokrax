@@ -60,7 +60,7 @@ class TestReviewGitlabNoteRetry:
                 m.stderr = ""
             return m
 
-        import devbar
+        import gokrax
         args = argparse.Namespace(
             project="test-pj",
             issue=1,
@@ -69,9 +69,9 @@ class TestReviewGitlabNoteRetry:
             summary="LGTM",
             force=False,
         )
-        with patch("devbar.subprocess.run", side_effect=mock_run):
-            with patch("devbar.time.sleep"):
-                devbar.cmd_review(args)
+        with patch("gokrax.subprocess.run", side_effect=mock_run):
+            with patch("gokrax.time.sleep"):
+                gokrax.cmd_review(args)
 
         assert call_count == 3
 
@@ -90,7 +90,7 @@ class TestReviewGitlabNoteRetry:
         fail_result.returncode = 1
         fail_result.stderr = "server error"
 
-        import devbar
+        import gokrax
         args = argparse.Namespace(
             project="test-pj",
             issue=1,
@@ -99,9 +99,9 @@ class TestReviewGitlabNoteRetry:
             summary="minor issue",
             force=False,
         )
-        with patch("devbar.subprocess.run", return_value=fail_result):
-            with patch("devbar.time.sleep"):
-                devbar.cmd_review(args)
+        with patch("gokrax.subprocess.run", return_value=fail_result):
+            with patch("gokrax.time.sleep"):
+                gokrax.cmd_review(args)
 
         # pipeline JSON には review が記録される（失敗でも）
         path = tmp_pipelines / "test-pj.json"
@@ -122,7 +122,7 @@ class TestReviewForce:
         """--force あり: 既存レビューが新しい verdict/at で上書きされる。"""
         _make_pipeline(tmp_pipelines)
 
-        import devbar
+        import gokrax
 
         ok_result = MagicMock()
         ok_result.returncode = 0
@@ -137,10 +137,10 @@ class TestReviewForce:
             summary="",
             force=False,
         )
-        with patch("devbar.subprocess.run", return_value=ok_result):
-            with patch("devbar.time.sleep"):
-                with patch("devbar.now_iso", return_value="2026-01-01T00:00:00+09:00"):
-                    devbar.cmd_review(args1)
+        with patch("gokrax.subprocess.run", return_value=ok_result):
+            with patch("gokrax.time.sleep"):
+                with patch("gokrax.now_iso", return_value="2026-01-01T00:00:00+09:00"):
+                    gokrax.cmd_review(args1)
 
         path = tmp_pipelines / "test-pj.json"
         data = json.loads(path.read_text())
@@ -156,10 +156,10 @@ class TestReviewForce:
             summary="",
             force=True,
         )
-        with patch("devbar.subprocess.run", return_value=ok_result):
-            with patch("devbar.time.sleep"):
-                with patch("devbar.now_iso", return_value="2026-01-01T01:00:00+09:00"):
-                    devbar.cmd_review(args2)
+        with patch("gokrax.subprocess.run", return_value=ok_result):
+            with patch("gokrax.time.sleep"):
+                with patch("gokrax.now_iso", return_value="2026-01-01T01:00:00+09:00"):
+                    gokrax.cmd_review(args2)
 
         data = json.loads(path.read_text())
         assert data["batch"][0]["design_reviews"]["pascal"]["verdict"] == "APPROVE"
@@ -169,7 +169,7 @@ class TestReviewForce:
         """--force なし: 既存レビューはスキップされ、GitLab note も投稿されない。"""
         _make_pipeline(tmp_pipelines)
 
-        import devbar
+        import gokrax
 
         ok_result = MagicMock()
         ok_result.returncode = 0
@@ -184,9 +184,9 @@ class TestReviewForce:
             summary="",
             force=False,
         )
-        with patch("devbar.subprocess.run", return_value=ok_result):
-            with patch("devbar.time.sleep"):
-                devbar.cmd_review(args1)
+        with patch("gokrax.subprocess.run", return_value=ok_result):
+            with patch("gokrax.time.sleep"):
+                gokrax.cmd_review(args1)
 
         # 2回目: pascal が APPROVE を --force なしで投稿（スキップされるはず）
         call_count = 0
@@ -204,9 +204,9 @@ class TestReviewForce:
             summary="",
             force=False,
         )
-        with patch("devbar.subprocess.run", side_effect=mock_run_2nd):
-            with patch("devbar.time.sleep"):
-                devbar.cmd_review(args2)
+        with patch("gokrax.subprocess.run", side_effect=mock_run_2nd):
+            with patch("gokrax.time.sleep"):
+                gokrax.cmd_review(args2)
 
         # verdict は P0 のまま（上書きされていない）
         path = tmp_pipelines / "test-pj.json"
@@ -220,7 +220,7 @@ class TestReviewForce:
         """--force あり + 新規レビュアー: 通常通りレビューが記録される。"""
         _make_pipeline(tmp_pipelines)
 
-        import devbar
+        import gokrax
 
         ok_result = MagicMock()
         ok_result.returncode = 0
@@ -234,9 +234,9 @@ class TestReviewForce:
             summary="LGTM",
             force=True,
         )
-        with patch("devbar.subprocess.run", return_value=ok_result):
-            with patch("devbar.time.sleep"):
-                devbar.cmd_review(args)
+        with patch("gokrax.subprocess.run", return_value=ok_result):
+            with patch("gokrax.time.sleep"):
+                gokrax.cmd_review(args)
 
         path = tmp_pipelines / "test-pj.json"
         data = json.loads(path.read_text())

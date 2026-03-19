@@ -498,3 +498,20 @@ class TestKeepCtx:
         with open(path) as f:
             data = json.load(f)
         assert "skip_cc_plan" not in data
+
+    def test_idle_cleanup_pops_skip_test(self, tmp_pipelines, sample_pipeline):
+        """IDLE遷移で skip_test が pop されること"""
+        sample_pipeline["state"] = "DONE"
+        sample_pipeline["skip_test"] = True
+        sample_pipeline["batch"] = [{"issue": 1, "title": "T"}]
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, sample_pipeline)
+        from gokrax import cmd_transition
+        args = argparse.Namespace(
+            project="test-pj", to="IDLE", actor="cli", force=False, resume=False,
+        )
+        with patch("gokrax.notify_implementer"), patch("gokrax.notify_reviewers"):
+            cmd_transition(args)
+        with open(path) as f:
+            data = json.load(f)
+        assert "skip_test" not in data

@@ -214,6 +214,21 @@ class TestParseQueueLine:
         result = parse_queue_line("Foo 1")
         assert result["skip_cc_plan"] is False
 
+    def test_skip_test(self):
+        """skip-test トークン → skip_test=True"""
+        result = parse_queue_line("Foo 1 skip-test")
+        assert result["skip_test"] is True
+
+    def test_no_skip_test(self):
+        """no-skip-test トークン → skip_test=False"""
+        result = parse_queue_line("Foo 1 no-skip-test")
+        assert result["skip_test"] is False
+
+    def test_skip_test_default(self):
+        """skip-test 省略時は False"""
+        result = parse_queue_line("Foo 1")
+        assert result["skip_test"] is False
+
     # --- デフォルトオプション注入テスト (Issue #133) ---
 
     def test_parse_queue_line_default_options_applied(self, monkeypatch):

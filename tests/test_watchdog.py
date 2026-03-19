@@ -253,6 +253,32 @@ class TestCheckTransition:
         action = check_transition("IMPLEMENTATION", batch)
         assert action.new_state is None
 
+    def test_implementation_skip_test_bypasses_code_test(self, monkeypatch):
+        """IMPLEMENTATION: skip_test=True + TEST_CONFIG あり → CODE_REVIEW 直接遷移"""
+        from engine.fsm import check_transition
+        # Mock TEST_CONFIG to simulate test_command present
+        monkeypatch.setattr("config.TEST_CONFIG", {"test-pj": {"test_command": "pytest"}})
+        batch = _make_batch(2, commit="abc123")
+        data = {"project": "test-pj", "skip_test": True}
+        action = check_transition("IMPLEMENTATION", batch, data)
+        assert action.new_state == "CODE_REVIEW"
+        assert action.send_review is True
+        assert action.run_test is False
+
+    def test_code_revise_skip_test_bypasses_code_test(self, monkeypatch):
+        """CODE_REVISE: skip_test=True + TEST_CONFIG あり → CODE_REVIEW 直接遷移"""
+        from engine.fsm import check_transition
+        # Mock TEST_CONFIG to simulate test_command present
+        monkeypatch.setattr("config.TEST_CONFIG", {"test-pj": {"test_command": "pytest"}})
+        batch = _make_batch(2, code_revised=True)
+        batch[0]["code_reviews"] = _make_reviews(["P0"])
+        batch[1]["code_reviews"] = _make_reviews(["P1"])
+        data = {"project": "test-pj", "skip_test": True}
+        action = check_transition("CODE_REVISE", batch, data)
+        assert action.new_state == "CODE_REVIEW"
+        assert action.send_review is True
+        assert action.run_test is False
+
 
 # ── TestProcess ───────────────────────────────────────────────────────────────
 
@@ -4659,6 +4685,42 @@ class TestHandleQrun:
         assert saved.get("comment") == "保存テスト", \
             f"pipeline comment should be '保存テスト', got {saved.get('comment')}"
         assert saved.get("queue_mode") is True
+
+    def test_handle_qrun_passes_skip_test(self, tmp_path, monkeypatch):
+        """skip-test のキューエントリで cmd_start に skip_test=True が渡されること。"""
+        project = "TestPJ"
+        path, pipelines_dir = self._make_pipeline(tmp_path, project)
+        queue_file = self._make_queue(tmp_path, f"{project} 4 lite skip-test")
+        self._patch_config(monkeypatch, pipelines_dir, queue_file)
+
+        captured_args = {}
+
+        def mock_cmd_start(args):
+            captured_args["skip_test"] = getattr(args, "skip_test", "MISSING")
+
+        with patch("gokrax.cmd_start", side_effect=mock_cmd_start), \
+             patch("notify.post_discord"):
+            from watchdog import _handle_qrun
+            _handle_qrun("test-msg-004")
+
+        assert captured_args.get("skip_test") is True, \
+            f"skip_test should be True, got {captured_args}"
+
+    def test_handle_qrun_saves_skip_test_to_pipeline(self, tmp_path, monkeypatch):
+        """_save_queue_options が skip_test を pipeline JSON に保存すること。"""
+        project = "TestPJ"
+        path, pipelines_dir = self._make_pipeline(tmp_path, project)
+        queue_file = self._make_queue(tmp_path, f"{project} 5 lite skip-test")
+        self._patch_config(monkeypatch, pipelines_dir, queue_file)
+
+        with patch("gokrax.cmd_start"), \
+             patch("notify.post_discord"):
+            from watchdog import _handle_qrun
+            _handle_qrun("test-msg-005")
+
+        saved = json.loads(path.read_text())
+        assert saved.get("skip_test") is True, \
+            f"pipeline skip_test should be True, got {saved.get('skip_test')}"
 
 
 # ── TestHandleQedit (Issue #107) ─────────────────────────────────────────────

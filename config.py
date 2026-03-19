@@ -29,6 +29,7 @@ QUEUE_FILE = Path("/mnt/s/wsl/work/project/gokrax/gokrax-queue.txt")
 DEFAULT_QUEUE_OPTIONS: dict[str, bool | str] = {
     "skip_cc_plan": True,
     "keep_ctx_intra": True,
+    "skip_test": False,
 }
 
 # cmd_start で DEFAULT_QUEUE_OPTIONS 適用後に None→False 正規化する bool オプションキーの一覧。
@@ -38,6 +39,7 @@ NONE_TO_FALSE_KEYS: tuple[str, ...] = (
     "keep_ctx_intra",
     "p2_fix",
     "skip_cc_plan",
+    "skip_test",
 )
 
 

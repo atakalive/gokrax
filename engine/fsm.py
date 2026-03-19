@@ -455,7 +455,8 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
                 from config import TEST_CONFIG
                 project = data.get("project", "") if data else ""
                 has_test = bool(TEST_CONFIG.get(project, {}).get("test_command"))
-                if has_test:
+                skip_test = data.get("skip_test", False) if data else False
+                if has_test and not skip_test:
                     log(
                         f"[REVISE] all issues with P0/P1{'/P2' if p2_fix else ''} revised, transitioning to CODE_TEST"
                     )
@@ -474,7 +475,8 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
             from config import TEST_CONFIG
             project = data.get("project", "") if data else ""
             has_test = bool(TEST_CONFIG.get(project, {}).get("test_command"))
-            if has_test:
+            skip_test = data.get("skip_test", False) if data else False
+            if has_test and not skip_test:
                 return TransitionAction(new_state="CODE_TEST", run_test=True)
             else:
                 return TransitionAction(new_state="CODE_REVIEW", send_review=True)

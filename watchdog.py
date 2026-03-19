@@ -287,6 +287,7 @@ def process(path: Path):
             data.pop("queue_mode", None)
             data.pop("comment", None)
             data.pop("skip_cc_plan", None)
+            data.pop("skip_test", None)
             # Issue #92: pytest baseline クリーンアップ
             _kill_pytest_baseline(data, pj)
             data.pop("test_baseline", None)
@@ -989,6 +990,7 @@ def _handle_qrun(msg_id: str):
         p2_fix=entry.get("p2_fix", False),
         comment=entry.get("comment") or None,
         skip_cc_plan=entry.get("skip_cc_plan", False),
+        skip_test=entry.get("skip_test", False),
     )
 
     # Call cmd_start with try-catch
@@ -1025,6 +1027,8 @@ def _handle_qrun(msg_id: str):
             data["comment"] = entry["comment"]
         if entry.get("skip_cc_plan"):
             data["skip_cc_plan"] = True
+        if entry.get("skip_test"):
+            data["skip_test"] = True
 
     update_pipeline(path, _save_queue_options)
 

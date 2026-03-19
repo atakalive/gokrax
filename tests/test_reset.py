@@ -77,6 +77,7 @@ class TestCmdReset:
             keep_ctx_intra=True,
             comment="note",
             skip_cc_plan=True,
+            skip_test=True,
         )
         path = tmp_pipelines / "pj-a.json"
         write_pipeline(path, pipeline)
@@ -93,7 +94,7 @@ class TestCmdReset:
         assert saved["enabled"] is False
         for key in ("design_revise_count", "code_revise_count", "automerge", "p2_fix",
                     "p1_fix", "cc_plan_model", "cc_impl_model", "keep_context",
-                    "keep_ctx_batch", "keep_ctx_intra", "comment", "skip_cc_plan"):
+                    "keep_ctx_batch", "keep_ctx_intra", "comment", "skip_cc_plan", "skip_test"):
             assert key not in saved, f"key {key!r} should be removed"
 
     def test_multiple_non_idle_all_reset(self, tmp_pipelines, capsys):
@@ -171,6 +172,7 @@ class TestCmdReset:
             "keep_ctx_intra": True,
             "comment": "test",
             "skip_cc_plan": True,
+            "skip_test": True,
         }
         _reset_to_idle(data)
 
@@ -178,7 +180,7 @@ class TestCmdReset:
         assert data["enabled"] is False
         for key in ("design_revise_count", "code_revise_count", "automerge", "p2_fix",
                     "p1_fix", "cc_plan_model", "cc_impl_model", "keep_context",
-                    "keep_ctx_batch", "keep_ctx_intra", "comment", "skip_cc_plan"):
+                    "keep_ctx_batch", "keep_ctx_intra", "comment", "skip_cc_plan", "skip_test"):
             assert key not in data, f"key {key!r} should be removed"
         # state は変更しない（呼び出し側の責務）
         assert data["state"] == "IMPLEMENTATION"

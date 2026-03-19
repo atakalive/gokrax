@@ -50,15 +50,13 @@ def _is_loop_running() -> bool:
 
 def _start_loop():
     """watchdog-loop.sh をバックグラウンド起動し、crontab復帰エントリを追加。"""
-    if _is_loop_running():
-        return
-    # loop.sh 起動
-    subprocess.Popen(
-        ["nohup", "bash", str(WATCHDOG_LOOP_SCRIPT)],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        start_new_session=True,
-    )
-    # crontab に復帰エントリ追加
+    if not _is_loop_running():
+        subprocess.Popen(
+            ["nohup", "bash", str(WATCHDOG_LOOP_SCRIPT)],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    # crontab は loop の状態に関係なく常に保証する
     _ensure_cron_entry()
 
 

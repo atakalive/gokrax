@@ -11,6 +11,7 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from config import MAX_SPEC_RETRIES
 from pipeline_io import default_spec_config
 from tests.conftest import write_pipeline
 
@@ -483,7 +484,7 @@ class TestCmdSpecResume:
             spec_path="docs/spec.md",
             paused_from="SPEC_REVISE",
             review_requests={},
-            retry_counts={"SPEC_REVISE": 3, "SPEC_REVIEW": 1},
+            retry_counts={"SPEC_REVISE": MAX_SPEC_RETRIES, "SPEC_REVIEW": 1},
         )
         write_pipeline(path, _make_pipeline(state="SPEC_PAUSED", spec_mode=True, spec_config=sc))
 

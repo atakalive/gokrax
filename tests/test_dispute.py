@@ -11,6 +11,8 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from config import NUDGE_GRACE_SEC
+
 
 def _make_pipeline(tmp_pipelines, state="DESIGN_REVISE", extra_issue_fields=None):
     """REVISE 状態 + issue #1 入りのパイプラインを作成。"""
@@ -620,7 +622,7 @@ class TestCheckTransitionDisputeReReview:
         if entered_at is None:
             # NUDGE_GRACE_SEC より十分前（催促対象）
             entered_at = (
-                dt_mod.datetime.now(dt_mod.timezone.utc) - dt_mod.timedelta(seconds=600)
+                dt_mod.datetime.now(dt_mod.timezone.utc) - dt_mod.timedelta(seconds=NUDGE_GRACE_SEC + 1)
             ).isoformat()
         issue = {
             "issue": 1,

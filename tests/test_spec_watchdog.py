@@ -22,7 +22,14 @@ from engine.fsm_spec import (
     _cleanup_expired_spec_files,
 )
 from messages import render
-from config import GOKRAX_CLI
+from config import (
+    GOKRAX_CLI,
+    INACTIVE_THRESHOLD_SEC,
+    MAX_SPEC_RETRIES,
+    NUDGE_GRACE_SEC,
+    SPEC_REVIEW_TIMEOUT_SEC,
+    SPEC_REVISE_TIMEOUT_SEC,
+)
 
 JST = timezone(timedelta(hours=9))
 
@@ -138,7 +145,7 @@ class TestCheckSpecReview:
         for r in ["pascal", "leibniz"]:
             sc["review_requests"][r]["status"] = "received"
             sc["review_requests"][r]["sent_at"] = _now().isoformat()
-            sc["review_requests"][r]["timeout_at"] = (_now() + timedelta(seconds=1800)).isoformat()
+            sc["review_requests"][r]["timeout_at"] = (_now() + timedelta(seconds=SPEC_REVIEW_TIMEOUT_SEC)).isoformat()
             sc["current_reviews"]["entries"][r] = {
                 "verdict": "APPROVE", "items": [], "raw_text": "",
                 "parse_success": True, "status": "received",
@@ -201,7 +208,7 @@ class TestCheckSpecRevise:
     def test_timeout_retry(self):
         """タイムアウト + リトライ余裕あり → retry_counts 更新 + 起点リセット。"""
         sc = {"retry_counts": {"SPEC_REVISE": 0}}
-        entered = _now() - timedelta(seconds=1900)
+        entered = _now() - timedelta(seconds=SPEC_REVISE_TIMEOUT_SEC + 1)
         data = {
             "history": [{"from": "SPEC_REVIEW", "to": "SPEC_REVISE",
                          "at": entered.isoformat()}],
@@ -225,8 +232,8 @@ class TestCheckSpecRevise:
 
     def test_timeout_max_retries_paused(self):
         """MAX_SPEC_RETRIES 超過 → SPEC_PAUSED。"""
-        sc = {"retry_counts": {"SPEC_REVISE": 3}}  # MAX_SPEC_RETRIES=3
-        entered = _now() - timedelta(seconds=1900)
+        sc = {"retry_counts": {"SPEC_REVISE": MAX_SPEC_RETRIES}}
+        entered = _now() - timedelta(seconds=SPEC_REVISE_TIMEOUT_SEC + 1)
         data = {
             "history": [{"from": "SPEC_REVIEW", "to": "SPEC_REVISE",
                          "at": entered.isoformat()}],
@@ -471,14 +478,11 @@ class TestApplySpecActionCleanup:
 
 # --- TestSpecNudge ---
 
-NUDGE_GRACE_SEC = 300
-INACTIVE_THRESHOLD_SEC = 303
-
 
 class TestSpecNudge:
     """Issue #76: spec mode レビュアー催促機能のテスト。"""
 
-    def _base_sc(self, reviewer="pascal", sent_at_offset=-400):
+    def _base_sc(self, reviewer="pascal", sent_at_offset=-(NUDGE_GRACE_SEC + 1)):
         """sent_at 設定済み（猶予期間超過後）の単一レビュアーを持つ spec_config。"""
         sent_at = (_now() + timedelta(seconds=sent_at_offset)).isoformat()
         return {
@@ -489,7 +493,7 @@ class TestSpecNudge:
                 reviewer: {
                     "status": "pending",
                     "sent_at": sent_at,
-                    "timeout_at": (_now() + timedelta(seconds=1800)).isoformat(),
+                    "timeout_at": (_now() + timedelta(seconds=SPEC_REVIEW_TIMEOUT_SEC)).isoformat(),
                 }
             },
             "current_reviews": {"entries": {}},
@@ -497,7 +501,7 @@ class TestSpecNudge:
             "max_revise_cycles": 5,
         }
 
-    def _data_with_entered_at(self, entered_at_offset=-400):
+    def _data_with_entered_at(self, entered_at_offset=-(NUDGE_GRACE_SEC + 1)):
         """SPEC_REVIEW への遷移履歴を持つ data dict。"""
         entered_at = (_now() + timedelta(seconds=entered_at_offset)).isoformat()
         return {
@@ -564,7 +568,7 @@ class TestSpecNudge:
 
     def test_spec_review_nudge_coexists_with_send_to(self):
         """一部レビュアーに初回送信しつつ、別レビュアー（sent_at済み）を催促。"""
-        sent_at = (_now() - timedelta(seconds=400)).isoformat()
+        sent_at = (_now() - timedelta(seconds=NUDGE_GRACE_SEC + 1)).isoformat()
         sc = {
             "spec_path": "docs/spec.md",
             "current_rev": "1",
@@ -572,7 +576,7 @@ class TestSpecNudge:
             "review_requests": {
                 "pascal": {"status": "pending", "sent_at": None, "timeout_at": None},   # 未送信
                 "leibniz": {"status": "pending", "sent_at": sent_at,
-                             "timeout_at": (_now() + timedelta(seconds=1800)).isoformat()},  # 送信済み
+                             "timeout_at": (_now() + timedelta(seconds=SPEC_REVIEW_TIMEOUT_SEC)).isoformat()},  # 送信済み
             },
             "current_reviews": {"entries": {}},
             "revise_count": 0,
@@ -602,7 +606,7 @@ class TestSpecNudge:
     def test_spec_revise_nudge_after_grace(self):
         """猶予期間後（elapsed ≥ 300s かつ タイムアウト前）→ nudge_implementer=True。"""
         sc = {"retry_counts": {}}
-        entered = (_now() - timedelta(seconds=400)).isoformat()
+        entered = (_now() - timedelta(seconds=NUDGE_GRACE_SEC + 1)).isoformat()
         data = {"history": [{"from": "SPEC_REVIEW", "to": "SPEC_REVISE", "at": entered}]}
         action = _check_spec_revise(sc, _now(), data)
         assert action.nudge_implementer is True

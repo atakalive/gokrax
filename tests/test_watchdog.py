@@ -1864,6 +1864,7 @@ class TestDiscordStatusCommand:
         """M posts 'status' → bot responds with status text."""
         from config import M_DISCORD_USER_ID, DISCORD_CHANNEL, GOKRAX_STATE_PATH
         import watchdog, gokrax
+        import commands.dev as commands_dev
 
         # Setup pipeline
         path = tmp_path / "test-pj.json"
@@ -1876,6 +1877,7 @@ class TestDiscordStatusCommand:
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(gokrax, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(commands_dev, "PIPELINES_DIR", tmp_path)
 
         # Mock Discord API
         messages = [_mock_discord_message("1001", M_DISCORD_USER_ID, "status")]
@@ -1897,12 +1899,14 @@ class TestDiscordStatusCommand:
         """'Status' and 'STATUS' both trigger response."""
         from config import M_DISCORD_USER_ID
         import watchdog, gokrax
+        import commands.dev as commands_dev
 
         state_path = tmp_path / "gokrax-state.json"
         monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(gokrax, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(commands_dev, "PIPELINES_DIR", tmp_path)
 
         messages = [
             _mock_discord_message("1001", M_DISCORD_USER_ID, "Status"),
@@ -2002,6 +2006,7 @@ class TestDiscordStatusCommand:
         from config import M_DISCORD_USER_ID
         import watchdog
         import gokrax
+        import commands.dev as commands_dev
 
         # Create enabled and disabled pipelines
         enabled_path = tmp_path / "enabled-pj.json"
@@ -2015,6 +2020,7 @@ class TestDiscordStatusCommand:
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(gokrax, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(commands_dev, "PIPELINES_DIR", tmp_path)
 
         messages = [_mock_discord_message("1001", M_DISCORD_USER_ID, "status")]
 
@@ -2031,12 +2037,14 @@ class TestDiscordStatusCommand:
         from config import M_DISCORD_USER_ID
         import watchdog
         import gokrax
+        import commands.dev as commands_dev
 
         state_path = tmp_path / "gokrax-state.json"
         monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(gokrax, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(commands_dev, "PIPELINES_DIR", tmp_path)
 
         messages = [_mock_discord_message("1001", M_DISCORD_USER_ID, "status")]
 
@@ -3280,8 +3288,8 @@ class TestFlag:
             summary="Critical bug found"
         )
 
-        with patch("gokrax.get_path", return_value=pipeline):
-            with patch("gokrax._post_gitlab_note", return_value=True):
+        with patch("commands.dev.get_path", return_value=pipeline):
+            with patch("commands.dev._post_gitlab_note", return_value=True):
                 cmd_flag(args)
 
         data = json.loads(pipeline.read_text())
@@ -3312,8 +3320,8 @@ class TestFlag:
             summary="Minor concern"
         )
 
-        with patch("gokrax.get_path", return_value=pipeline):
-            with patch("gokrax._post_gitlab_note", return_value=True):
+        with patch("commands.dev.get_path", return_value=pipeline):
+            with patch("commands.dev._post_gitlab_note", return_value=True):
                 cmd_flag(args)
 
         data = json.loads(pipeline.read_text())
@@ -3343,7 +3351,7 @@ class TestFlag:
             summary="Should fail"
         )
 
-        with patch("gokrax.get_path", return_value=pipeline):
+        with patch("commands.dev.get_path", return_value=pipeline):
             with pytest.raises(SystemExit) as exc_info:
                 cmd_flag(args)
             assert "not in batch" in str(exc_info.value)
@@ -3368,7 +3376,7 @@ class TestFlag:
             summary="Should fail"
         )
 
-        with patch("gokrax.get_path", return_value=pipeline):
+        with patch("commands.dev.get_path", return_value=pipeline):
             with pytest.raises(SystemExit) as exc_info:
                 cmd_flag(args)
             assert "not in batch" in str(exc_info.value)
@@ -3393,7 +3401,7 @@ class TestFlag:
             summary="Should fail"
         )
 
-        with patch("gokrax.get_path", return_value=pipeline):
+        with patch("commands.dev.get_path", return_value=pipeline):
             with pytest.raises(SystemExit) as exc_info:
                 cmd_flag(args)
             assert "not in batch" in str(exc_info.value)
@@ -3547,14 +3555,14 @@ class TestFlag:
 
         # Post first flag
         args1 = argparse.Namespace(project="myproject", issue=1, verdict="P1", summary="Issue 1")
-        with patch("gokrax.get_path", return_value=pipeline):
-            with patch("gokrax._post_gitlab_note", return_value=True):
+        with patch("commands.dev.get_path", return_value=pipeline):
+            with patch("commands.dev._post_gitlab_note", return_value=True):
                 cmd_flag(args1)
 
         # Post second flag
         args2 = argparse.Namespace(project="myproject", issue=1, verdict="P0", summary="Issue 2")
-        with patch("gokrax.get_path", return_value=pipeline):
-            with patch("gokrax._post_gitlab_note", return_value=True):
+        with patch("commands.dev.get_path", return_value=pipeline):
+            with patch("commands.dev._post_gitlab_note", return_value=True):
                 cmd_flag(args2)
 
         data = json.loads(pipeline.read_text())

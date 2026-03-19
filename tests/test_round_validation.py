@@ -98,8 +98,8 @@ class TestRoundValidation:
             force=False,
             round=1,
         )
-        with patch("gokrax.subprocess.run", return_value=mock_result):
-            with patch("gokrax.time.sleep"):
+        with patch("commands.dev.subprocess.run", return_value=mock_result):
+            with patch("commands.dev.time.sleep"):
                 gokrax.cmd_review(args)
 
         path = tmp_pipelines / "test-pj.json"
@@ -150,8 +150,8 @@ class TestRoundValidation:
             force=False,
             round=None,  # 省略
         )
-        with patch("gokrax.subprocess.run", return_value=mock_result):
-            with patch("gokrax.time.sleep"):
+        with patch("commands.dev.subprocess.run", return_value=mock_result):
+            with patch("commands.dev.time.sleep"):
                 gokrax.cmd_review(args)
 
         path = tmp_pipelines / "test-pj.json"

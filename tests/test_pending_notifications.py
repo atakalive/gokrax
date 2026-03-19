@@ -265,10 +265,10 @@ class TestCliTransitionPendingAtomic:
         args.dry_run = False
         args.resume = False
 
-        with patch("gokrax.update_pipeline", side_effect=capturing_update), \
-             patch("gokrax.notify_implementer"), \
-             patch("gokrax.notify_reviewers"), \
-             patch("gokrax.notify_discord"), \
+        with patch("commands.dev.update_pipeline", side_effect=capturing_update), \
+             patch("commands.dev.notify_implementer"), \
+             patch("commands.dev.notify_reviewers"), \
+             patch("commands.dev.notify_discord"), \
              patch("watchdog._reset_reviewers", return_value=[]):
             cmd_transition(args)
 
@@ -304,9 +304,9 @@ class TestCliTransitionPendingCleared:
         args.dry_run = False
         args.resume = False
 
-        with patch("gokrax.notify_implementer"), \
-             patch("gokrax.notify_reviewers"), \
-             patch("gokrax.notify_discord"), \
+        with patch("commands.dev.notify_implementer"), \
+             patch("commands.dev.notify_reviewers"), \
+             patch("commands.dev.notify_discord"), \
              patch("watchdog._reset_reviewers", return_value=[]):
             cmd_transition(args)
 

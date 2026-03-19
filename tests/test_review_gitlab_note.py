@@ -69,8 +69,8 @@ class TestReviewGitlabNoteRetry:
             summary="LGTM",
             force=False,
         )
-        with patch("gokrax.subprocess.run", side_effect=mock_run):
-            with patch("gokrax.time.sleep"):
+        with patch("commands.dev.subprocess.run", side_effect=mock_run):
+            with patch("commands.dev.time.sleep"):
                 gokrax.cmd_review(args)
 
         assert call_count == 3
@@ -99,8 +99,8 @@ class TestReviewGitlabNoteRetry:
             summary="minor issue",
             force=False,
         )
-        with patch("gokrax.subprocess.run", return_value=fail_result):
-            with patch("gokrax.time.sleep"):
+        with patch("commands.dev.subprocess.run", return_value=fail_result):
+            with patch("commands.dev.time.sleep"):
                 gokrax.cmd_review(args)
 
         # pipeline JSON には review が記録される（失敗でも）
@@ -137,9 +137,9 @@ class TestReviewForce:
             summary="",
             force=False,
         )
-        with patch("gokrax.subprocess.run", return_value=ok_result):
-            with patch("gokrax.time.sleep"):
-                with patch("gokrax.now_iso", return_value="2026-01-01T00:00:00+09:00"):
+        with patch("commands.dev.subprocess.run", return_value=ok_result):
+            with patch("commands.dev.time.sleep"):
+                with patch("commands.dev.now_iso", return_value="2026-01-01T00:00:00+09:00"):
                     gokrax.cmd_review(args1)
 
         path = tmp_pipelines / "test-pj.json"
@@ -156,9 +156,9 @@ class TestReviewForce:
             summary="",
             force=True,
         )
-        with patch("gokrax.subprocess.run", return_value=ok_result):
-            with patch("gokrax.time.sleep"):
-                with patch("gokrax.now_iso", return_value="2026-01-01T01:00:00+09:00"):
+        with patch("commands.dev.subprocess.run", return_value=ok_result):
+            with patch("commands.dev.time.sleep"):
+                with patch("commands.dev.now_iso", return_value="2026-01-01T01:00:00+09:00"):
                     gokrax.cmd_review(args2)
 
         data = json.loads(path.read_text())
@@ -184,8 +184,8 @@ class TestReviewForce:
             summary="",
             force=False,
         )
-        with patch("gokrax.subprocess.run", return_value=ok_result):
-            with patch("gokrax.time.sleep"):
+        with patch("commands.dev.subprocess.run", return_value=ok_result):
+            with patch("commands.dev.time.sleep"):
                 gokrax.cmd_review(args1)
 
         # 2回目: pascal が APPROVE を --force なしで投稿（スキップされるはず）
@@ -204,8 +204,8 @@ class TestReviewForce:
             summary="",
             force=False,
         )
-        with patch("gokrax.subprocess.run", side_effect=mock_run_2nd):
-            with patch("gokrax.time.sleep"):
+        with patch("commands.dev.subprocess.run", side_effect=mock_run_2nd):
+            with patch("commands.dev.time.sleep"):
                 gokrax.cmd_review(args2)
 
         # verdict は P0 のまま（上書きされていない）
@@ -234,8 +234,8 @@ class TestReviewForce:
             summary="LGTM",
             force=True,
         )
-        with patch("gokrax.subprocess.run", return_value=ok_result):
-            with patch("gokrax.time.sleep"):
+        with patch("commands.dev.subprocess.run", return_value=ok_result):
+            with patch("commands.dev.time.sleep"):
                 gokrax.cmd_review(args)
 
         path = tmp_pipelines / "test-pj.json"

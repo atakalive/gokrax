@@ -39,7 +39,7 @@ class TestTransitionForce:
         from gokrax import cmd_transition
         import argparse
         args = argparse.Namespace(project="test-pj", to="DESIGN_PLAN", actor="cli", force=False, resume=False)
-        with patch("gokrax.notify_implementer"), patch("gokrax.notify_reviewers"):
+        with patch("commands.dev.notify_implementer"), patch("commands.dev.notify_reviewers"):
             cmd_transition(args)
         with open(path) as f:
             assert json.load(f)["state"] == "DESIGN_PLAN"
@@ -60,7 +60,7 @@ class TestTransitionForce:
         write_pipeline(path, sample_pipeline)
         from gokrax import cmd_transition
         args = argparse.Namespace(project="test-pj", to="CODE_REVIEW", actor="cli", force=True)
-        with patch("gokrax.notify_implementer"), patch("gokrax.notify_reviewers"):
+        with patch("commands.dev.notify_implementer"), patch("commands.dev.notify_reviewers"):
             cmd_transition(args)
         with open(path) as f:
             assert json.load(f)["state"] == "CODE_REVIEW"
@@ -98,7 +98,7 @@ class TestTransitionForce:
         write_pipeline(path, sample_pipeline)
         from gokrax import cmd_transition
         args = argparse.Namespace(project="test-pj", to="IDLE", actor="cli", force=False)
-        with patch("gokrax.notify_implementer"), patch("gokrax.notify_reviewers"):
+        with patch("commands.dev.notify_implementer"), patch("commands.dev.notify_reviewers"):
             cmd_transition(args)
         with open(path) as f:
             data = json.load(f)
@@ -125,8 +125,8 @@ class TestTransitionNotifications:
         args = argparse.Namespace(
             project="test-pj", to="DESIGN_APPROVED", actor="cli", force=False, resume=False,
         )
-        with patch("gokrax.notify_implementer") as mock_impl, \
-             patch("gokrax.notify_reviewers") as mock_rev:
+        with patch("commands.dev.notify_implementer") as mock_impl, \
+             patch("commands.dev.notify_reviewers") as mock_rev:
             cmd_transition(args)
         mock_impl.assert_not_called()
         mock_rev.assert_not_called()
@@ -140,8 +140,8 @@ class TestTransitionNotifications:
         args = argparse.Namespace(
             project="test-pj", to="IMPLEMENTATION", actor="cli", force=True, resume=False,
         )
-        with patch("gokrax.notify_implementer") as mock_impl, \
-             patch("gokrax.notify_reviewers") as mock_rev:
+        with patch("commands.dev.notify_implementer") as mock_impl, \
+             patch("commands.dev.notify_reviewers") as mock_rev:
             cmd_transition(args)
         # IMPLEMENTATION は run_cc=True で impl_msg なし → notify_implementer は呼ばれない
         mock_impl.assert_not_called()
@@ -157,8 +157,8 @@ class TestTransitionNotifications:
         args = argparse.Namespace(
             project="test-pj", to="DESIGN_PLAN", actor="cli", force=False, resume=True,
         )
-        with patch("gokrax.notify_implementer") as mock_impl, \
-             patch("gokrax.notify_reviewers"):
+        with patch("commands.dev.notify_implementer") as mock_impl, \
+             patch("commands.dev.notify_reviewers"):
             cmd_transition(args)
         mock_impl.assert_called_once()
         call_msg = mock_impl.call_args[0][1]
@@ -174,7 +174,7 @@ class TestTransitionNotifications:
         args = argparse.Namespace(
             project="test-pj", to="CODE_REVIEW", actor="cli", force=False, resume=True,
         )
-        with patch("gokrax.notify_implementer"), patch("gokrax.notify_reviewers"):
+        with patch("commands.dev.notify_implementer"), patch("commands.dev.notify_reviewers"):
             cmd_transition(args)
         with open(path) as f:
             assert json.load(f)["state"] == "CODE_REVIEW"
@@ -188,9 +188,9 @@ class TestTransitionNotifications:
         args = argparse.Namespace(
             project="test-pj", to="DESIGN_PLAN", actor="cli", force=False, resume=False,
         )
-        with patch("gokrax.notify_implementer") as mock_impl, \
-             patch("gokrax.notify_reviewers") as mock_rev, \
-             patch("gokrax.notify_discord"):
+        with patch("commands.dev.notify_implementer") as mock_impl, \
+             patch("commands.dev.notify_reviewers") as mock_rev, \
+             patch("commands.dev.notify_discord"):
             cmd_transition(args)
         mock_impl.assert_called_once()
         mock_rev.assert_not_called()
@@ -204,9 +204,9 @@ class TestTransitionNotifications:
         args = argparse.Namespace(
             project="test-pj", to="DESIGN_PLAN", actor="cli", force=False, resume=False,
         )
-        with patch("gokrax.notify_implementer"), \
-             patch("gokrax.notify_reviewers"), \
-             patch("gokrax.notify_discord") as mock_discord:
+        with patch("commands.dev.notify_implementer"), \
+             patch("commands.dev.notify_reviewers"), \
+             patch("commands.dev.notify_discord") as mock_discord:
             cmd_transition(args)
         mock_discord.assert_called_once()
         msg = mock_discord.call_args[0][0]
@@ -224,9 +224,9 @@ class TestTransitionNotifications:
         args = argparse.Namespace(
             project="test-pj", to="CODE_REVIEW", actor="M", force=True, resume=False,
         )
-        with patch("gokrax.notify_implementer"), \
-             patch("gokrax.notify_reviewers"), \
-             patch("gokrax.notify_discord") as mock_discord:
+        with patch("commands.dev.notify_implementer"), \
+             patch("commands.dev.notify_reviewers"), \
+             patch("commands.dev.notify_discord") as mock_discord:
             cmd_transition(args)
         mock_discord.assert_called_once()
         msg = mock_discord.call_args[0][0]
@@ -242,9 +242,9 @@ class TestTransitionNotifications:
         args = argparse.Namespace(
             project="test-pj", to="DESIGN_PLAN", actor="cli", force=False, resume=True,
         )
-        with patch("gokrax.notify_implementer"), \
-             patch("gokrax.notify_reviewers"), \
-             patch("gokrax.notify_discord") as mock_discord:
+        with patch("commands.dev.notify_implementer"), \
+             patch("commands.dev.notify_reviewers"), \
+             patch("commands.dev.notify_discord") as mock_discord:
             cmd_transition(args)
         mock_discord.assert_called_once()
         msg = mock_discord.call_args[0][0]
@@ -309,8 +309,8 @@ class TestKeepCtx:
             project="test-pj", to="DESIGN_PLAN", actor="cli", force=False, resume=False,
         )
         with patch("engine.reviewer._reset_reviewers") as mock_reset, \
-             patch("gokrax.notify_implementer"), \
-             patch("gokrax.notify_reviewers"):
+             patch("commands.dev.notify_implementer"), \
+             patch("commands.dev.notify_reviewers"):
             cmd_transition(args)
         mock_reset.assert_not_called()
 
@@ -324,8 +324,8 @@ class TestKeepCtx:
             project="test-pj", to="DESIGN_PLAN", actor="cli", force=False, resume=False,
         )
         with patch("engine.reviewer._reset_reviewers", return_value=[]) as mock_reset, \
-             patch("gokrax.notify_implementer"), \
-             patch("gokrax.notify_reviewers"):
+             patch("commands.dev.notify_implementer"), \
+             patch("commands.dev.notify_reviewers"):
             cmd_transition(args)
         mock_reset.assert_called_once()
 
@@ -341,8 +341,8 @@ class TestKeepCtx:
             project="test-pj", to="IMPLEMENTATION", actor="cli", force=False, resume=False,
         )
         with patch("engine.reviewer._reset_reviewers") as mock_reset, \
-             patch("gokrax.notify_implementer"), \
-             patch("gokrax.notify_reviewers"):
+             patch("commands.dev.notify_implementer"), \
+             patch("commands.dev.notify_reviewers"):
             cmd_transition(args)
         mock_reset.assert_not_called()
 
@@ -357,8 +357,8 @@ class TestKeepCtx:
             project="test-pj", to="IMPLEMENTATION", actor="cli", force=False, resume=False,
         )
         with patch("engine.reviewer._reset_reviewers", return_value=[]) as mock_reset, \
-             patch("gokrax.notify_implementer"), \
-             patch("gokrax.notify_reviewers"):
+             patch("commands.dev.notify_implementer"), \
+             patch("commands.dev.notify_reviewers"):
             cmd_transition(args)
         mock_reset.assert_called_once()
 
@@ -373,8 +373,8 @@ class TestKeepCtx:
             project="test-pj", to="DESIGN_PLAN", actor="cli", force=False, resume=False,
         )
         with patch("engine.reviewer._reset_reviewers", return_value=[]) as mock_reset, \
-             patch("gokrax.notify_implementer"), \
-             patch("gokrax.notify_reviewers"):
+             patch("commands.dev.notify_implementer"), \
+             patch("commands.dev.notify_reviewers"):
             cmd_transition(args)
         mock_reset.assert_called_once()
 
@@ -390,8 +390,8 @@ class TestKeepCtx:
             project="test-pj", to="IMPLEMENTATION", actor="cli", force=False, resume=False,
         )
         with patch("engine.reviewer._reset_reviewers", return_value=[]) as mock_reset, \
-             patch("gokrax.notify_implementer"), \
-             patch("gokrax.notify_reviewers"):
+             patch("commands.dev.notify_implementer"), \
+             patch("commands.dev.notify_reviewers"):
             cmd_transition(args)
         mock_reset.assert_called_once()
 
@@ -413,8 +413,8 @@ class TestKeepCtx:
                 project="test-pj", to=to_state, actor="cli", force=False, resume=False,
             )
             with patch("engine.reviewer._reset_reviewers") as mock_reset, \
-                 patch("gokrax.notify_implementer"), \
-                 patch("gokrax.notify_reviewers"):
+                 patch("commands.dev.notify_implementer"), \
+                 patch("commands.dev.notify_reviewers"):
                 cmd_transition(args)
             mock_reset.assert_not_called()
 
@@ -432,7 +432,7 @@ class TestKeepCtx:
         args = argparse.Namespace(
             project="test-pj", to="IDLE", actor="cli", force=False, resume=False,
         )
-        with patch("gokrax.notify_implementer"), patch("gokrax.notify_reviewers"):
+        with patch("commands.dev.notify_implementer"), patch("commands.dev.notify_reviewers"):
             cmd_transition(args)
         with open(path) as f:
             data = json.load(f)
@@ -451,7 +451,7 @@ class TestKeepCtx:
         args = argparse.Namespace(
             project="test-pj", to="IDLE", actor="cli", force=False, resume=False,
         )
-        with patch("gokrax.notify_implementer"), patch("gokrax.notify_reviewers"):
+        with patch("commands.dev.notify_implementer"), patch("commands.dev.notify_reviewers"):
             cmd_transition(args)
         with open(path) as f:
             data = json.load(f)
@@ -493,7 +493,7 @@ class TestKeepCtx:
         args = argparse.Namespace(
             project="test-pj", to="IDLE", actor="cli", force=False, resume=False,
         )
-        with patch("gokrax.notify_implementer"), patch("gokrax.notify_reviewers"):
+        with patch("commands.dev.notify_implementer"), patch("commands.dev.notify_reviewers"):
             cmd_transition(args)
         with open(path) as f:
             data = json.load(f)
@@ -510,7 +510,7 @@ class TestKeepCtx:
         args = argparse.Namespace(
             project="test-pj", to="IDLE", actor="cli", force=False, resume=False,
         )
-        with patch("gokrax.notify_implementer"), patch("gokrax.notify_reviewers"):
+        with patch("commands.dev.notify_implementer"), patch("commands.dev.notify_reviewers"):
             cmd_transition(args)
         with open(path) as f:
             data = json.load(f)

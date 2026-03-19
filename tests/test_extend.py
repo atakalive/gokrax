@@ -157,7 +157,7 @@ class TestCmdExtend:
         import argparse
         args = argparse.Namespace(project="test-pj", by=600)
 
-        with patch("gokrax.notify_discord") as mock_discord:
+        with patch("commands.dev.notify_discord") as mock_discord:
             cmd_extend(args)
 
         mock_discord.assert_called_once()

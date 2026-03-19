@@ -1254,8 +1254,8 @@ class TestCmdStartSkipCcPlan:
             comment=None,
             skip_cc_plan=True,
         )
-        with patch("gokrax.cmd_triage"), \
-             patch("gokrax.cmd_transition"), \
+        with patch("commands.dev.cmd_triage"), \
+             patch("commands.dev.cmd_transition"), \
              patch("gokrax._start_loop"):
             cmd_start(args)
 
@@ -1288,8 +1288,8 @@ class TestCmdStartSkipCcPlan:
             comment=None,
             skip_cc_plan=False,  # フラグなし
         )
-        with patch("gokrax.cmd_triage"), \
-             patch("gokrax.cmd_transition"), \
+        with patch("commands.dev.cmd_triage"), \
+             patch("commands.dev.cmd_transition"), \
              patch("gokrax._start_loop"):
             cmd_start(args)
 

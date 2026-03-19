@@ -52,7 +52,7 @@ class TestDesignRevise:
 
         import gokrax
         args = argparse.Namespace(project="test-pj", issue=[1], comment="修正完了")
-        with patch("gokrax._post_gitlab_note", return_value=True):
+        with patch("commands.dev._post_gitlab_note", return_value=True):
             gokrax.cmd_design_revise(args)
 
         path = tmp_pipelines / "test-pj.json"
@@ -65,7 +65,7 @@ class TestDesignRevise:
 
         import gokrax
         args = argparse.Namespace(project="test-pj", issue=[1], comment="修正完了")
-        with patch("gokrax._post_gitlab_note", return_value=False):
+        with patch("commands.dev._post_gitlab_note", return_value=False):
             with pytest.raises(SystemExit) as exc_info:
                 gokrax.cmd_design_revise(args)
 
@@ -81,7 +81,7 @@ class TestDesignRevise:
 
         import gokrax
         args = argparse.Namespace(project="test-pj", issue=[1], comment=None)
-        with patch("gokrax._post_gitlab_note") as mock_post:
+        with patch("commands.dev._post_gitlab_note") as mock_post:
             gokrax.cmd_design_revise(args)
             mock_post.assert_not_called()
 
@@ -117,7 +117,7 @@ class TestDesignRevise:
 
         import gokrax
         args = argparse.Namespace(project="test-pj", issue=[1, 2], comment="修正完了")
-        with patch("gokrax._post_gitlab_note", return_value=True) as mock_post:
+        with patch("commands.dev._post_gitlab_note", return_value=True) as mock_post:
             gokrax.cmd_design_revise(args)
 
         assert mock_post.call_count == 2
@@ -146,7 +146,7 @@ class TestCodeRevise:
 
         import gokrax
         args = argparse.Namespace(project="test-pj", issue=[1], hash="deadbeef", comment="修正完了")
-        with patch("gokrax._post_gitlab_note", return_value=True):
+        with patch("commands.dev._post_gitlab_note", return_value=True):
             gokrax.cmd_code_revise(args)
 
         path = tmp_pipelines / "test-pj.json"
@@ -160,7 +160,7 @@ class TestCodeRevise:
 
         import gokrax
         args = argparse.Namespace(project="test-pj", issue=[1], hash="deadbeef", comment="修正完了")
-        with patch("gokrax._post_gitlab_note", return_value=False):
+        with patch("commands.dev._post_gitlab_note", return_value=False):
             with pytest.raises(SystemExit) as exc_info:
                 gokrax.cmd_code_revise(args)
 
@@ -199,7 +199,7 @@ class TestCodeRevise:
 
         import gokrax
         args = argparse.Namespace(project="test-pj", issue=[1, 2], hash="deadbeef", comment="修正完了")
-        with patch("gokrax._post_gitlab_note", return_value=True) as mock_post:
+        with patch("commands.dev._post_gitlab_note", return_value=True) as mock_post:
             gokrax.cmd_code_revise(args)
 
         assert mock_post.call_count == 2

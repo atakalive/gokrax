@@ -75,7 +75,7 @@ class TestCmdDispute:
         """正常系: DESIGN_REVISE + P0レビュアーへのdispute → disputes追加"""
         _make_pipeline(tmp_pipelines)
         import gokrax
-        with patch("gokrax.subprocess.run") as mock_run:
+        with patch("commands.dev.subprocess.run") as mock_run:
             mock_run.return_value.returncode = 0
             gokrax.cmd_dispute(_dispute_args())
 
@@ -132,7 +132,7 @@ class TestCmdDispute:
         ]
         _make_pipeline(tmp_pipelines, extra_issue_fields={"disputes": existing_disputes})
         import gokrax
-        with patch("gokrax.subprocess.run") as mock_run:
+        with patch("commands.dev.subprocess.run") as mock_run:
             mock_run.return_value.returncode = 0
             gokrax.cmd_dispute(_dispute_args())
 
@@ -150,7 +150,7 @@ class TestCmdDispute:
         }
         _make_pipeline(tmp_pipelines, state="CODE_REVISE", extra_issue_fields=issue_fields)
         import gokrax
-        with patch("gokrax.subprocess.run") as mock_run:
+        with patch("commands.dev.subprocess.run") as mock_run:
             mock_run.return_value.returncode = 0
             gokrax.cmd_dispute(_dispute_args())
 
@@ -164,7 +164,7 @@ class TestCmdDispute:
         """GitLab note が投稿されること"""
         _make_pipeline(tmp_pipelines)
         import gokrax
-        with patch("gokrax.subprocess.run") as mock_run:
+        with patch("commands.dev.subprocess.run") as mock_run:
             mock_run.return_value.returncode = 0
             gokrax.cmd_dispute(_dispute_args())
 
@@ -198,7 +198,7 @@ class TestCmdReviewDisputeResolution:
         """dispute pending(P0) → review APPROVE → status=accepted"""
         self._make_revise_pipeline_with_dispute(tmp_pipelines)
         import gokrax
-        with patch("gokrax.subprocess.run") as mock_run:
+        with patch("commands.dev.subprocess.run") as mock_run:
             mock_run.return_value.returncode = 0
             gokrax.cmd_review(_review_args(verdict="APPROVE"))
 
@@ -212,7 +212,7 @@ class TestCmdReviewDisputeResolution:
         """dispute pending(P0) → review P0 → status=rejected"""
         self._make_revise_pipeline_with_dispute(tmp_pipelines)
         import gokrax
-        with patch("gokrax.subprocess.run") as mock_run:
+        with patch("commands.dev.subprocess.run") as mock_run:
             mock_run.return_value.returncode = 0
             gokrax.cmd_review(_review_args(verdict="P0", summary="維持"))
 
@@ -224,7 +224,7 @@ class TestCmdReviewDisputeResolution:
         """dispute pending(P0) → review P1 → status=accepted（severity P0>P1）"""
         self._make_revise_pipeline_with_dispute(tmp_pipelines)
         import gokrax
-        with patch("gokrax.subprocess.run") as mock_run:
+        with patch("commands.dev.subprocess.run") as mock_run:
             mock_run.return_value.returncode = 0
             gokrax.cmd_review(_review_args(verdict="P1", summary="軽微に変更"))
 
@@ -261,7 +261,7 @@ class TestCmdReviewDisputeResolution:
         """dispute accepted 時はレビューが pop されること（次 REVIEW サイクルで再レビューを強制）"""
         self._make_revise_pipeline_with_dispute(tmp_pipelines)
         import gokrax
-        with patch("gokrax.subprocess.run") as mock_run:
+        with patch("commands.dev.subprocess.run") as mock_run:
             mock_run.return_value.returncode = 0
             gokrax.cmd_review(_review_args(verdict="APPROVE"))
 
@@ -365,7 +365,7 @@ class TestCmdReviewDisputeResolutionV2:
         """dispute accepted → design_reviews から pascal エントリが削除される"""
         self._make_revise_pipeline(tmp_pipelines)
         import gokrax
-        with patch("gokrax.subprocess.run") as mock_run:
+        with patch("commands.dev.subprocess.run") as mock_run:
             mock_run.return_value.returncode = 0
             gokrax.cmd_review(_review_args(verdict="APPROVE"))
 
@@ -376,7 +376,7 @@ class TestCmdReviewDisputeResolutionV2:
         """dispute rejected → 新 verdict でレビューが上書きされる"""
         self._make_revise_pipeline(tmp_pipelines)
         import gokrax
-        with patch("gokrax.subprocess.run") as mock_run:
+        with patch("commands.dev.subprocess.run") as mock_run:
             mock_run.return_value.returncode = 0
             gokrax.cmd_review(_review_args(verdict="P0", summary="維持"))
 
@@ -388,7 +388,7 @@ class TestCmdReviewDisputeResolutionV2:
         """dispute accepted → resolved_verdict / resolved_summary が保存される"""
         self._make_revise_pipeline(tmp_pipelines)
         import gokrax
-        with patch("gokrax.subprocess.run") as mock_run:
+        with patch("commands.dev.subprocess.run") as mock_run:
             mock_run.return_value.returncode = 0
             gokrax.cmd_review(_review_args(verdict="APPROVE", summary="問題なし"))
 
@@ -445,7 +445,7 @@ class TestCmdReviewDisputeAutoResolve:
         }
         _make_review_pipeline(tmp_pipelines, extra_issue_fields={"disputes": [dispute]})
         import gokrax
-        with patch("gokrax.subprocess.run") as mock_run:
+        with patch("commands.dev.subprocess.run") as mock_run:
             mock_run.return_value.returncode = 0
             gokrax.cmd_review(_review_args(verdict="APPROVE", force=False))
 
@@ -461,7 +461,7 @@ class TestCmdReviewDisputeAutoResolve:
         """dispute なしの通常レビュー → 正常記録、disputes 影響なし"""
         _make_review_pipeline(tmp_pipelines)
         import gokrax
-        with patch("gokrax.subprocess.run") as mock_run:
+        with patch("commands.dev.subprocess.run") as mock_run:
             mock_run.return_value.returncode = 0
             gokrax.cmd_review(_review_args(verdict="APPROVE", force=False))
 
@@ -479,7 +479,7 @@ class TestCmdReviewDisputeAutoResolve:
         }
         _make_review_pipeline(tmp_pipelines, extra_issue_fields={"disputes": [dispute]})
         import gokrax
-        with patch("gokrax.subprocess.run") as mock_run:
+        with patch("commands.dev.subprocess.run") as mock_run:
             mock_run.return_value.returncode = 0
             gokrax.cmd_review(_review_args(verdict="P0", summary="やはり P0", force=False))
 
@@ -506,7 +506,7 @@ class TestCmdReviewDisputeAutoResolve:
             extra_issue_fields={"design_reviews": existing_reviews, "disputes": [dispute]},
         )
         import gokrax
-        with patch("gokrax.subprocess.run") as mock_run:
+        with patch("commands.dev.subprocess.run") as mock_run:
             mock_run.return_value.returncode = 0
             gokrax.cmd_review(_review_args(verdict="APPROVE", force=False))
 
@@ -526,7 +526,7 @@ class TestCmdReviewDisputeAutoResolve:
             extra_issue_fields={"design_reviews": existing_reviews},
         )
         import gokrax
-        with patch("gokrax.subprocess.run") as mock_run:
+        with patch("commands.dev.subprocess.run") as mock_run:
             mock_run.return_value.returncode = 0
             gokrax.cmd_review(_review_args(verdict="APPROVE", force=False))
 
@@ -1065,7 +1065,7 @@ class TestReviewSilentDiscard:
         """IMPLEMENTATION 状態でのレビューは SystemExit にならず破棄される。"""
         _make_pipeline(tmp_pipelines, state="IMPLEMENTATION")
         import gokrax
-        with patch("gokrax._post_gitlab_note") as mock_note:
+        with patch("commands.dev._post_gitlab_note") as mock_note:
             # SystemExit が発生しないことを暗黙的に検証（発生すれば pytest が捕捉）
             gokrax.cmd_review(_review_args(reviewer="dijkstra", verdict="APPROVE", force=False))
         # GitLab note が投稿されていないこと
@@ -1079,6 +1079,6 @@ class TestReviewSilentDiscard:
         """IDLE 状態でも同様に破棄される。"""
         _make_pipeline(tmp_pipelines, state="IDLE")
         import gokrax
-        with patch("gokrax._post_gitlab_note") as mock_note:
+        with patch("commands.dev._post_gitlab_note") as mock_note:
             gokrax.cmd_review(_review_args(reviewer="dijkstra", verdict="P1", summary="test", force=False))
         mock_note.assert_not_called()

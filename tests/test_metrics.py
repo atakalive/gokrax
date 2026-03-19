@@ -219,7 +219,7 @@ class TestReviewResponseMetric:
         from gokrax import cmd_review
 
         with patch("pipeline_io.append_metric") as mock_metric, \
-             patch("gokrax._post_gitlab_note", return_value=False):
+             patch("commands.dev._post_gitlab_note", return_value=False):
             cmd_review(self._make_args())
 
         mock_metric.assert_called_once()
@@ -254,7 +254,7 @@ class TestReviewResponseMetric:
         from gokrax import cmd_review
 
         with patch("pipeline_io.append_metric") as mock_metric, \
-             patch("gokrax._post_gitlab_note", return_value=False):
+             patch("commands.dev._post_gitlab_note", return_value=False):
             cmd_review(self._make_args())
 
         mock_metric.assert_not_called()
@@ -277,7 +277,7 @@ class TestReviewResponseMetric:
         from gokrax import cmd_review
 
         with patch("pipeline_io.append_metric") as mock_metric, \
-             patch("gokrax._post_gitlab_note", return_value=False):
+             patch("commands.dev._post_gitlab_note", return_value=False):
             cmd_review(self._make_args(verdict="P0"))
 
         call_kwargs = mock_metric.call_args.kwargs

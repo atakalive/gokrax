@@ -79,6 +79,8 @@ STATE_PHASE_MAP: dict[str, str] = {
     "DESIGN_APPROVED": "design",
     "TRIAGE": "design",
     "IMPLEMENTATION": "code",
+    "CODE_TEST": "code",
+    "CODE_TEST_FIX": "code",
     "CODE_REVIEW": "code",
     "CODE_REVISE": "code",
     "CODE_APPROVED": "code",
@@ -94,6 +96,7 @@ VALID_STATES = [
     "IDLE", "INITIALIZE", "TRIAGE",
     "DESIGN_PLAN", "DESIGN_REVIEW", "DESIGN_REVISE", "DESIGN_APPROVED",
     "IMPLEMENTATION",
+    "CODE_TEST", "CODE_TEST_FIX",
     "CODE_REVIEW", "CODE_REVISE", "CODE_APPROVED",
     "MERGE_SUMMARY_SENT", "DONE", "BLOCKED",
 ]
@@ -106,9 +109,11 @@ VALID_TRANSITIONS = {
     "DESIGN_REVIEW": ["DESIGN_APPROVED", "DESIGN_REVISE", "BLOCKED"],
     "DESIGN_REVISE": ["DESIGN_REVIEW"],
     "DESIGN_APPROVED": ["IMPLEMENTATION"],
-    "IMPLEMENTATION": ["CODE_REVIEW"],
+    "IMPLEMENTATION": ["CODE_TEST", "CODE_REVIEW"],
+    "CODE_TEST": ["CODE_REVIEW", "CODE_TEST_FIX", "BLOCKED"],
+    "CODE_TEST_FIX": ["CODE_TEST", "BLOCKED"],
     "CODE_REVIEW": ["CODE_APPROVED", "CODE_REVISE", "BLOCKED"],
-    "CODE_REVISE": ["CODE_REVIEW"],
+    "CODE_REVISE": ["CODE_TEST", "CODE_REVIEW"],
     "CODE_APPROVED": ["MERGE_SUMMARY_SENT"],
     "MERGE_SUMMARY_SENT": ["DONE"],
     "DONE": ["IDLE"],
@@ -237,12 +242,14 @@ BLOCK_TIMERS = {
     "DESIGN_REVIEW":  3600,  # 60 min
     "DESIGN_REVISE":  1800,  # 30 min
     "IMPLEMENTATION": 7200,  # 120 min
+    "CODE_TEST":      600,   # 10 min
+    "CODE_TEST_FIX":  3600,  # 60 min
     "CODE_REVIEW":    3600,  # 60 min
     "CODE_REVISE":    1800,  # 30 min
 }
 
 # タイムアウト延長可能な状態
-EXTENDABLE_STATES = {"DESIGN_PLAN", "DESIGN_REVISE", "IMPLEMENTATION", "CODE_REVISE"}
+EXTENDABLE_STATES = {"DESIGN_PLAN", "DESIGN_REVISE", "IMPLEMENTATION", "CODE_TEST_FIX", "CODE_REVISE"}
 
 # 状態遷移直後の催促猶予期間（秒）
 NUDGE_GRACE_SEC = 300  # 5 min
@@ -273,6 +280,22 @@ GOKRAX_STATE_PATH = PIPELINES_DIR.parent / "gokrax-state.json"
 
 # メトリクス JSONL ファイル（Issue #81）
 METRICS_FILE = PIPELINES_DIR.parent / "gokrax-metrics.jsonl"
+
+# ---------------------------------------------------------------------------
+# CODE_TEST ゲート — Issue #87
+# ---------------------------------------------------------------------------
+MAX_TEST_RETRY: int = 3
+
+TEST_CONFIG: dict[str, dict] = {
+    "gokrax": {
+        "test_command": "cd /mnt/s/wsl/work/project/gokrax && python -m pytest -x --tb=short",
+        "test_timeout": 300,
+    },
+    "EMCalibrator": {
+        "test_command": "cd /mnt/s/wsl/work/project/EMCalibrator && python -m pytest -x --tb=short",
+        "test_timeout": 300,
+    },
+}
 
 
 # ---------------------------------------------------------------------------

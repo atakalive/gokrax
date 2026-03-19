@@ -46,6 +46,7 @@ from engine.shared import log, _is_ok_reply, _is_cc_running, _is_agent_inactive
 from engine.cc import (
     _start_cc, _has_pytest, _kill_pytest_baseline,
     _poll_pytest_baseline, _auto_push_and_close,
+    _poll_code_test, _start_code_test, _kill_code_test, _start_cc_test_fix,
 )
 from engine.reviewer import (
     _reset_reviewers, _reset_short_context_reviewers,
@@ -122,6 +123,9 @@ def process(path: Path):
     pj_poll = data.get("project", path.stem)
     _poll_pytest_baseline(path, pj_poll)
 
+    # === Issue #87: CODE_TEST テスト完了ポーリング ===
+    _poll_code_test(path, pj_poll)
+
     # === Issue #59: 未完了通知のリカバリ ===
     # pending が残っていれば再送してクリアし、今回のループは終了。
     # 20秒間隔なので1サイクルスキップは許容（設計判断）。
@@ -166,7 +170,7 @@ def process(path: Path):
         return
 
     pre_action = check_transition(state, batch, data)
-    if pre_action.new_state is None and not pre_action.nudge and not pre_action.nudge_reviewers and not pre_action.dispute_nudge_reviewers and not pre_action.save_grace_met_at and not pre_action.run_cc:
+    if pre_action.new_state is None and not pre_action.nudge and not pre_action.nudge_reviewers and not pre_action.dispute_nudge_reviewers and not pre_action.save_grace_met_at and not pre_action.run_cc and not pre_action.run_test:
         return
 
     # === ロック内で第2チェック + 遷移 (Double-Checked Locking) ===
@@ -286,6 +290,11 @@ def process(path: Path):
             # Issue #92: pytest baseline クリーンアップ
             _kill_pytest_baseline(data, pj)
             data.pop("test_baseline", None)
+            # Issue #87: code test クリーンアップ
+            _kill_code_test(data, pj)
+            data.pop("test_result", None)
+            data.pop("test_output", None)
+            data.pop("test_retry_count", None)
 
         # INITIALIZE→DESIGN_PLAN: Reset REVISE cycle counters + 初期化処理 (Issue #29, #125)
         if state == "INITIALIZE" and action.new_state == "DESIGN_PLAN":
@@ -311,6 +320,11 @@ def process(path: Path):
             # Issue #92: 前バッチの pytest を停止 + test_baseline クリア
             _kill_pytest_baseline(data, pj)
             data.pop("test_baseline", None)
+            # Issue #87: code test クリーンアップ
+            _kill_code_test(data, pj)
+            data.pop("test_result", None)
+            data.pop("test_output", None)
+            data.pop("test_retry_count", None)
 
             # Issue #92: pytest ベースライン取得（バックグラウンド）
             repo = data.get("repo_path", "")
@@ -428,6 +442,17 @@ def process(path: Path):
                 else:
                     data["min_reviews_override"] = max(1, min(mode_config["min_reviews"], effective))
                 log(f"[{pj}] 無応答レビュアーを除外: {sorted(no_response)}, excluded={excluded}, effective={effective}")
+
+        # CODE_TEST 進入時: テスト起動情報を notification に保存（ロック外でテスト起動）
+        if action.new_state == "CODE_TEST" and action.run_test:
+            notification["run_test"] = True
+            notification["repo_path"] = data.get("repo_path", "")
+            data["test_result"] = None
+
+        # CODE_TEST_FIX 進入時: 古い cc_pid を削除し CC 起動フラグを立てる
+        if action.new_state == "CODE_TEST_FIX":
+            data.pop("cc_pid", None)
+            notification["run_cc_test_fix"] = True
 
         # BLOCKED: Disable watchdog (Issue #29)
         if action.new_state == "BLOCKED":
@@ -618,6 +643,8 @@ def process(path: Path):
                 nudge_msg = render("dev.design_plan", "nudge")
             elif nudge_state == "IMPLEMENTATION":
                 nudge_msg = render("dev.implementation", "nudge")
+            elif nudge_state == "CODE_TEST_FIX":
+                nudge_msg = render("dev.code_test_fix", "nudge")
             else:
                 nudge_msg = "[Remind] 作業を進め、完了してください。"
 
@@ -813,6 +840,48 @@ def process(path: Path):
                 ts = _datetime.now(JST).strftime("%m/%d %H:%M")
                 notify_discord(f"[{pj}] ⚠️ CC起動失敗: {e} ({ts})")
             clear_pending_notification(pj, "run_cc")
+
+        # Issue #87: CODE_TEST テスト起動
+        if notification.get("run_test"):
+            try:
+                pipeline_data = load_pipeline(path)
+                _start_code_test(pj, pipeline_data, path)
+            except Exception as e:
+                log(f"[{pj}] _start_code_test failed: {e}")
+                def _block_test_fail(data: dict) -> None:
+                    data["state"] = "BLOCKED"
+                    data["enabled"] = False
+                    add_history(data, "CODE_TEST", "BLOCKED", actor="watchdog")
+                    _kill_code_test(data, pj)
+                update_pipeline(path, _block_test_fail)
+                notify_discord(f"[{pj}] ⚠️ テスト起動失敗: {e}")
+
+        # Issue #87: CODE_TEST_FIX CC 起動
+        if notification.get("run_cc_test_fix"):
+            try:
+                pipeline_data = load_pipeline(path)
+                _start_cc_test_fix(pj, notification["batch"], pipeline_data, path)
+            except Exception as e:
+                log(f"[{pj}] _start_cc_test_fix failed: {e}")
+                def _block_cc_fail(data: dict) -> None:
+                    data["state"] = "BLOCKED"
+                    data["enabled"] = False
+                    add_history(data, "CODE_TEST_FIX", "BLOCKED", actor="watchdog")
+                update_pipeline(path, _block_cc_fail)
+                notify_discord(f"[{pj}] ⚠️ CC テスト修正起動失敗: {e}")
+
+        # Issue #87: CODE_TEST_FIX 実装者通知
+        if action.new_state == "CODE_TEST_FIX":
+            pipeline_data = load_pipeline(path)
+            test_output = pipeline_data.get("test_output", "")
+            retry_count = pipeline_data.get("test_retry_count", 0)
+            from config import MAX_TEST_RETRY
+            msg = render("dev.code_test_fix", "transition",
+                project=pj, test_output=test_output,
+                retry_count=retry_count, max_retry=MAX_TEST_RETRY,
+                GOKRAX_CLI=GOKRAX_CLI,
+            )
+            notify_implementer(notification["implementer"], f"[gokrax] {pj}: {msg}")
 
 
 # _stop_loop_if_idle は廃止。crontab/loop.sh は常時稼働し、

@@ -404,6 +404,282 @@ def _poll_pytest_baseline(path: Path, pj: str) -> None:
     log(f"[{pj}] pytest baseline completed: exit_code={exit_code}, summary={summary}")
 
 
+# ── Issue #87: CODE_TEST ゲート ────────────────────────────────────────────
+
+def _start_code_test(project: str, data: dict, pipeline_path: Path) -> None:
+    """CODE_TEST 進入時にテストを非同期実行する。"""
+    import subprocess as _sub
+    import tempfile
+
+    from config import TEST_CONFIG
+
+    cfg = TEST_CONFIG[project]
+    test_command = cfg["test_command"]
+
+    # 残留 baseline pytest を停止
+    _kill_pytest_baseline(data, project)
+
+    fd_out, output_path = tempfile.mkstemp(suffix=".txt", prefix="gokrax-codetest-")
+    os.close(fd_out)
+    exit_code_path = output_path + ".exit"
+
+    fd_sh, script_path = tempfile.mkstemp(suffix=".sh", prefix="gokrax-codetest-")
+
+    repo_path_str = data.get("repo_path", "")
+    try:
+        head = _sub.run(
+            ["git", "-C", repo_path_str, "rev-parse", "HEAD"],
+            capture_output=True, text=True, timeout=10, check=True,
+        ).stdout.strip()
+    except Exception:
+        head = ""
+
+    script_content = (
+        f"#!/bin/bash\n"
+        f"{test_command} > {output_path} 2>&1\n"
+        f"echo $? > {exit_code_path}\n"
+        f"rm -f {script_path}\n"
+    )
+
+    try:
+        os.write(fd_sh, script_content.encode())
+        os.close(fd_sh)
+        os.chmod(script_path, 0o700)
+
+        proc = _sub.Popen(
+            ["bash", script_path],
+            stdout=_sub.DEVNULL,
+            stderr=_sub.DEVNULL,
+            start_new_session=True,
+        )
+    except Exception:
+        for p in (output_path, exit_code_path, script_path):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+        raise
+
+    def _save_code_test(d: dict) -> None:
+        d["_code_test"] = {
+            "pid": proc.pid,
+            "started_at": now_iso(),
+            "output_path": output_path,
+            "exit_code_path": exit_code_path,
+            "commit": head,
+        }
+        d["test_result"] = None
+
+    update_pipeline(pipeline_path, _save_code_test)
+    log(f"[{project}] code test started (pid={proc.pid}, commit={head[:8]})")
+
+
+def _poll_code_test(path: Path, pj: str) -> None:
+    """CODE_TEST のバックグラウンドテスト完了を検出し、結果を書き込む。"""
+    from config import TEST_CONFIG
+    from pipeline_io import append_metric
+
+    data = load_pipeline(path)
+    info = data.get("_code_test")
+    if not info:
+        return
+    pid = info.get("pid")
+    if not pid:
+        return
+
+    exit_code_path = info.get("exit_code_path", "")
+    output_path = info.get("output_path", "")
+    finished = bool(exit_code_path and os.path.exists(exit_code_path))
+    proc_alive = Path(f"/proc/{pid}").exists()
+
+    # タイムアウト判定
+    project = data.get("project", pj)
+    test_timeout = TEST_CONFIG.get(project, {}).get("test_timeout", 300)
+    timed_out = False
+    started_at = info.get("started_at", "")
+    elapsed_sec = 0.0
+    if started_at:
+        try:
+            elapsed_sec = (_datetime.now(JST) - _datetime.fromisoformat(started_at)).total_seconds()
+            if elapsed_sec > test_timeout:
+                timed_out = True
+        except (ValueError, TypeError):
+            pass
+
+    if timed_out and not finished:
+        if proc_alive:
+            try:
+                os.killpg(pid, signal.SIGKILL)
+            except OSError:
+                pass
+
+        def _save_timeout(d: dict) -> None:
+            d["test_result"] = "fail"
+            d["test_output"] = "(test timed out)"
+            d["test_retry_count"] = d.get("test_retry_count", 0) + 1
+            d.pop("_code_test", None)
+
+        update_pipeline(path, _save_timeout)
+        for p in (output_path, exit_code_path):
+            if p:
+                try:
+                    os.unlink(p)
+                except OSError:
+                    pass
+        issue_num = data.get("batch", [{}])[0].get("issue") if data.get("batch") else None
+        append_metric("test_run", pj=project,
+                       issue=issue_num, result="fail",
+                       duration_sec=round(elapsed_sec),
+                       retry=data.get("test_retry_count", 0) + 1)
+        log(f"[{pj}] code test timed out (pid={pid})")
+        return
+
+    if not finished:
+        if proc_alive:
+            return  # まだ実行中
+        # プロセス消滅フォールバック
+
+    # 結果回収
+    output = ""
+    exit_code = -1
+    try:
+        if output_path and os.path.exists(output_path):
+            with open(output_path) as f:
+                output = f.read()
+            os.unlink(output_path)
+        if exit_code_path and os.path.exists(exit_code_path):
+            with open(exit_code_path) as f:
+                exit_code = int(f.read().strip())
+            os.unlink(exit_code_path)
+    except Exception as e:
+        log(f"[{pj}] WARNING: code test output read failed: {e}")
+
+    if len(output) > MAX_BASELINE_OUTPUT_CHARS:
+        output = "(truncated)\n..." + output[-(MAX_BASELINE_OUTPUT_CHARS - 20):]
+
+    passed = exit_code == 0
+
+    def _save_result(d: dict) -> None:
+        d["test_result"] = "pass" if passed else "fail"
+        d["test_output"] = output
+        if passed:
+            d["test_retry_count"] = 0
+        else:
+            d["test_retry_count"] = d.get("test_retry_count", 0) + 1
+        d.pop("_code_test", None)
+
+    update_pipeline(path, _save_result)
+
+    issue_num = data.get("batch", [{}])[0].get("issue") if data.get("batch") else None
+    result_str = "pass" if passed else "fail"
+    metric_fields: dict = {
+        "pj": project, "issue": issue_num,
+        "result": result_str, "duration_sec": round(elapsed_sec),
+        "retry": data.get("test_retry_count", 0) + (0 if passed else 1),
+    }
+    if not passed:
+        # count failed tests from output
+        lines = output.strip().splitlines()
+        for line in reversed(lines):
+            if "failed" in line:
+                import re
+                m = re.search(r"(\d+) failed", line)
+                if m:
+                    metric_fields["failed_tests"] = int(m.group(1))
+                break
+    append_metric("test_run", **metric_fields)
+    log(f"[{pj}] code test completed: exit_code={exit_code}, result={result_str}")
+
+
+def _kill_code_test(data: dict, pj: str) -> None:
+    """残留テストプロセスを停止し、一時ファイルを掃除する。"""
+    info = data.pop("_code_test", None)
+    if not info:
+        return
+    pid = info.get("pid")
+    if pid and Path(f"/proc/{pid}").exists():
+        try:
+            os.killpg(pid, signal.SIGTERM)
+            import time
+            time.sleep(0.5)
+            if Path(f"/proc/{pid}").exists():
+                os.killpg(pid, signal.SIGKILL)
+            log(f"[{pj}] killed stale code test (pgid={pid})")
+        except OSError:
+            pass
+    for key in ("output_path", "exit_code_path"):
+        p = info.get(key, "")
+        if p:
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+
+
+def _start_cc_test_fix(project: str, batch: list, data: dict, pipeline_path: Path) -> None:
+    """CODE_TEST_FIX 進入時に CC を起動してテスト修正を依頼する。"""
+    import subprocess as _sub
+    import uuid as _uuid
+    import tempfile
+
+    from config import CC_MODEL_IMPL
+    from messages import render as _render
+
+    impl_model = data.get("cc_impl_model") or CC_MODEL_IMPL
+    session_id = data.get("cc_session_id") or str(_uuid.uuid4())
+    test_output = data.get("test_output", "")
+    retry_count = data.get("test_retry_count", 0)
+    repo_path = data.get("repo_path", "")
+
+    from config import MAX_TEST_RETRY
+    prompt = _render("dev.code_test_fix", "cc_test_fix",
+        project=project, test_output=test_output,
+        retry_count=retry_count, max_retry=MAX_TEST_RETRY,
+    )
+
+    fd_prompt, prompt_path = tempfile.mkstemp(suffix=".txt", prefix="gokrax-testfix-")
+    fd_script, script_path = tempfile.mkstemp(suffix=".sh", prefix="gokrax-testfix-")
+
+    try:
+        os.write(fd_prompt, prompt.encode())
+        os.close(fd_prompt)
+
+        script_content = (
+            f'#!/bin/bash\n'
+            f'set -e\n'
+            f'cleanup() {{ rm -f "{script_path}" "{prompt_path}"; }}\n'
+            f'trap cleanup EXIT\n'
+            f'cd "{repo_path}"\n'
+            f'claude -p --model "{impl_model}" --resume "{session_id}" \\\n'
+            f'  --permission-mode bypassPermissions --output-format json < "{prompt_path}"\n'
+        )
+
+        os.write(fd_script, script_content.encode())
+        os.close(fd_script)
+        os.chmod(script_path, 0o700)
+
+        proc = _sub.Popen(
+            ["bash", script_path],
+            stdout=_sub.DEVNULL,
+            stderr=_sub.DEVNULL,
+            start_new_session=True,
+        )
+    except Exception:
+        for p in (prompt_path, script_path):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+        raise
+
+    def _save_cc_info(d: dict) -> None:
+        d["cc_pid"] = proc.pid
+        d["cc_session_id"] = session_id
+
+    update_pipeline(pipeline_path, _save_cc_info)
+    log(f"[{project}] CC test fix started (pid={proc.pid}, session={session_id})")
+
+
 # ────────────────────────────────────────────────────────────────────────────
 
 def _auto_push_and_close(repo_path: str, gitlab: str, batch: list, project: str) -> None:

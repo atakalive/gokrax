@@ -35,6 +35,7 @@ class TransitionAction:
     reset_reviewers: bool = False  # レビュアーに /new を先行送信
     send_merge_summary: bool = False  # #gokrax にマージサマリーを投稿
     run_cc: bool = False  # CC CLI を直接起動
+    run_test: bool = False  # テスト実行トリガー（CODE_TEST進入時）
     nudge: str | None = None   # 催促通知が必要な状態名
     nudge_reviewers: list | None = None  # 催促が必要なレビュアーのリスト
     dispute_nudge_reviewers: list | None = None  # dispute pending で催促が必要なレビュアー
@@ -450,6 +451,15 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
                 break
 
         if all_done:
+            if "CODE" in state:
+                from config import TEST_CONFIG
+                project = data.get("project", "") if data else ""
+                has_test = bool(TEST_CONFIG.get(project, {}).get("test_command"))
+                if has_test:
+                    log(
+                        f"[REVISE] all issues with P0/P1{'/P2' if p2_fix else ''} revised, transitioning to CODE_TEST"
+                    )
+                    return TransitionAction(new_state="CODE_TEST", run_test=True)
             log(
                 f"[REVISE] all issues with P0/P1{'/P2' if p2_fix else ''} revised, transitioning to {review_state}"
             )
@@ -461,11 +471,54 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
     if state == "IMPLEMENTATION":
         # 1. 完了判定（最優先）
         if all(i.get("commit") for i in batch):
-            return TransitionAction(new_state="CODE_REVIEW", send_review=True)
+            from config import TEST_CONFIG
+            project = data.get("project", "") if data else ""
+            has_test = bool(TEST_CONFIG.get(project, {}).get("test_command"))
+            if has_test:
+                return TransitionAction(new_state="CODE_TEST", run_test=True)
+            else:
+                return TransitionAction(new_state="CODE_REVIEW", send_review=True)
         # 2. CC未実行 → 起動指示
         if data is not None and not _is_cc_running(data):
             return TransitionAction(run_cc=True)
         # 3. CC実行中だが進捗なし → タイムアウト判定
+        nudge = _check_nudge(state, data) if data is not None else None
+        return nudge or TransitionAction()
+
+    if state == "CODE_TEST":
+        if data is None:
+            return TransitionAction()
+        test_result = data.get("test_result")
+        if test_result is None:
+            block_sec = BLOCK_TIMERS.get("CODE_TEST", 600)
+            block_sec += data.get("timeout_extension", 0)
+            entered_at = _get_state_entered_at(data, "CODE_TEST")
+            if entered_at is not None:
+                elapsed = (_datetime.now(JST) - entered_at).total_seconds()
+                if elapsed >= block_sec:
+                    return TransitionAction(
+                        new_state="BLOCKED",
+                        impl_msg="CODE_TEST タイムアウト。テストプロセスが応答しませんでした。",
+                    )
+            return TransitionAction()
+        if test_result == "pass":
+            return TransitionAction(new_state="CODE_REVIEW", send_review=True)
+        # test_result == "fail"
+        from config import MAX_TEST_RETRY
+        retry_count = data.get("test_retry_count", 0)
+        if retry_count >= MAX_TEST_RETRY:
+            return TransitionAction(
+                new_state="BLOCKED",
+                impl_msg=f"テスト {retry_count} 回連続失敗。自動修復不能。",
+            )
+        return TransitionAction(new_state="CODE_TEST_FIX")
+
+    if state == "CODE_TEST_FIX":
+        if data is None:
+            return TransitionAction()
+        cc_pid = data.get("cc_pid")
+        if cc_pid is not None and not _is_cc_running(data):
+            return TransitionAction(new_state="CODE_TEST", run_test=True)
         nudge = _check_nudge(state, data) if data is not None else None
         return nudge or TransitionAction()
 

@@ -1053,3 +1053,32 @@ class TestDisputeNudgeIntegration:
         # 両セクションが1通に含まれること
         assert "【異議申し立て — 回答催促】" in msg
         assert "[Remind]" in msg
+
+
+# ---------------------------------------------------------------------------
+# 非レビュー状態での review 静かな破棄 (#138)
+# ---------------------------------------------------------------------------
+class TestReviewSilentDiscard:
+    """非レビュー状態で review コマンドが静かに破棄されることを検証。"""
+
+    def test_implementation_state_discards_silently(self, tmp_pipelines):
+        """IMPLEMENTATION 状態でのレビューは SystemExit にならず破棄される。"""
+        _make_pipeline(tmp_pipelines, state="IMPLEMENTATION")
+        import gokrax
+        with patch("gokrax._post_gitlab_note") as mock_note:
+            # SystemExit が発生しないことを暗黙的に検証（発生すれば pytest が捕捉）
+            gokrax.cmd_review(_review_args(reviewer="dijkstra", verdict="APPROVE", force=False))
+        # GitLab note が投稿されていないこと
+        mock_note.assert_not_called()
+        # パイプラインにレビューが記録されていないこと
+        data = _read_pipeline(tmp_pipelines / "test-pj.json")
+        assert "dijkstra" not in data["batch"][0].get("design_reviews", {})
+        assert "dijkstra" not in data["batch"][0].get("code_reviews", {})
+
+    def test_idle_state_discards_silently(self, tmp_pipelines):
+        """IDLE 状態でも同様に破棄される。"""
+        _make_pipeline(tmp_pipelines, state="IDLE")
+        import gokrax
+        with patch("gokrax._post_gitlab_note") as mock_note:
+            gokrax.cmd_review(_review_args(reviewer="dijkstra", verdict="P1", summary="test", force=False))
+        mock_note.assert_not_called()

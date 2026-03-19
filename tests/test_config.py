@@ -193,3 +193,27 @@ class TestLoadSkills:
 
         result = notify.load_skills("test-agent")
         assert result == ""
+
+
+class TestMaxCliArgBytes:
+    """MAX_CLI_ARG_BYTES が OS ごとに正しい値を返す。"""
+
+    def test_linux(self):
+        with patch("config.sys.platform", "linux"):
+            from config import _get_max_cli_arg_bytes
+            assert _get_max_cli_arg_bytes() == 120_000
+
+    def test_darwin(self):
+        with patch("config.sys.platform", "darwin"):
+            from config import _get_max_cli_arg_bytes
+            assert _get_max_cli_arg_bytes() == 900_000
+
+    def test_win32(self):
+        with patch("config.sys.platform", "win32"):
+            from config import _get_max_cli_arg_bytes
+            assert _get_max_cli_arg_bytes() == 30_000
+
+    def test_unknown_falls_back_to_linux(self):
+        with patch("config.sys.platform", "freebsd"):
+            from config import _get_max_cli_arg_bytes
+            assert _get_max_cli_arg_bytes() == 120_000

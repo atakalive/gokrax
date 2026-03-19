@@ -801,7 +801,11 @@ def cmd_review(args):
             if resolved == "accepted":
                 _dispute_accepted = True
         else:
-            raise SystemExit(f"Not in review state: {state}")
+            # 非レビュー状態（IMPLEMENTATION 等）で届いたレビューは静かに破棄する。
+            # エラーにするとレビュアーが transition --force で状態を巻き戻す事故が起きる (#135, #136)。
+            _skipped = True
+            print(f"#{args.issue}: review by {args.reviewer} silently discarded (state={state})")
+            return
         # ラウンド番号検証: stale なレビュー（前サイクルの Remind 応答等）を拒否する。
         # DESIGN_REVISE/CODE_REVISE 状態では dispute レビュー（--force 必須）のみ
         # ここに到達する。dispute 経由の場合、notify_dispute が --round を付与しない

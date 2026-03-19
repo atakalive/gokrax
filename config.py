@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path, PurePosixPath
 from datetime import timezone, timedelta
 
@@ -228,7 +229,23 @@ MAX_DIFF_CHARS: int = 5_000_000
 
 # インライン送信の上限バイトサイズ（UTF-8エンコード後）
 # これ以上のメッセージはファイル外部化に切り替える
-MAX_CLI_ARG_BYTES: int = 120_000  # Linux MAX_ARG_STRLEN=131072; ~8% margin. TODO #139: OS別閾値切替
+def _get_max_cli_arg_bytes() -> int:
+    """OS 別の CLI 引数サイズ上限を返す（安全マージン込み）。
+
+    - Linux: MAX_ARG_STRLEN=131,072 (単一引数の上限)
+    - macOS: ARG_MAX=1,048,576 (argv+envp+ポインタ+null終端の合計上限。
+      単一引数の上限ではない。環境変数が50-100KB消費する典型環境では
+      実効的に使える領域は減る)
+    - Windows: CreateProcess=32,767文字
+    """
+    if sys.platform == "darwin":
+        return 900_000   # macOS ARG_MAX=1,048,576; ~14% margin (envp消費分に注意)
+    elif sys.platform == "win32":
+        return 30_000    # Windows CreateProcess=32,767 chars; ~8% margin
+    else:
+        return 120_000   # Linux MAX_ARG_STRLEN=131,072; ~8% margin
+
+MAX_CLI_ARG_BYTES: int = _get_max_cli_arg_bytes()
 
 # レビューデータ外部化のディレクトリ
 REVIEW_FILE_DIR: Path = Path("/tmp/gokrax-review")

@@ -289,6 +289,13 @@ SESSIONS_BASE = Path.home() / ".openclaw/agents"
 # Discord: MのユーザーID（マージサマリー承認者）
 M_DISCORD_USER_ID = "1469758184456589550"
 
+# Discord: Discordコマンド実行を許可するユーザーIDリスト
+# M個人 + WatcherB bot
+ALLOWED_COMMAND_USER_IDS: tuple[str, ...] = (
+    M_DISCORD_USER_ID,       # M
+    "1477531618456637572",   # WatcherB bot
+)
+
 # Discord: kaneko-discord bot のユーザーID（自己投稿除外用）
 BOT_USER_ID = "1313244623396913212"
 

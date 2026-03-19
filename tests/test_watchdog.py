@@ -12,6 +12,9 @@ sys.path.insert(0, str(ROOT))
 
 import config
 import pipeline_io
+from config import ALLOWED_COMMAND_USER_IDS
+
+M_USER_ID = ALLOWED_COMMAND_USER_IDS[0]
 
 
 # ── ヘルパー ──────────────────────────────────────────────────────────────────
@@ -1862,7 +1865,7 @@ class TestDiscordStatusCommand:
 
     def test_m_posts_status_gets_response(self, tmp_path, monkeypatch):
         """M posts 'status' → bot responds with status text."""
-        from config import M_DISCORD_USER_ID, DISCORD_CHANNEL, GOKRAX_STATE_PATH
+        from config import DISCORD_CHANNEL, GOKRAX_STATE_PATH
         import watchdog, gokrax
         import commands.dev as commands_dev
 
@@ -1880,7 +1883,43 @@ class TestDiscordStatusCommand:
         monkeypatch.setattr(commands_dev, "PIPELINES_DIR", tmp_path)
 
         # Mock Discord API
-        messages = [_mock_discord_message("1001", M_DISCORD_USER_ID, "status")]
+        messages = [_mock_discord_message("1001", M_USER_ID, "status")]
+
+        with patch("notify.fetch_discord_latest", return_value=messages) as mock_fetch, \
+             patch("notify.post_discord") as mock_post:
+            watchdog.check_discord_commands()
+
+        # Should fetch and post
+        mock_fetch.assert_called_once_with(DISCORD_CHANNEL, 10)
+        mock_post.assert_called_once()
+        assert "test-pj" in mock_post.call_args[0][1]
+
+        # State should be updated
+        state = json.loads(state_path.read_text())
+        assert state["last_command_message_id"] == "1001"
+
+    def test_watcherb_bot_accepted(self, tmp_path, monkeypatch):
+        """WatcherB bot posts 'status' → bot responds with status text."""
+        from config import DISCORD_CHANNEL, GOKRAX_STATE_PATH
+        import watchdog, gokrax
+        import commands.dev as commands_dev
+
+        # Setup pipeline
+        path = tmp_path / "test-pj.json"
+        data = {"project": "test-pj", "state": "IDLE", "enabled": True, "batch": [], "review_mode": "standard"}
+        _write_pipeline(path, data)
+
+        # Setup state path
+        state_path = tmp_path / "gokrax-state.json"
+        monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(gokrax, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(commands_dev, "PIPELINES_DIR", tmp_path)
+
+        # Mock Discord API — use WatcherB bot ID
+        watcherb_id = ALLOWED_COMMAND_USER_IDS[1]
+        messages = [_mock_discord_message("1001", watcherb_id, "status")]
 
         with patch("notify.fetch_discord_latest", return_value=messages) as mock_fetch, \
              patch("notify.post_discord") as mock_post:
@@ -1897,7 +1936,7 @@ class TestDiscordStatusCommand:
 
     def test_case_insensitive_status(self, tmp_path, monkeypatch):
         """'Status' and 'STATUS' both trigger response."""
-        from config import M_DISCORD_USER_ID
+
         import watchdog, gokrax
         import commands.dev as commands_dev
 
@@ -1909,8 +1948,8 @@ class TestDiscordStatusCommand:
         monkeypatch.setattr(commands_dev, "PIPELINES_DIR", tmp_path)
 
         messages = [
-            _mock_discord_message("1001", M_DISCORD_USER_ID, "Status"),
-            _mock_discord_message("1002", M_DISCORD_USER_ID, "STATUS"),
+            _mock_discord_message("1001", M_USER_ID, "Status"),
+            _mock_discord_message("1002", M_USER_ID, "STATUS"),
         ]
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
@@ -1922,7 +1961,7 @@ class TestDiscordStatusCommand:
 
     def test_non_m_user_ignored(self, tmp_path, monkeypatch):
         """Non-M user's 'status' → ignored."""
-        from config import M_DISCORD_USER_ID
+
         import watchdog
 
         state_path = tmp_path / "gokrax-state.json"
@@ -1960,7 +1999,7 @@ class TestDiscordStatusCommand:
 
     def test_duplicate_message_not_reprocessed(self, tmp_path, monkeypatch):
         """Same message ID → no duplicate response."""
-        from config import M_DISCORD_USER_ID
+
         import watchdog
 
         state_path = tmp_path / "gokrax-state.json"
@@ -1970,7 +2009,7 @@ class TestDiscordStatusCommand:
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
 
-        messages = [_mock_discord_message("1001", M_DISCORD_USER_ID, "status")]
+        messages = [_mock_discord_message("1001", M_USER_ID, "status")]
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
              patch("notify.post_discord") as mock_post:
@@ -1981,7 +2020,7 @@ class TestDiscordStatusCommand:
 
     def test_exact_word_match(self, tmp_path, monkeypatch):
         """'statusABC' and 'hogestatus' don't trigger (exact word match)."""
-        from config import M_DISCORD_USER_ID
+
         import watchdog
 
         state_path = tmp_path / "gokrax-state.json"
@@ -1990,8 +2029,8 @@ class TestDiscordStatusCommand:
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
 
         messages = [
-            _mock_discord_message("1001", M_DISCORD_USER_ID, "statusABC"),
-            _mock_discord_message("1002", M_DISCORD_USER_ID, "hogestatus"),
+            _mock_discord_message("1001", M_USER_ID, "statusABC"),
+            _mock_discord_message("1002", M_USER_ID, "hogestatus"),
         ]
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
@@ -2003,7 +2042,7 @@ class TestDiscordStatusCommand:
 
     def test_enabled_only_in_output(self, tmp_path, monkeypatch):
         """Only enabled [ON] projects shown in response."""
-        from config import M_DISCORD_USER_ID
+
         import watchdog
         import gokrax
         import commands.dev as commands_dev
@@ -2022,7 +2061,7 @@ class TestDiscordStatusCommand:
         monkeypatch.setattr(gokrax, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(commands_dev, "PIPELINES_DIR", tmp_path)
 
-        messages = [_mock_discord_message("1001", M_DISCORD_USER_ID, "status")]
+        messages = [_mock_discord_message("1001", M_USER_ID, "status")]
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
              patch("notify.post_discord") as mock_post:
@@ -2034,7 +2073,7 @@ class TestDiscordStatusCommand:
 
     def test_no_pipelines_response(self, tmp_path, monkeypatch):
         """No pipelines → 'No active pipelines.'"""
-        from config import M_DISCORD_USER_ID
+
         import watchdog
         import gokrax
         import commands.dev as commands_dev
@@ -2046,7 +2085,7 @@ class TestDiscordStatusCommand:
         monkeypatch.setattr(gokrax, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(commands_dev, "PIPELINES_DIR", tmp_path)
 
-        messages = [_mock_discord_message("1001", M_DISCORD_USER_ID, "status")]
+        messages = [_mock_discord_message("1001", M_USER_ID, "status")]
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
              patch("notify.post_discord") as mock_post:
@@ -2057,7 +2096,7 @@ class TestDiscordStatusCommand:
 
     def test_multiple_pending_messages_processed_in_order(self, tmp_path, monkeypatch):
         """Multiple unprocessed messages → all processed oldest→newest."""
-        from config import M_DISCORD_USER_ID
+
         import watchdog
 
         state_path = tmp_path / "gokrax-state.json"
@@ -2067,9 +2106,9 @@ class TestDiscordStatusCommand:
 
         # API returns newest first
         messages = [
-            _mock_discord_message("1003", M_DISCORD_USER_ID, "status"),
-            _mock_discord_message("1002", M_DISCORD_USER_ID, "status"),
-            _mock_discord_message("1001", M_DISCORD_USER_ID, "status"),
+            _mock_discord_message("1003", M_USER_ID, "status"),
+            _mock_discord_message("1002", M_USER_ID, "status"),
+            _mock_discord_message("1001", M_USER_ID, "status"),
         ]
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
@@ -2108,7 +2147,7 @@ class TestDiscordQrunCommand:
 
     def test_qrun_success_path(self, tmp_path, monkeypatch):
         """M posts 'qrun' → bot pops queue, starts project, posts success."""
-        from config import M_DISCORD_USER_ID, DISCORD_CHANNEL, GOKRAX_STATE_PATH, QUEUE_FILE
+        from config import DISCORD_CHANNEL, GOKRAX_STATE_PATH, QUEUE_FILE
         import watchdog, gokrax, task_queue
 
         # Setup state path
@@ -2134,7 +2173,7 @@ class TestDiscordQrunCommand:
         })
 
         # Mock Discord API
-        messages = [_mock_discord_message("1001", M_DISCORD_USER_ID, "qrun")]
+        messages = [_mock_discord_message("1001", M_USER_ID, "qrun")]
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
              patch("notify.post_discord") as mock_post, \
@@ -2162,7 +2201,7 @@ class TestDiscordQrunCommand:
 
     def test_qrun_queue_empty(self, tmp_path, monkeypatch):
         """qrun when queue empty → bot posts 'Queue empty'."""
-        from config import M_DISCORD_USER_ID, DISCORD_CHANNEL
+        from config import DISCORD_CHANNEL
         import watchdog
 
         state_path = tmp_path / "gokrax-state.json"
@@ -2174,7 +2213,7 @@ class TestDiscordQrunCommand:
         queue_path.write_text("")
         monkeypatch.setattr(config, "QUEUE_FILE", queue_path)
 
-        messages = [_mock_discord_message("1001", M_DISCORD_USER_ID, "qrun")]
+        messages = [_mock_discord_message("1001", M_USER_ID, "qrun")]
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
              patch("notify.post_discord") as mock_post:
@@ -2185,7 +2224,7 @@ class TestDiscordQrunCommand:
 
     def test_qrun_cmd_start_exception(self, tmp_path, monkeypatch):
         """cmd_start raises Exception → restore queue, post error."""
-        from config import M_DISCORD_USER_ID, QUEUE_FILE
+        from config import QUEUE_FILE
         import watchdog, gokrax, task_queue
 
         state_path = tmp_path / "gokrax-state.json"
@@ -2219,7 +2258,7 @@ class TestDiscordQrunCommand:
         monkeypatch.setattr("task_queue.get_path", mock_get_path)
         monkeypatch.setattr("task_queue.load_pipeline", mock_load_pipeline)
 
-        messages = [_mock_discord_message("1001", M_DISCORD_USER_ID, "qrun")]
+        messages = [_mock_discord_message("1001", M_USER_ID, "qrun")]
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
              patch("notify.post_discord") as mock_post, \
@@ -2238,7 +2277,7 @@ class TestDiscordQrunCommand:
 
     def test_qrun_cmd_start_system_exit(self, tmp_path, monkeypatch):
         """cmd_start raises SystemExit → restore queue, post error."""
-        from config import M_DISCORD_USER_ID
+
         import watchdog, gokrax
 
         state_path = tmp_path / "gokrax-state.json"
@@ -2272,7 +2311,7 @@ class TestDiscordQrunCommand:
         monkeypatch.setattr("task_queue.get_path", mock_get_path)
         monkeypatch.setattr("task_queue.load_pipeline", mock_load_pipeline)
 
-        messages = [_mock_discord_message("1001", M_DISCORD_USER_ID, "qrun")]
+        messages = [_mock_discord_message("1001", M_USER_ID, "qrun")]
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
              patch("notify.post_discord") as mock_post, \
@@ -2291,7 +2330,7 @@ class TestDiscordQrunCommand:
 
     def test_qrun_dry_run_mode(self, tmp_path, monkeypatch):
         """DRY_RUN mode → skip all actions, only log."""
-        from config import M_DISCORD_USER_ID
+
         import watchdog
 
         monkeypatch.setattr(config, "DRY_RUN", True)
@@ -2304,7 +2343,7 @@ class TestDiscordQrunCommand:
         queue_path.write_text("test-pj 1\n")
         monkeypatch.setattr(config, "QUEUE_FILE", queue_path)
 
-        messages = [_mock_discord_message("1001", M_DISCORD_USER_ID, "qrun")]
+        messages = [_mock_discord_message("1001", M_USER_ID, "qrun")]
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
              patch("notify.post_discord") as mock_post, \
@@ -2326,7 +2365,7 @@ class TestDiscordQrunCommand:
 
     def test_qrun_deduplication(self, tmp_path, monkeypatch):
         """Same qrun message ID → not reprocessed."""
-        from config import M_DISCORD_USER_ID
+
         import watchdog
 
         state_path = tmp_path / "gokrax-state.json"
@@ -2335,7 +2374,7 @@ class TestDiscordQrunCommand:
         monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
 
-        messages = [_mock_discord_message("1001", M_DISCORD_USER_ID, "qrun")]
+        messages = [_mock_discord_message("1001", M_USER_ID, "qrun")]
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
              patch("notify.post_discord") as mock_post:
@@ -2346,7 +2385,7 @@ class TestDiscordQrunCommand:
 
     def test_qrun_with_automerge_option(self, tmp_path, monkeypatch):
         """qrun with automerge option → pipeline updated with automerge flag."""
-        from config import M_DISCORD_USER_ID
+
         import watchdog, gokrax
 
         state_path = tmp_path / "gokrax-state.json"
@@ -2381,7 +2420,7 @@ class TestDiscordQrunCommand:
         monkeypatch.setattr("task_queue.load_pipeline", mock_load_pipeline)
         monkeypatch.setattr("pipeline_io.get_path", mock_get_path)
 
-        messages = [_mock_discord_message("1001", M_DISCORD_USER_ID, "qrun")]
+        messages = [_mock_discord_message("1001", M_USER_ID, "qrun")]
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
              patch("notify.post_discord") as mock_post, \
@@ -2400,7 +2439,7 @@ class TestDiscordQrunCommand:
 
     def test_qrun_case_insensitive(self, tmp_path, monkeypatch):
         """'Qrun', 'QRUN' both trigger."""
-        from config import M_DISCORD_USER_ID
+
         import watchdog
 
         state_path = tmp_path / "gokrax-state.json"
@@ -2412,8 +2451,8 @@ class TestDiscordQrunCommand:
         monkeypatch.setattr(config, "QUEUE_FILE", queue_path)
 
         messages = [
-            _mock_discord_message("1001", M_DISCORD_USER_ID, "Qrun"),
-            _mock_discord_message("1002", M_DISCORD_USER_ID, "QRUN"),
+            _mock_discord_message("1001", M_USER_ID, "Qrun"),
+            _mock_discord_message("1002", M_USER_ID, "QRUN"),
         ]
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
@@ -2426,7 +2465,7 @@ class TestDiscordQrunCommand:
 
     def test_qrun_non_m_user_ignored(self, tmp_path, monkeypatch):
         """Non-M user's 'qrun' → ignored."""
-        from config import M_DISCORD_USER_ID
+
         import watchdog
 
         state_path = tmp_path / "gokrax-state.json"
@@ -2444,7 +2483,7 @@ class TestDiscordQrunCommand:
 
     def test_status_and_qrun_mixed(self, tmp_path, monkeypatch):
         """Both status and qrun commands in same batch → both processed."""
-        from config import M_DISCORD_USER_ID
+
         import watchdog, gokrax
 
         state_path = tmp_path / "gokrax-state.json"
@@ -2482,8 +2521,8 @@ class TestDiscordQrunCommand:
 
         # API returns newest first
         messages = [
-            _mock_discord_message("1002", M_DISCORD_USER_ID, "qrun"),
-            _mock_discord_message("1001", M_DISCORD_USER_ID, "status"),
+            _mock_discord_message("1002", M_USER_ID, "qrun"),
+            _mock_discord_message("1001", M_USER_ID, "status"),
         ]
 
         with patch("notify.fetch_discord_latest", return_value=messages), \

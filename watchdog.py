@@ -1211,12 +1211,12 @@ def check_discord_commands():
     Process flow:
     1. Load last_command_message_id from gokrax-state.json
     2. Fetch latest 10 messages from #gokrax
-    3. Filter: author is M, not bot, first word in DISCORD_COMMANDS
+    3. Filter: author in ALLOWED_COMMAND_USER_IDS, not gokrax bot, first word in DISCORD_COMMANDS
     4. Filter: message_id > last_command_message_id
     5. Process in chronological order (oldest → newest)
     6. For each: handle command, update last_command_message_id
     """
-    from config import DISCORD_CHANNEL, M_DISCORD_USER_ID, BOT_USER_ID
+    from config import DISCORD_CHANNEL, ALLOWED_COMMAND_USER_IDS, BOT_USER_ID
     from notify import fetch_discord_latest, post_discord
     from gokrax import get_status_text
     import config
@@ -1240,7 +1240,7 @@ def check_discord_commands():
         content_lower = content.strip().lower()
         cmd_word = content_lower.split()[0] if content_lower else ""
         # Filter: from M, not from bot, first word is a known command
-        if (author_id == M_DISCORD_USER_ID and
+        if (author_id in ALLOWED_COMMAND_USER_IDS and
             author_id != BOT_USER_ID and
             cmd_word in DISCORD_COMMANDS and
             msg_id and int(msg_id) > int(last_id)):

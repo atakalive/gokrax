@@ -18,6 +18,6 @@ trap 'rm -f "$PIDFILE"; exit 0' SIGTERM SIGINT
 
 while true; do
     cd "$DIR"
-    flock -n /tmp/gokrax-watchdog.lock python3 watchdog.py >> /tmp/gokrax-watchdog.log 2>&1
+    flock -n /tmp/gokrax-watchdog.lock bash -c 'exec 200>&-; exec python3 watchdog.py' >> /tmp/gokrax-watchdog.log 2>&1
     sleep "$INTERVAL"
 done

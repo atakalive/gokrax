@@ -237,7 +237,7 @@ _notify "{msg_impl_done}"
 
         proc = _sub.Popen(
             ["bash", script_path],
-            stdout=open(os.devnull, "w"),
+            stdout=_sub.DEVNULL,
             stderr=_sub.STDOUT,
             start_new_session=True,
         )

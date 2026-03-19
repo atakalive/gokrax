@@ -21,7 +21,7 @@ def _block_external_calls(request, tmp_path):
     watchdog.LOG_FILE = tmp_log
 
     module = Path(request.node.fspath).stem
-    if module in ("test_notify", "test_config"):
+    if module in ("test_notify", "test_config", "test_short_context"):
         yield
         config.LOG_FILE = orig_config
         watchdog.LOG_FILE = orig_watchdog
@@ -32,7 +32,10 @@ def _block_external_calls(request, tmp_path):
          patch("notify.ping_agent", return_value=True), \
          patch("watchdog.send_to_agent", return_value=True), \
          patch("watchdog.send_to_agent_queued", return_value=True), \
-         patch("watchdog.ping_agent", return_value=True):
+         patch("watchdog.ping_agent", return_value=True), \
+         patch("engine.reviewer._reset_reviewers", return_value=[]), \
+         patch("engine.reviewer._reset_short_context_reviewers"), \
+         patch("time.sleep"):
         yield
     config.LOG_FILE = orig_config
     watchdog.LOG_FILE = orig_watchdog

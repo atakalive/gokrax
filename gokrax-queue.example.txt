@@ -1,0 +1,15 @@
+# gokrax-queue file
+# PROJECT ISSUES [REVIEW_MODE] [OPTIONS...]
+#
+# - ISSUES: Comma-separated numbers (e.g.,: 1,2,3) or "all"
+# - MODE: e.g., full, standard, lite, or skip
+# - OPTIONS: no-automerge, plan=MODEL, impl=MODEL, skip-cc-plan, keep-ctx-batch, keep-ctx-intra, keep-ctx-all, p2-fix, etc.
+#            See CLI.md for details.
+#            See settings.py: DEFAULT_QUEUE_OPTIONS for default values.
+# - Started lines are automatically marked with the `# done:` prefix.
+# - Empty lines are allowed.
+#
+# Example:
+# gokrax 12 full impl=opus p2-fix         # for difficult issue
+# gokrax 13 standard keep-ctx-all p2-fix  # issue #13 uses the context of previous batch #12
+# gokrax 34,35,36 lite  # for easy issue

@@ -12,7 +12,8 @@ _PLACEHOLDER_VARS = frozenset({
     "DISCORD_CHANNEL",
     "DISCORD_BOT_TOKEN",
     "MERGE_APPROVER_DISCORD_ID",
-    "BOT_USER_ID",
+    "ANNOUNCE_BOT_USER_ID",
+    "COMMAND_BOT_USER_ID",
     "AGENTS",
     "GOKRAX_CLI",
     "GLAB_BIN",
@@ -22,6 +23,7 @@ _PLACEHOLDER_VARS = frozenset({
     "REVIEW_MODES",
     "TEST_CONFIG",
     "PIPELINES_DIR",
+    "LOCAL_TZ",
 })
 
 

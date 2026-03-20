@@ -105,7 +105,7 @@ class TestCheckTransition:
     def test_design_review_p0_enough_reviews(self):
         from engine.fsm import check_transition
         import config
-        reviews = _make_reviews(["APPROVE"] * (config.MIN_REVIEWS - 1) + ["P0"])
+        reviews = _make_reviews(["APPROVE"] * (3 - 1) + ["P0"])
         batch = [{"issue": 1, "design_reviews": reviews, "code_reviews": {}}]
         action = check_transition("DESIGN_REVIEW", batch)
         assert action.new_state == "DESIGN_REVISE"
@@ -114,7 +114,7 @@ class TestCheckTransition:
     def test_design_review_approved_enough_reviews(self):
         from engine.fsm import check_transition
         import config
-        reviews = _make_reviews(["APPROVE"] * config.MIN_REVIEWS)
+        reviews = _make_reviews(["APPROVE"] * 3)
         batch = [{"issue": 1, "design_reviews": reviews, "code_reviews": {}}]
         action = check_transition("DESIGN_REVIEW", batch)
         assert action.new_state == "DESIGN_APPROVED"
@@ -128,7 +128,7 @@ class TestCheckTransition:
     def test_code_review_p0_enough_reviews(self):
         from engine.fsm import check_transition
         import config
-        reviews = _make_reviews(["APPROVE"] * (config.MIN_REVIEWS - 1) + ["REJECT"])
+        reviews = _make_reviews(["APPROVE"] * (3 - 1) + ["REJECT"])
         batch = [{"issue": 1, "code_reviews": reviews, "design_reviews": {}}]
         action = check_transition("CODE_REVIEW", batch)
         assert action.new_state == "CODE_REVISE"
@@ -136,7 +136,7 @@ class TestCheckTransition:
     def test_code_review_approved_enough_reviews(self):
         from engine.fsm import check_transition
         import config
-        reviews = _make_reviews(["APPROVE"] * config.MIN_REVIEWS)
+        reviews = _make_reviews(["APPROVE"] * 3)
         batch = [{"issue": 1, "code_reviews": reviews, "design_reviews": {}}]
         action = check_transition("CODE_REVIEW", batch)
         assert action.new_state == "CODE_APPROVED"
@@ -1979,7 +1979,7 @@ class TestDiscordStatusCommand:
 
     def test_bot_self_excluded(self, tmp_path, monkeypatch):
         """Bot's own 'status' message → ignored."""
-        from config import BOT_USER_ID
+        from config import ANNOUNCE_BOT_USER_ID
         import watchdog
 
         state_path = tmp_path / "gokrax-state.json"
@@ -1987,7 +1987,7 @@ class TestDiscordStatusCommand:
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
 
-        messages = [_mock_discord_message("1001", BOT_USER_ID, "status")]
+        messages = [_mock_discord_message("1001", ANNOUNCE_BOT_USER_ID, "status")]
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
              patch("notify.post_discord") as mock_post:

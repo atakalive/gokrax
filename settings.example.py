@@ -1,18 +1,22 @@
 """gokrax settings — user configuration
 Copy this file to settings.py and edit values.
 """
+import os
 from pathlib import Path, PurePosixPath
 from datetime import timezone, timedelta  # noqa: F401 — used by commented-out settings
 
 # ===========================================================================
 # Required — fill in your values
 # ===========================================================================
-DISCORD_CHANNEL = ""
-DISCORD_BOT_TOKEN = ""
-MERGE_APPROVER_DISCORD_ID = ""
-BOT_USER_ID = ""
+DISCORD_CHANNEL = ""       # Discord channel ID for posting updates
+DISCORD_BOT_TOKEN = ""     # Discord bot token with permissions to receive/post in the above channel
+ANNOUNCE_BOT_USER_ID = ""  # Discord bot user ID of the bot (can be obtained by right click menu on the bot name)
+
+MERGE_APPROVER_DISCORD_ID = ""  # Your Discord user ID for approving merges
+COMMAND_BOT_USER_ID = ""        # If you send commands via 3rd-party Discord tool (WatcherB etc.), include its bot user ID here
+GATEWAY_PORT = int(os.environ.get("OPENCLAW_GATEWAY_PORT", "18789"))  # openclaw gateway port (localhost)
 GLAB_BIN = "/usr/bin/glab"
-GOKRAX_CLI = PurePosixPath("/path/to/gokrax")
+GOKRAX_CLI = PurePosixPath("/path/to/gokrax")  # may be symbolic link
 PIPELINES_DIR = Path.home() / ".openclaw/shared/pipelines"
 
 AGENTS = {
@@ -20,19 +24,26 @@ AGENTS = {
     "reviewer2": "agent:reviewer2:main",
 }
 
+REVIEWER_TIERS: dict = {
+    "regular": ["reviewer1", "reviewer2"],
+    "short-context": [],
+    "free": [],
+}
+
+
 # ===========================================================================
 # Recommended — adjust to your setup
 # ===========================================================================
 OWNER_NAME: str = "User"
 PROMPT_LANG: str = "en"
+LOCAL_TZ = timezone(timedelta(hours=0))  # GMT = 0
 CC_MODEL_PLAN = "sonnet"
 CC_MODEL_IMPL = "sonnet"
-MIN_REVIEWS = 3
 
-REVIEWER_TIERS: dict = {
-    "regular": [],
-    "free": [],
-    "short-context": [],
+DEFAULT_QUEUE_OPTIONS: dict[str, bool | str] = {
+    "skip_cc_plan": True,
+    "keep_ctx_intra": True,
+    "skip_test": True,
 }
 
 REVIEW_MODES = {
@@ -47,9 +58,14 @@ REVIEW_MODES = {
         "grace_period_sec": 0,
     },
     "lite": {
-        "members": [],
+        "members": ["reviewer1", "reviewer2"],
         "min_reviews": 2,
         "grace_period_sec": 0,
+    },
+    "lite3": {
+        "members": ["reviewer1", "reviewer2", "reviewer3"],
+        "min_reviews": 3,
+        "grace_period_sec": 300,
     },
     "skip": {
         "members": [],
@@ -58,15 +74,9 @@ REVIEW_MODES = {
     },
 }
 
-TEST_CONFIG: dict = {
-    "myproject": {
-        "test_command": "cd /path/to/project && python3 -m pytest -x --tb=short",
-        "test_timeout": 300,
-    },
-}
-
 # ===========================================================================
 # Advanced — uncomment and edit if needed
+#            Other settings in config directory can be overridden in settings.py
 # ===========================================================================
 # AGENT_SEND_TIMEOUT = 30
 # DISCORD_POST_TIMEOUT = 10
@@ -78,7 +88,13 @@ TEST_CONFIG: dict = {
 # REVIEW_FILE_WRITE_RETRIES: int = 3
 # REVIEW_FILE_WRITE_RETRY_DELAY: float = 2.0
 # MERGE_SUMMARY_FOOTER = "\n---\n✅ Reply \"OK\" to this message to execute the merge."
-# ALLOWED_COMMAND_USER_IDS: tuple = (MERGE_APPROVER_DISCORD_ID,)
+# ALLOWED_COMMAND_USER_IDS: tuple[str, ...] = (MERGE_APPROVER_DISCORD_ID, COMMAND_BOT_USER_ID,)
 # SKILLS: dict[str, str] = {"example-skill": str(Path.home() / ".openclaw/skills/example-skill/SKILL.md"),}
-# AGENT_SKILLS: dict[str, list[str]] = {"reviewer1": ["example-skill"],}
+# AGENT_SKILLS: dict[str, list[str]] = {"reviewer1": ["example-skill", "example-skill-2"],}
 # MAX_SKILL_CHARS: int = 30_000
+# TEST_CONFIG: dict = {
+#     "myproject": {
+#         "test_command": "cd /path/to/project && python3 -m pytest -x --tb=short",
+#         "test_timeout": 300,
+#     },
+# }

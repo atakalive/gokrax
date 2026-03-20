@@ -1216,7 +1216,7 @@ def check_discord_commands():
     5. Process in chronological order (oldest → newest)
     6. For each: handle command, update last_command_message_id
     """
-    from config import DISCORD_CHANNEL, ALLOWED_COMMAND_USER_IDS, BOT_USER_ID
+    from config import DISCORD_CHANNEL, ALLOWED_COMMAND_USER_IDS, ANNOUNCE_BOT_USER_ID
     from notify import fetch_discord_latest, post_discord
     from gokrax import get_status_text
     import config
@@ -1241,7 +1241,7 @@ def check_discord_commands():
         cmd_word = content_lower.split()[0] if content_lower else ""
         # Filter: from M, not from bot, first word is a known command
         if (author_id in ALLOWED_COMMAND_USER_IDS and
-            author_id != BOT_USER_ID and
+            author_id != ANNOUNCE_BOT_USER_ID and
             cmd_word in DISCORD_COMMANDS and
             msg_id and int(msg_id) > int(last_id)):
             candidates.append(msg)

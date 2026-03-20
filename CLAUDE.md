@@ -104,7 +104,16 @@ ruff check *.py tests/
 ### 触ってはいけないもの
 - `pipeline_io.py` のロック方式（flock LOCK_EX ブロッキング）
 - 通知フォーマットのうち、他エージェントがパースに依存している部分
-- `config.py` の既存状態名・遷移テーブル（追加は OK、変更・削除は慎重に）
+- `settings.py` の既存状態名・遷移テーブル（追加は OK、変更・削除は慎重に）
+- `messages_custom/` — ユーザーがカスタマイズしたプロンプト。編集・削除するな
+
+### 絶対に実行してはいけないコマンド
+以下の gokrax CLI コマンドはパイプラインの停止・状態破壊を引き起こす。実装・テスト中に絶対に実行するな：
+- `gokrax reset` — 全プロジェクトを IDLE に強制リセット
+- `gokrax transition` — パイプライン状態を手動遷移
+- `gokrax disable` — watchdog を停止
+- `gokrax enable` — watchdog を起動
+- `gokrax start` / `gokrax qrun` — 新しいバッチを開始
 
 ### 既知の癖
 - `gokrax.py` の `cmd_transition`（CLI 経路）と `watchdog.py` の `do_transition`（watchdog 経路）は別パス。片方だけ修正すると主経路に乗らないことがある

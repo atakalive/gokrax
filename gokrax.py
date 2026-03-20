@@ -161,12 +161,6 @@ def main():
                    help="skip CODE_TEST phase, go directly to CODE_REVIEW")
     p.add_argument("--no-skip-test", action="store_true", default=None, dest="no_skip_test")
 
-    # triage
-    p = sub.add_parser("triage", help="add issues to the current batch")
-    p.add_argument("--pj", "--project", dest="project", required=True)
-    p.add_argument("--issue", type=int, nargs="+", required=True, help="issue numbers (multiple allowed)")
-    p.add_argument("--title", action="append", default=[], help="titles (one per --issue; omit for empty)")
-
     # transition
     p = sub.add_parser("transition", help="manually trigger a state transition (normally done by watchdog)")
     p.add_argument("--pj", "--project", dest="project", required=True)
@@ -374,7 +368,7 @@ def main():
         "status": cmd_status, "init": cmd_init,
         "enable": cmd_enable, "disable": cmd_disable,
         "extend": cmd_extend, "start": cmd_start,
-        "triage": cmd_triage, "transition": cmd_transition, "reset": cmd_reset,
+        "transition": cmd_transition, "reset": cmd_reset,
         "review": cmd_review, "flag": cmd_flag, "dispute": cmd_dispute, "commit": cmd_commit,
         "cc-start": cmd_cc_start, "plan-done": cmd_plan_done,
         "design-revise": cmd_design_revise, "code-revise": cmd_code_revise,

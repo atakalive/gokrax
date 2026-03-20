@@ -109,20 +109,6 @@ gokrax start --pj myproject --mode standard
 
 Prerequisite: project must be in IDLE state.
 
-### `triage` -- Add issues to the batch
-
-```bash
-gokrax triage --pj myproject --issue 20 21
-```
-
-| Option | Required | Description |
-|--------|----------|-------------|
-| `--pj` | Yes | project name |
-| `--issue N [N ...]` | Yes | issue numbers (multiple allowed) |
-| `--title TITLE` | No | titles (one per `--issue`; omit for empty) |
-
-Normally called internally by `start`.
-
 ### `transition` -- Manual state transition
 
 ```bash

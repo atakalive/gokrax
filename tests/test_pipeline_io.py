@@ -191,18 +191,6 @@ class TestDevbarCLIIntegration:
         with open(path) as f:
             assert json.load(f)["enabled"] is False
 
-    def test_triage(self, tmp_pipelines, sample_pipeline):
-        path = tmp_pipelines / "test-pj.json"
-        write_pipeline(path, sample_pipeline)
-
-        r = self._run("triage", "--project", "test-pj", "--issue", "42", "--title", "Test Issue",
-                       pipelines_dir=tmp_pipelines)
-        assert r.returncode == 0
-        with open(path) as f:
-            data = json.load(f)
-        assert len(data["batch"]) == 1
-        assert data["batch"][0]["issue"] == 42
-
     def test_transition(self, tmp_pipelines, sample_pipeline):
         sample_pipeline["state"] = "IDLE"
         path = tmp_pipelines / "test-pj.json"

@@ -19,14 +19,14 @@ graph LR
     end
 
     subgraph Execution
-        CC1["Claude Code CLI<br/>(Impl Lead 1: Kaneko)"]
-        CC2["Claude Code CLI<br/>(Impl Lead 2: Neumann)"]
+        CC1["Claude Code CLI<br/>(Impl Lead 1)"]
+        CC2["Claude Code CLI<br/>(Impl Lead 2)"]
     end
 
     subgraph Review["Reviewer Ensemble"]
         direction TB
-        R_REG["Regular Tier<br/>Dijkstra (Opus) · Euler (ChatGPT-5.4) · Pascal (Gemini 3 Pro)"]
-        R_SHORT["Short-context Tier<br/>Basho (Qwen3.5-27B) · Hanfei (GPT-4.1) · Leibniz (GPT-4.1)"]
+        R_REG["Regular Tier<br/>Reviewer A · Reviewer B · Reviewer C"]
+        R_SHORT["Short-context Tier<br/>Reviewer D · Reviewer E · Reviewer F"]
     end
 
     subgraph Output
@@ -125,22 +125,17 @@ stateDiagram-v2
 
 ```mermaid
 graph TB
-    subgraph "Review Modes (per-project configurable)"
-        FULL["<b>full</b> (4 reviewers)<br/>pascal · dijkstra · euler · basho"]
-        STD["<b>standard</b> (3 reviewers)<br/>pascal · euler · dijkstra"]
-        L3WO["<b>lite3_woOpus</b> (3 reviewers)<br/>pascal · euler · basho"]
-        L3WG["<b>lite3_woGoogle</b> (3 reviewers)<br/>euler · dijkstra · basho"]
-        L3WA["<b>lite3_woOpenAI</b> (3 reviewers)<br/>pascal · dijkstra · basho"]
-        LITE["<b>lite</b> (2 reviewers)<br/>basho · pascal"]
-        CHEAP["<b>cheap</b> (3 reviewers)<br/>basho · leibniz · hanfei"]
-        MIN["<b>min</b> (1 reviewer)<br/>pascal"]
+    subgraph "Review Modes (per-project configurable, defined in settings.py)"
+        FULL["<b>full</b> (4 reviewers)<br/>members: [...]"]
+        STD["<b>standard</b> (3 reviewers)<br/>members: [...]"]
+        LITE["<b>lite</b> (2 reviewers)<br/>members: [...]"]
         SKIP["<b>skip</b> (0 reviewers)<br/>auto-approve"]
     end
 
-    subgraph "Reviewer Tiers"
-        REG["<b>Regular</b><br/>Dijkstra (Opus)<br/>Euler (ChatGPT-5.4)<br/>Pascal (Gemini 3 Pro)"]
+    subgraph "Reviewer Tiers (defined in settings.py)"
+        REG["<b>Regular</b><br/>members: [...]"]
         FREE["<b>Free</b><br/>(empty — no current assignment)"]
-        SHORT["<b>Short-context</b><br/>Basho (Qwen3.5-27B)<br/>Hanfei (GPT-4.1)<br/>Leibniz (GPT-4.1)"]
+        SHORT["<b>Short-context</b><br/>members: [...]"]
     end
 
     subgraph "Dispatch Logic"
@@ -155,25 +150,24 @@ graph TB
 
 ### Review Modes Table
 
+Review modes are defined in `settings.py` (`REVIEW_MODES`). See `settings.example.py` for defaults.
+
 | Mode | Members | min_reviews | grace_period_sec |
 |------|---------|-------------|------------------|
-| full | pascal, dijkstra, euler, basho | 4 | 0 |
-| standard | pascal, euler, dijkstra | 3 | 0 |
-| lite3_woOpus | pascal, euler, basho | 3 | 0 |
-| lite3_woGoogle | euler, dijkstra, basho | 3 | 0 |
-| lite3_woOpenAI | pascal, dijkstra, basho | 3 | 0 |
-| lite | basho, pascal | 2 | 0 |
-| cheap | basho, leibniz, hanfei | 3 | 0 |
-| min | pascal | 1 | 0 |
+| full | `settings.py` の `REVIEW_MODES` で定義 | 4 | 0 |
+| standard | `settings.py` の `REVIEW_MODES` で定義 | 3 | 0 |
+| lite | `settings.py` の `REVIEW_MODES` で定義 | 2 | 0 |
 | skip | (none) | 0 | 0 |
 
 ### Reviewer Tiers
 
+Reviewer tiers are defined in `settings.py` (`REVIEWER_TIERS`). See `settings.example.py` for defaults.
+
 | Tier | Members |
 |------|---------|
-| Regular | dijkstra, euler, pascal |
-| Free | (empty) |
-| Short-context | basho, hanfei, leibniz |
+| Regular | [] |
+| Free | [] |
+| Short-context | [] |
 
 ## 4. Watchdog Cycle
 

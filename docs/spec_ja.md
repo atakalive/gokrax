@@ -1,6 +1,6 @@
 # gokrax -- 開発パイプライン仕様書
 
-> 現行コード (2026-03-20 時点) に基づく正式仕様。金子さん含むエージェント全員はこの文書に従うこと。
+> 現行コード (2026-03-20 時点) に基づく正式仕様。全エージェントはこの文書に従うこと。
 > 定数値は config のデフォルト値。settings.py で上書き可能 (14 章参照)。
 
 ## 1. 概要
@@ -39,38 +39,27 @@ settings.py           -- ユーザー設定 (config override)
 
 - **pipeline JSON**: `~/.openclaw/shared/pipelines/<project>.json`
 - **watchdog**: `watchdog-loop.sh` で 20 秒おきにポーリング (後述 7 章)
-- **Discord 通知先**: #gokrax (kaneko-discord アカウントで投稿)
+- **Discord 通知先**: Discord 通知チャンネル（`settings.py` の `DISCORD_CHANNEL` で設定）
 
 ## 3. ロール定義
 
-### 3.1 実装担当 (Implementer) = kaneko, neumann
+### 3.1 実装担当 (Implementer)
 
 - DESIGN_PLAN フェーズで Issue 本文を確認・修正し、`plan-done` を実行する
 - CODE_REVISE フェーズで P0 指摘に基づきコードを手動修正し、`code-revise` を実行する (commit 記録 + revise 完了を一発で)
 - IMPLEMENTATION フェーズでは CC が自動起動される (実装担当が手動でやるのではない)
 
-エージェント一覧:
-
-| エージェント | address | モデル | 備考 |
-|---|---|---|---|
-| kaneko | `agent:kaneko:main` | Opus | Implementer |
-| pascal | `agent:pascal:main` | Gemini 3 Pro | |
-| leibniz | `agent:leibniz:main` | GPT-4.1 64k-ctx (GitHub) | short-context tier |
-| hanfei | `agent:hanfei:main` | GPT-4.1 64k-ctx (GitHub) | short-context tier |
-| dijkstra | `agent:dijkstra:main` | Opus | |
-| neumann | `agent:neumann:main` | Opus | Implementer |
-| euler | `agent:euler:main` | ChatGPT-5.4 | |
-| basho | `agent:basho:main` | Local, Qwen3.5-27B | short-context tier |
+エージェント一覧は `settings.py` (`AGENTS` 辞書) で定義する。デフォルト値は `settings.example.py` を参照。address フォーマットは `agent:<name>:main`。
 
 ### 3.2 レビュアー (Reviewers)
 
-レビュアーは3つの tier に分類される。
+レビュアーは3つの tier に分類される。tier のメンバーは `settings.py` の `REVIEWER_TIERS` で定義する。デフォルト構造は `settings.example.py` を参照。
 
 | Tier | メンバー |
 |---|---|
-| regular | dijkstra, euler, pascal |
-| free | (空) |
-| short-context | basho, hanfei, leibniz |
+| regular | [] |
+| free | [] |
+| short-context | [] |
 
 - DESIGN_REVIEW または CODE_REVIEW でレビュー依頼を受け取る
 - `gokrax review` コマンドで verdict (APPROVE / P0 / P1 / P2) を投稿する
@@ -79,7 +68,7 @@ settings.py           -- ユーザー設定 (config override)
 
 ### 3.3 承認者 = M (人間)
 
-- MERGE_SUMMARY_SENT で #gokrax にサマリーが投稿される。M が「OK」とリプライすると DONE -> マージ
+- MERGE_SUMMARY_SENT で Discord 通知チャンネルにサマリーが投稿される。M が「OK」とリプライすると DONE -> マージ
 - `gokrax start` や `gokrax transition --force` 等の制御コマンドを実行する
 
 ### 3.4 CC (Claude Code)
@@ -88,7 +77,7 @@ settings.py           -- ユーザー設定 (config override)
 - Plan (model: sonnet) -> Impl (model: sonnet) の 2 段階
 - CC 完了後、自動で `gokrax commit` を実行する
 - **CC は IMPLEMENTATION でのみ使用。他のフェーズでは使わない**
-- neumann も CC 経由での実装に対応
+- `AGENTS` に複数の implementer を定義すれば、`implementer` フィールドで切り替え可能
 
 ## 4. 状態マシン
 
@@ -169,7 +158,7 @@ TRIAGE -> IDLE -> INITIALIZE -> DESIGN_PLAN -> DESIGN_REVIEW -> DESIGN_APPROVED 
 | CODE_REVIEW | レビュアー | コードレビュー、`gokrax review` で投稿 | `min_reviews` 件集まる |
 | CODE_REVISE | 実装担当 | P0 指摘に基づきコード修正 -> `code-revise --hash` | 全対象 Issue に `code_revised` フラグ |
 | CODE_APPROVED | (自動通過) | 即座に MERGE_SUMMARY_SENT に遷移 | - |
-| MERGE_SUMMARY_SENT | M (人間) | #gokrax のサマリーに「OK」リプライ | M の OK リプライ検出 |
+| MERGE_SUMMARY_SENT | M (人間) | Discord 通知チャンネルのサマリーに「OK」リプライ | M の OK リプライ検出 |
 | DONE | (自動) | git push + issue close -> IDLE | 自動遷移 |
 | BLOCKED | M (人間) | 手動復旧が必要 | `transition --force --to IDLE` |
 
@@ -190,22 +179,14 @@ TRIAGE -> IDLE -> INITIALIZE -> DESIGN_PLAN -> DESIGN_REVIEW -> DESIGN_APPROVED 
 
 プロジェクトごとに設定。使用するレビュアーの構成と最低レビュー数を制御。
 
+レビューモードは `settings.py` の `REVIEW_MODES` で定義する。デフォルト構造は `settings.example.py` を参照。
+
 | モード | メンバー | min_reviews | grace_period_sec |
 |--------|----------|-------------|-----------------|
-| full | pascal, dijkstra, euler, basho | 4 | 0 |
-| standard | pascal, euler, dijkstra | 3 | 0 |
-| lite3_woOpus | pascal, euler, basho | 3 | 0 |
-| lite3_woGoogle | euler, dijkstra, basho | 3 | 0 |
-| lite3_woOpenAI | pascal, dijkstra, basho | 3 | 0 |
-| lite | basho, pascal | 2 | 0 |
-| cheap | basho, leibniz, hanfei | 3 | 0 |
-| min | pascal | 1 | 0 |
+| full | `settings.py` の `REVIEW_MODES` で定義 | 4 | 0 |
+| standard | `settings.py` の `REVIEW_MODES` で定義 | 3 | 0 |
+| lite | `settings.py` の `REVIEW_MODES` で定義 | 2 | 0 |
 | skip | (なし) | 0 | 0 (自動承認) |
-
-> **既知の制限**: spec mode の `should_continue_review()` が参照する `MIN_VALID_REVIEWS_BY_MODE` に
-> `cheap`, `lite3_woOpus`, `lite3_woOpenAI` のエントリが存在しない。これらのモードを spec mode で
-> 使用すると `ValueError` が発生する。通常使用では `gokrax spec start --review-mode` の argparse が
-> 選択肢を `full/standard/lite/min` に制限しているため問題にならないが、コード上の不整合として注意。
 
 ## 6. タイムアウト
 
@@ -294,7 +275,7 @@ OS ごとの CLI 引数サイズ上限 (`_get_max_cli_arg_bytes`):
 
 ### 7.6 Discord 通知
 
-- 全状態遷移を `#gokrax` に投稿 (形式: `[PJ] OLD -> NEW (timestamp)`)
+- 全状態遷移を Discord 通知チャンネルに投稿 (形式: `[PJ] OLD -> NEW (timestamp)`)
 - DESIGN_PLAN 開始時のみ Issue 一覧を別メッセージで投稿
 - CC 進捗: Plan 開始 -> Plan 完了 -> Impl 開始 -> Impl 完了
 - マージサマリー: 全 Issue x 全レビュアーの判定を一覧投稿
@@ -358,12 +339,12 @@ spec_config の詳細は `docs/spec_mode_spec.md` を参照。
 
 ```json
 {
-  "project": "BeamShifter",
-  "gitlab": "atakalive/BeamShifter",
-  "repo_path": "/mnt/s/wsl/work/project/BeamShifter",
+  "project": "MyProject",
+  "gitlab": "username/MyProject",
+  "repo_path": "/path/to/MyProject",
   "state": "IDLE",
   "enabled": false,
-  "implementer": "kaneko",
+  "implementer": "implementer1",
   "review_mode": "standard",
   "automerge": false,
   "batch": [

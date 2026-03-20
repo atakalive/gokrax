@@ -34,16 +34,13 @@ def _var_line_ranges(source: str) -> dict[str, tuple[int, int]]:
     tree = ast.parse(source)
     ranges: dict[str, tuple[int, int]] = {}
     for node in ast.iter_child_nodes(tree):
-        name: str | None = None
         if isinstance(node, ast.Assign):
             for target in node.targets:
                 if isinstance(target, ast.Name) and target.id.isupper():
-                    name = target.id
+                    ranges[target.id] = (node.lineno, node.end_lineno or node.lineno)
         elif isinstance(node, ast.AnnAssign):
             if isinstance(node.target, ast.Name) and node.target.id.isupper():
-                name = node.target.id
-        if name is not None:
-            ranges[name] = (node.lineno, node.end_lineno or node.lineno)
+                ranges[node.target.id] = (node.lineno, node.end_lineno or node.lineno)
     return ranges
 
 

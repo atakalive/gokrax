@@ -240,7 +240,7 @@ TEST_CONFIG: dict[str, dict] = {
 # ---------------------------------------------------------------------------
 import importlib.util as _importlib_util  # noqa: E402
 
-_settings_path = Path(__file__).resolve().parent.parent / "settings.py"
+_settings_path = Path(os.environ["GOKRAX_SETTINGS"]) if "GOKRAX_SETTINGS" in os.environ else Path(__file__).resolve().parent.parent / "settings.py"
 if _settings_path.exists():
     _spec = _importlib_util.spec_from_file_location("_gokrax_settings", _settings_path)
     _settings_mod = _importlib_util.module_from_spec(_spec)
@@ -255,4 +255,4 @@ if _settings_path.exists():
     GOKRAX_STATE_PATH = PIPELINES_DIR.parent / "gokrax-state.json"
     METRICS_FILE = PIPELINES_DIR.parent / "gokrax-metrics.jsonl"
 
-del _settings_path, _importlib_util
+del _importlib_util

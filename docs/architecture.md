@@ -129,6 +129,7 @@ graph TB
         FULL["<b>full</b> (4 reviewers)<br/>members: [...]"]
         STD["<b>standard</b> (3 reviewers)<br/>members: [...]"]
         LITE["<b>lite</b> (2 reviewers)<br/>members: [...]"]
+        MIN["<b>min</b> (1 reviewer)<br/>members: [...]"]
         SKIP["<b>skip</b> (0 reviewers)<br/>auto-approve"]
     end
 
@@ -157,6 +158,7 @@ Review modes are defined in `settings.py` (`REVIEW_MODES`). See `settings.exampl
 | full | `settings.py` の `REVIEW_MODES` で定義 | 4 | 0 |
 | standard | `settings.py` の `REVIEW_MODES` で定義 | 3 | 0 |
 | lite | `settings.py` の `REVIEW_MODES` で定義 | 2 | 0 |
+| min | `settings.py` の `REVIEW_MODES` で定義 | 1 | 0 |
 | skip | (none) | 0 | 0 |
 
 ### Reviewer Tiers

@@ -186,6 +186,7 @@ TRIAGE -> IDLE -> INITIALIZE -> DESIGN_PLAN -> DESIGN_REVIEW -> DESIGN_APPROVED 
 | full | `settings.py` の `REVIEW_MODES` で定義 | 4 | 0 |
 | standard | `settings.py` の `REVIEW_MODES` で定義 | 3 | 0 |
 | lite | `settings.py` の `REVIEW_MODES` で定義 | 2 | 0 |
+| min | `settings.py` の `REVIEW_MODES` で定義 | 1 | 0 |
 | skip | (なし) | 0 | 0 (自動承認) |
 
 ## 6. タイムアウト

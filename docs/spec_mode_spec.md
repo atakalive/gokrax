@@ -797,7 +797,7 @@ class MergedReviewReport:
 `send_to_agent()` で改訂依頼。以下の形式のchangelogを要求:
 - 変更履歴テーブルに1行追加
 - `[vN] 指摘元ID: 説明` 形式で全件列挙
-- 擬似コード中 `# [vN] Pascal C-1: 説明` で変更理由記載
+- 擬似コード中 `# [vN] reviewer1 C-1: 説明` で変更理由記載
 
 改訂完了報告YAML:
 ```yaml

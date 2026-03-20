@@ -234,3 +234,25 @@ TEST_CONFIG: dict[str, dict] = {
         "test_timeout": 300,
     },
 }
+
+# ---------------------------------------------------------------------------
+# User settings override (settings.py)
+# ---------------------------------------------------------------------------
+import importlib.util as _importlib_util  # noqa: E402
+
+_settings_path = Path(__file__).resolve().parent.parent / "settings.py"
+if _settings_path.exists():
+    _spec = _importlib_util.spec_from_file_location("_gokrax_settings", _settings_path)
+    _settings_mod = _importlib_util.module_from_spec(_spec)
+    _spec.loader.exec_module(_settings_mod)
+    for _attr in dir(_settings_mod):
+        if _attr.isupper() and not _attr.startswith("_"):
+            globals()[_attr] = getattr(_settings_mod, _attr)
+    del _spec, _settings_mod, _attr
+
+    # --- 派生変数の再計算 ---
+    ALLOWED_REVIEWERS = list(AGENTS.keys())
+    GOKRAX_STATE_PATH = PIPELINES_DIR.parent / "gokrax-state.json"
+    METRICS_FILE = PIPELINES_DIR.parent / "gokrax-metrics.jsonl"
+
+del _settings_path, _importlib_util

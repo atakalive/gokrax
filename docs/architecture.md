@@ -36,7 +36,7 @@ graph LR
     end
 
     GL -->|"issue created"| CLI
-    M -->|"gokrax triage/run"| CLI
+    M -->|"gokrax start"| CLI
     CLI --> SM
     SM <--> WD
     WD -->|"dispatch task"| TQ
@@ -172,11 +172,11 @@ Reviewer tiers are defined in `settings.py` (`REVIEWER_TIERS`). See `settings.ex
 
 ```mermaid
 graph TD
-    START["Watchdog Loop<br/>(60s interval)"] --> SCAN["Scan all pipeline.json files"]
+    START["Watchdog Loop<br/>(20s interval)"] --> SCAN["Scan all pipeline.json files"]
     SCAN --> CHECK{"Active issue<br/>found?"}
     CHECK -->|No| IDLE_CHECK{"All projects<br/>DONE/IDLE?"}
     IDLE_CHECK -->|Yes| STOP["Auto-stop<br/>watchdog loop"]
-    IDLE_CHECK -->|No| WAIT["Sleep 60s"]
+    IDLE_CHECK -->|No| WAIT["Sleep 20s"]
     CHECK -->|Yes| TIMEOUT{"Timed out?"}
     TIMEOUT -->|Yes| NUDGE["Send nudge /<br/>auto-transition<br/>to BLOCKED"]
     TIMEOUT -->|No| PENDING{"Pending<br/>notification?"}
@@ -199,14 +199,12 @@ sequenceDiagram
     participant GL as GitLab
     participant DC as Discord
 
-    M->>DB: gokrax triage --project X --issue 42
-    DB->>DB: Add issues to batch (state stays IDLE)
-    M->>DB: gokrax run
+    M->>DB: gokrax start --project X --issue 42
     DB->>DB: Set state -> INITIALIZE
     DB->>DB: Auto -> DESIGN_PLAN
     DB->>DC: Plan started
     WD->>CC: /new (design plan task)
-    CC->>DB: gokrax submit (plan)
+    CC->>DB: gokrax plan-done
     DB->>DB: Set state -> DESIGN_REVIEW
     DB->>DC: Review requested
 
@@ -220,12 +218,11 @@ sequenceDiagram
     DB->>DC: Implementation started
     WD->>CC: /new (implement task)
     CC->>GL: git push (branch)
-    CC->>DB: gokrax submit (code)
+    CC->>DB: gokrax commit --hash <hash>
     DB->>DB: Set state -> CODE_TEST
     DB->>DC: Tests running
     WD->>CC: /new (test task)
-    CC->>DB: tests pass
-    DB->>DB: Set state -> CODE_REVIEW
+    WD->>DB: test result (pass) → CODE_REVIEW
     DB->>DC: Code review requested
 
     par Review Ensemble
@@ -240,4 +237,68 @@ sequenceDiagram
     DB->>GL: glab mr merge
     DB->>DB: Set state -> DONE
     DB->>DC: Issue complete
+```
+
+## 6. Spec Mode State Machine
+
+Spec mode manages the specification review cycle, separate from the main pipeline flow.
+Entry point: `gokrax spec start` transitions from IDLE → SPEC_REVIEW (with review) or IDLE → SPEC_APPROVED (review skipped).
+
+### Spec States
+
+SPEC_REVIEW, SPEC_REVISE, SPEC_APPROVED, ISSUE_SUGGESTION, ISSUE_PLAN, QUEUE_PLAN, SPEC_DONE, SPEC_STALLED, SPEC_REVIEW_FAILED, SPEC_PAUSED
+
+### SPEC_TRANSITIONS (reference)
+
+| From | To |
+|------|----|
+| IDLE | SPEC_REVIEW, SPEC_APPROVED |
+| SPEC_REVIEW | SPEC_REVISE, SPEC_APPROVED, SPEC_STALLED, SPEC_REVIEW_FAILED, SPEC_PAUSED |
+| SPEC_REVISE | SPEC_REVIEW, SPEC_PAUSED |
+| SPEC_APPROVED | ISSUE_SUGGESTION, SPEC_DONE |
+| ISSUE_SUGGESTION | ISSUE_PLAN, SPEC_PAUSED |
+| ISSUE_PLAN | QUEUE_PLAN, SPEC_DONE, SPEC_PAUSED |
+| QUEUE_PLAN | SPEC_DONE, SPEC_PAUSED |
+| SPEC_DONE | IDLE |
+| SPEC_STALLED | SPEC_APPROVED, SPEC_REVISE |
+| SPEC_REVIEW_FAILED | SPEC_REVIEW |
+| SPEC_PAUSED | SPEC_REVIEW, SPEC_REVISE, SPEC_APPROVED, ISSUE_SUGGESTION, ISSUE_PLAN, QUEUE_PLAN, SPEC_DONE |
+
+```mermaid
+stateDiagram-v2
+    [*] --> IDLE
+
+    IDLE --> SPEC_REVIEW : gokrax spec start (with review)
+    IDLE --> SPEC_APPROVED : gokrax spec start (skip review)
+
+    SPEC_REVIEW --> SPEC_REVISE : P0/P1/REJECT verdict
+    SPEC_REVIEW --> SPEC_APPROVED : all reviewers APPROVE
+    SPEC_REVIEW --> SPEC_STALLED : timeout / stall
+    SPEC_REVIEW --> SPEC_REVIEW_FAILED : review error
+    SPEC_REVIEW --> SPEC_PAUSED : manual pause
+
+    SPEC_REVISE --> SPEC_REVIEW : revision submitted
+    SPEC_REVISE --> SPEC_PAUSED : manual pause
+
+    SPEC_APPROVED --> ISSUE_SUGGESTION : auto-transition
+    SPEC_APPROVED --> SPEC_DONE : no issues to suggest
+
+    ISSUE_SUGGESTION --> ISSUE_PLAN : suggestion accepted
+    ISSUE_SUGGESTION --> SPEC_PAUSED : manual pause
+
+    ISSUE_PLAN --> QUEUE_PLAN : plan completed
+    ISSUE_PLAN --> SPEC_DONE : done
+    ISSUE_PLAN --> SPEC_PAUSED : manual pause
+
+    QUEUE_PLAN --> SPEC_DONE : queue completed
+    QUEUE_PLAN --> SPEC_PAUSED : manual pause
+
+    SPEC_DONE --> IDLE : cycle complete
+
+    SPEC_STALLED --> SPEC_APPROVED : manual override
+    SPEC_STALLED --> SPEC_REVISE : retry
+
+    SPEC_REVIEW_FAILED --> SPEC_REVIEW : retry
+
+    note right of SPEC_PAUSED : SPEC_PAUSED can resume to\nany spec state (7 transitions)
 ```

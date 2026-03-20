@@ -84,7 +84,7 @@ settings.py           -- ユーザー設定 (config override)
 ### 有効状態 (VALID_STATES)
 
 ```
-IDLE, INITIALIZE, TRIAGE,
+IDLE, INITIALIZE,
 DESIGN_PLAN, DESIGN_REVIEW, DESIGN_REVISE, DESIGN_APPROVED,
 IMPLEMENTATION,
 CODE_TEST, CODE_TEST_FIX,
@@ -98,7 +98,6 @@ MERGE_SUMMARY_SENT, DONE, BLOCKED
 ### 遷移テーブル (VALID_TRANSITIONS)
 
 ```
-TRIAGE       -> [IDLE]
 IDLE         -> [INITIALIZE]
 INITIALIZE   -> [DESIGN_PLAN]
 DESIGN_PLAN  -> [DESIGN_REVIEW]
@@ -119,7 +118,7 @@ BLOCKED      -> [IDLE]
 フロー図:
 
 ```
-TRIAGE -> IDLE -> INITIALIZE -> DESIGN_PLAN -> DESIGN_REVIEW -> DESIGN_APPROVED -> IMPLEMENTATION
+IDLE -> INITIALIZE -> DESIGN_PLAN -> DESIGN_REVIEW -> DESIGN_APPROVED -> IMPLEMENTATION
                                     ^              |                                   |
                                     |              v                                   v
                                 DESIGN_REVISE <----+                              CODE_TEST
@@ -145,7 +144,6 @@ TRIAGE -> IDLE -> INITIALIZE -> DESIGN_PLAN -> DESIGN_REVIEW -> DESIGN_APPROVED 
 
 | 状態 | 責任者 | やること | 次の状態への条件 |
 |------|--------|----------|-----------------|
-| TRIAGE | - | 振り分け処理 | IDLE へ遷移 |
 | IDLE | - | 何もない | `gokrax start` で INITIALIZE へ |
 | INITIALIZE | (自動) | プロジェクト初期化 | DESIGN_PLAN へ遷移 |
 | DESIGN_PLAN | 実装担当 | Issue 本文を確認・修正し `plan-done` | 全 Issue に `design_ready` フラグ |

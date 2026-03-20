@@ -7,7 +7,6 @@ __all__ = [
     "VALID_VERDICTS", "VALID_FLAG_VERDICTS",
     "STATE_PHASE_MAP",
     "VALID_STATES", "VALID_TRANSITIONS",
-    "TRIAGE_ALLOWED_STATES",
     "BLOCK_TIMERS", "EXTENDABLE_STATES",
     "NUDGE_GRACE_SEC", "EXTEND_NOTICE_THRESHOLD",
     "SPEC_STATES", "SPEC_TRANSITIONS",
@@ -32,7 +31,6 @@ STATE_PHASE_MAP: dict[str, str] = {
     "DESIGN_REVIEW": "design",
     "DESIGN_REVISE": "design",
     "DESIGN_APPROVED": "design",
-    "TRIAGE": "design",
     "IMPLEMENTATION": "code",
     "CODE_TEST": "code",
     "CODE_TEST_FIX": "code",
@@ -43,7 +41,7 @@ STATE_PHASE_MAP: dict[str, str] = {
 }
 
 VALID_STATES = [
-    "IDLE", "INITIALIZE", "TRIAGE",
+    "IDLE", "INITIALIZE",
     "DESIGN_PLAN", "DESIGN_REVIEW", "DESIGN_REVISE", "DESIGN_APPROVED",
     "IMPLEMENTATION",
     "CODE_TEST", "CODE_TEST_FIX",
@@ -52,7 +50,6 @@ VALID_STATES = [
 ]
 
 VALID_TRANSITIONS = {
-    "TRIAGE": ["IDLE"],
     "IDLE": ["INITIALIZE"],
     "INITIALIZE": ["DESIGN_PLAN"],
     "DESIGN_PLAN": ["DESIGN_REVIEW"],
@@ -69,9 +66,6 @@ VALID_TRANSITIONS = {
     "DONE": ["IDLE"],
     "BLOCKED": ["IDLE"],  # 復帰はIDLEに戻してから再開
 }
-
-# triageで投入可能な状態
-TRIAGE_ALLOWED_STATES = ["IDLE", "TRIAGE"]
 
 # フェーズ別タイムアウト (秒)。0 = タイムアウトなし
 BLOCK_TIMERS = {

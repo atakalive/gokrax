@@ -61,8 +61,6 @@ stateDiagram-v2
 
     IDLE --> INITIALIZE : gokrax start
 
-    TRIAGE --> IDLE : triage complete
-
     INITIALIZE --> DESIGN_PLAN : auto-transition
 
     state "Design Phase" as design {
@@ -104,7 +102,6 @@ stateDiagram-v2
 
 | From | To |
 |------|----|
-| TRIAGE | IDLE |
 | IDLE | INITIALIZE |
 | INITIALIZE | DESIGN_PLAN |
 | DESIGN_PLAN | DESIGN_REVIEW |
@@ -203,8 +200,7 @@ sequenceDiagram
     participant DC as Discord
 
     M->>DB: gokrax triage --project X --issue 42
-    DB->>DB: Set state -> TRIAGE
-    DB->>DB: Set state -> IDLE
+    DB->>DB: Add issues to batch (state stays IDLE)
     M->>DB: gokrax run
     DB->>DB: Set state -> INITIALIZE
     DB->>DB: Auto -> DESIGN_PLAN

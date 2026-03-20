@@ -238,7 +238,7 @@ def _resolve_review_outcome(
 
 def check_transition(state: str, batch: list, data: dict | None = None) -> TransitionAction:
     """現在の状態とバッチから次の遷移アクションを決定する純粋関数。副作用なし。"""
-    if state in ("IDLE", "TRIAGE", "BLOCKED"):
+    if state in ("IDLE", "BLOCKED"):
         return TransitionAction()
 
     # INITIALIZE → DESIGN_PLAN: 自動遷移（初期化処理は watchdog の do_transition 内で実行）

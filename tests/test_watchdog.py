@@ -53,10 +53,6 @@ class TestCheckTransition:
         action = check_transition("IDLE", _make_batch())
         assert action.new_state is None
 
-    def test_triage_returns_no_action(self):
-        from engine.fsm import check_transition
-        assert check_transition("TRIAGE", _make_batch()).new_state is None
-
     def test_merge_summary_sent_returns_no_action(self):
         from engine.fsm import check_transition
         assert check_transition("MERGE_SUMMARY_SENT", _make_batch()).new_state is None

@@ -8,7 +8,7 @@ from pathlib import Path
 
 from config import (
     PIPELINES_DIR, GLAB_BIN, LOG_FILE,
-    VALID_STATES, VALID_TRANSITIONS, MAX_BATCH, TRIAGE_ALLOWED_STATES,
+    VALID_STATES, VALID_TRANSITIONS, MAX_BATCH,
     VALID_VERDICTS, GLAB_TIMEOUT, ALLOWED_REVIEWERS, REVIEW_MODES, LOCAL_TZ,
     WATCHDOG_LOOP_PIDFILE, WATCHDOG_LOOP_LOCKFILE,
     VALID_FLAG_VERDICTS, STATE_PHASE_MAP,
@@ -236,8 +236,8 @@ def cmd_triage(args):
 
     def do_triage(data):
         state = data.get("state", "IDLE")
-        if state not in TRIAGE_ALLOWED_STATES:
-            raise SystemExit(f"Cannot add issues in state {state} (allowed: {TRIAGE_ALLOWED_STATES})")
+        if state != "IDLE":
+            raise SystemExit(f"Cannot add issues in state {state} (allowed: IDLE)")
         batch = data.get("batch", [])
         if len(batch) + len(args.issue) > MAX_BATCH:
             raise SystemExit(

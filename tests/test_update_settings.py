@@ -121,3 +121,36 @@ def test_idempotent(base: Path, capsys: pytest.CaptureFixture[str]) -> None:
 
     content_after_second = (base / "settings.py").read_text(encoding="utf-8")
     assert content_after_first == content_after_second
+
+
+def test_queue_file_created_from_template(tmp_path: Path) -> None:
+    (tmp_path / "settings.example.py").write_text("", encoding="utf-8")
+    (tmp_path / "settings.py").write_text("", encoding="utf-8")
+    template_path = tmp_path / "gokrax-queue.example.txt"
+    template_path.write_text("# example template\n", encoding="utf-8")
+    queue_path = tmp_path / "gokrax-queue.txt"
+
+    assert main(tmp_path) == 0
+    assert queue_path.exists()
+    assert queue_path.read_text(encoding="utf-8") == template_path.read_text(encoding="utf-8")
+
+
+def test_queue_file_not_overwritten(tmp_path: Path) -> None:
+    (tmp_path / "settings.example.py").write_text("", encoding="utf-8")
+    (tmp_path / "settings.py").write_text("", encoding="utf-8")
+    (tmp_path / "gokrax-queue.example.txt").write_text("# example template\n", encoding="utf-8")
+    queue_path = tmp_path / "gokrax-queue.txt"
+    queue_path.write_text("custom content\n", encoding="utf-8")
+
+    assert main(tmp_path) == 0
+    assert queue_path.read_text(encoding="utf-8") == "custom content\n"
+
+
+def test_queue_template_missing(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    (tmp_path / "settings.example.py").write_text("", encoding="utf-8")
+    (tmp_path / "settings.py").write_text("", encoding="utf-8")
+    queue_path = tmp_path / "gokrax-queue.txt"
+
+    assert main(tmp_path) == 0
+    assert not queue_path.exists()
+    assert "gokrax-queue.example.txt not found" in capsys.readouterr().err

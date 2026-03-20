@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import ast
 import re
+import shutil
 import sys
 from pathlib import Path
 
@@ -65,26 +66,35 @@ def main(base_dir: Path) -> int:
     new_vars = sorted(example_vars - existing)
     if not new_vars:
         print("settings.py is up to date.")
-        return 0
+    else:
+        example_lines = example_src.splitlines()
+        ranges = _var_line_ranges(example_src)
 
-    example_lines = example_src.splitlines()
-    ranges = _var_line_ranges(example_src)
+        chunks: list[str] = []
+        for var in new_vars:
+            start, end = ranges[var]
+            block = example_lines[start - 1:end]
+            commented = ["# " + line for line in block]
+            commented[-1] += "  # NEW"
+            chunks.append("\n".join(commented))
 
-    chunks: list[str] = []
-    for var in new_vars:
-        start, end = ranges[var]
-        block = example_lines[start - 1:end]
-        commented = ["# " + line for line in block]
-        commented[-1] += "  # NEW"
-        chunks.append("\n".join(commented))
+        appendix = "\n# --- New settings (added by update_settings.py) ---\n"
+        appendix += "\n".join(chunks) + "\n"
 
-    appendix = "\n# --- New settings (added by update_settings.py) ---\n"
-    appendix += "\n".join(chunks) + "\n"
+        with open(settings_path, "a", encoding="utf-8") as f:
+            f.write(appendix)
 
-    with open(settings_path, "a", encoding="utf-8") as f:
-        f.write(appendix)
+        print(f"Added {len(new_vars)} new setting(s): {', '.join(new_vars)}")
 
-    print(f"Added {len(new_vars)} new setting(s): {', '.join(new_vars)}")
+    queue_path = base_dir / "gokrax-queue.txt"
+    template_path = base_dir / "gokrax-queue.example.txt"
+    if not queue_path.exists():
+        if not template_path.exists():
+            print("gokrax-queue.example.txt not found, skipping queue file creation.", file=sys.stderr)
+        else:
+            shutil.copy2(template_path, queue_path)
+            print("Created gokrax-queue.txt from template.")
+
     return 0
 
 

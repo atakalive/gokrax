@@ -1,5 +1,7 @@
 # gokrax — Architecture & State Machine Diagrams
 
+> Last updated: 2026-03-20
+
 ## 1. System Architecture (Overall Flow)
 
 ```mermaid
@@ -23,9 +25,8 @@ graph LR
 
     subgraph Review["Reviewer Ensemble"]
         direction TB
-        R_REG["Regular Tier<br/>Leibniz · Dijkstra · Euler · Basho"]
-        R_SEMI["Semi Tier<br/>Pascal"]
-        R_FREE["Free Tier<br/>Hanfei"]
+        R_REG["Regular Tier<br/>Dijkstra (Opus) · Euler (ChatGPT-5.4) · Pascal (Gemini 3 Pro)"]
+        R_SHORT["Short-context Tier<br/>Basho (Qwen3.5-27B) · Hanfei (GPT-4.1) · Leibniz (GPT-4.1)"]
     end
 
     subgraph Output
@@ -42,11 +43,9 @@ graph LR
     TQ -->|"design/implement"| CC1
     TQ -->|"design/implement"| CC2
     WD -->|"request review"| R_REG
-    WD -->|"request review"| R_SEMI
-    WD -->|"request review<br/>(ping → fallback)"| R_FREE
+    WD -->|"request review"| R_SHORT
     R_REG -->|"verdict"| CLI
-    R_SEMI -->|"verdict"| CLI
-    R_FREE -->|"verdict"| CLI
+    R_SHORT -->|"verdict"| CLI
     CC1 -->|"code complete"| CLI
     CC2 -->|"code complete"| CLI
     CLI -->|"merge"| MR
@@ -58,9 +57,13 @@ graph LR
 
 ```mermaid
 stateDiagram-v2
-    [*] --> IDLE
+    [*] --> TRIAGE
 
-    IDLE --> DESIGN_PLAN : triage / run
+    TRIAGE --> IDLE : triage complete
+
+    IDLE --> INITIALIZE : run / assign
+
+    INITIALIZE --> DESIGN_PLAN : auto-transition
 
     state "Design Phase" as design {
         DESIGN_PLAN --> DESIGN_REVIEW : plan submitted
@@ -71,10 +74,17 @@ stateDiagram-v2
     }
 
     state "Implementation Phase" as impl {
-        IMPLEMENTATION --> CODE_REVIEW : code submitted
+        IMPLEMENTATION --> CODE_TEST : code submitted
+        IMPLEMENTATION --> CODE_REVIEW : code submitted (skip test)
+        CODE_TEST --> CODE_REVIEW : tests pass
+        CODE_TEST --> CODE_TEST_FIX : tests fail
+        CODE_TEST --> BLOCKED : timeout / stall
+        CODE_TEST_FIX --> CODE_TEST : fix submitted
+        CODE_TEST_FIX --> BLOCKED : timeout / stall
         CODE_REVIEW --> CODE_APPROVED : all reviewers APPROVE
         CODE_REVIEW --> CODE_REVISE : P0/P1/REJECT verdict
-        CODE_REVISE --> CODE_REVIEW : revision submitted
+        CODE_REVISE --> CODE_TEST : revision submitted (re-test)
+        CODE_REVISE --> CODE_REVIEW : revision submitted (re-review)
         CODE_REVIEW --> BLOCKED : timeout / stall
     }
 
@@ -86,40 +96,84 @@ stateDiagram-v2
     DONE --> IDLE : next issue
     BLOCKED --> IDLE : manual reset
 
-    note right of DESIGN_REVISE : MAX_REVISE_CYCLES = 3
-    note right of CODE_REVISE : MAX_REVISE_CYCLES = 3
+    note right of DESIGN_REVISE : MAX_REVISE_CYCLES = 4
+    note right of CODE_REVISE : MAX_REVISE_CYCLES = 4
 ```
+
+### VALID_TRANSITIONS (reference)
+
+| From | To |
+|------|----|
+| TRIAGE | IDLE |
+| IDLE | INITIALIZE |
+| INITIALIZE | DESIGN_PLAN |
+| DESIGN_PLAN | DESIGN_REVIEW |
+| DESIGN_REVIEW | DESIGN_APPROVED, DESIGN_REVISE, BLOCKED |
+| DESIGN_REVISE | DESIGN_REVIEW |
+| DESIGN_APPROVED | IMPLEMENTATION |
+| IMPLEMENTATION | CODE_TEST, CODE_REVIEW |
+| CODE_TEST | CODE_REVIEW, CODE_TEST_FIX, BLOCKED |
+| CODE_TEST_FIX | CODE_TEST, BLOCKED |
+| CODE_REVIEW | CODE_APPROVED, CODE_REVISE, BLOCKED |
+| CODE_REVISE | CODE_TEST, CODE_REVIEW |
+| CODE_APPROVED | MERGE_SUMMARY_SENT |
+| MERGE_SUMMARY_SENT | DONE |
+| DONE | IDLE |
+| BLOCKED | IDLE |
 
 ## 3. Review Ensemble Detail
 
 ```mermaid
 graph TB
     subgraph "Review Modes (per-project configurable)"
-        FULL["<b>full</b> (5 reviewers)<br/>Pascal · Leibniz · Dijkstra · Euler · Basho"]
-        STD["<b>standard</b> (4 reviewers)<br/>Pascal · Leibniz · Dijkstra · Basho"]
-        LITE3["<b>lite3</b> (3 reviewers)<br/>Leibniz · Pascal · Euler"]
-        LITE["<b>lite</b> (2 reviewers)<br/>Euler · Pascal"]
-        MIN["<b>min</b> (1 reviewer)<br/>Leibniz"]
+        FULL["<b>full</b> (4 reviewers)<br/>pascal · dijkstra · euler · basho"]
+        STD["<b>standard</b> (3 reviewers)<br/>pascal · euler · dijkstra"]
+        L3WO["<b>lite3_woOpus</b> (3 reviewers)<br/>pascal · euler · basho"]
+        L3WG["<b>lite3_woGoogle</b> (3 reviewers)<br/>euler · dijkstra · basho"]
+        L3WA["<b>lite3_woOpenAI</b> (3 reviewers)<br/>pascal · dijkstra · basho"]
+        LITE["<b>lite</b> (2 reviewers)<br/>basho · pascal"]
+        CHEAP["<b>cheap</b> (3 reviewers)<br/>basho · leibniz · hanfei"]
+        MIN["<b>min</b> (1 reviewer)<br/>pascal"]
         SKIP["<b>skip</b> (0 reviewers)<br/>auto-approve"]
     end
 
     subgraph "Reviewer Tiers"
-        REG["🟢 <b>Regular</b><br/>Leibniz (GPT-5.4)<br/>Dijkstra (Opus)<br/>Euler (GPT-5.4)<br/>Basho (Local Qwen3.5-27B)"]
-        SEMI["🟡 <b>Semi</b><br/>Pascal (Gemini 3 Pro)"]
-        FREE["🔴 <b>Free</b><br/>Hanfei (Qwen Portal)"]
+        REG["<b>Regular</b><br/>Dijkstra (Opus)<br/>Euler (ChatGPT-5.4)<br/>Pascal (Gemini 3 Pro)"]
+        FREE["<b>Free</b><br/>(empty — no current assignment)"]
+        SHORT["<b>Short-context</b><br/>Basho (Qwen3.5-27B)<br/>Hanfei (GPT-4.1)<br/>Leibniz (GPT-4.1)"]
     end
 
     subgraph "Dispatch Logic"
         D1["1. Send /new to all members"]
-        D2["2. Regular: wait for response"]
-        D3["3. Semi: wait, no ping"]
-        D4["4. Free: ping after 20s<br/>   → no response → exclude"]
-        D5["5. Collect until min_reviews met"]
-        D6["6. Aggregate verdicts<br/>   (worst severity wins)"]
+        D2["2. Wait for responses"]
+        D3["3. Collect until min_reviews met"]
+        D4["4. Aggregate verdicts<br/>   (worst severity wins)"]
     end
 
-    D1 --> D2 --> D3 --> D4 --> D5 --> D6
+    D1 --> D2 --> D3 --> D4
 ```
+
+### Review Modes Table
+
+| Mode | Members | min_reviews | grace_period_sec |
+|------|---------|-------------|------------------|
+| full | pascal, dijkstra, euler, basho | 4 | 0 |
+| standard | pascal, euler, dijkstra | 3 | 0 |
+| lite3_woOpus | pascal, euler, basho | 3 | 0 |
+| lite3_woGoogle | euler, dijkstra, basho | 3 | 0 |
+| lite3_woOpenAI | pascal, dijkstra, basho | 3 | 0 |
+| lite | basho, pascal | 2 | 0 |
+| cheap | basho, leibniz, hanfei | 3 | 0 |
+| min | pascal | 1 | 0 |
+| skip | (none) | 0 | 0 |
+
+### Reviewer Tiers
+
+| Tier | Members |
+|------|---------|
+| Regular | dijkstra, euler, pascal |
+| Free | (empty) |
+| Short-context | basho, hanfei, leibniz |
 
 ## 4. Watchdog Cycle
 
@@ -153,37 +207,45 @@ sequenceDiagram
     participant DC as Discord
 
     M->>DB: gokrax triage --project X --issue 42
-    DB->>DB: Set state → DESIGN_PLAN
-    DB->>DC: 📋 Plan started
+    DB->>DB: Set state -> TRIAGE
+    DB->>DB: Set state -> IDLE
+    M->>DB: gokrax run
+    DB->>DB: Set state -> INITIALIZE
+    DB->>DB: Auto -> DESIGN_PLAN
+    DB->>DC: Plan started
     WD->>CC: /new (design plan task)
     CC->>DB: gokrax submit (plan)
-    DB->>DB: Set state → DESIGN_REVIEW
-    DB->>DC: 📝 Review requested
+    DB->>DB: Set state -> DESIGN_REVIEW
+    DB->>DC: Review requested
 
     par Review Ensemble
-        WD->>RV: /new (review task) × N reviewers
+        WD->>RV: /new (review task) x N reviewers
         RV->>DB: gokrax review --verdict APPROVE
     end
 
-    DB->>DB: Set state → DESIGN_APPROVED
-    DB->>DB: Auto → IMPLEMENTATION
-    DB->>DC: 🔨 Implementation started
+    DB->>DB: Set state -> DESIGN_APPROVED
+    DB->>DB: Auto -> IMPLEMENTATION
+    DB->>DC: Implementation started
     WD->>CC: /new (implement task)
     CC->>GL: git push (branch)
     CC->>DB: gokrax submit (code)
-    DB->>DB: Set state → CODE_REVIEW
-    DB->>DC: 🔍 Code review requested
+    DB->>DB: Set state -> CODE_TEST
+    DB->>DC: Tests running
+    WD->>CC: /new (test task)
+    CC->>DB: tests pass
+    DB->>DB: Set state -> CODE_REVIEW
+    DB->>DC: Code review requested
 
     par Review Ensemble
-        WD->>RV: /new (review task) × N reviewers
+        WD->>RV: /new (review task) x N reviewers
         RV->>DB: gokrax review --verdict APPROVE
     end
 
-    DB->>DB: Set state → CODE_APPROVED
-    DB->>DB: Auto → MERGE_SUMMARY_SENT
-    DB->>DC: 📊 Merge summary
+    DB->>DB: Set state -> CODE_APPROVED
+    DB->>DB: Auto -> MERGE_SUMMARY_SENT
+    DB->>DC: Merge summary
     M->>DB: "OK" (approve merge)
     DB->>GL: glab mr merge
-    DB->>DB: Set state → DONE
-    DB->>DC: ✅ Issue complete
+    DB->>DB: Set state -> DONE
+    DB->>DC: Issue complete
 ```

@@ -1,0 +1,2 @@
+requests>=2.20
+pyyaml>=5.0

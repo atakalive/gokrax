@@ -24,8 +24,7 @@ GOKRAX_CLI = PurePosixPath("/home/ataka/.openclaw/shared/bin/gokrax")
 GLAB_BIN = "/home/ataka/bin/glab"
 # GATEWAY_TOKEN_PATH removed — using direct bot token
 GATEWAY_PORT = int(os.environ.get("OPENCLAW_GATEWAY_PORT", "18789"))
-QUEUE_FILE = PIPELINES_DIR / "gokrax-queue.txt"  # Default. Don't delete this line.
-QUEUE_FILE = Path("/mnt/s/wsl/work/project/gokrax/gokrax-queue.txt")
+QUEUE_FILE = PROJECT_ROOT / "gokrax-queue.txt"
 
 # デフォルトオプション: start / qrun 開始時に自動適用される。
 # 明示的な CLI 引数やキュー行のオプションで上書き可能。

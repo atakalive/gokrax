@@ -96,7 +96,6 @@ gokrax start --pj myproject --mode standard
 | `--pj` | Yes | project name |
 | `--issue N [N ...]` | No | issue numbers (omit to fetch all open issues from GitLab) |
 | `--mode {full,standard,lite,min,skip}` | No | review mode (omit to keep current setting) |
-| `--keep-context` | No | (backward compat) alias for `--keep-ctx-all` |
 | `--keep-ctx-batch` | No | keep context within the batch |
 | `--keep-ctx-intra` | No | keep context within intra-issue steps |
 | `--keep-ctx-all` | No | keep context across all steps |
@@ -447,7 +446,7 @@ gokrax spec start --pj <PROJECT> --spec <PATH> --implementer <AGENT>
 | `--max-cycles MAX_CYCLES` | No | max REVIEW <-> REVISE loop count |
 | `--review-mode {full,standard,lite,min}` | No | review mode |
 | `--model MODEL` | No | CC model override |
-| `--auto-continue` | No | skip M confirmation after APPROVED, auto-proceed to ISSUE_SUGGESTION |
+| `--auto-continue` | No | skip owner confirmation after APPROVED, auto-proceed to ISSUE_SUGGESTION |
 | `--auto-qrun` | No | auto-run queue after spec completion |
 | `--rev REV` | No | initial current_rev value (default: 1) |
 

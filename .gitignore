@@ -10,3 +10,4 @@ README.md
 reviews/
 docs/archive/
 settings.py
+messages_custom/**/*.py

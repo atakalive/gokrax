@@ -24,7 +24,7 @@ engine/
   reviewer.py          -- レビュアー管理 (tier, pending, revise 判定)
   shared.py            -- 共有ユーティリティ (log, is_cc_running, is_ok_reply)
 watchdog.py           -- watchdog ループ + Discord コマンド処理
-notify.py             -- エージェント通知 + Discord 投稿 + 二層送信
+notify.py             -- エージェント通知 + Discord 投稿 (CLI 経由)
 pipeline_io.py        -- JSON 読み書き (排他ロック + atomic write)
 spec_review.py        -- spec レビューパース・統合
 spec_revise.py        -- spec 改訂依頼・セルフレビュー
@@ -38,7 +38,7 @@ settings.py           -- ユーザー設定 (config override)
 ```
 
 - **pipeline JSON**: `~/.openclaw/shared/pipelines/<project>.json`
-- **watchdog**: `watchdog-loop.sh` で 5 秒おきにポーリング (後述 7 章)
+- **watchdog**: `watchdog-loop.sh` で 20 秒おきにポーリング (後述 7 章)
 - **Discord 通知先**: #gokrax (kaneko-discord アカウントで投稿)
 
 ## 3. ロール定義
@@ -241,7 +241,7 @@ TRIAGE -> IDLE -> INITIALIZE -> DESIGN_PLAN -> DESIGN_REVIEW -> DESIGN_APPROVED 
 
 ### 7.0 watchdog-loop.sh
 
-- 実行方法: `watchdog-loop.sh` で 5 秒おきにポーリング
+- 実行方法: `watchdog-loop.sh` で 20 秒おきにポーリング
 - PID ファイル: `/tmp/gokrax-watchdog-loop.pid`
 - ロックファイル: `/tmp/gokrax-watchdog-loop.lock`
 
@@ -256,26 +256,23 @@ TRIAGE -> IDLE -> INITIALIZE -> DESIGN_PLAN -> DESIGN_REVIEW -> DESIGN_APPROVED 
 ### 7.2 エージェント送信方法
 
 `send_to_agent()` と `send_to_agent_queued()` は同一関数 (後者はエイリアス)。
-二層アーキテクチャで Gateway に `chat.send` を送信する。
+`openclaw gateway call` CLI 経由で Gateway に `chat.send` を送信する。
 
-| パス | 条件 | 実装 | device identity | auth mode |
-|---|---|---|---|---|
-| CLI (primary) | params < OS 閾値 | `openclaw gateway call` | ランタイム処理 | 全 mode |
-| WS direct (fallback) | params >= OS 閾値 | `websocket-client` | 省略 (loopback) | token のみ |
+- CLI が device identity と全 auth mode を内部で処理する
+- `MAX_CLI_ARG_BYTES` 未満の `params_json` 専用。それ以上のメッセージは呼び出し元でファイル外部化する
 
 OS ごとの CLI 引数サイズ上限 (`_get_max_cli_arg_bytes`):
 
-| OS | 閾値 |
-|---|---|
-| Linux | 120,000 bytes |
-| macOS | 900,000 bytes |
-| Windows | 30,000 bytes |
+| OS | 閾値 | 根拠 |
+|---|---|---|
+| Linux | 120,000 bytes | MAX_ARG_STRLEN=131,072 (単一引数上限) |
+| macOS | 900,000 bytes | ARG_MAX=1,048,576 (argv+envp 合計上限) |
+| Windows | 30,000 bytes | CreateProcess=32,767 文字 |
 
 - collect キューに積まれ、run 完了後に followup turn として処理される
   - 即時性より abort 回避を優先する設計。/new やレビュー依頼も followup turn として処理される
 - 改行を保持する
 - `dist/` 内部ファイルへの依存なし
-- auth token 取得 (WS パス用): 環境変数 `OPENCLAW_GATEWAY_TOKEN` -> `~/.openclaw/openclaw.json` の `gateway.auth.token`
 
 ### 7.3 催促
 
@@ -420,7 +417,7 @@ spec_config の詳細は `docs/spec_mode_spec.md` を参照。
 | 対象 | mock 方法 | 理由 |
 |---|---|---|
 | `notify.post_discord` | `return_value="mock-msg-id"` | Discord API を叩かない |
-| `notify.send_to_agent` | `return_value=True` | Gateway CLI/WS を叩かない |
+| `notify.send_to_agent` | `return_value=True` | Gateway CLI を叩かない |
 | `notify.send_to_agent_queued` | `return_value=True` | 同上 (エイリアス) |
 | `notify.ping_agent` | `return_value=True` | ping を叩かない |
 | `watchdog.send_to_agent` | `return_value=True` | 同上 |

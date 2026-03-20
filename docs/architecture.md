@@ -57,11 +57,11 @@ graph LR
 
 ```mermaid
 stateDiagram-v2
-    [*] --> TRIAGE
+    [*] --> IDLE
+
+    IDLE --> INITIALIZE : gokrax start
 
     TRIAGE --> IDLE : triage complete
-
-    IDLE --> INITIALIZE : run / assign
 
     INITIALIZE --> DESIGN_PLAN : auto-transition
 

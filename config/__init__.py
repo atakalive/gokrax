@@ -54,7 +54,7 @@ CC_MODEL_PLAN = "sonnet"     # DESIGN_PLAN フェーズ
 CC_MODEL_IMPL = "sonnet"   # IMPLEMENTATION フェーズ
 
 # タイムゾーン
-JST = timezone(timedelta(hours=9))
+LOCAL_TZ = timezone(timedelta(hours=9))
 
 # パイプライン
 MIN_REVIEWS = 3
@@ -210,7 +210,7 @@ ALLOWED_COMMAND_USER_IDS: tuple[str, ...] = (
 BOT_USER_ID = "1313244623396913212"
 
 # マージサマリーのフッター
-MERGE_SUMMARY_FOOTER = "\n---\n✅ このメッセージに「OK」とリプライすると、マージが実行されます。"
+MERGE_SUMMARY_FOOTER = "\n---\n✅ Reply \"OK\" to this message to execute the merge."
 
 # グローバル状態ファイル（PJ 間セッション管理用）
 GOKRAX_STATE_PATH = PIPELINES_DIR.parent / "gokrax-state.json"

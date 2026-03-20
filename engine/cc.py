@@ -8,7 +8,7 @@ import signal
 from datetime import datetime as _datetime
 from pathlib import Path
 
-from config import CC_MODEL_PLAN, CC_MODEL_IMPL, JST, GOKRAX_CLI
+from config import CC_MODEL_PLAN, CC_MODEL_IMPL, LOCAL_TZ, GOKRAX_CLI
 from pipeline_io import load_pipeline, update_pipeline, now_iso
 from engine.shared import log
 from messages import render
@@ -331,7 +331,7 @@ def _poll_pytest_baseline(path: Path, pj: str) -> None:
     started_at = info.get("started_at", "")
     if started_at:
         try:
-            elapsed = (_datetime.now(JST) - _datetime.fromisoformat(started_at)).total_seconds()
+            elapsed = (_datetime.now(LOCAL_TZ) - _datetime.fromisoformat(started_at)).total_seconds()
             if elapsed > PYTEST_BASELINE_TIMEOUT_SEC:
                 timed_out = True
         except (ValueError, TypeError):
@@ -501,7 +501,7 @@ def _poll_code_test(path: Path, pj: str) -> None:
     elapsed_sec = 0.0
     if started_at:
         try:
-            elapsed_sec = (_datetime.now(JST) - _datetime.fromisoformat(started_at)).total_seconds()
+            elapsed_sec = (_datetime.now(LOCAL_TZ) - _datetime.fromisoformat(started_at)).total_seconds()
             if elapsed_sec > test_timeout:
                 timed_out = True
         except (ValueError, TypeError):

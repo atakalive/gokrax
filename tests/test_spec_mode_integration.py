@@ -33,11 +33,11 @@ from commands.spec import cmd_spec_start
 from tests.conftest import write_pipeline
 import config
 
-JST = timezone(timedelta(hours=9))
+LOCAL_TZ = timezone(timedelta(hours=9))
 
 
 def _now():
-    return datetime(2026, 3, 1, 12, 0, 0, tzinfo=JST)
+    return datetime(2026, 3, 1, 12, 0, 0, tzinfo=LOCAL_TZ)
 
 
 def _make_pipeline(state="IDLE", spec_mode=False, spec_config=None, **kwargs):

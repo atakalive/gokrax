@@ -22,11 +22,11 @@ from spec_revise import (
     build_revise_completion_updates,
 )
 
-JST = timezone(timedelta(hours=9))
+LOCAL_TZ = timezone(timedelta(hours=9))
 
 
 def _now():
-    return datetime(2026, 3, 1, 12, 0, 0, tzinfo=JST)
+    return datetime(2026, 3, 1, 12, 0, 0, tzinfo=LOCAL_TZ)
 
 
 # --- build_revise_prompt ---

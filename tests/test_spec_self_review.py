@@ -20,11 +20,11 @@ from watchdog import _check_spec_revise
 from pipeline_io import default_spec_config
 from tests.conftest import write_pipeline
 
-JST = timezone(timedelta(hours=9))
+LOCAL_TZ = timezone(timedelta(hours=9))
 
 
 def _now():
-    return datetime(2026, 3, 1, 12, 0, 0, tzinfo=JST)
+    return datetime(2026, 3, 1, 12, 0, 0, tzinfo=LOCAL_TZ)
 
 
 def _past(sec=7200):

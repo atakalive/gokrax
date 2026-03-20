@@ -14,7 +14,7 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-JST = timezone(timedelta(hours=9))
+LOCAL_TZ = timezone(timedelta(hours=9))
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -207,7 +207,7 @@ class TestReviewResponseMetric:
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_pipelines)
 
         # 10秒前に CODE_REVIEW に遷移した history を持つ pipeline
-        entered_at = (datetime.now(JST) - timedelta(seconds=10)).isoformat()
+        entered_at = (datetime.now(LOCAL_TZ) - timedelta(seconds=10)).isoformat()
         path = tmp_pipelines / "test-pj.json"
         _write_pipeline(path, _base_pipeline(
             state="CODE_REVIEW",
@@ -266,7 +266,7 @@ class TestReviewResponseMetric:
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_pipelines)
 
         # naive datetime（offset なし）の history
-        naive_at = (datetime.now(JST) - timedelta(seconds=30)).strftime("%Y-%m-%dT%H:%M:%S")
+        naive_at = (datetime.now(LOCAL_TZ) - timedelta(seconds=30)).strftime("%Y-%m-%dT%H:%M:%S")
         path = tmp_pipelines / "test-pj.json"
         _write_pipeline(path, _base_pipeline(
             state="DESIGN_REVIEW",

@@ -510,13 +510,13 @@ class TestIsAgentInactive:
         """cc_pidなし、セッションが最近更新されていればアクティブ"""
         from engine.shared import _is_agent_inactive
         from datetime import datetime
-        from config import JST
+        from config import LOCAL_TZ
         import json
 
         data = {}
 
         # 10秒前に更新されたセッション
-        now_ts = int(datetime.now(JST).timestamp() * 1000)
+        now_ts = int(datetime.now(LOCAL_TZ).timestamp() * 1000)
         recent_ts = now_ts - 10000  # 10秒前
 
         session_data = {
@@ -532,14 +532,14 @@ class TestIsAgentInactive:
         """cc_pidなし、セッションが古ければ非アクティブ"""
         from engine.shared import _is_agent_inactive
         from datetime import datetime
-        from config import JST
+        from config import LOCAL_TZ
         import json
 
         data = {}
 
         # INACTIVE_THRESHOLD_SEC + 10秒前に更新されたセッション（閾値超過）
         from config import INACTIVE_THRESHOLD_SEC
-        now_ts = int(datetime.now(JST).timestamp() * 1000)
+        now_ts = int(datetime.now(LOCAL_TZ).timestamp() * 1000)
         old_ts = now_ts - (INACTIVE_THRESHOLD_SEC + 10) * 1000
 
         session_data = {
@@ -1164,13 +1164,13 @@ class TestTimeoutExtension:
         """_check_nudge() がtimeout_extensionを反映してタイムアウト判定すること"""
         from engine.fsm import _check_nudge
         from datetime import datetime, timedelta
-        from config import JST, BLOCK_TIMERS
+        from config import LOCAL_TZ, BLOCK_TIMERS
 
         base = BLOCK_TIMERS["DESIGN_PLAN"]
         extension = 600
         # base + extension の中間 → BLOCKEDにならない
         elapsed = base + extension // 2
-        entered_at = datetime.now(JST) - timedelta(seconds=elapsed)
+        entered_at = datetime.now(LOCAL_TZ) - timedelta(seconds=elapsed)
         data = {
             "state": "DESIGN_PLAN",
             "timeout_extension": extension,
@@ -1185,13 +1185,13 @@ class TestTimeoutExtension:
         """timeout_extension加算後もタイムアウト超過でBLOCKED遷移すること"""
         from engine.fsm import _check_nudge
         from datetime import datetime, timedelta
-        from config import JST, BLOCK_TIMERS
+        from config import LOCAL_TZ, BLOCK_TIMERS
 
         base = BLOCK_TIMERS["DESIGN_PLAN"]
         extension = 600
         # base + extension + 100秒超過 → BLOCKED
         elapsed = base + extension + 100
-        entered_at = datetime.now(JST) - timedelta(seconds=elapsed)
+        entered_at = datetime.now(LOCAL_TZ) - timedelta(seconds=elapsed)
         data = {
             "state": "DESIGN_PLAN",
             "timeout_extension": extension,
@@ -1207,12 +1207,12 @@ class TestTimeoutExtension:
         """残り5分未満 + EXTENDABLE_STATEでextend_noticeが付くこと"""
         from engine.fsm import _check_nudge
         from datetime import datetime, timedelta
-        from config import JST, BLOCK_TIMERS, EXTEND_NOTICE_THRESHOLD
+        from config import LOCAL_TZ, BLOCK_TIMERS, EXTEND_NOTICE_THRESHOLD
 
         base = BLOCK_TIMERS["DESIGN_PLAN"]
         # 残り100秒 < EXTEND_NOTICE_THRESHOLD → extend_notice付与
         elapsed = base - 100
-        entered_at = datetime.now(JST) - timedelta(seconds=elapsed)
+        entered_at = datetime.now(LOCAL_TZ) - timedelta(seconds=elapsed)
         data = {
             "project": "test-pj",
             "state": "DESIGN_PLAN",
@@ -1231,13 +1231,13 @@ class TestTimeoutExtension:
         """残り時間が十分ある場合、extend_noticeがNoneであること"""
         from engine.fsm import _check_nudge
         from datetime import datetime, timedelta
-        from config import JST, BLOCK_TIMERS, NUDGE_GRACE_SEC, EXTEND_NOTICE_THRESHOLD
+        from config import LOCAL_TZ, BLOCK_TIMERS, NUDGE_GRACE_SEC, EXTEND_NOTICE_THRESHOLD
 
         base = BLOCK_TIMERS["DESIGN_PLAN"]
         # 猶予期間は超えてるが、残り時間がEXTEND_NOTICE_THRESHOLDより多い
         elapsed = NUDGE_GRACE_SEC + 10
         assert base - elapsed > EXTEND_NOTICE_THRESHOLD, "テスト前提条件: 残り時間が閾値より大きいこと"
-        entered_at = datetime.now(JST) - timedelta(seconds=elapsed)
+        entered_at = datetime.now(LOCAL_TZ) - timedelta(seconds=elapsed)
         data = {
             "project": "test-pj",
             "state": "DESIGN_PLAN",
@@ -1254,7 +1254,7 @@ class TestTimeoutExtension:
         """EXTENDABLE_STATES以外の状態ではextend_noticeがNoneであること"""
         from engine.fsm import _check_nudge
         from datetime import datetime, timedelta
-        from config import JST
+        from config import LOCAL_TZ
 
         # DESIGN_REVIEWはEXTENDABLE_STATESに含まれない
         # （仮にBLOCK_TIMERSがあっても、extend_noticeは付かない）
@@ -2587,10 +2587,10 @@ class TestTimeoutAllStates:
         """IMPLEMENTATION: CC実行中 + タイムアウト超過 → BLOCKED"""
         from engine.fsm import check_transition
         from datetime import datetime, timedelta
-        from config import JST, BLOCK_TIMERS
+        from config import LOCAL_TZ, BLOCK_TIMERS
 
         elapsed = BLOCK_TIMERS["IMPLEMENTATION"] + 100
-        entered_at = datetime.now(JST) - timedelta(seconds=elapsed)
+        entered_at = datetime.now(LOCAL_TZ) - timedelta(seconds=elapsed)
 
         batch = [{"issue": 1, "commit": None}]
         data = {
@@ -2611,10 +2611,10 @@ class TestTimeoutAllStates:
         """IMPLEMENTATION: commit揃い + タイムアウト超過 → CODE_REVIEW (BLOCKEDにならない)"""
         from engine.fsm import check_transition
         from datetime import datetime, timedelta
-        from config import JST, BLOCK_TIMERS
+        from config import LOCAL_TZ, BLOCK_TIMERS
 
         elapsed = BLOCK_TIMERS["IMPLEMENTATION"] + 100
-        entered_at = datetime.now(JST) - timedelta(seconds=elapsed)
+        entered_at = datetime.now(LOCAL_TZ) - timedelta(seconds=elapsed)
 
         batch = [{"issue": 1, "commit": "abc123"}]
         data = {
@@ -2631,10 +2631,10 @@ class TestTimeoutAllStates:
         """DESIGN_REVIEW: min_reviews 未達 + タイムアウト超過 → BLOCKED"""
         from engine.fsm import check_transition
         from datetime import datetime, timedelta
-        from config import JST, BLOCK_TIMERS
+        from config import LOCAL_TZ, BLOCK_TIMERS
 
         elapsed = BLOCK_TIMERS["DESIGN_REVIEW"] + 100
-        entered_at = datetime.now(JST) - timedelta(seconds=elapsed)
+        entered_at = datetime.now(LOCAL_TZ) - timedelta(seconds=elapsed)
 
         batch = [{"issue": 1, "design_reviews": {}}]
         data = {
@@ -2652,13 +2652,13 @@ class TestTimeoutAllStates:
         """DESIGN_REVIEW: min_reviews 到達 + タイムアウト超過 → APPROVED or REVISE (BLOCKEDにならない)"""
         from engine.fsm import check_transition
         from datetime import datetime, timedelta
-        from config import JST, BLOCK_TIMERS, REVIEW_MODES
+        from config import LOCAL_TZ, BLOCK_TIMERS, REVIEW_MODES
 
         elapsed = BLOCK_TIMERS["DESIGN_REVIEW"] + 100
-        entered_at = datetime.now(JST) - timedelta(seconds=elapsed)
+        entered_at = datetime.now(LOCAL_TZ) - timedelta(seconds=elapsed)
 
         # Set met_at timestamp to past grace period
-        met_at = datetime.now(JST) - timedelta(seconds=400)
+        met_at = datetime.now(LOCAL_TZ) - timedelta(seconds=400)
 
         # Use actual standard mode members for correct count
         members = REVIEW_MODES["standard"]["members"]
@@ -2681,10 +2681,10 @@ class TestTimeoutAllStates:
         """CODE_REVIEW: min_reviews 未達 + タイムアウト超過 → BLOCKED"""
         from engine.fsm import check_transition
         from datetime import datetime, timedelta
-        from config import JST, BLOCK_TIMERS
+        from config import LOCAL_TZ, BLOCK_TIMERS
 
         elapsed = BLOCK_TIMERS["CODE_REVIEW"] + 100
-        entered_at = datetime.now(JST) - timedelta(seconds=elapsed)
+        entered_at = datetime.now(LOCAL_TZ) - timedelta(seconds=elapsed)
 
         batch = [{"issue": 1, "commit": "abc123", "code_reviews": {}}]
         data = {
@@ -2702,13 +2702,13 @@ class TestTimeoutAllStates:
         """CODE_REVIEW: min_reviews 到達 + タイムアウト超過 → APPROVED or REVISE (BLOCKEDにならない)"""
         from engine.fsm import check_transition
         from datetime import datetime, timedelta
-        from config import JST, BLOCK_TIMERS, REVIEW_MODES
+        from config import LOCAL_TZ, BLOCK_TIMERS, REVIEW_MODES
 
         elapsed = BLOCK_TIMERS["CODE_REVIEW"] + 100
-        entered_at = datetime.now(JST) - timedelta(seconds=elapsed)
+        entered_at = datetime.now(LOCAL_TZ) - timedelta(seconds=elapsed)
 
         # Set met_at timestamp to past grace period
-        met_at = datetime.now(JST) - timedelta(seconds=400)
+        met_at = datetime.now(LOCAL_TZ) - timedelta(seconds=400)
 
         # Use actual standard mode members for correct count
         members = REVIEW_MODES["standard"]["members"]
@@ -2732,12 +2732,12 @@ class TestTimeoutAllStates:
         """タイムアウト前は従来通り: elapsed < BLOCK_TIMERS のとき BLOCKED にならない"""
         from engine.fsm import check_transition
         from datetime import datetime, timedelta
-        from config import JST, BLOCK_TIMERS, NUDGE_GRACE_SEC
+        from config import LOCAL_TZ, BLOCK_TIMERS, NUDGE_GRACE_SEC
 
         # Test all states with BLOCK_TIMERS
         for state_name, timeout_sec in BLOCK_TIMERS.items():
             elapsed = NUDGE_GRACE_SEC + 10  # Within timeout
-            entered_at = datetime.now(JST) - timedelta(seconds=elapsed)
+            entered_at = datetime.now(LOCAL_TZ) - timedelta(seconds=elapsed)
 
             if state_name == "IMPLEMENTATION":
                 batch = [{"issue": 1, "commit": None}]
@@ -2795,7 +2795,7 @@ class TestNudgeMessages:
         """
         from engine.fsm import check_transition
         from datetime import datetime, timedelta
-        from config import JST, NUDGE_GRACE_SEC
+        from config import LOCAL_TZ, NUDGE_GRACE_SEC
 
         # Past grace period but before timeout: check_transition returns nudge action
         nudge_cases = [
@@ -2805,7 +2805,7 @@ class TestNudgeMessages:
         ]
 
         for state, batch in nudge_cases:
-            entered_at = datetime.now(JST) - timedelta(seconds=NUDGE_GRACE_SEC + 10)
+            entered_at = datetime.now(LOCAL_TZ) - timedelta(seconds=NUDGE_GRACE_SEC + 10)
             data = {
                 "state": state,
                 "project": "test-pj",
@@ -2844,7 +2844,7 @@ class TestDesignApprovedExcludeNoResponse:
 
         # Create pipeline file
         pj_path = tmp_path / "pipelines" / "test-pj.json"
-        entered_at = datetime.now(config.JST) - timedelta(seconds=10)
+        entered_at = datetime.now(config.LOCAL_TZ) - timedelta(seconds=10)
         pipeline_data = {
             "state": "DESIGN_REVIEW",
             "review_mode": "lite",  # lite mode: min_reviews=2 but grace_period_sec=0
@@ -2904,7 +2904,7 @@ class TestDesignApprovedExcludeNoResponse:
         ]
 
         pj_path = tmp_path / "pipelines" / "test-pj.json"
-        entered_at = datetime.now(config.JST) - timedelta(seconds=10)
+        entered_at = datetime.now(config.LOCAL_TZ) - timedelta(seconds=10)
         pipeline_data = {
             "state": "DESIGN_REVIEW",
             "review_mode": "lite",
@@ -2957,7 +2957,7 @@ class TestDesignApprovedExcludeNoResponse:
         ]
 
         pj_path = tmp_path / "pipelines" / "test-pj.json"
-        entered_at = datetime.now(config.JST) - timedelta(seconds=10)
+        entered_at = datetime.now(config.LOCAL_TZ) - timedelta(seconds=10)
         pipeline_data = {
             "state": "DESIGN_REVIEW",
             "review_mode": "lite",
@@ -3006,7 +3006,7 @@ class TestDesignApprovedExcludeNoResponse:
         ]
 
         pj_path = tmp_path / "pipelines" / "test-pj.json"
-        entered_at = datetime.now(config.JST) - timedelta(seconds=10)
+        entered_at = datetime.now(config.LOCAL_TZ) - timedelta(seconds=10)
         pipeline_data = {
             "state": "DESIGN_REVIEW",
             "review_mode": "standard",
@@ -3069,8 +3069,8 @@ class TestDesignApprovedExcludeNoResponse:
         ]
 
         pj_path = tmp_path / "pipelines" / "test-pj.json"
-        entered_at = datetime.now(config.JST) - timedelta(seconds=400)  # Long enough ago
-        met_at = datetime.now(config.JST) - timedelta(seconds=350)  # Grace expired
+        entered_at = datetime.now(config.LOCAL_TZ) - timedelta(seconds=400)  # Long enough ago
+        met_at = datetime.now(config.LOCAL_TZ) - timedelta(seconds=350)  # Grace expired
         pipeline_data = {
             "state": "DESIGN_REVIEW",
             "review_mode": "standard",
@@ -4158,8 +4158,8 @@ class TestPollPytestBaseline:
         from engine.cc import _poll_pytest_baseline
         from datetime import datetime, timedelta, timezone
 
-        JST = timezone(timedelta(hours=9))
-        recent = datetime.now(JST).isoformat()
+        LOCAL_TZ = timezone(timedelta(hours=9))
+        recent = datetime.now(LOCAL_TZ).isoformat()
 
         path = tmp_pipelines / "pj.json"
         data = {
@@ -4220,8 +4220,8 @@ class TestPollPytestBaseline:
         from engine.cc import _poll_pytest_baseline
         from datetime import datetime, timedelta, timezone
 
-        JST = timezone(timedelta(hours=9))
-        old_time = (datetime.now(JST) - timedelta(seconds=400)).isoformat()
+        LOCAL_TZ = timezone(timedelta(hours=9))
+        old_time = (datetime.now(LOCAL_TZ) - timedelta(seconds=400)).isoformat()
 
         path = tmp_pipelines / "pj.json"
         data = {

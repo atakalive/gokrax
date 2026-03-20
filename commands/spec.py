@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from config import (
-    PIPELINES_DIR, JST, REVIEW_MODES, OWNER_NAME,
+    PIPELINES_DIR, LOCAL_TZ, REVIEW_MODES, OWNER_NAME,
     MAX_SPEC_REVISE_CYCLES, MIN_VALID_REVIEWS_BY_MODE,
     SPEC_REVIEW_TIMEOUT_SEC, SPEC_ISSUE_SUGGESTION_TIMEOUT_SEC,
     MAX_SPEC_RETRIES,
@@ -62,7 +62,7 @@ def _archive_current_reviews(spec_config: dict) -> None:
         "reviews": reviews_summary,
         "merged_counts": merged,
         "commit": spec_config.get("last_commit"),
-        "timestamp": datetime.now(JST).isoformat(),
+        "timestamp": datetime.now(LOCAL_TZ).isoformat(),
     }
     spec_config.setdefault("review_history", []).append(history_entry)
     spec_config["current_reviews"] = {}
@@ -266,7 +266,7 @@ def cmd_spec_approve(args):
 
             _archive_current_reviews(sc)
             sc.setdefault("force_events", []).append({
-                "at": datetime.now(JST).isoformat(),
+                "at": datetime.now(LOCAL_TZ).isoformat(),
                 "actor": OWNER_NAME,
                 "from_state": state,
                 "rev": sc.get("current_rev", "?"),
@@ -392,7 +392,7 @@ def cmd_spec_resume(args):
 
     def do_resume(data):
         sc = data["spec_config"]
-        now = datetime.now(JST)
+        now = datetime.now(LOCAL_TZ)
         target = sc["paused_from"]
 
         if target == "SPEC_REVIEW":
@@ -597,7 +597,7 @@ def cmd_spec_review_submit(args):
     if pipelines_dir:
         spec_name = Path(sc.get("spec_path", "")).stem
         current_rev = sc.get("current_rev", "1")
-        ts = datetime.now(JST).strftime("%Y%m%dT%H%M%S")
+        ts = datetime.now(LOCAL_TZ).strftime("%Y%m%dT%H%M%S")
         archive_name = f"{ts}_{args.reviewer}_{spec_name}_rev{current_rev}.yaml"
         archive_path = Path(pipelines_dir) / archive_name
         try:

@@ -9,7 +9,7 @@ from pathlib import Path
 from config import (
     PIPELINES_DIR, GLAB_BIN, LOG_FILE,
     VALID_STATES, VALID_TRANSITIONS, MAX_BATCH, TRIAGE_ALLOWED_STATES,
-    VALID_VERDICTS, GLAB_TIMEOUT, ALLOWED_REVIEWERS, REVIEW_MODES, JST,
+    VALID_VERDICTS, GLAB_TIMEOUT, ALLOWED_REVIEWERS, REVIEW_MODES, LOCAL_TZ,
     WATCHDOG_LOOP_PIDFILE, WATCHDOG_LOOP_LOCKFILE,
     VALID_FLAG_VERDICTS, STATE_PHASE_MAP,
     GOKRAX_CLI, OWNER_NAME,
@@ -175,7 +175,7 @@ def cmd_extend(args):
     update_pipeline(path, do_extend)
 
     from datetime import datetime
-    ts = datetime.now(JST).strftime("%m/%d %H:%M")
+    ts = datetime.now(LOCAL_TZ).strftime("%m/%d %H:%M")
     notify_discord(
         f"[{args.project}] {result['implementer']} がタイムアウトを{args.by}秒延長 "
         f"({result['state']}, {result['count']}/{MAX_EXTENDS}回, 累計+{result['total']}秒, {ts})"
@@ -595,7 +595,7 @@ def cmd_transition(args):
     current = history[-1].get("from", "?") if history else "?"
     actor = args.actor or "cli"
     from datetime import datetime
-    ts = datetime.now(JST).strftime("%m/%d %H:%M")
+    ts = datetime.now(LOCAL_TZ).strftime("%m/%d %H:%M")
     q_prefix = "[Queue]" if ctx.get("queue_mode") else ""
     notify_discord(f"{q_prefix}[{pj}] {prefix}{current} → {args.to} (by {actor}, {ts})")
 

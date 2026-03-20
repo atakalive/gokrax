@@ -7,7 +7,7 @@ from datetime import datetime as _datetime, timedelta as _timedelta
 from pathlib import Path
 
 from config import (
-    JST, GOKRAX_CLI,
+    LOCAL_TZ, GOKRAX_CLI,
     SPEC_STATES, SPEC_REVIEW_TIMEOUT_SEC, SPEC_REVISE_TIMEOUT_SEC,
     SPEC_ISSUE_SUGGESTION_TIMEOUT_SEC, SPEC_ISSUE_PLAN_TIMEOUT_SEC,
     SPEC_QUEUE_PLAN_TIMEOUT_SEC,
@@ -1007,14 +1007,14 @@ def _cleanup_expired_spec_files(pipelines_dir: str) -> None:
     pd = Path(pipelines_dir)
     if not pd.is_dir():
         return
-    cutoff = _datetime.now(JST) - _timedelta(days=SPEC_REVIEW_RAW_RETENTION_DAYS)
+    cutoff = _datetime.now(LOCAL_TZ) - _timedelta(days=SPEC_REVIEW_RAW_RETENTION_DAYS)
     for f in pd.iterdir():
         if not f.is_file():
             continue
         if not _SPEC_REVIEW_FILE_PATTERN.match(f.name):
             continue
         try:
-            mtime = _datetime.fromtimestamp(f.stat().st_mtime, tz=JST)
+            mtime = _datetime.fromtimestamp(f.stat().st_mtime, tz=LOCAL_TZ)
             if mtime < cutoff:
                 f.unlink()
                 log(f"[spec] cleanup expired: {f.name}")
@@ -1122,7 +1122,7 @@ def _apply_spec_action(
                 last_nudge = rr.get("last_nudge_at")
                 if last_nudge:
                     try:
-                        since = (_datetime.now(JST) - _datetime.fromisoformat(last_nudge)).total_seconds()
+                        since = (_datetime.now(LOCAL_TZ) - _datetime.fromisoformat(last_nudge)).total_seconds()
                         if since < INACTIVE_THRESHOLD_SEC:
                             continue
                     except (ValueError, TypeError):
@@ -1141,10 +1141,10 @@ def _apply_spec_action(
                     sc = data.setdefault("spec_config", {})
                     rr = sc.setdefault("review_requests", {})
                     for r in reviewers:
-                        rr.setdefault(r, {})["last_nudge_at"] = _datetime.now(JST).isoformat()
+                        rr.setdefault(r, {})["last_nudge_at"] = _datetime.now(LOCAL_TZ).isoformat()
                     data["spec_config"] = sc
                 update_pipeline(pipeline_path, _set_spec_nudge)
-                ts = _datetime.now(JST).strftime("%m/%d %H:%M")
+                ts = _datetime.now(LOCAL_TZ).strftime("%m/%d %H:%M")
                 notify_discord(f"[Spec][{pj_fresh}] レビュアーを催促: {', '.join(woken)} ({ts})")
         # spec mode implementer 催促（#76）
         if applied_action.nudge_implementer:
@@ -1163,7 +1163,7 @@ def _apply_spec_action(
                 should_nudge = True
                 if last_nudge:
                     try:
-                        since = (_datetime.now(JST) - _datetime.fromisoformat(last_nudge)).total_seconds()
+                        since = (_datetime.now(LOCAL_TZ) - _datetime.fromisoformat(last_nudge)).total_seconds()
                         if since < INACTIVE_THRESHOLD_SEC:
                             should_nudge = False
                     except (ValueError, TypeError):
@@ -1177,10 +1177,10 @@ def _apply_spec_action(
                     if send_to_agent_queued(implementer, nudge_msg):
                         def _set_impl_nudge(data, impl=implementer):
                             sc = data.get("spec_config", {})
-                            sc["_last_nudge_implementer"] = _datetime.now(JST).isoformat()
+                            sc["_last_nudge_implementer"] = _datetime.now(LOCAL_TZ).isoformat()
                             data["spec_config"] = sc
                         update_pipeline(pipeline_path, _set_impl_nudge)
-                        ts = _datetime.now(JST).strftime("%m/%d %H:%M")
+                        ts = _datetime.now(LOCAL_TZ).strftime("%m/%d %H:%M")
                         notify_discord(f"[Spec][{pj_fresh}] implementer {implementer} を催促 ({ts})")
         if applied_action.discord_notify:
             notify_discord(applied_action.discord_notify)

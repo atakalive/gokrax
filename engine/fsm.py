@@ -9,7 +9,7 @@ from config import (
     GOKRAX_CLI,
     EXTENDABLE_STATES,
     EXTEND_NOTICE_THRESHOLD,
-    JST,
+    LOCAL_TZ,
     NUDGE_GRACE_SEC,
     REVIEW_MODES,
     STATE_PHASE_MAP,
@@ -71,7 +71,7 @@ def _check_nudge(state: str, data: dict) -> TransitionAction | None:
     entered_at = _get_state_entered_at(data, state)
     elapsed = 0.0
     if entered_at is not None:
-        elapsed = (_datetime.now(JST) - entered_at).total_seconds()
+        elapsed = (_datetime.now(LOCAL_TZ) - entered_at).total_seconds()
 
     # BLOCKED判定（時間超過）
     if elapsed >= block_sec:
@@ -333,7 +333,7 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
         if count >= min_rev:
             met_key = f"{'design' if 'DESIGN' in state else 'code'}_min_reviews_met_at"
             if data and not data.get(met_key):
-                data[met_key] = datetime.now(JST).isoformat()
+                data[met_key] = datetime.now(LOCAL_TZ).isoformat()
                 log(
                     f"[GRACE] min_reviews={min_rev} met at {data[met_key]}, effective={effective_count}, grace={grace_sec} sec"
                 )
@@ -350,7 +350,7 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
             elif min_rev < effective_count and grace_sec > 0 and data and data.get(met_key):
                 from datetime import timedelta  # noqa: F401
                 met_at = datetime.fromisoformat(data[met_key])
-                elapsed = (datetime.now(JST) - met_at).total_seconds()
+                elapsed = (datetime.now(LOCAL_TZ) - met_at).total_seconds()
                 if elapsed >= grace_sec:
                     log(f"[GRACE] grace period expired ({elapsed:.1f}s >= {grace_sec}s), transitioning")
                     should_transition = True
@@ -383,7 +383,7 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
         # 2. 未完了レビュアーの催促（猶予期間内はスキップ）
         entered_at = _get_state_entered_at(data, state) if data is not None else None
         if entered_at is not None:
-            elapsed = (_datetime.now(JST) - entered_at).total_seconds()
+            elapsed = (_datetime.now(LOCAL_TZ) - entered_at).total_seconds()
             if elapsed < NUDGE_GRACE_SEC:
                 return TransitionAction()
         # 3. レビュアー催促（最低優先）
@@ -496,7 +496,7 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
             block_sec += data.get("timeout_extension", 0)
             entered_at = _get_state_entered_at(data, "CODE_TEST")
             if entered_at is not None:
-                elapsed = (_datetime.now(JST) - entered_at).total_seconds()
+                elapsed = (_datetime.now(LOCAL_TZ) - entered_at).total_seconds()
                 if elapsed >= block_sec:
                     return TransitionAction(
                         new_state="BLOCKED",

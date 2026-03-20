@@ -25,11 +25,11 @@ from watchdog import (
 )
 import config
 
-JST = timezone(timedelta(hours=9))
+LOCAL_TZ = timezone(timedelta(hours=9))
 
 
 def _now():
-    return datetime(2026, 3, 1, 12, 0, 0, tzinfo=JST)
+    return datetime(2026, 3, 1, 12, 0, 0, tzinfo=LOCAL_TZ)
 
 
 def _yaml_block(content: str) -> str:

@@ -31,11 +31,11 @@ from config import (
     SPEC_REVISE_TIMEOUT_SEC,
 )
 
-JST = timezone(timedelta(hours=9))
+LOCAL_TZ = timezone(timedelta(hours=9))
 
 
 def _now():
-    return datetime(2026, 3, 1, 12, 0, 0, tzinfo=JST)
+    return datetime(2026, 3, 1, 12, 0, 0, tzinfo=LOCAL_TZ)
 
 
 # --- SpecTransitionAction ---
@@ -366,7 +366,7 @@ class TestEnsurePipelinesDir:
 class TestCleanupExpiredSpecFiles:
     def _set_mtime(self, path: Path, days_ago: int) -> None:
         """ファイルの mtime を now から days_ago 日前に設定。"""
-        now_ts = datetime.now(JST).timestamp()
+        now_ts = datetime.now(LOCAL_TZ).timestamp()
         mtime = now_ts - days_ago * 86400
         os.utime(path, (mtime, mtime))
 
@@ -625,9 +625,9 @@ class TestSpecNudge:
         import json
         from datetime import datetime as real_datetime
         pj_path = tmp_pipelines / "test-pj.json"
-        # nudge コード内の _datetime.now(JST) は実時刻を使うため、
+        # nudge コード内の _datetime.now(LOCAL_TZ) は実時刻を使うため、
         # last_nudge_at は実時刻から (INACTIVE_THRESHOLD_SEC - 10) 秒前に設定する
-        recent_nudge = (real_datetime.now(JST) - timedelta(seconds=INACTIVE_THRESHOLD_SEC - 10)).isoformat()
+        recent_nudge = (real_datetime.now(LOCAL_TZ) - timedelta(seconds=INACTIVE_THRESHOLD_SEC - 10)).isoformat()
         pj_data = {
             "project": "test-pj", "state": "SPEC_REVIEW",
             "enabled": True, "batch": [],
@@ -663,9 +663,9 @@ class TestSpecNudge:
         import json
         from datetime import datetime as real_datetime
         pj_path = tmp_pipelines / "test-pj.json"
-        # nudge コード内の _datetime.now(JST) は実時刻を使うため、
+        # nudge コード内の _datetime.now(LOCAL_TZ) は実時刻を使うため、
         # last_nudge_at は実時刻から (INACTIVE_THRESHOLD_SEC + 10) 秒前に設定する
-        old_nudge = (real_datetime.now(JST) - timedelta(seconds=INACTIVE_THRESHOLD_SEC + 10)).isoformat()
+        old_nudge = (real_datetime.now(LOCAL_TZ) - timedelta(seconds=INACTIVE_THRESHOLD_SEC + 10)).isoformat()
         pj_data = {
             "project": "test-pj", "state": "SPEC_REVIEW",
             "enabled": True, "batch": [],

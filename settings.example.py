@@ -68,11 +68,6 @@ TEST_CONFIG: dict = {
 # ===========================================================================
 # Advanced — uncomment and edit if needed
 # ===========================================================================
-# DEFAULT_QUEUE_OPTIONS: dict = {}
-# NONE_TO_FALSE_KEYS: tuple = ()
-# QUEUE_FILE = PIPELINES_DIR / "gokrax-queue.txt"
-# JST = timezone(timedelta(hours=9))
-# GATEWAY_PORT = 18789
 # AGENT_SEND_TIMEOUT = 30
 # DISCORD_POST_TIMEOUT = 10
 # GLAB_TIMEOUT = 15
@@ -82,8 +77,8 @@ TEST_CONFIG: dict = {
 # MAX_DIFF_CHARS: int = 5_000_000
 # REVIEW_FILE_WRITE_RETRIES: int = 3
 # REVIEW_FILE_WRITE_RETRY_DELAY: float = 2.0
-# MERGE_SUMMARY_FOOTER = ""
+# MERGE_SUMMARY_FOOTER = "\n---\n✅ Reply \"OK\" to this message to execute the merge."
 # ALLOWED_COMMAND_USER_IDS: tuple = (MERGE_APPROVER_DISCORD_ID,)
-# SKILLS: dict = {}
-# AGENT_SKILLS: dict = {}
+# SKILLS: dict[str, str] = {"example-skill": str(Path.home() / ".openclaw/skills/example-skill/SKILL.md"),}
+# AGENT_SKILLS: dict[str, list[str]] = {"reviewer1": ["example-skill"],}
 # MAX_SKILL_CHARS: int = 30_000

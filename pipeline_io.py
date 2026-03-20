@@ -33,11 +33,11 @@ else:
     def _unlock(f):
         fcntl.flock(f, fcntl.LOCK_UN)
 
-from config import PIPELINES_DIR, JST, MAX_HISTORY
+from config import PIPELINES_DIR, LOCAL_TZ, MAX_HISTORY
 
 
 def now_iso() -> str:
-    return datetime.now(JST).isoformat()
+    return datetime.now(LOCAL_TZ).isoformat()
 
 
 def load_pipeline(path: Path) -> dict:

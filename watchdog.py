@@ -20,7 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config import (
-    PIPELINES_DIR, JST, LOG_FILE, REVIEW_MODES, CC_MODEL_PLAN, CC_MODEL_IMPL,
+    PIPELINES_DIR, LOCAL_TZ, LOG_FILE, REVIEW_MODES, CC_MODEL_PLAN, CC_MODEL_IMPL,
     GOKRAX_CLI, INACTIVE_THRESHOLD_SEC, SESSIONS_BASE,
     STATE_PHASE_MAP,
     # WATCHDOG_LOOP_PIDFILE, WATCHDOG_LOOP_CRON_MARKER は gokrax.py の enable/disable 専用
@@ -156,7 +156,7 @@ def process(path: Path):
     # spec mode: batch空を許容し、専用ロジックに委譲
     if data.get("spec_mode") and state in SPEC_STATES:
         spec_config = data.get("spec_config", {})
-        now = _datetime.now(JST)
+        now = _datetime.now(LOCAL_TZ)
         action = check_transition_spec(state, spec_config, now, data)
         # 副作用フィールドが1つでもあれば適用
         if (action.next_state or action.pipeline_updates or action.send_to
@@ -211,14 +211,14 @@ def process(path: Path):
             last_nudge = data.get("_last_nudge_at")
             if last_nudge:
                 try:
-                    elapsed_since_nudge = (_datetime.now(JST) - _datetime.fromisoformat(last_nudge)).total_seconds()
+                    elapsed_since_nudge = (_datetime.now(LOCAL_TZ) - _datetime.fromisoformat(last_nudge)).total_seconds()
                     if elapsed_since_nudge < INACTIVE_THRESHOLD_SEC:
                         return
                 except (ValueError, TypeError):
                     pass
             key = _nudge_key(action.nudge)
             data[key] = data.get(key, 0) + 1
-            data["_last_nudge_at"] = _datetime.now(JST).isoformat()
+            data["_last_nudge_at"] = _datetime.now(LOCAL_TZ).isoformat()
             pj = data.get("project", path.stem)
             log(f"[{pj}] {action.nudge}: 催促通知送信 (count={data[key]})")
             notification.update({
@@ -545,7 +545,7 @@ def process(path: Path):
                 last_at = pipeline_data.get(nudge_key) or pipeline_data.get(f"_nudge_failed_{reviewer}")
                 if last_at:
                     try:
-                        elapsed = (_datetime.now(JST) - _datetime.fromisoformat(last_at)).total_seconds()
+                        elapsed = (_datetime.now(LOCAL_TZ) - _datetime.fromisoformat(last_at)).total_seconds()
                         if elapsed < INACTIVE_THRESHOLD_SEC:
                             continue
                     except (ValueError, TypeError):
@@ -615,13 +615,13 @@ def process(path: Path):
             if nudged:
                 def _set_nudge_ts(data, reviewers=nudged, ok=woken, ng=failed):
                     for r in reviewers:
-                        data[f"_last_nudge_{r}"] = _datetime.now(JST).isoformat()
+                        data[f"_last_nudge_{r}"] = _datetime.now(LOCAL_TZ).isoformat()
                     for r in ng:
-                        data[f"_nudge_failed_{r}"] = _datetime.now(JST).isoformat()
+                        data[f"_nudge_failed_{r}"] = _datetime.now(LOCAL_TZ).isoformat()
                 update_pipeline(path, _set_nudge_ts)
 
             if woken:
-                ts = _datetime.now(JST).strftime("%m/%d %H:%M")
+                ts = _datetime.now(LOCAL_TZ).strftime("%m/%d %H:%M")
                 q_prefix = "[Queue]" if notification.get("queue_mode") else ""
                 reviewers_with_ts = f"{', '.join(woken)} ({ts})"
                 review_module = "dev.code_review" if is_code else "dev.design_review"
@@ -652,12 +652,12 @@ def process(path: Path):
             if action.extend_notice:
                 nudge_msg += action.extend_notice
             send_to_agent_queued(notification["implementer"], nudge_msg)
-            ts = _datetime.now(JST).strftime("%m/%d %H:%M")
+            ts = _datetime.now(LOCAL_TZ).strftime("%m/%d %H:%M")
             q_prefix = "[Queue]" if notification.get("queue_mode") else ""
             notify_discord(f"{q_prefix}[{pj}] {action.nudge}: 担当者 {notification['implementer']} を催促 ({ts})")
             return
 
-        ts = _datetime.now(JST).strftime("%m/%d %H:%M")
+        ts = _datetime.now(LOCAL_TZ).strftime("%m/%d %H:%M")
         q_prefix = "[Queue]" if notification.get("queue_mode") else ""
         notify_discord(f"{q_prefix}[{pj}] {notification['old_state']} → {action.new_state} ({ts})")
 
@@ -838,7 +838,7 @@ def process(path: Path):
                           notification.get("repo_path", ""), path)
             except Exception as e:
                 log(f"[{pj}] _start_cc failed: {e}")
-                ts = _datetime.now(JST).strftime("%m/%d %H:%M")
+                ts = _datetime.now(LOCAL_TZ).strftime("%m/%d %H:%M")
                 notify_discord(f"[{pj}] ⚠️ CC起動失敗: {e} ({ts})")
             clear_pending_notification(pj, "run_cc")
 

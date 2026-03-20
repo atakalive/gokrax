@@ -5,12 +5,12 @@ from datetime import datetime
 from pathlib import Path
 
 import config
-from config import JST, SESSIONS_BASE, INACTIVE_THRESHOLD_SEC
+from config import LOCAL_TZ, SESSIONS_BASE, INACTIVE_THRESHOLD_SEC
 
 
 def log(msg: str) -> None:
     """タイムスタンプ付きログをLOG_FILEに書き込む。"""
-    ts = datetime.now(JST).strftime("%Y-%m-%d %H:%M:%S")
+    ts = datetime.now(LOCAL_TZ).strftime("%Y-%m-%d %H:%M:%S")
     line = f"[{ts}] {msg}"
     with open(config.LOG_FILE, "a") as f:
         f.write(line + "\n")
@@ -43,8 +43,8 @@ def _is_agent_inactive(agent_id: str, pipeline_data: dict | None = None) -> bool
         session = data.get(f"agent:{agent_id}:main")
         if not session or "updatedAt" not in session:
             return True
-        last_active = datetime.fromtimestamp(session["updatedAt"] / 1000, JST)
-        elapsed = (datetime.now(JST) - last_active).total_seconds()
+        last_active = datetime.fromtimestamp(session["updatedAt"] / 1000, LOCAL_TZ)
+        elapsed = (datetime.now(LOCAL_TZ) - last_active).total_seconds()
         return elapsed >= INACTIVE_THRESHOLD_SEC
     except (FileNotFoundError, json.JSONDecodeError, KeyError):
         return True

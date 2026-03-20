@@ -25,7 +25,7 @@ from spec_review import (
     build_review_history_entry,
 )
 
-JST = timezone(timedelta(hours=9))
+LOCAL_TZ = timezone(timedelta(hours=9))
 
 
 # --- VERDICT_ALIASES ---
@@ -315,7 +315,7 @@ class TestShouldContinueReview:
 
 class TestResetReviewRequests:
     def _now(self):
-        return datetime(2026, 3, 1, 12, 0, 0, tzinfo=JST)
+        return datetime(2026, 3, 1, 12, 0, 0, tzinfo=LOCAL_TZ)
 
     def test_resets_all_fields(self):
         spec_config = {
@@ -432,7 +432,7 @@ class TestFormatMergedReport:
 
 class TestBuildReviewHistoryEntry:
     def test_basic(self):
-        now = datetime(2026, 3, 1, 12, 0, 0, tzinfo=JST)
+        now = datetime(2026, 3, 1, 12, 0, 0, tzinfo=LOCAL_TZ)
         spec_config = {
             "current_rev": "2",
             "rev_index": 2,
@@ -466,7 +466,7 @@ class TestBuildReviewHistoryEntry:
         assert entry["merged_counts"]["major"] == 1
 
     def test_empty_entries(self):
-        now = datetime(2026, 3, 1, tzinfo=JST)
+        now = datetime(2026, 3, 1, tzinfo=LOCAL_TZ)
         spec_config = {
             "current_rev": "1", "rev_index": 1, "last_commit": None,
             "current_reviews": {"entries": {}},
@@ -477,7 +477,7 @@ class TestBuildReviewHistoryEntry:
 
     def test_non_dict_item_skipped(self):
         """items 内の非dict要素はスキップ（Dijkstra P1-5）"""
-        now = datetime(2026, 3, 1, tzinfo=JST)
+        now = datetime(2026, 3, 1, tzinfo=LOCAL_TZ)
         spec_config = {
             "current_rev": "1", "rev_index": 1, "last_commit": None,
             "current_reviews": {

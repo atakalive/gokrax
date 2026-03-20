@@ -9,10 +9,10 @@
 
 ```bash
 # 1. Start batch (triage + transition to DESIGN_PLAN + enable watchdog)
-gokrax start --pj BeamShifter --issue 17 18 19 --mode full
+gokrax start --pj myproject --issue 17 18 19 --mode full
 
 # 2. [Implementer] Review/edit issue descriptions, then report design plan done
-gokrax plan-done --pj BeamShifter --issue 17 18 19
+gokrax plan-done --pj myproject --issue 17 18 19
 
 # --- Automated from here ---
 # watchdog: DESIGN_PLAN -> DESIGN_REVIEW (reviewers notified)
@@ -21,7 +21,7 @@ gokrax plan-done --pj BeamShifter --issue 17 18 19
 # watchdog: IMPLEMENTATION -> CODE_REVIEW (reviewers notified)
 # watchdog: all reviews done -> CODE_APPROVED -> MERGE_SUMMARY_SENT
 
-# 3. [M] Reply "OK" to the summary in #gokrax -> DONE -> git push + issue close -> IDLE
+# 3. [Owner] Reply "OK" to the summary in the dev channel -> DONE -> git push + issue close -> IDLE
 ```
 
 ---
@@ -36,10 +36,10 @@ gokrax status
 
 Output example:
 ```
-[ON] BeamShifter: CODE_REVIEW  issues=[#17, #18]  ReviewerSize=full  Reviewers=["pascal", "dijkstra", "euler", "basho"]
+[ON] myproject: CODE_REVIEW  issues=[#17, #18]  ReviewerSize=full  Reviewers=["reviewer-a", "reviewer-b", "reviewer-c", "reviewer-d"]
   #17: 2/3 reviews (1 APPROVE, 1 P0)
   #18: 3/3 reviews (3 APPROVE)
-[OFF] gokrax: IDLE  issues=[none]  ReviewerSize=lite  Reviewers=["basho", "pascal"]
+[OFF] another-project: IDLE  issues=[none]  ReviewerSize=lite  Reviewers=["reviewer-a", "reviewer-b"]
 ```
 
 No options (other than `-h`).
@@ -47,21 +47,21 @@ No options (other than `-h`).
 ### `init` -- Initialize a new project
 
 ```bash
-gokrax init --pj NewProject --gitlab atakalive/NewProject --repo-path /path/to/repo
+gokrax init --pj myproject --gitlab user/myproject --repo-path /path/to/repo
 ```
 
 | Option | Required | Description |
 |--------|----------|-------------|
 | `--pj` | Yes | project name |
-| `--gitlab GITLAB` | No | GitLab path (default: `atakalive/<project>`) |
+| `--gitlab GITLAB` | No | GitLab path (default: `<user>/<project>`) |
 | `--repo-path REPO_PATH` | No | local repository path |
-| `--implementer IMPLEMENTER` | No | implementer agent (default: `kaneko`) |
+| `--implementer IMPLEMENTER` | No | implementer agent ID |
 
 ### `enable` / `disable` -- Watchdog control
 
 ```bash
-gokrax enable --pj BeamShifter
-gokrax disable --pj BeamShifter
+gokrax enable --pj myproject
+gokrax disable --pj myproject
 ```
 
 | Option | Required | Description |
@@ -71,7 +71,7 @@ gokrax disable --pj BeamShifter
 ### `extend` -- Extend timeout
 
 ```bash
-gokrax extend --pj BeamShifter --by 600
+gokrax extend --pj myproject --by 600
 ```
 
 | Option | Required | Description |
@@ -85,10 +85,10 @@ Applicable states: DESIGN_PLAN, DESIGN_REVISE, IMPLEMENTATION, CODE_REVISE. Max 
 
 ```bash
 # Specify issue numbers
-gokrax start --pj BeamShifter --issue 17 18 19 --mode full
+gokrax start --pj myproject --issue 17 18 19 --mode full
 
 # Auto-fetch all open issues from GitLab
-gokrax start --pj BeamShifter --mode standard
+gokrax start --pj myproject --mode standard
 ```
 
 | Option | Required | Description |
@@ -113,7 +113,7 @@ Prerequisite: project must be in IDLE state.
 ### `triage` -- Add issues to the batch
 
 ```bash
-gokrax triage --pj BeamShifter --issue 20 21
+gokrax triage --pj myproject --issue 20 21
 ```
 
 | Option | Required | Description |
@@ -128,13 +128,13 @@ Normally called internally by `start`.
 
 ```bash
 # Normal transition (with validation)
-gokrax transition --pj BeamShifter --to CODE_REVIEW
+gokrax transition --pj myproject --to CODE_REVIEW
 
 # Force transition (skip validation)
-gokrax transition --pj BeamShifter --to IDLE --force
+gokrax transition --pj myproject --to IDLE --force
 
 # Resume (skip validation + prefix notifications with "(resumed)")
-gokrax transition --pj BeamShifter --to DESIGN_PLAN --resume
+gokrax transition --pj myproject --to DESIGN_PLAN --resume
 ```
 
 | Option | Required | Description |
@@ -163,9 +163,9 @@ gokrax reset --force
 
 ```bash
 gokrax review \
-  --pj BeamShifter \
+  --pj myproject \
   --issue 17 \
-  --reviewer pascal \
+  --reviewer alice \
   --verdict APPROVE \
   --summary 'Design is sound. Boundary conditions handled properly.'
 ```
@@ -174,7 +174,7 @@ gokrax review \
 |--------|----------|-------------|
 | `--pj` | Yes | project name |
 | `--issue N` | Yes | issue number |
-| `--reviewer` | Yes | reviewer name: `{kaneko,pascal,leibniz,hanfei,dijkstra,neumann,euler,basho}` |
+| `--reviewer` | Yes | reviewer name: (configured reviewers) |
 | `--verdict` | Yes | verdict: `{APPROVE,P0,P1,P2,REJECT}` |
 | `--summary SUMMARY` | No | review summary |
 | `--force` | No | overwrite existing review |
@@ -186,7 +186,7 @@ GitLab integration: verdict + summary are posted as an issue note.
 ### `flag` -- Human (M) verdict injection
 
 ```bash
-gokrax flag --pj BeamShifter --issue 17 --verdict P0 --summary "Critical bug found"
+gokrax flag --pj myproject --issue 17 --verdict P0 --summary "Critical bug found"
 ```
 
 | Option | Required | Description |
@@ -201,14 +201,14 @@ Can be used at any time regardless of current state.
 ### `dispute` -- Dispute a verdict
 
 ```bash
-gokrax dispute --pj BeamShifter --issue 17 --reviewer pascal --reason "False positive"
+gokrax dispute --pj myproject --issue 17 --reviewer alice --reason "False positive"
 ```
 
 | Option | Required | Description |
 |--------|----------|-------------|
 | `--pj` | Yes | project name |
 | `--issue N` | Yes | issue number |
-| `--reviewer` | Yes | reviewer name: `{kaneko,pascal,leibniz,hanfei,dijkstra,neumann,euler,basho}` |
+| `--reviewer` | Yes | reviewer name: (configured reviewers) |
 | `--reason REASON` | Yes | reason for the dispute |
 
 Used during REVISE to dispute a P0/P1 verdict.
@@ -216,7 +216,7 @@ Used during REVISE to dispute a P0/P1 verdict.
 ### `commit` -- Record implementation commit
 
 ```bash
-gokrax commit --pj BeamShifter --issue 17 18 19 --hash abc1234
+gokrax commit --pj myproject --issue 17 18 19 --hash abc1234
 ```
 
 | Option | Required | Description |
@@ -231,7 +231,7 @@ List all issue numbers when a single commit resolves multiple issues.
 ### `plan-done` -- Mark design plan as done
 
 ```bash
-gokrax plan-done --pj BeamShifter --issue 17 18 19
+gokrax plan-done --pj myproject --issue 17 18 19
 ```
 
 | Option | Required | Description |
@@ -244,9 +244,9 @@ Only valid in DESIGN_PLAN state. Run after the implementer has reviewed and edit
 ### `design-revise` -- Mark design revision as done
 
 ```bash
-gokrax design-revise --pj BeamShifter --issue 17
-gokrax design-revise --pj BeamShifter --issue 17 18
-gokrax design-revise --pj BeamShifter --issue 17 --comment "Fixed P0 issue in design"
+gokrax design-revise --pj myproject --issue 17
+gokrax design-revise --pj myproject --issue 17 18
+gokrax design-revise --pj myproject --issue 17 --comment "Fixed P0 issue in design"
 ```
 
 | Option | Required | Description |
@@ -260,9 +260,9 @@ Only valid in DESIGN_REVISE state.
 ### `code-revise` -- Mark code revision as done
 
 ```bash
-gokrax code-revise --pj BeamShifter --issue 17 --hash f8f7c30
-gokrax code-revise --pj BeamShifter --issue 17 18 19 --hash f8f7c30
-gokrax code-revise --pj BeamShifter --issue 17 --hash f8f7c30 --comment "Added zero-division guard"
+gokrax code-revise --pj myproject --issue 17 --hash f8f7c30
+gokrax code-revise --pj myproject --issue 17 18 19 --hash f8f7c30
+gokrax code-revise --pj myproject --issue 17 --hash f8f7c30 --comment "Added zero-division guard"
 ```
 
 | Option | Required | Description |
@@ -277,7 +277,7 @@ Only valid in CODE_REVISE state. Records commit hash and sets code_revised flag 
 ### `review-mode` -- Change review mode
 
 ```bash
-gokrax review-mode --pj BeamShifter --mode full
+gokrax review-mode --pj myproject --mode full
 ```
 
 | Option | Required | Description |
@@ -290,7 +290,7 @@ Reviewer membership for each mode is configured in `config`, not hardcoded in CL
 ### `merge-summary` -- Post merge summary
 
 ```bash
-gokrax merge-summary --pj BeamShifter
+gokrax merge-summary --pj myproject
 ```
 
 | Option | Required | Description |
@@ -302,7 +302,7 @@ Only valid in CODE_APPROVED state. Normally posted automatically by watchdog.
 ### `cc-start` -- Record CC process PID
 
 ```bash
-gokrax cc-start --pj BeamShifter --pid 12345
+gokrax cc-start --pj myproject --pid 12345
 ```
 
 | Option | Required | Description |
@@ -337,14 +337,14 @@ gokrax qstatus
 ### `qadd` -- Add entries to queue
 
 ```bash
-gokrax qadd BeamShifter 33,34 lite no-automerge comment=note
+gokrax qadd myproject 33,34 lite no-automerge comment=note
 gokrax qadd --file entries.txt
-echo "BeamShifter 33 full" | gokrax qadd --stdin
+echo "myproject 33 full" | gokrax qadd --stdin
 ```
 
 | Option | Required | Description |
 |--------|----------|-------------|
-| `entry ...` (positional) | No | entry to add (e.g. `BeamShifter 33,34 lite no-automerge comment=note`) |
+| `entry ...` (positional) | No | entry to add (e.g. `myproject 33,34 lite no-automerge comment=note`) |
 | `--file FILE` | No | file containing entries (one per line) |
 | `--stdin` | No | read entries from stdin |
 | `--queue QUEUE` | No | queue file path |
@@ -364,14 +364,14 @@ gokrax qdel last
 ### `qedit` -- Replace a queue entry
 
 ```bash
-gokrax qedit 0 gokrax 105 full automerge
-gokrax qedit last BeamShifter 50 standard
+gokrax qedit 0 myproject 105 full automerge
+gokrax qedit last myproject 50 standard
 ```
 
 | Option | Required | Description |
 |--------|----------|-------------|
 | `target` (positional) | Yes | target to replace (index number or `last`) |
-| `entry ...` (positional) | Yes | new entry (e.g. `gokrax 105 full automerge`) |
+| `entry ...` (positional) | Yes | new entry (e.g. `myproject 105 full automerge`) |
 | `--queue QUEUE` | No | queue file path |
 
 ---
@@ -395,7 +395,7 @@ gokrax qedit last BeamShifter 50 standard
 tail -f /tmp/gokrax-watchdog.log
 
 # pipeline JSON
-cat ~/.openclaw/shared/pipelines/BeamShifter.json | python3 -m json.tool
+cat ~/.openclaw/shared/pipelines/<project>.json | python3 -m json.tool
 ```
 
 ---
@@ -408,8 +408,8 @@ Automates: spec review -> revision loop -> issue creation -> queue generation.
 
 ```bash
 # 1. Start spec mode pipeline
-gokrax spec start --pj TrajOpt \
-  --spec docs/SPEC.md --implementer kaneko
+gokrax spec start --pj myproject \
+  --spec docs/SPEC.md --implementer my-agent
 
 # --- Automated from here ---
 # watchdog: SPEC_REVIEW (reviewers notified)
@@ -419,13 +419,13 @@ gokrax spec start --pj TrajOpt \
 # watchdog: all APPROVE -> SPEC_APPROVED
 
 # 2. [OWNER] After review, proceed to issue creation phase
-gokrax spec continue --pj TrajOpt
+gokrax spec continue --pj myproject
 
 # --- Automated ---
 # ISSUE_SUGGESTION -> ISSUE_PLAN -> QUEUE_PLAN -> SPEC_DONE
 
 # 3. Complete -> return to IDLE
-gokrax spec done --pj TrajOpt
+gokrax spec done --pj myproject
 ```
 
 ### Spec Subcommands

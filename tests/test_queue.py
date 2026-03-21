@@ -273,6 +273,38 @@ class TestParseQueueLine:
         result = parse_queue_line("Foo 1 no-skip-cc-plan")
         assert result["skip_cc_plan"] is False
 
+    # --- アンダーバー正規化テスト (Issue #165) ---
+
+    def test_underscore_normalized_to_hyphen(self):
+        """アンダーバーがハイフンに正規化される"""
+        result = parse_queue_line("Foo 1 p2_fix")
+        assert result["p2_fix"] is True
+
+    def test_underscore_keep_ctx_intra(self):
+        """keep_ctx_intra（アンダーバー）が認識される"""
+        result = parse_queue_line("Foo 1 keep_ctx_intra")
+        assert result["keep_ctx_intra"] is True
+
+    def test_underscore_skip_cc_plan(self):
+        """skip_cc_plan（アンダーバー）が認識される"""
+        result = parse_queue_line("Foo 1 skip_cc_plan")
+        assert result["skip_cc_plan"] is True
+
+    def test_underscore_no_automerge(self):
+        """no_automerge（アンダーバー）が認識される"""
+        result = parse_queue_line("Foo 1 no_automerge")
+        assert result["automerge"] is False
+
+    def test_underscore_comment_value_preserved(self):
+        """comment= の値部分はアンダーバーが保持される"""
+        result = parse_queue_line("Foo 1 comment=some_note_here")
+        assert result["comment"] == "some_note_here"
+
+    def test_underscore_impl_model_preserved(self):
+        """impl= のモデル名はアンダーバーが保持される"""
+        result = parse_queue_line("Foo 1 impl=some_model")
+        assert result["cc_impl_model"] == "some_model"
+
     # --- インラインコメントテスト (Issue #105) ---
 
     def test_inline_comment_space_hash_space(self):

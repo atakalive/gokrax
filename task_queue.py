@@ -106,6 +106,12 @@ def parse_queue_line(line: str) -> dict:
     i = 2
     while i < len(tokens):
         token = tokens[i]
+        # ハイフン/アンダーバー正規化: "=" 左辺のみ（右辺はモデル名やコメント等なので変換しない）
+        if "=" in token:
+            lhs, rhs = token.split("=", 1)
+            token = lhs.replace("_", "-") + "=" + rhs
+        else:
+            token = token.replace("_", "-")
         if token.startswith("comment="):
             if result["comment"] is not None:
                 raise ValueError("Duplicate comment= token")

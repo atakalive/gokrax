@@ -2,7 +2,54 @@
 
 from __future__ import annotations
 
+import sys
+
+if sys.version_info >= (3, 11):
+    from enum import StrEnum
+else:
+    from enum import Enum
+
+    class StrEnum(str, Enum):
+        pass
+
+
+# ---------------------------------------------------------------------------
+# State enums
+# ---------------------------------------------------------------------------
+
+class State(StrEnum):
+    """Pipeline states (dev + spec)."""
+    # Dev mode
+    IDLE = "IDLE"
+    INITIALIZE = "INITIALIZE"
+    DESIGN_PLAN = "DESIGN_PLAN"
+    DESIGN_REVIEW = "DESIGN_REVIEW"
+    DESIGN_REVISE = "DESIGN_REVISE"
+    DESIGN_APPROVED = "DESIGN_APPROVED"
+    IMPLEMENTATION = "IMPLEMENTATION"
+    CODE_TEST = "CODE_TEST"
+    CODE_TEST_FIX = "CODE_TEST_FIX"
+    CODE_REVIEW = "CODE_REVIEW"
+    CODE_REVISE = "CODE_REVISE"
+    CODE_APPROVED = "CODE_APPROVED"
+    MERGE_SUMMARY_SENT = "MERGE_SUMMARY_SENT"
+    DONE = "DONE"
+    BLOCKED = "BLOCKED"
+    # Spec mode
+    SPEC_REVIEW = "SPEC_REVIEW"
+    SPEC_REVISE = "SPEC_REVISE"
+    SPEC_APPROVED = "SPEC_APPROVED"
+    ISSUE_SUGGESTION = "ISSUE_SUGGESTION"
+    ISSUE_PLAN = "ISSUE_PLAN"
+    QUEUE_PLAN = "QUEUE_PLAN"
+    SPEC_DONE = "SPEC_DONE"
+    SPEC_STALLED = "SPEC_STALLED"
+    SPEC_REVIEW_FAILED = "SPEC_REVIEW_FAILED"
+    SPEC_PAUSED = "SPEC_PAUSED"
+
+
 __all__ = [
+    "State",
     "MAX_BATCH", "MAX_HISTORY", "MAX_REVISE_CYCLES",
     "VALID_VERDICTS", "VALID_FLAG_VERDICTS",
     "STATE_PHASE_MAP",
@@ -24,6 +71,11 @@ MAX_HISTORY = 100
 MAX_REVISE_CYCLES = 4  # REVISE→REVIEWの最大サイクル数
 VALID_VERDICTS = ["APPROVE", "P0", "P1", "P2", "REJECT"]
 VALID_FLAG_VERDICTS = ["P0", "P1", "P2"]
+
+# ---------------------------------------------------------------------------
+# dev mode 基盤
+# ---------------------------------------------------------------------------
+# [IMPORTANT] Transition tables use raw strings for readability. Do not convert to State enum references.
 
 # State→phase mapping (used by flag command)
 STATE_PHASE_MAP: dict[str, str] = {
@@ -91,6 +143,7 @@ EXTEND_NOTICE_THRESHOLD = 300  # 5 min
 # ---------------------------------------------------------------------------
 # spec mode 基盤 — Issue #49
 # ---------------------------------------------------------------------------
+# [IMPORTANT] Transition tables use raw strings for readability. Do not convert to State enum references.
 
 # 1-A. SPEC_STATES（VALID_STATES の直後に論理的に追記）
 SPEC_STATES: list[str] = [

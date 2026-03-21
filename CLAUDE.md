@@ -106,6 +106,7 @@ ruff check *.py tests/
 - 通知フォーマットのうち、他エージェントがパースに依存している部分
 - `settings.py` の既存状態名・遷移テーブル（追加は OK、変更・削除は慎重に）
 - `messages_custom/` — ユーザーがカスタマイズしたプロンプト。編集・削除するな
+- `config/states.py` の遷移テーブル（`VALID_TRANSITIONS`, `SPEC_TRANSITIONS`, `STATE_PHASE_MAP`, `BLOCK_TIMERS` 等）は文字列のまま維持する。可読性のため `State.XX` 参照に変換するな
 
 ### 絶対に実行してはいけないコマンド
 以下の gokrax CLI コマンドはパイプラインの停止・状態破壊を引き起こす。実装・テスト中に絶対に実行するな：

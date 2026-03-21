@@ -1845,6 +1845,167 @@ class TestReviseP0Summary:
         reviewers = set(r.strip() for r in match.group(1).split(","))
         assert reviewers == {"pascal", "leibniz", "hanfei"}
 
+    def test_revise_notification_includes_p2_when_p2_fix_enabled(self, tmp_path, monkeypatch):
+        """p2_fix=True + P2 only → REVISE notification includes P2 reviewer."""
+        from watchdog import process
+
+        path = tmp_path / "test-pj.json"
+        batch = [{
+            "issue": 70, "title": "Issue 70", "commit": None, "cc_session_id": None,
+            "design_reviews": {},
+            "code_reviews": {"euler": {"verdict": "P2"}},
+            "added_at": "2025-01-01T00:00:00+09:00",
+        }]
+        data = {
+            "project": "test-pj",
+            "state": "CODE_REVIEW",
+            "enabled": True,
+            "batch": batch,
+            "review_mode": "lite",
+            "p2_fix": True,
+            "min_reviews_override": 1,
+        }
+        _write_pipeline(path, data)
+
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        def fake_update(p, cb):
+            cb(data)
+            return data
+
+        with patch("watchdog.update_pipeline", side_effect=fake_update), \
+             patch("watchdog.notify_discord") as mock_discord, \
+             patch("watchdog.notify_reviewers"):
+            process(path)
+
+        assert mock_discord.call_count == 2
+        summary = mock_discord.call_args_list[1][0][0]
+        assert "#70:" in summary
+        assert "1 P2 (euler)" in summary
+
+    def test_revise_notification_excludes_p2_when_p2_fix_disabled(self, tmp_path, monkeypatch):
+        """p2_fix=False (default) + P1+P2 → notification has P1 but not P2."""
+        from watchdog import process
+
+        path = tmp_path / "test-pj.json"
+        batch = [{
+            "issue": 71, "title": "Issue 71", "commit": None, "cc_session_id": None,
+            "design_reviews": {},
+            "code_reviews": {"euler": {"verdict": "P1"}, "pascal": {"verdict": "P2"}},
+            "added_at": "2025-01-01T00:00:00+09:00",
+        }]
+        data = {
+            "project": "test-pj",
+            "state": "CODE_REVIEW",
+            "enabled": True,
+            "batch": batch,
+            "review_mode": "lite",
+        }
+        _write_pipeline(path, data)
+
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        def fake_update(p, cb):
+            cb(data)
+            return data
+
+        with patch("watchdog.update_pipeline", side_effect=fake_update), \
+             patch("watchdog.notify_discord") as mock_discord, \
+             patch("watchdog.notify_reviewers"):
+            process(path)
+
+        assert mock_discord.call_count == 2
+        summary = mock_discord.call_args_list[1][0][0]
+        assert "1 P1 (euler)" in summary
+        assert "P2" not in summary
+
+    def test_revise_notification_includes_all_severities_when_p2_fix_enabled(self, tmp_path, monkeypatch):
+        """p2_fix=True + P0/P1/P2 mix → all three in notification, ordered P0→P1→P2."""
+        from watchdog import process
+
+        path = tmp_path / "test-pj.json"
+        batch = [{
+            "issue": 72, "title": "Issue 72", "commit": None, "cc_session_id": None,
+            "design_reviews": {},
+            "code_reviews": {
+                "leibniz": {"verdict": "P0"},
+                "euler": {"verdict": "P1"},
+                "pascal": {"verdict": "P2"},
+            },
+            "added_at": "2025-01-01T00:00:00+09:00",
+        }]
+        data = {
+            "project": "test-pj",
+            "state": "CODE_REVIEW",
+            "enabled": True,
+            "batch": batch,
+            "review_mode": "lite",
+            "p2_fix": True,
+            "min_reviews_override": 3,
+        }
+        _write_pipeline(path, data)
+
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        def fake_update(p, cb):
+            cb(data)
+            return data
+
+        with patch("watchdog.update_pipeline", side_effect=fake_update), \
+             patch("watchdog.notify_discord") as mock_discord, \
+             patch("watchdog.notify_reviewers"):
+            process(path)
+
+        assert mock_discord.call_count == 2
+        summary = mock_discord.call_args_list[1][0][0]
+        assert "1 P0 (leibniz)" in summary
+        assert "1 P1 (euler)" in summary
+        assert "1 P2 (pascal)" in summary
+        # Verify order: P0 < P1 < P2
+        assert summary.index("P0") < summary.index("P1") < summary.index("P2")
+
+    def test_revise_notification_p1_fix_backward_compat(self, tmp_path, monkeypatch):
+        """p1_fix=True (no p2_fix key) backward compat → P2 included in notification."""
+        from watchdog import process
+
+        path = tmp_path / "test-pj.json"
+        batch = [{
+            "issue": 73, "title": "Issue 73", "commit": None, "cc_session_id": None,
+            "design_reviews": {},
+            "code_reviews": {"euler": {"verdict": "P2"}},
+            "added_at": "2025-01-01T00:00:00+09:00",
+        }]
+        data = {
+            "project": "test-pj",
+            "state": "CODE_REVIEW",
+            "enabled": True,
+            "batch": batch,
+            "review_mode": "lite",
+            "p1_fix": True,
+            "min_reviews_override": 1,
+        }
+        _write_pipeline(path, data)
+
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        def fake_update(p, cb):
+            cb(data)
+            return data
+
+        with patch("watchdog.update_pipeline", side_effect=fake_update), \
+             patch("watchdog.notify_discord") as mock_discord, \
+             patch("watchdog.notify_reviewers"):
+            process(path)
+
+        assert mock_discord.call_count == 2
+        summary = mock_discord.call_args_list[1][0][0]
+        assert "#73:" in summary
+        assert "1 P2 (euler)" in summary
+
 
 def _mock_discord_message(msg_id: str, author_id: str, content: str) -> dict:
     """Create mock Discord message object."""

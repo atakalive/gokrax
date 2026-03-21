@@ -486,6 +486,7 @@ def process(path: Path):
             "keep_ctx_batch": data.get("keep_ctx_batch", False),
             "keep_ctx_intra": data.get("keep_ctx_intra", False),
             "queue_mode": _done_queue_mode if state == "DONE" else data.get("queue_mode", False),
+            "p2_fix": data.get("p2_fix", False) or data.get("p1_fix", False),
         })
 
         # Issue #59: _pending_notifications — at-least-once guarantee
@@ -665,6 +666,7 @@ def process(path: Path):
         if action.new_state in ("DESIGN_REVISE", "CODE_REVISE"):
             review_key = "design_reviews" if "DESIGN" in action.new_state else "code_reviews"
             batch = notification["batch"]
+            p2_fix = notification.get("p2_fix", False)
             lines = []
             for item in batch:
                 reviews = item.get(review_key, {})
@@ -676,11 +678,17 @@ def process(path: Path):
                     r for r, rev in reviews.items()
                     if rev.get("verdict", "").upper() == "P1"
                 ]
+                p2_reviewers = [
+                    r for r, rev in reviews.items()
+                    if rev.get("verdict", "").upper() == "P2"
+                ]
                 parts = []
                 if p0_reviewers:
                     parts.append(f"{len(p0_reviewers)} P0 ({', '.join(p0_reviewers)})")
                 if p1_reviewers:
                     parts.append(f"{len(p1_reviewers)} P1 ({', '.join(p1_reviewers)})")
+                if p2_fix and p2_reviewers:
+                    parts.append(f"{len(p2_reviewers)} P2 ({', '.join(p2_reviewers)})")
                 if parts:
                     lines.append(f"#{item['issue']}: {', '.join(parts)}")
             if lines:

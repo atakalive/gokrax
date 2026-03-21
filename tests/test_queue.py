@@ -193,11 +193,6 @@ class TestParseQueueLine:
         result = parse_queue_line("Foo 1")
         assert result["p2_fix"] is False
 
-    def test_p1_fix_backward_compat(self):
-        """p1-fix トークンが p2_fix=True にマップされる（後方互換）"""
-        result = parse_queue_line("Foo 1 p1-fix")
-        assert result["p2_fix"] is True
-
     def test_skip_cc_plan(self):
         """skip-cc-plan トークン → skip_cc_plan=True"""
         result = parse_queue_line("Foo 1 skip-cc-plan")

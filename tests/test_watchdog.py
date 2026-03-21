@@ -1967,45 +1967,6 @@ class TestReviseP0Summary:
         # Verify order: P0 < P1 < P2
         assert summary.index("P0") < summary.index("P1") < summary.index("P2")
 
-    def test_revise_notification_p1_fix_backward_compat(self, tmp_path, monkeypatch):
-        """p1_fix=True (no p2_fix key) backward compat → P2 included in notification."""
-        from watchdog import process
-
-        path = tmp_path / "test-pj.json"
-        batch = [{
-            "issue": 73, "title": "Issue 73", "commit": None, "cc_session_id": None,
-            "design_reviews": {},
-            "code_reviews": {"euler": {"verdict": "P2"}},
-            "added_at": "2025-01-01T00:00:00+09:00",
-        }]
-        data = {
-            "project": "test-pj",
-            "state": "CODE_REVIEW",
-            "enabled": True,
-            "batch": batch,
-            "review_mode": "lite",
-            "p1_fix": True,
-            "min_reviews_override": 1,
-        }
-        _write_pipeline(path, data)
-
-        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
-        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
-
-        def fake_update(p, cb):
-            cb(data)
-            return data
-
-        with patch("watchdog.update_pipeline", side_effect=fake_update), \
-             patch("watchdog.notify_discord") as mock_discord, \
-             patch("watchdog.notify_reviewers"):
-            process(path)
-
-        assert mock_discord.call_count == 2
-        summary = mock_discord.call_args_list[1][0][0]
-        assert "#73:" in summary
-        assert "1 P2 (euler)" in summary
-
 
 def _mock_discord_message(msg_id: str, author_id: str, content: str) -> dict:
     """Create mock Discord message object."""
@@ -3986,15 +3947,6 @@ class TestVerdictObligation:
         assert action.new_state == "IDLE"
 
     # --- 後方互換テスト ---
-
-    def test_p1_fix_backward_compat_in_resolve(self):
-        """pipeline JSON に p1_fix=True が残っていた場合、p2_fix=True として昇格動作する"""
-        from engine.fsm import _resolve_review_outcome
-
-        batch = [{"issue": 1, "design_reviews": {"a": {"verdict": "P2"}}}]
-        data = {"project": "Foo", "p1_fix": True, "design_revise_count": 0}
-        action = _resolve_review_outcome("DESIGN_REVIEW", data, batch, has_p0=False, has_p1=False, has_p2=True)
-        assert action.new_state == "DESIGN_REVISE"
 
     def test_p2_fix_not_leaked_between_batches(self):
         """p2_fix=Falseのバッチでp2_fixが残らないことの統合テスト"""

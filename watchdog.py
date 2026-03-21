@@ -278,7 +278,6 @@ def process(path: Path):
             # Clear queue options (Issue #45, #71)
             data.pop("automerge", None)
             data.pop("p2_fix", None)
-            data.pop("p1_fix", None)      # 旧フラグ（後方互換クリーンアップ）
             data.pop("cc_plan_model", None)
             data.pop("cc_impl_model", None)
             data.pop("keep_context", None)      # 旧フラグ（後方互換クリーンアップ）
@@ -486,7 +485,7 @@ def process(path: Path):
             "keep_ctx_batch": data.get("keep_ctx_batch", False),
             "keep_ctx_intra": data.get("keep_ctx_intra", False),
             "queue_mode": _done_queue_mode if state == "DONE" else data.get("queue_mode", False),
-            "p2_fix": data.get("p2_fix", False) or data.get("p1_fix", False),
+            "p2_fix": data.get("p2_fix", False),
         })
 
         # Issue #59: _pending_notifications — at-least-once guarantee

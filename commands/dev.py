@@ -413,7 +413,6 @@ def _reset_to_idle(data: dict) -> None:
     data.pop("code_revise_count", None)
     data.pop("automerge", None)
     data.pop("p2_fix", None)
-    data.pop("p1_fix", None)
     data.pop("cc_plan_model", None)
     data.pop("cc_impl_model", None)
     data.pop("keep_context", None)
@@ -497,8 +496,7 @@ def cmd_transition(args):
         repo_path = data.get("repo_path", "")
         review_mode = data.get("review_mode", "standard")
 
-        # p1_fix → p2_fix 昇格（後方互換）
-        p2_fix = data.get("p2_fix", False) or data.get("p1_fix", False)
+        p2_fix = data.get("p2_fix", False)
         comment = data.get("comment", "")
         notif = get_notification_for_state(target, pj, batch, gitlab, implementer, p2_fix=p2_fix, comment=comment)
         prefix = "（再開）" if resume else ""

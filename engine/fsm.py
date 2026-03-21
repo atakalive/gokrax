@@ -186,8 +186,7 @@ def _resolve_review_outcome(
     appr = "DESIGN_APPROVED" if "DESIGN" in state else "CODE_APPROVED"
     revise_state = "DESIGN_REVISE" if "DESIGN" in state else "CODE_REVISE"
     pj = data.get("project", "") if data else ""
-    # p1_fix → p2_fix 昇格（後方互換）
-    p2_fix = (data.get("p2_fix", False) or data.get("p1_fix", False)) if data else False
+    p2_fix = data.get("p2_fix", False) if data else False
 
     # P0 or P1 あり → REVISE or BLOCKED/フォールバック
     if has_p0 or has_p1:
@@ -415,8 +414,7 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
         review_key = "design_reviews" if "DESIGN" in state else "code_reviews"
         revised_key = "design_revised" if "DESIGN" in state else "code_revised"
         review_state = "DESIGN_REVIEW" if "DESIGN" in state else "CODE_REVIEW"
-        # p1_fix → p2_fix 昇格（後方互換）
-        p2_fix = (data.get("p2_fix", False) or data.get("p1_fix", False)) if data else False
+        p2_fix = data.get("p2_fix", False) if data else False
 
         flag_phase = STATE_PHASE_MAP.get(state)
         all_done = True

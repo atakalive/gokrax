@@ -144,7 +144,7 @@ def parse_queue_line(line: str) -> dict:
         elif token.startswith("plan="):
             result["cc_plan_model"] = token.split("=", 1)[1]
             result["_explicit_keys"].add("cc_plan_model")
-        elif token in ("p1-fix", "p2-fix"):
+        elif token == "p2-fix":
             result["p2_fix"] = True
             result["_explicit_keys"].add("p2_fix")
         elif token.startswith("impl="):

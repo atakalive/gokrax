@@ -17,7 +17,7 @@ def initial(project: str, spec_path: str, current_rev: str, GOKRAX_CLI: str, **_
     """Initial review prompt (§5.1)."""
     return f"""[INSTRUCTION] Complete this task in one go without interruption. Do not ask for confirmation mid-task.
 
-Review the following spec. This is an **intensive review** request.
+Review the following spec. This is an **exhaustive review** request.
 
 Project: {project}
 Spec: {spec_path} (rev{current_rev})
@@ -28,7 +28,6 @@ Spec: {spec_path} (rev{current_rev})
 - Pay special attention to consistency between pseudocode sections
 - Also verify consistency with the existing gokrax codebase
 - Look for state machine transition gaps and deadlocks
-- Suggest prompt creation notes at suggestion (P2) severity
 - Include only **one** YAML block in your response
 
 ## Output Format
@@ -77,7 +76,6 @@ Last commit: {last_commit}
 - Verify that previous findings have been properly addressed
 - Check new additions for issues
 - Severity, section numbers, and YAML format are the same as before
-- Suggest prompt creation notes at suggestion (P2) severity
 - Include only **one** YAML block in your response
 
 ## Submission Instructions

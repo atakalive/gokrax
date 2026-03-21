@@ -1,0 +1,4 @@
+"""IDLE state.
+
+No prompts.
+"""

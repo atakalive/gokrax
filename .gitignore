@@ -5,10 +5,8 @@ __pycache__/
 .ruff_cache/
 .vscode/
 gokrax-queue.txt
-TESTING_NOTES.md
 reviews/
 docs/archive/
 settings.py
 messages_custom/**/*.py
-README.md
-README_ja.md
+TESTING_NOTES.md

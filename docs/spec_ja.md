@@ -175,7 +175,7 @@ IDLE -> INITIALIZE -> DESIGN_PLAN -> DESIGN_REVIEW -> DESIGN_APPROVED -> IMPLEME
 
 ## 5. レビューモード
 
-プロジェクトごとに設定。使用するレビュアーの構成と最低レビュー数を制御。
+プロジェクトごとにデフォルト値を設定。実行バッチ毎の設定も可能。使用するレビュアーの構成と最低レビュー数を制御。
 
 レビューモードは `settings.py` の `REVIEW_MODES` で定義する。デフォルト構造は `settings.example.py` を参照。
 

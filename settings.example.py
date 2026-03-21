@@ -64,7 +64,7 @@ REVIEW_MODES = {
     },
     "lite3": {
         "members": ["reviewer1", "reviewer2", "reviewer3"],
-        "min_reviews": 3,
+        "min_reviews": 2,
         "grace_period_sec": 300,
     },
     "skip": {

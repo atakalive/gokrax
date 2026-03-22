@@ -815,9 +815,12 @@ def process(path: Path):
             update_pipeline(path, _save_excluded)
 
         if action.impl_msg:
+            phase = STATE_PHASE_MAP.get(notification.get("new_state", ""), "")
             notify_implementer(
                 notification["implementer"],
                 f"[gokrax] {pj}: {action.impl_msg}",
+                project=pj,
+                phase=phase,
             )
             clear_pending_notification(pj, "impl")
         if action.send_review:
@@ -895,7 +898,12 @@ def process(path: Path):
                     retry_count=retry_count, max_retry=MAX_TEST_RETRY,
                     GOKRAX_CLI=_GOKRAX_CLI,
                 )
-                notify_implementer(notification["implementer"], f"[gokrax] {pj}: {msg}")
+                notify_implementer(
+                    notification["implementer"],
+                    f"[gokrax] {pj}: {msg}",
+                    project=pj,
+                    phase="code",
+                )
 
 
 # _stop_loop_if_idle は廃止。crontab/loop.sh は常時稼働し、

@@ -27,20 +27,51 @@ from config import (
 logger = logging.getLogger("gokrax.notify")
 
 
-def load_skills(agent_name: str) -> str:
-    """指定エージェントに紐付けられたスキルファイルを読み込み、結合して返す。
+def load_skills(agent_name: str, project: str = "", phase: str = "") -> str:
+    """指定エージェント・プロジェクト・フェーズに紐付けられたスキルファイルを読み込み、結合して返す。
 
     Args:
         agent_name: AGENT_SKILLS のキー
+        project: PROJECT_SKILLS のキー（空文字列の場合はプロジェクト別スキルなし）
+        phase: "design" または "code"（空文字列の場合はスキル注入なし）
 
     Returns:
         スキル内容を結合した文字列。スキルがない場合は空文字列。
+        - phase が空の場合 → 空文字列
         - AGENT_SKILLS にキーがない場合 → 空文字列
         - スキル名が SKILLS に存在しない場合 → warning を出してスキップ
         - ファイル読み込みに失敗した場合 → warning を出してスキップ
         - 結合結果が MAX_SKILL_CHARS を超える場合 → warning を出して切り詰め
     """
-    skill_names = config.AGENT_SKILLS.get(agent_name)
+    if not phase:
+        return ""
+
+    # エージェント別スキル
+    agent_phase_skills = config.AGENT_SKILLS.get(agent_name, {})
+    if isinstance(agent_phase_skills, list):
+        # 旧形式（list[str]）: 全フェーズに適用しつつ deprecation warning
+        logger.warning(
+            "load_skills: AGENT_SKILLS[%r] is list (deprecated). "
+            "Migrate to dict[str, list[str]] format: {\"design\": [...], \"code\": [...]}",
+            agent_name,
+        )
+        a: list[str] = agent_phase_skills
+    elif isinstance(agent_phase_skills, dict):
+        a = agent_phase_skills.get(phase, [])
+    else:
+        a = []
+
+    # プロジェクト別スキル
+    p: list[str] = config.PROJECT_SKILLS.get(project, {}).get(phase, []) if project else []
+
+    # 和集合（重複排除）、順序は安定させる（元リスト順を維持）
+    seen: set[str] = set()
+    skill_names: list[str] = []
+    for name in (*a, *p):
+        if name not in seen:
+            seen.add(name)
+            skill_names.append(name)
+
     if not skill_names:
         return ""
 
@@ -255,7 +286,8 @@ def _build_file_review_message(
     )
 
     # スキルブロック付与
-    skill_block = load_skills(reviewer)
+    phase = "code" if is_code else "design"
+    skill_block = load_skills(reviewer, project, phase)
     if skill_block:
         msg = f"{skill_block}\n\n{msg}"
 
@@ -517,7 +549,7 @@ def _check_squash(batch: list, base_commit: str, repo_path: str) -> list[str]:
     return warnings
 
 
-def notify_implementer(agent_id: str, message: str):
+def notify_implementer(agent_id: str, message: str, project: str = "", phase: str = ""):
     """実装担当にメッセージを送信する。
 
     agent_id に紐付けられたスキルブロック（config.AGENT_SKILLS）がある場合、
@@ -526,7 +558,7 @@ def notify_implementer(agent_id: str, message: str):
     if agent_id not in AGENTS:
         logger.error("Unknown agent: %s", agent_id)
         return
-    skill_block = load_skills(agent_id)
+    skill_block = load_skills(agent_id, project, phase)
     if skill_block:
         message = f"{skill_block}\n\n{message}"
     send_to_agent(agent_id, message)
@@ -727,7 +759,8 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
     phase = "コード" if is_code else "設計"
     sections = []
 
-    skill_block = load_skills(reviewer)
+    phase = "code" if is_code else "design"
+    skill_block = load_skills(reviewer, project, phase)
 
     diff_commits: set[str] = set()
 

@@ -1052,7 +1052,8 @@ class TestSkillInjection:
         skill_file.write_text("Impl skill", encoding="utf-8")
 
         monkeypatch.setattr(config, "SKILLS", {"impl-skill": str(skill_file)})
-        monkeypatch.setattr(config, "AGENT_SKILLS", {"kaneko": ["impl-skill"]})
+        monkeypatch.setattr(config, "AGENT_SKILLS", {"kaneko": {"code": ["impl-skill"]}})
+        monkeypatch.setattr(config, "PROJECT_SKILLS", {})
 
         sent_messages = []
 
@@ -1062,7 +1063,7 @@ class TestSkillInjection:
 
         monkeypatch.setattr(notify, "send_to_agent", mock_send)
 
-        notify.notify_implementer("kaneko", "Original message")
+        notify.notify_implementer("kaneko", "Original message", project="test-pj", phase="code")
 
         assert len(sent_messages) == 1
         _, msg = sent_messages[0]

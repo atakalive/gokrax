@@ -98,10 +98,11 @@ class TestLoadSkills:
             "skill-b": str(skill_b),
         })
         monkeypatch.setattr(config, "AGENT_SKILLS", {
-            "test-agent": ["skill-a", "skill-b"],
+            "test-agent": {"code": ["skill-a", "skill-b"]},
         })
+        monkeypatch.setattr(config, "PROJECT_SKILLS", {})
 
-        result = notify.load_skills("test-agent")
+        result = notify.load_skills("test-agent", phase="code")
         assert result.startswith("<skills>\n")
         assert result.endswith("\n</skills>")
         assert "--- skill: skill-a ---" in result
@@ -133,11 +134,12 @@ class TestLoadSkills:
             "missing-skill": str(tmp_path / "nonexistent.md"),
         })
         monkeypatch.setattr(config, "AGENT_SKILLS", {
-            "test-agent": ["missing-skill", "ok-skill"],
+            "test-agent": {"code": ["missing-skill", "ok-skill"]},
         })
+        monkeypatch.setattr(config, "PROJECT_SKILLS", {})
 
         with caplog.at_level(logging.WARNING, logger="gokrax.notify"):
-            result = notify.load_skills("test-agent")
+            result = notify.load_skills("test-agent", phase="code")
 
         assert "failed to read" in caplog.text
         # 存在するスキルは正常に読み込まれる
@@ -151,11 +153,12 @@ class TestLoadSkills:
 
         monkeypatch.setattr(config, "SKILLS", {})
         monkeypatch.setattr(config, "AGENT_SKILLS", {
-            "test-agent": ["nonexistent-skill"],
+            "test-agent": {"code": ["nonexistent-skill"]},
         })
+        monkeypatch.setattr(config, "PROJECT_SKILLS", {})
 
         with caplog.at_level(logging.WARNING, logger="gokrax.notify"):
-            result = notify.load_skills("test-agent")
+            result = notify.load_skills("test-agent", phase="code")
 
         assert "unknown skill" in caplog.text
         assert result == ""
@@ -169,11 +172,12 @@ class TestLoadSkills:
         skill_file.write_text("X" * 10000, encoding="utf-8")
 
         monkeypatch.setattr(config, "SKILLS", {"big": str(skill_file)})
-        monkeypatch.setattr(config, "AGENT_SKILLS", {"test-agent": ["big"]})
+        monkeypatch.setattr(config, "AGENT_SKILLS", {"test-agent": {"code": ["big"]}})
+        monkeypatch.setattr(config, "PROJECT_SKILLS", {})
         monkeypatch.setattr(config, "MAX_SKILL_CHARS", 100)
 
         with caplog.at_level(logging.WARNING, logger="gokrax.notify"):
-            result = notify.load_skills("test-agent")
+            result = notify.load_skills("test-agent", phase="code")
 
         assert "truncating" in caplog.text
         assert len(result) <= 100
@@ -188,10 +192,11 @@ class TestLoadSkills:
         skill_file.write_text("content", encoding="utf-8")
 
         monkeypatch.setattr(config, "SKILLS", {"s": str(skill_file)})
-        monkeypatch.setattr(config, "AGENT_SKILLS", {"test-agent": ["s"]})
+        monkeypatch.setattr(config, "AGENT_SKILLS", {"test-agent": {"code": ["s"]}})
+        monkeypatch.setattr(config, "PROJECT_SKILLS", {})
         monkeypatch.setattr(config, "MAX_SKILL_CHARS", 5)
 
-        result = notify.load_skills("test-agent")
+        result = notify.load_skills("test-agent", phase="code")
         assert result == ""
 
 

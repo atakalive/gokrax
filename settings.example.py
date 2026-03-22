@@ -95,7 +95,18 @@ REVIEW_MODES = {
 # MERGE_SUMMARY_FOOTER = "\n---\n✅ Reply \"OK\" to this message to execute the merge."
 # ALLOWED_COMMAND_USER_IDS: tuple[str, ...] = (MERGE_APPROVER_DISCORD_ID, COMMAND_BOT_USER_ID,)
 # SKILLS: dict[str, str] = {"example-skill": str(Path.home() / ".openclaw/skills/example-skill/SKILL.md"),}
-# AGENT_SKILLS: dict[str, list[str]] = {"reviewer1": ["example-skill", "example-skill-2"],}
+# AGENT_SKILLS: dict[str, dict[str, list[str]]] = {
+#     "reviewer1": {
+#         "design": [],
+#         "code": ["example-skill"],
+#     },
+# }
+# PROJECT_SKILLS: dict[str, dict[str, list[str]]] = {
+#     "myproject": {
+#         "design": ["example-skill"],
+#         "code": ["example-skill"],
+#     },
+# }
 # MAX_SKILL_CHARS: int = 30_000
 # TEST_CONFIG: dict = {
 #     "myproject": {

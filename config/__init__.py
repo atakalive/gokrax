@@ -58,6 +58,10 @@ AGENT_SEND_TIMEOUT = 30
 DISCORD_POST_TIMEOUT = 10
 GLAB_TIMEOUT = 15
 
+# スキル定義
+SKILLS: dict[str, str] = {}
+AGENT_SKILLS: dict[str, dict[str, list[str]]] = {}
+PROJECT_SKILLS: dict[str, dict[str, list[str]]] = {}
 # スキルブロック合計の上限（文字数）。超過時は warning + 切り詰め
 MAX_SKILL_CHARS: int = 30_000
 

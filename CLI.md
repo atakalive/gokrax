@@ -393,6 +393,52 @@ gokrax qedit last myproject 50 standard
 
 ---
 
+## Skill Settings
+
+Skills are external prompt files injected into reviewer/implementer messages. Configured in `settings.py`.
+
+### SKILLS
+
+Maps skill names to file paths:
+
+```python
+SKILLS: dict[str, str] = {
+    "example-skill": str(Path.home() / ".openclaw/skills/example-skill/SKILL.md"),
+}
+```
+
+### AGENT_SKILLS
+
+Maps agent names to per-phase skill lists. `phase` is `"design"` (design review) or `"code"` (code review / implementation).
+
+```python
+AGENT_SKILLS: dict[str, dict[str, list[str]]] = {
+    "reviewer1": {
+        "design": [],
+        "code": ["diff-reading-guide", "numerical-validation"],
+    },
+}
+```
+
+> **Deprecated**: The old `dict[str, list[str]]` format (e.g. `{"reviewer1": ["skill-a"]}`) still works as a fallback — all listed skills are applied to every phase — but emits a deprecation warning. Migrate to the new per-phase format.
+
+### PROJECT_SKILLS
+
+Maps project names to per-phase skill lists. These are merged (union) with `AGENT_SKILLS`:
+
+```python
+PROJECT_SKILLS: dict[str, dict[str, list[str]]] = {
+    "EMCalibrator": {
+        "design": ["device-safety"],
+        "code": ["device-safety"],
+    },
+}
+```
+
+When both `AGENT_SKILLS` and `PROJECT_SKILLS` specify the same skill name, it is included only once (deduplicated).
+
+---
+
 ## Log Paths
 
 ```bash

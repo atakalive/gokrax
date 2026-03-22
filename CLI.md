@@ -184,7 +184,7 @@ gokrax flag --pj myproject --issue 17 --verdict P0 --summary "Critical bug found
 | `--verdict` | Yes | verdict: `{P0,P1,P2}` |
 | `--summary SUMMARY` | No | flag description |
 
-Can be used at any time regardless of current state.
+Can be used at any time regardless of current state. (confirmed it works in REVIEW state)
 
 ### `dispute` -- Dispute a verdict
 

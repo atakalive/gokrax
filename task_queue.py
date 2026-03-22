@@ -15,6 +15,15 @@ from typing import Optional
 from pipeline_io import load_pipeline, get_path
 from config import REVIEW_MODES, DEFAULT_QUEUE_OPTIONS
 
+# DEFAULT_QUEUE_OPTIONS のキーを内部キーにマッピングする。
+# "key=value" 形式: キー名を内部キーに変換し、value（= の右辺）を値として使う。
+# "key" 形式（value が str）: キー名を内部キーに変換し、dict の value を値として使う。
+# 同一エイリアスの重複（パターン A/B 混在）は dict 挿入順で後勝ち。
+_QUEUE_OPT_ALIASES: dict[str, str] = {
+    "impl": "cc_impl_model",
+    "plan": "cc_plan_model",
+}
+
 
 def sanitize_comment(raw: str) -> str | None:
     """コメント文字列をサニタイズして返す。空なら None。"""
@@ -192,11 +201,23 @@ def parse_queue_line(line: str) -> dict:
     result.pop("_seen_no_automerge", None)
     explicit = result.pop("_explicit_keys")
     for key, default_val in DEFAULT_QUEUE_OPTIONS.items():
-        if key not in result:
-            continue  # 未知のキーは無視
-        if key in explicit:
-            continue  # 明示的に指定されたキーはスキップ
-        result[key] = default_val
+        if "=" in key:
+            # パターン A: "impl=opus": True → lhs="impl", rhs="opus"
+            if not default_val:
+                continue
+            lhs, rhs = key.split("=", 1)
+            if not rhs:
+                continue
+            internal_key = _QUEUE_OPT_ALIASES.get(lhs)
+            if internal_key and internal_key in result and internal_key not in explicit:
+                result[internal_key] = rhs
+        else:
+            internal_key = _QUEUE_OPT_ALIASES.get(key, key)
+            if internal_key not in result:
+                continue
+            if internal_key in explicit:
+                continue
+            result[internal_key] = default_val
     return result
 
 

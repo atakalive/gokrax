@@ -1363,3 +1363,137 @@ class TestCmdStartSkipCcPlan:
 
         captured = capsys.readouterr()
         assert "skip-cc-plan" in captured.out
+
+
+class TestParseQueueLineDefaultModelOptions:
+    """DEFAULT_QUEUE_OPTIONS の impl/plan モデル指定テスト"""
+
+    def test_default_impl_equals_format(self, monkeypatch):
+        """パターン A: "impl=opus": True が cc_impl_model に反映される"""
+        monkeypatch.setattr("task_queue.DEFAULT_QUEUE_OPTIONS", {"impl=opus": True})
+        result = parse_queue_line("Foo 1")
+        assert result["cc_impl_model"] == "opus"
+
+    def test_default_impl_str_format(self, monkeypatch):
+        """パターン B: "impl": "opus" が cc_impl_model に反映される"""
+        monkeypatch.setattr("task_queue.DEFAULT_QUEUE_OPTIONS", {"impl": "opus"})
+        result = parse_queue_line("Foo 1")
+        assert result["cc_impl_model"] == "opus"
+
+    def test_default_plan_equals_format(self, monkeypatch):
+        """パターン A: "plan=sonnet": True が cc_plan_model に反映される"""
+        monkeypatch.setattr("task_queue.DEFAULT_QUEUE_OPTIONS", {"plan=sonnet": True})
+        result = parse_queue_line("Foo 1")
+        assert result["cc_plan_model"] == "sonnet"
+
+    def test_default_plan_str_format(self, monkeypatch):
+        """パターン B: "plan": "sonnet" が cc_plan_model に反映される"""
+        monkeypatch.setattr("task_queue.DEFAULT_QUEUE_OPTIONS", {"plan": "sonnet"})
+        result = parse_queue_line("Foo 1")
+        assert result["cc_plan_model"] == "sonnet"
+
+    def test_explicit_impl_overrides_default(self, monkeypatch):
+        """キュー行で明示指定した impl= はデフォルトより優先される"""
+        monkeypatch.setattr("task_queue.DEFAULT_QUEUE_OPTIONS", {"impl": "opus"})
+        result = parse_queue_line("Foo 1 impl=haiku")
+        assert result["cc_impl_model"] == "haiku"
+
+    def test_explicit_plan_overrides_default(self, monkeypatch):
+        """キュー行で明示指定した plan= はデフォルトより優先される"""
+        monkeypatch.setattr("task_queue.DEFAULT_QUEUE_OPTIONS", {"plan=sonnet": True})
+        result = parse_queue_line("Foo 1 plan=opus")
+        assert result["cc_plan_model"] == "opus"
+
+    def test_both_model_and_bool_defaults(self, monkeypatch):
+        """モデル指定と bool 指定が混在する DEFAULT_QUEUE_OPTIONS"""
+        monkeypatch.setattr("task_queue.DEFAULT_QUEUE_OPTIONS", {
+            "impl": "opus",
+            "skip_cc_plan": True,
+            "keep_ctx_intra": True,
+        })
+        result = parse_queue_line("Foo 1")
+        assert result["cc_impl_model"] == "opus"
+        assert result["skip_cc_plan"] is True
+        assert result["keep_ctx_intra"] is True
+
+    def test_unknown_alias_ignored(self, monkeypatch):
+        """_QUEUE_OPT_ALIASES に存在しない "key=value" 形式は無視される（エラーにならない）"""
+        monkeypatch.setattr("task_queue.DEFAULT_QUEUE_OPTIONS", {"unknown=value": True})
+        result = parse_queue_line("Foo 1")
+        assert result["cc_impl_model"] is None
+        assert result["cc_plan_model"] is None
+
+    def test_pattern_a_false_disables(self, monkeypatch):
+        """パターン A: "impl=opus": False は適用しない（無効化の意図）"""
+        monkeypatch.setattr("task_queue.DEFAULT_QUEUE_OPTIONS", {"impl=opus": False})
+        result = parse_queue_line("Foo 1")
+        assert result["cc_impl_model"] is None
+
+    def test_pattern_a_empty_value_skipped(self, monkeypatch):
+        """パターン A: "impl=": True は空値のためスキップされる"""
+        monkeypatch.setattr("task_queue.DEFAULT_QUEUE_OPTIONS", {"impl=": True})
+        result = parse_queue_line("Foo 1")
+        assert result["cc_impl_model"] is None
+
+
+class TestCmdStartDefaultModelOptions:
+    """cmd_start の DEFAULT_QUEUE_OPTIONS → pipeline.json cc_model 書き込みテスト"""
+
+    @staticmethod
+    def _write_pipeline(path, data):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        import json as _json
+        path.write_text(_json.dumps(data))
+
+    def _make_pipeline_data(self):
+        return {
+            "project": "test-pj", "gitlab": "atakalive/test-pj",
+            "state": "IDLE", "enabled": False,
+            "implementer": "kaneko", "batch": [], "history": [],
+            "created_at": "2025-01-01T00:00:00+09:00",
+            "updated_at": "2025-01-01T00:00:00+09:00",
+        }
+
+    def test_default_impl_equals_format_to_pipeline(self, tmp_pipelines, monkeypatch):
+        """パターン A: "impl=opus": True → pipeline.json に cc_impl_model が書き込まれる"""
+        import json as _json
+        import config
+        monkeypatch.setattr(config, "DEFAULT_QUEUE_OPTIONS", {"impl=opus": True})
+        path = tmp_pipelines / "test-pj.json"
+        self._write_pipeline(path, self._make_pipeline_data())
+        import argparse
+        from gokrax import cmd_start
+        args = argparse.Namespace(
+            project="test-pj", issue=[1], mode=None,
+            keep_context=False, keep_ctx_batch=False, keep_ctx_intra=False,
+            keep_ctx_all=False, p2_fix=False, comment=None,
+            skip_cc_plan=False, skip_test=False, skip_assess=False,
+        )
+        with patch("commands.dev.cmd_triage"), \
+             patch("commands.dev.cmd_transition"), \
+             patch("gokrax._start_loop"):
+            cmd_start(args)
+        data = _json.loads(path.read_text())
+        assert data.get("cc_impl_model") == "opus"
+
+    def test_default_impl_str_format_to_pipeline(self, tmp_pipelines, monkeypatch):
+        """パターン B: "impl": "opus" → pipeline.json に cc_impl_model が書き込まれる"""
+        import json as _json
+        import config
+        monkeypatch.setattr(config, "DEFAULT_QUEUE_OPTIONS", {"impl": "opus"})
+        path = tmp_pipelines / "test-pj.json"
+        self._write_pipeline(path, self._make_pipeline_data())
+        import argparse
+        from gokrax import cmd_start
+        args = argparse.Namespace(
+            project="test-pj", issue=[1], mode=None,
+            keep_context=False, keep_ctx_batch=False, keep_ctx_intra=False,
+            keep_ctx_all=False, p2_fix=False, comment=None,
+            skip_cc_plan=False, skip_test=False, skip_assess=False,
+        )
+        with patch("commands.dev.cmd_triage"), \
+             patch("commands.dev.cmd_transition"), \
+             patch("gokrax._start_loop"):
+            cmd_start(args)
+        data = _json.loads(path.read_text())
+        assert data.get("cc_impl_model") == "opus"

@@ -291,9 +291,22 @@ def cmd_start(args):
         args.skip_assess = False
 
     # デフォルトオプション適用: CLI 引数で明示指定されていない（None のまま）オプションにデフォルト値を注入
+    from task_queue import _QUEUE_OPT_ALIASES
     for key, default_val in DEFAULT_QUEUE_OPTIONS.items():
-        if getattr(args, key, None) is None:
-            setattr(args, key, default_val)
+        if "=" in key:
+            # パターン A: "impl=opus": True → lhs="impl", rhs="opus"
+            if not default_val:
+                continue
+            lhs, rhs = key.split("=", 1)
+            if not rhs:
+                continue
+            internal_key = _QUEUE_OPT_ALIASES.get(lhs)
+            if internal_key and getattr(args, internal_key, None) is None:
+                setattr(args, internal_key, rhs)
+        else:
+            internal_key = _QUEUE_OPT_ALIASES.get(key, key)
+            if getattr(args, internal_key, None) is None:
+                setattr(args, internal_key, default_val)
 
     # None のまま残っているオプションを False に正規化（後続コードが bool を期待するため）
     for key in NONE_TO_FALSE_KEYS:
@@ -350,7 +363,9 @@ def cmd_start(args):
     has_skip_cc_plan = getattr(args, "skip_cc_plan", False)
     has_skip_test = getattr(args, "skip_test", False)
     has_skip_assess = getattr(args, "skip_assess", False)
-    if getattr(args, "mode", None) or has_keep_ctx or has_p2_fix or has_comment or has_skip_cc_plan or has_skip_test or has_skip_assess:
+    has_cc_plan_model = bool(getattr(args, "cc_plan_model", None))
+    has_cc_impl_model = bool(getattr(args, "cc_impl_model", None))
+    if getattr(args, "mode", None) or has_keep_ctx or has_p2_fix or has_comment or has_skip_cc_plan or has_skip_test or has_skip_assess or has_cc_plan_model or has_cc_impl_model:
         from config import REVIEW_MODES
         if getattr(args, "mode", None) and args.mode not in REVIEW_MODES:
             raise SystemExit(f"Invalid mode: {args.mode} (valid: {list(REVIEW_MODES)})")
@@ -374,6 +389,10 @@ def cmd_start(args):
                 data["skip_test"] = True
             if getattr(args, "skip_assess", False):
                 data["skip_assess"] = True
+            if getattr(args, "cc_plan_model", None):
+                data["cc_plan_model"] = args.cc_plan_model
+            if getattr(args, "cc_impl_model", None):
+                data["cc_impl_model"] = args.cc_impl_model
         update_pipeline(path, do_mode)
 
 

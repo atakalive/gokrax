@@ -606,7 +606,7 @@ def cmd_transition(args):
                     json.dump(_gstate, _sf, indent=2)
             _reset_reviewers(ctx["review_mode"], implementer=impl)
     if notif.impl_msg:
-        phase = STATE_PHASE_MAP.get(ctx.get("state", ""), "")
+        phase = STATE_PHASE_MAP.get(args.to, "")
         notify_implementer(ctx["implementer"], f"[gokrax] {pj}: {prefix}{notif.impl_msg}", project=pj, phase=phase)
         clear_pending_notification(pj, "impl")
     if notif.send_review:

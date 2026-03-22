@@ -815,7 +815,7 @@ def process(path: Path):
             update_pipeline(path, _save_excluded)
 
         if action.impl_msg:
-            phase = STATE_PHASE_MAP.get(notification.get("new_state", ""), "")
+            phase = STATE_PHASE_MAP.get(action.new_state or "", "")
             notify_implementer(
                 notification["implementer"],
                 f"[gokrax] {pj}: {action.impl_msg}",

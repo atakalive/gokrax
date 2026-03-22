@@ -286,8 +286,8 @@ def _build_file_review_message(
     )
 
     # スキルブロック付与
-    phase = "code" if is_code else "design"
-    skill_block = load_skills(reviewer, project, phase)
+    skill_phase = "code" if is_code else "design"
+    skill_block = load_skills(reviewer, project, skill_phase)
     if skill_block:
         msg = f"{skill_block}\n\n{msg}"
 
@@ -759,8 +759,8 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
     phase = "コード" if is_code else "設計"
     sections = []
 
-    phase = "code" if is_code else "design"
-    skill_block = load_skills(reviewer, project, phase)
+    skill_phase = "code" if is_code else "design"
+    skill_block = load_skills(reviewer, project, skill_phase)
 
     diff_commits: set[str] = set()
 

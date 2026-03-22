@@ -1023,7 +1023,8 @@ class TestSkillInjection:
         skill_file.write_text("Skill content here", encoding="utf-8")
 
         monkeypatch.setattr(config, "SKILLS", {"test-skill": str(skill_file)})
-        monkeypatch.setattr(config, "AGENT_SKILLS", {"pascal": ["test-skill"]})
+        monkeypatch.setattr(config, "AGENT_SKILLS", {"pascal": {"design": ["test-skill"], "code": []}})
+        monkeypatch.setattr(config, "PROJECT_SKILLS", {})
 
         batch = [{
             "issue": 1,
@@ -1189,7 +1190,8 @@ class TestBuildFileReviewMessage:
         skill_file = tmp_path / "skill.md"
         skill_file.write_text("Skill", encoding="utf-8")
         monkeypatch.setattr(cfg, "SKILLS", {"s": str(skill_file)})
-        monkeypatch.setattr(cfg, "AGENT_SKILLS", {"pascal": ["s"]})
+        monkeypatch.setattr(cfg, "AGENT_SKILLS", {"pascal": {"design": ["s"], "code": []}})
+        monkeypatch.setattr(cfg, "PROJECT_SKILLS", {})
         file_path = tmp_path / "test.md"
         batch = [{"issue": 1, "title": "t", "design_reviews": {}, "code_reviews": {}}]
         msg = notify._build_file_review_message("proj", False, "pascal", file_path, batch, round_num=None)

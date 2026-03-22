@@ -11,6 +11,7 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+import task_queue
 from task_queue import (
     parse_queue_line, pop_next_queue_entry, restore_queue_entry, peek_queue,
     get_active_entries, append_entry, delete_entry, replace_entry, sanitize_comment,
@@ -304,6 +305,31 @@ class TestParseQueueLine:
         """impl= のモデル名はアンダーバーが保持される"""
         result = parse_queue_line("Foo 1 impl=some_model")
         assert result["cc_impl_model"] == "some_model"
+
+    # --- アンダーバー照合順序テスト (Issue #166) ---
+
+    def test_underscore_review_mode_matched_without_conversion(self, monkeypatch):
+        """REVIEW_MODES にアンダーバーで登録されているキーはそのままマッチする"""
+        monkeypatch.setitem(task_queue.REVIEW_MODES, "lite3_woGoogle", {"members": [], "min_reviews": 1})
+        result = parse_queue_line("Foo 1 lite3_woGoogle")
+        assert result["mode"] == "lite3_woGoogle"
+
+    def test_hyphen_review_mode_still_works(self, monkeypatch):
+        """ハイフンで登録されているキーは変換なしでマッチする"""
+        monkeypatch.setitem(task_queue.REVIEW_MODES, "lite3-woOpus", {"members": [], "min_reviews": 1})
+        result = parse_queue_line("Foo 1 lite3-woOpus")
+        assert result["mode"] == "lite3-woOpus"
+
+    def test_underscore_review_mode_fallback_to_hyphen(self, monkeypatch):
+        """アンダーバーで直接マッチしない場合はフォールバック変換で _ → - になる"""
+        monkeypatch.setitem(task_queue.REVIEW_MODES, "lite3-woOpus", {"members": [], "min_reviews": 1})
+        result = parse_queue_line("Foo 1 lite3_woOpus")
+        assert result["mode"] == "lite3-woOpus"
+
+    def test_underscore_known_option_unchanged(self):
+        """既存のアンダーバー→ハイフン変換が壊れていないことの回帰テスト"""
+        result = parse_queue_line("Foo 1 p2_fix")
+        assert result["p2_fix"] is True
 
     # --- インラインコメントテスト (Issue #105) ---
 

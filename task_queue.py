@@ -105,13 +105,18 @@ def parse_queue_line(line: str) -> dict:
 
     i = 2
     while i < len(tokens):
-        token = tokens[i]
+        raw_token = tokens[i]
         # ハイフン/アンダーバー正規化: "=" 左辺のみ（右辺はモデル名やコメント等なので変換しない）
-        if "=" in token:
-            lhs, rhs = token.split("=", 1)
+        # REVIEW_MODES にアンダーバー含みキーが存在するため、raw_token が REVIEW_MODES に
+        # マッチする場合は変換せずそのまま使う。それ以外は従来通り _ → - 変換。
+        if "=" in raw_token:
+            lhs, rhs = raw_token.split("=", 1)
             token = lhs.replace("_", "-") + "=" + rhs
         else:
-            token = token.replace("_", "-")
+            if raw_token in REVIEW_MODES:
+                token = raw_token
+            else:
+                token = raw_token.replace("_", "-")
         if token.startswith("comment="):
             if result["comment"] is not None:
                 raise ValueError("Duplicate comment= token")

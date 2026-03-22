@@ -127,7 +127,7 @@ class TestAssessmentFSMWait:
 class TestUpdateIssueTitleWithLevel:
 
     def test_update_issue_title_with_level(self):
-        """8-6: 正常系 — [Lvl N] が先頭に付与される"""
+        """8-6: 正常系 — [Lvl N] が末尾に付与される"""
         from commands.dev import _update_issue_title_with_level
 
         view_result = MagicMock(returncode=0, stdout=json.dumps({"title": "feat: do something"}))
@@ -139,10 +139,10 @@ class TestUpdateIssueTitleWithLevel:
         assert ok is True
         # update コマンドのタイトル引数を確認
         update_call = mock_run.call_args_list[1]
-        assert "[Lvl 3] feat: do something" in update_call[0][0]
+        assert "feat: do something [Lvl 3]" in update_call[0][0]
 
     def test_update_issue_title_replaces_existing_level(self):
-        """8-7: 既存の [Lvl N] を置換"""
+        """8-7: 既存の [Lvl N] を置換（後方互換: 先頭タグの除去確認）"""
         from commands.dev import _update_issue_title_with_level
 
         view_result = MagicMock(returncode=0, stdout=json.dumps({"title": "[Lvl 2] feat: do something"}))
@@ -153,7 +153,35 @@ class TestUpdateIssueTitleWithLevel:
 
         assert ok is True
         update_call = mock_run.call_args_list[1]
-        assert "[Lvl 4] feat: do something" in update_call[0][0]
+        assert "feat: do something [Lvl 4]" in update_call[0][0]
+
+    def test_update_issue_title_replaces_existing_level_at_end(self):
+        """8-7b: 末尾の既存 [Lvl N] を置換"""
+        from commands.dev import _update_issue_title_with_level
+
+        view_result = MagicMock(returncode=0, stdout=json.dumps({"title": "feat: do something [Lvl 2]"}))
+        update_result = MagicMock(returncode=0)
+
+        with patch("subprocess.run", side_effect=[view_result, update_result]) as mock_run:
+            ok = _update_issue_title_with_level("atakalive/test-pj", 42, 4)
+
+        assert ok is True
+        update_call = mock_run.call_args_list[1]
+        assert "feat: do something [Lvl 4]" in update_call[0][0]
+
+    def test_update_issue_title_removes_both_front_and_end_tags(self):
+        """8-7c: 先頭・末尾両方にタグがある異常状態 — 両方除去して末尾に1つだけ付与"""
+        from commands.dev import _update_issue_title_with_level
+
+        view_result = MagicMock(returncode=0, stdout=json.dumps({"title": "[Lvl 2] feat: do something [Lvl 3]"}))
+        update_result = MagicMock(returncode=0)
+
+        with patch("subprocess.run", side_effect=[view_result, update_result]) as mock_run:
+            ok = _update_issue_title_with_level("atakalive/test-pj", 42, 5)
+
+        assert ok is True
+        update_call = mock_run.call_args_list[1]
+        assert "feat: do something [Lvl 5]" in update_call[0][0]
 
 
 # --- 8-8: ASSESSMENT タイムアウト ---

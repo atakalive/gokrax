@@ -656,7 +656,7 @@ def _log(msg: str) -> None:
 
 
 def _update_issue_title_with_level(gitlab: str, issue_num: int, level: int) -> bool:
-    """Issue タイトルの先頭に [Lvl N] を付与。既に付いていれば置換。
+    """Issue タイトルの末尾に [Lvl N] を付与。既に付いていれば置換。
 
     glab issue view で現在のタイトルを取得し、glab issue update で更新。
     リトライ3回（_post_gitlab_note と同方針）。
@@ -680,8 +680,9 @@ def _update_issue_title_with_level(gitlab: str, issue_num: int, level: int) -> b
         return False
 
     # [Lvl N] を付与（既存のものがあれば置換）
-    new_title = _re.sub(r'^\[Lvl \d+\]\s*', '', current_title)
-    new_title = f"[Lvl {level}] {new_title}"
+    new_title = _re.sub(r'^\s*\[Lvl \d+\]\s*', '', current_title)
+    new_title = _re.sub(r'\s*\[Lvl \d+\]\s*$', '', new_title)
+    new_title = f"{new_title} [Lvl {level}]"
 
     # タイトル更新（リトライ3回）
     for attempt in range(3):

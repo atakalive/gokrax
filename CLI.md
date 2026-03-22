@@ -171,6 +171,11 @@ gokrax review \
 Idempotent: duplicate submissions from the same reviewer are skipped.
 GitLab integration: verdict + summary are posted as an issue note.
 
+N-pass review notes:
+- NPASS states (`DESIGN_REVIEW_NPASS`, `CODE_REVIEW_NPASS`) でもそのまま使用可能
+- `pass` / `target_pass` は自動管理（ユーザー指定不要）
+- 中間パス（pass < target_pass）の APPROVE は GitLab note をスキップ
+
 ### `flag` -- Human verdict injection
 
 ```bash
@@ -345,6 +350,9 @@ gokrax qstatus
 gokrax qadd myproject 33,34 lite no-automerge comment=note
 gokrax qadd --file entries.txt
 echo "myproject 33 full" | gokrax qadd --stdin
+
+# N-pass review mode example
+gokrax qadd myproject 50,51 standard-x2
 ```
 
 | Option | Required | Description |

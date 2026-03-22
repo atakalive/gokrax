@@ -69,6 +69,12 @@ stateDiagram-v2
         DESIGN_REVIEW --> DESIGN_REVISE : P0/P1/REJECT verdict
         DESIGN_REVISE --> DESIGN_REVIEW : revision submitted
         DESIGN_REVIEW --> BLOCKED : timeout / stall
+        DESIGN_REVIEW --> DESIGN_REVIEW_NPASS : n_pass > 1 reviewers exist
+        DESIGN_REVIEW_NPASS --> DESIGN_APPROVED : all passes complete + APPROVE
+        DESIGN_REVIEW_NPASS --> DESIGN_REVISE : P0/P1 verdict
+        DESIGN_REVIEW_NPASS --> DESIGN_REVIEW_NPASS : more passes remaining
+        DESIGN_REVIEW_NPASS --> DESIGN_APPROVED : timeout (verdict-dependent)
+        DESIGN_REVIEW_NPASS --> DESIGN_REVISE : timeout + P0/P1
     }
 
     state "Implementation Phase" as impl {
@@ -84,6 +90,12 @@ stateDiagram-v2
         CODE_REVISE --> CODE_TEST : revision submitted (re-test)
         CODE_REVISE --> CODE_REVIEW : revision submitted (re-review)
         CODE_REVIEW --> BLOCKED : timeout / stall
+        CODE_REVIEW --> CODE_REVIEW_NPASS : n_pass > 1 reviewers exist
+        CODE_REVIEW_NPASS --> CODE_APPROVED : all passes complete + APPROVE
+        CODE_REVIEW_NPASS --> CODE_REVISE : P0/P1 verdict
+        CODE_REVIEW_NPASS --> CODE_REVIEW_NPASS : more passes remaining
+        CODE_REVIEW_NPASS --> CODE_APPROVED : timeout (verdict-dependent)
+        CODE_REVIEW_NPASS --> CODE_REVISE : timeout + P0/P1
     }
 
     DESIGN_APPROVED --> ASSESSMENT : auto-transition
@@ -106,14 +118,16 @@ stateDiagram-v2
 | IDLE | INITIALIZE |
 | INITIALIZE | DESIGN_PLAN |
 | DESIGN_PLAN | DESIGN_REVIEW |
-| DESIGN_REVIEW | DESIGN_APPROVED, DESIGN_REVISE, BLOCKED |
+| DESIGN_REVIEW | DESIGN_APPROVED, DESIGN_REVISE, BLOCKED, DESIGN_REVIEW_NPASS |
+| DESIGN_REVIEW_NPASS | DESIGN_APPROVED, DESIGN_REVISE, DESIGN_REVIEW_NPASS |
 | DESIGN_REVISE | DESIGN_REVIEW |
 | DESIGN_APPROVED | ASSESSMENT |
 | ASSESSMENT | IMPLEMENTATION |
 | IMPLEMENTATION | CODE_TEST, CODE_REVIEW |
 | CODE_TEST | CODE_REVIEW, CODE_TEST_FIX, BLOCKED |
 | CODE_TEST_FIX | CODE_TEST, BLOCKED |
-| CODE_REVIEW | CODE_APPROVED, CODE_REVISE, BLOCKED |
+| CODE_REVIEW | CODE_APPROVED, CODE_REVISE, BLOCKED, CODE_REVIEW_NPASS |
+| CODE_REVIEW_NPASS | CODE_APPROVED, CODE_REVISE, CODE_REVIEW_NPASS |
 | CODE_REVISE | CODE_TEST, CODE_REVIEW |
 | CODE_APPROVED | MERGE_SUMMARY_SENT |
 | MERGE_SUMMARY_SENT | DONE |
@@ -152,13 +166,14 @@ graph TB
 
 Review modes are defined in `settings.py` (`REVIEW_MODES`). See `settings.example.py` for defaults.
 
-| Mode | Members | min_reviews | grace_period_sec |
-|------|---------|-------------|------------------|
-| full | `settings.py` の `REVIEW_MODES` で定義 | 4 | 0 |
-| standard | `settings.py` の `REVIEW_MODES` で定義 | 3 | 0 |
-| lite | `settings.py` の `REVIEW_MODES` で定義 | 2 | 0 |
-| min | `settings.py` の `REVIEW_MODES` で定義 | 1 | 0 |
-| skip | (none) | 0 | 0 |
+| Mode | Members | min_reviews | grace_period_sec | n_pass |
+|------|---------|-------------|------------------|--------|
+| full | `settings.py` の `REVIEW_MODES` で定義 | 4 | 0 | — |
+| standard | `settings.py` の `REVIEW_MODES` で定義 | 3 | 0 | — |
+| lite | `settings.py` の `REVIEW_MODES` で定義 | 2 | 0 | — |
+| min | `settings.py` の `REVIEW_MODES` で定義 | 1 | 0 | — |
+| skip | (none) | 0 | 0 | — |
+| standard-x2 | `settings.py` の `REVIEW_MODES` で定義 | 3 | 0 | {reviewer1: 2, reviewer3: 2} |
 
 ### Reviewer Tiers
 
@@ -169,6 +184,51 @@ Reviewer tiers are defined in `settings.py` (`REVIEWER_TIERS`). See `settings.ex
 | Regular | [] |
 | Free | [] |
 | Short-context | [] |
+
+### N-Pass Review
+
+N-pass review allows specified reviewers to perform multiple review passes on the same code/design.
+
+#### Configuration
+
+Add `n_pass` to a review mode in `settings.py`:
+
+```python
+"standard-x2": {
+    "members": [],
+    "min_reviews": 3,
+    "n_pass": {"reviewer1": 2, "reviewer3": 2},
+}
+```
+
+Reviewers not listed in `n_pass` default to 1 pass.
+
+#### Flow
+
+1. Pass 1 completes normally in DESIGN_REVIEW / CODE_REVIEW
+2. If any reviewer has `n_pass > 1`, transitions to *_REVIEW_NPASS
+3. NPASS reviewers receive a lightweight prompt (no issue body/diff re-send)
+4. When all NPASS passes complete, final verdict uses `count_reviews()` — counts each reviewer's latest verdict as one vote (n_pass=1 reviewers included)
+5. P0/P1 from any submitted reviewer → immediate REVISE (no timeout wait needed)
+6. After REVISE → REVIEW, pass counters reset; pass 1 starts over (does not re-enter NPASS directly)
+
+#### GitLab Note Behavior in Intermediate Passes
+
+- APPROVE in intermediate pass (pass < target_pass): GitLab note is **skipped**
+- P0/P1/P2 in intermediate pass: GitLab note is **posted** (so developers can see the feedback)
+
+#### Timeout
+
+- NPASS uses the same timeout as the base REVIEW state
+- On timeout: `count_reviews()` collects all current verdicts (incomplete NPASS reviewers retain their pass 1 verdict) and `_resolve_review_outcome` determines the transition. P0/P1 → REVISE even on timeout
+- NPASS does **not** transition to BLOCKED
+
+#### Forced Externalization
+
+- Triggered at CODE_REVIEW state entry (inside `notify_reviewers`), not at queue submission
+- When `n_pass > 1` reviewers exist in the review mode, CODE_REVIEW always externalizes review data to a file, regardless of message size
+- This ensures NPASS prompts can reference the file path
+- Existing queued batches are unaffected until they enter CODE_REVIEW
 
 ## 4. Watchdog Cycle
 

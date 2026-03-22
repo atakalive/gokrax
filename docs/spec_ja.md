@@ -85,10 +85,10 @@ settings.py           -- ユーザー設定 (config override)
 
 ```
 IDLE, INITIALIZE,
-DESIGN_PLAN, DESIGN_REVIEW, DESIGN_REVISE, DESIGN_APPROVED,
+DESIGN_PLAN, DESIGN_REVIEW, DESIGN_REVIEW_NPASS, DESIGN_REVISE, DESIGN_APPROVED,
 IMPLEMENTATION,
 CODE_TEST, CODE_TEST_FIX,
-CODE_REVIEW, CODE_REVISE, CODE_APPROVED,
+CODE_REVIEW, CODE_REVIEW_NPASS, CODE_REVISE, CODE_APPROVED,
 MERGE_SUMMARY_SENT, DONE, BLOCKED
 ```
 
@@ -101,13 +101,15 @@ MERGE_SUMMARY_SENT, DONE, BLOCKED
 IDLE         -> [INITIALIZE]
 INITIALIZE   -> [DESIGN_PLAN]
 DESIGN_PLAN  -> [DESIGN_REVIEW]
-DESIGN_REVIEW -> [DESIGN_APPROVED, DESIGN_REVISE, BLOCKED]
+DESIGN_REVIEW -> [DESIGN_APPROVED, DESIGN_REVISE, BLOCKED, DESIGN_REVIEW_NPASS]
+DESIGN_REVIEW_NPASS -> [DESIGN_APPROVED, DESIGN_REVISE, DESIGN_REVIEW_NPASS]
 DESIGN_REVISE -> [DESIGN_REVIEW]
 DESIGN_APPROVED -> [IMPLEMENTATION]
 IMPLEMENTATION  -> [CODE_TEST, CODE_REVIEW]
 CODE_TEST       -> [CODE_REVIEW, CODE_TEST_FIX, BLOCKED]
 CODE_TEST_FIX   -> [CODE_TEST, BLOCKED]
-CODE_REVIEW  -> [CODE_APPROVED, CODE_REVISE, BLOCKED]
+CODE_REVIEW  -> [CODE_APPROVED, CODE_REVISE, BLOCKED, CODE_REVIEW_NPASS]
+CODE_REVIEW_NPASS -> [CODE_APPROVED, CODE_REVISE, CODE_REVIEW_NPASS]
 CODE_REVISE  -> [CODE_TEST, CODE_REVIEW]
 CODE_APPROVED -> [MERGE_SUMMARY_SENT]
 MERGE_SUMMARY_SENT -> [DONE]
@@ -179,13 +181,59 @@ IDLE -> INITIALIZE -> DESIGN_PLAN -> DESIGN_REVIEW -> DESIGN_APPROVED -> IMPLEME
 
 レビューモードは `settings.py` の `REVIEW_MODES` で定義する。デフォルト構造は `settings.example.py` を参照。
 
-| モード | メンバー | min_reviews | grace_period_sec |
-|--------|----------|-------------|-----------------|
-| full | `settings.py` の `REVIEW_MODES` で定義 | 4 | 0 |
-| standard | `settings.py` の `REVIEW_MODES` で定義 | 3 | 0 |
-| lite | `settings.py` の `REVIEW_MODES` で定義 | 2 | 0 |
-| min | `settings.py` の `REVIEW_MODES` で定義 | 1 | 0 |
-| skip | (なし) | 0 | 0 (自動承認) |
+| モード | メンバー | min_reviews | grace_period_sec | n_pass |
+|--------|----------|-------------|-----------------|--------|
+| full | `settings.py` の `REVIEW_MODES` で定義 | 4 | 0 | — |
+| standard | `settings.py` の `REVIEW_MODES` で定義 | 3 | 0 | — |
+| lite | `settings.py` の `REVIEW_MODES` で定義 | 2 | 0 | — |
+| min | `settings.py` の `REVIEW_MODES` で定義 | 1 | 0 | — |
+| skip | (なし) | 0 | 0 (自動承認) | — |
+| standard-x2 | `settings.py` の `REVIEW_MODES` で定義 | 3 | 0 | {reviewer1: 2, reviewer3: 2} |
+
+### n_pass (Nパスレビュー設定)
+
+`n_pass` はレビューモードに追加できるオプション設定。指定したレビュアーに複数パスのレビューを実行させる。
+
+```python
+"standard-x2": {
+    "members": [],
+    "min_reviews": 3,
+    "n_pass": {"reviewer1": 2, "reviewer3": 2},
+}
+```
+
+- `n_pass` に含まれないレビュアーはデフォルト 1 パス
+- パス 1 は通常の DESIGN_REVIEW / CODE_REVIEW で実行される
+- パス 2 以降は *_REVIEW_NPASS ステートで実行される
+
+### Nパスレビュー
+
+#### フロー
+
+1. パス 1 は通常の DESIGN_REVIEW / CODE_REVIEW で完了する
+2. `n_pass > 1` のレビュアーが存在する場合、*_REVIEW_NPASS に遷移する
+3. NPASS レビュアーには軽量プロンプトが送信される（Issue 本文/diff の再送なし）
+4. 全 NPASS パス完了後、`count_reviews()` で最終 verdict を集計する — 各レビュアーの最新 verdict を 1 票としてカウント（n_pass=1 のレビュアーも含む）
+5. いずれかの提出済みレビュアーから P0/P1 → 即座に REVISE（タイムアウト待ち不要）
+6. REVISE → REVIEW 後、パスカウンターはリセットされる。パス 1 から再開（NPASS に直接再突入しない）
+
+#### 中間パスの GitLab Note 動作
+
+- 中間パス（pass < target_pass）の APPROVE: GitLab note は **スキップ**
+- 中間パスの P0/P1/P2: GitLab note は **投稿される**（開発者がフィードバックを確認できるようにするため）
+
+#### タイムアウト
+
+- NPASS は基底の REVIEW ステートと同じタイムアウトを使用する
+- タイムアウト時: `count_reviews()` で全 verdict を収集（未完了 NPASS レビュアーはパス 1 の verdict を保持）し、`_resolve_review_outcome` で遷移先を決定する。P0/P1 → タイムアウト時も REVISE
+- NPASS は BLOCKED に遷移 **しない**
+
+#### 強制外部化ファイル
+
+- CODE_REVIEW ステート突入時（`notify_reviewers` 内）でトリガーされる。キュー投入時ではない
+- `n_pass > 1` のレビュアーがレビューモードに存在する場合、メッセージサイズに関係なく常にレビューデータをファイルに外部化する
+- これにより NPASS プロンプトがファイルパスを参照できる
+- 既存のキュー済みバッチは CODE_REVIEW に突入するまで影響を受けない
 
 ## 6. タイムアウト
 

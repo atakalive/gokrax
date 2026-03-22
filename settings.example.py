@@ -11,9 +11,9 @@ from datetime import timezone, timedelta  # noqa: F401 — used by commented-out
 DISCORD_CHANNEL = ""       # Discord channel ID for posting updates
 DISCORD_BOT_TOKEN = ""     # Discord bot token with permissions to receive/post in the above channel
 ANNOUNCE_BOT_USER_ID = ""  # Discord bot user ID of the bot (can be obtained by right click menu on the bot name)
-
 MERGE_APPROVER_DISCORD_ID = ""  # Your Discord user ID for approving merges
 COMMAND_BOT_USER_ID = ""        # If you send commands via 3rd-party Discord tool (WatcherB etc.), include its bot user ID here
+
 GATEWAY_PORT = int(os.environ.get("OPENCLAW_GATEWAY_PORT", "18789"))  # openclaw gateway port (localhost)
 GLAB_BIN = "/usr/bin/glab"
 GITLAB_NAMESPACE: str = "YOUR_NAMESPACE"  # i.e., gitlab.com/YOUR_NAMESPACE/ProjectName/
@@ -25,6 +25,10 @@ AGENTS = {
     "reviewer2": "agent:reviewer2:main",
 }
 
+# Reviewer tiers means that their infrastructure capability
+# Regular: Stable connection, enough context length
+# Free: Limited daily token usage, may be disconnected in workflow. (Author did not test them well)
+# Short-context: Shorter context length. Local LLM etc. (64k-ctx model was tested in single issue)
 REVIEWER_TIERS: dict = {
     "regular": ["reviewer1", "reviewer2"],
     "short-context": [],

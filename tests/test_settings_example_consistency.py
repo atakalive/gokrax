@@ -24,6 +24,7 @@ _PLACEHOLDER_VARS = frozenset({
     "TEST_CONFIG",
     "PIPELINES_DIR",
     "LOCAL_TZ",
+    "DEFAULT_QUEUE_OPTIONS",
 })
 
 
@@ -54,18 +55,36 @@ def test_example_vars_subset_of_config() -> None:
 
 
 def test_example_defaults_match_config() -> None:
+    import importlib
+    import os
+
+    # config デフォルト値を復元するために snapshot を取る
     import config
+    snapshot: dict[str, object] = {}
+    for attr in dir(config):
+        if attr.isupper() and not attr.startswith("_"):
+            snapshot[attr] = getattr(config, attr)
 
-    source = _EXAMPLE_PATH.read_text(encoding="utf-8")
-    # Execute settings.example.py in isolation to get its values
-    example_ns: dict = {}
-    exec(compile(source, str(_EXAMPLE_PATH), "exec"), example_ns)  # noqa: S102
+    try:
+        # settings.py を読み込まない状態で config をリロード
+        os.environ["GOKRAX_SKIP_USER_SETTINGS"] = "1"
+        importlib.reload(config)
 
-    example_vars = _parse_example_var_names()
+        source = _EXAMPLE_PATH.read_text(encoding="utf-8")
+        example_ns: dict = {}
+        exec(compile(source, str(_EXAMPLE_PATH), "exec"), example_ns)  # noqa: S102
 
-    for var in sorted(example_vars - _PLACEHOLDER_VARS):
-        example_val = example_ns.get(var)
-        config_val = getattr(config, var, None)
-        assert example_val == config_val, (
-            f"{var}: example={example_val!r} != config={config_val!r}"
-        )
+        example_vars = _parse_example_var_names()
+
+        for var in sorted(example_vars - _PLACEHOLDER_VARS):
+            example_val = example_ns.get(var)
+            config_val = getattr(config, var, None)
+            assert example_val == config_val, (
+                f"{var}: example={example_val!r} != config={config_val!r}"
+            )
+    finally:
+        # 元の状態に復元
+        os.environ.pop("GOKRAX_SKIP_USER_SETTINGS", None)
+        importlib.reload(config)
+        for attr, val in snapshot.items():
+            setattr(config, attr, val)

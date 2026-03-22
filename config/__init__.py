@@ -22,6 +22,7 @@ DRY_RUN: bool = os.environ.get("GOKRAX_DRY_RUN", "").strip() not in ("", "0", "f
 PIPELINES_DIR = Path(os.environ["GOKRAX_PIPELINES_DIR"]) if "GOKRAX_PIPELINES_DIR" in os.environ else Path.home() / ".openclaw/shared/pipelines"
 GOKRAX_CLI = PurePosixPath("")
 GLAB_BIN: str = "glab"
+GITLAB_NAMESPACE: str = "YOUR_NAMESPACE"  # i.e., gitlab.com/YOUR_NAMESPACE/ProjectName/
 GATEWAY_PORT: int = int(os.environ.get("OPENCLAW_GATEWAY_PORT", "18789"))
 QUEUE_FILE = PROJECT_ROOT / "gokrax-queue.txt"
 

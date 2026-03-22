@@ -1,6 +1,6 @@
 # gokrax — Architecture & State Machine Diagrams
 
-> Last updated: 2026-03-20
+> Last updated: 2026-03-22
 
 ## 1. System Architecture (Overall Flow)
 
@@ -86,7 +86,8 @@ stateDiagram-v2
         CODE_REVIEW --> BLOCKED : timeout / stall
     }
 
-    DESIGN_APPROVED --> IMPLEMENTATION : auto-transition
+    DESIGN_APPROVED --> ASSESSMENT : auto-transition
+    ASSESSMENT --> IMPLEMENTATION : assessed (Lvl 1-5)
 
     CODE_APPROVED --> MERGE_SUMMARY_SENT : auto-transition
     MERGE_SUMMARY_SENT --> DONE : human approves merge
@@ -107,7 +108,8 @@ stateDiagram-v2
 | DESIGN_PLAN | DESIGN_REVIEW |
 | DESIGN_REVIEW | DESIGN_APPROVED, DESIGN_REVISE, BLOCKED |
 | DESIGN_REVISE | DESIGN_REVIEW |
-| DESIGN_APPROVED | IMPLEMENTATION |
+| DESIGN_APPROVED | ASSESSMENT |
+| ASSESSMENT | IMPLEMENTATION |
 | IMPLEMENTATION | CODE_TEST, CODE_REVIEW |
 | CODE_TEST | CODE_REVIEW, CODE_TEST_FIX, BLOCKED |
 | CODE_TEST_FIX | CODE_TEST, BLOCKED |
@@ -214,6 +216,9 @@ sequenceDiagram
     end
 
     DB->>DB: Set state -> DESIGN_APPROVED
+    DB->>DB: Auto -> ASSESSMENT
+    WD->>CC: Assess complexity (Lvl 1-5)
+    CC->>DB: gokrax assess-done --level N
     DB->>DB: Auto -> IMPLEMENTATION
     DB->>DC: Implementation started
     WD->>CC: /new (implement task)

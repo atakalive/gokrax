@@ -12,7 +12,7 @@ from config import (
     VALID_VERDICTS, GLAB_TIMEOUT, ALLOWED_REVIEWERS, REVIEW_MODES, LOCAL_TZ,
     WATCHDOG_LOOP_PIDFILE, WATCHDOG_LOOP_LOCKFILE,
     VALID_FLAG_VERDICTS, STATE_PHASE_MAP,
-    GOKRAX_CLI, OWNER_NAME,
+    GOKRAX_CLI, OWNER_NAME, GITLAB_NAMESPACE,
 )
 from pipeline_io import (
     load_pipeline, save_pipeline, update_pipeline,
@@ -96,7 +96,7 @@ def cmd_init(args):
 
     data = {
         "project": args.project,
-        "gitlab": args.gitlab or f"atakalive/{args.project}",
+        "gitlab": args.gitlab or f"{GITLAB_NAMESPACE}/{args.project}",
         "repo_path": args.repo_path or "",
         "state": "IDLE",
         "enabled": False,
@@ -227,7 +227,7 @@ def cmd_triage(args):
     """Issueをバッチに投入（複数指定可）"""
     path = get_path(args.project)
     data = load_pipeline(get_path(args.project))
-    gitlab = data.get("gitlab", f"atakalive/{args.project}")
+    gitlab = data.get("gitlab", f"{GITLAB_NAMESPACE}/{args.project}")
     titles = list(args.title) + [""] * (len(args.issue) - len(args.title))
     # タイトルが空のIssueはGitLab APIで取得
     for idx, (num, title) in enumerate(zip(args.issue, titles)):
@@ -322,7 +322,7 @@ def cmd_start(args):
         titles = []
     else:
         # GitLab APIでopen issue全件取得（タイトル付き）
-        gitlab = data.get("gitlab", f"atakalive/{args.project}")
+        gitlab = data.get("gitlab", f"{GITLAB_NAMESPACE}/{args.project}")
         results = _fetch_open_issues(gitlab)
         if not results:
             raise SystemExit(f"No open issues found in {gitlab}")
@@ -499,7 +499,7 @@ def cmd_transition(args):
         # === Issue #59: 通知情報をロック内で構築 + pending フラグ ===
         pj = data.get("project", args.project)
         batch = data.get("batch", [])
-        gitlab = data.get("gitlab", f"atakalive/{pj}")
+        gitlab = data.get("gitlab", f"{GITLAB_NAMESPACE}/{pj}")
         implementer = data.get("implementer", "kaneko")
         repo_path = data.get("repo_path", "")
         review_mode = data.get("review_mode", "standard")
@@ -880,7 +880,7 @@ def cmd_review(args):
                   latency_sec=latency_sec, revise_cycle=revise_cycle)
 
     # GitLab Issue note に自動投稿
-    gitlab = data.get("gitlab", f"atakalive/{args.project}")
+    gitlab = data.get("gitlab", f"{GITLAB_NAMESPACE}/{args.project}")
     phase = "設計" if "DESIGN" in state else "コード"
     note_body = f"[{args.reviewer}] {args.verdict} ({phase}レビュー)\n\n{args.summary or ''}"
     if _post_gitlab_note(gitlab, args.issue, note_body):
@@ -973,7 +973,7 @@ def cmd_dispute(args):
     if not send_to_agent_queued(args.reviewer, dispute_msg):
         print(f"WARNING: dispute 通知の送信に失敗 ({args.reviewer})")
 
-    gitlab = data.get("gitlab", f"atakalive/{args.project}")
+    gitlab = data.get("gitlab", f"{GITLAB_NAMESPACE}/{args.project}")
     note_body = (
         f"[dispute] #{args.issue}: {args.reviewer} の判定に異議申し立て\n\n"
         f"理由: {args.reason.strip()}"
@@ -1036,7 +1036,7 @@ def cmd_flag(args):
     print(f"{args.project}: #{args.issue} flag by M = {args.verdict}")
 
     # Post to GitLab issue note
-    gitlab = data.get("gitlab", f"atakalive/{args.project}")
+    gitlab = data.get("gitlab", f"{GITLAB_NAMESPACE}/{args.project}")
     note_body = f"[M] FLAG {args.verdict}\n\n{args.summary or ''}"
     if _post_gitlab_note(gitlab, args.issue, note_body):
         print("  → GitLab issue note posted")
@@ -1114,7 +1114,7 @@ def cmd_assess_done(args):
 
     # Issue タイトル更新（失敗は warning、遷移はブロックしない）
     data = load_pipeline(path)
-    gitlab = data.get("gitlab", f"atakalive/{args.project}")
+    gitlab = data.get("gitlab", f"{GITLAB_NAMESPACE}/{args.project}")
     batch = data.get("batch", [])
     failed = []
     for issue in batch:
@@ -1136,7 +1136,7 @@ def cmd_design_revise(args):
 
     if args.comment:
         data = load_pipeline(path)
-        gitlab = data.get("gitlab", f"atakalive/{args.project}")
+        gitlab = data.get("gitlab", f"{GITLAB_NAMESPACE}/{args.project}")
         for num in args.issue:
             if not _post_gitlab_note(gitlab, num, args.comment):
                 sys.exit(1)
@@ -1162,7 +1162,7 @@ def cmd_code_revise(args):
 
     if args.comment:
         data = load_pipeline(path)
-        gitlab = data.get("gitlab", f"atakalive/{args.project}")
+        gitlab = data.get("gitlab", f"{GITLAB_NAMESPACE}/{args.project}")
         for num in args.issue:
             if not _post_gitlab_note(gitlab, num, args.comment):
                 sys.exit(1)

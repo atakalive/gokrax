@@ -5,7 +5,7 @@ import re
 
 import yaml
 
-from config import GOKRAX_CLI, QUEUE_FILE
+from config import GOKRAX_CLI, QUEUE_FILE, GITLAB_NAMESPACE
 from messages import render
 
 # ---------------------------------------------------------------------------
@@ -100,7 +100,7 @@ def build_issue_plan_prompt(spec_config: dict, data: dict) -> str:
         suggestions_text += "\n"
 
     spec_filename = spec_path.split("/")[-1] if spec_path else "spec"
-    gitlab = data.get("gitlab", f"atakalive/{project}")
+    gitlab = data.get("gitlab", f"{GITLAB_NAMESPACE}/{project}")
 
     return render("spec.issue_plan", "plan",
         project=project, spec_path=spec_path, current_rev=current_rev,

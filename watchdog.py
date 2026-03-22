@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config import (
     PIPELINES_DIR, LOCAL_TZ, LOG_FILE, REVIEW_MODES, CC_MODEL_PLAN, CC_MODEL_IMPL,
     GOKRAX_CLI, INACTIVE_THRESHOLD_SEC, SESSIONS_BASE,
-    STATE_PHASE_MAP,
+    STATE_PHASE_MAP, GITLAB_NAMESPACE,
     # WATCHDOG_LOOP_PIDFILE, WATCHDOG_LOOP_CRON_MARKER は gokrax.py の enable/disable 専用
 )
 from config import (
@@ -225,7 +225,7 @@ def process(path: Path):
                 "action": action,
                 "implementer": data.get("implementer", "kaneko"),
                 "batch": list(batch),
-                "gitlab": data.get("gitlab", f"atakalive/{pj}"),
+                "gitlab": data.get("gitlab", f"{GITLAB_NAMESPACE}/{pj}"),
                 "nudge_count": data[key],
                 "queue_mode": data.get("queue_mode", False),
             })
@@ -244,7 +244,7 @@ def process(path: Path):
                 "old_state": data.get("state", "IDLE"),
                 "repo_path": data.get("repo_path", ""),
                 "batch": list(data.get("batch", [])),
-                "gitlab": data.get("gitlab", f"atakalive/{pj}"),
+                "gitlab": data.get("gitlab", f"{GITLAB_NAMESPACE}/{pj}"),
             })
             # Issue #59: pending notification for run_cc
             pending = {"run_cc": True}
@@ -478,7 +478,7 @@ def process(path: Path):
             "pj": pj,
             "old_state": state,
             "action": action,
-            "gitlab": data.get("gitlab", f"atakalive/{pj}"),
+            "gitlab": data.get("gitlab", f"{GITLAB_NAMESPACE}/{pj}"),
             "implementer": data.get("implementer", "kaneko"),
             "batch": saved_batch,
             "repo_path": data.get("repo_path", ""),
@@ -500,7 +500,7 @@ def process(path: Path):
             pending["review"] = {
                 "new_state": action.new_state,
                 "batch": saved_batch,
-                "gitlab": data.get("gitlab", f"atakalive/{pj}"),
+                "gitlab": data.get("gitlab", f"{GITLAB_NAMESPACE}/{pj}"),
                 "repo_path": data.get("repo_path", ""),
                 "review_mode": data.get("review_mode", "standard"),
                 "base_commit": data.get("base_commit"),

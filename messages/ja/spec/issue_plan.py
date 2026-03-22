@@ -5,7 +5,7 @@ Variables:
     spec_path: str            - 仕様書ファイルパス
     current_rev: str          - 現在のリビジョン番号
     suggestions_text: str     - レビュアー提案のYAMLテキスト
-    gitlab: str               - GitLabリポジトリ（例: "atakalive/gokrax"）
+    gitlab: str               - GitLabリポジトリ（例: "namespace/project"）
     spec_filename: str        - 仕様書ファイル名
     GOKRAX_CLI: str           - gokrax CLIパス
 """

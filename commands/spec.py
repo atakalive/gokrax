@@ -7,7 +7,7 @@ from config import (
     PIPELINES_DIR, LOCAL_TZ, REVIEW_MODES, OWNER_NAME,
     MAX_SPEC_REVISE_CYCLES, MIN_VALID_REVIEWS_BY_MODE,
     SPEC_BLOCK_TIMERS,
-    MAX_SPEC_RETRIES,
+    MAX_SPEC_RETRIES, GITLAB_NAMESPACE,
 )
 from pipeline_io import (
     load_pipeline, update_pipeline, save_pipeline,
@@ -79,7 +79,7 @@ def cmd_spec_start(args):
         repo_path = default_repo if Path(default_repo).is_dir() else ""
         data = {
             "project": args.project,
-            "gitlab": f"atakalive/{args.project}",
+            "gitlab": f"{GITLAB_NAMESPACE}/{args.project}",
             "repo_path": repo_path,
             "state": "IDLE",
             "enabled": False,

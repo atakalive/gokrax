@@ -5,7 +5,7 @@ Variables:
     spec_path: str            - Spec file path
     current_rev: str          - Current revision number
     suggestions_text: str     - Reviewer suggestions YAML text
-    gitlab: str               - GitLab repository (e.g. "atakalive/gokrax")
+    gitlab: str               - GitLab repository (e.g. "namespace/project")
     spec_filename: str        - Spec file name
     GOKRAX_CLI: str           - gokrax CLI path
 """

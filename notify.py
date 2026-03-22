@@ -294,6 +294,84 @@ def _build_file_review_message(
     return msg
 
 
+def _build_npass_review_message(
+    project: str,
+    state: str,
+    batch: list,
+    reviewer: str,
+    round_num: int | None = None,
+    comment: str = "",
+) -> str:
+    """NPASS レビュー依頼メッセージを生成。Issue本文・diff は含めない。"""
+    is_code = "CODE" in state
+    review_key = "code_reviews" if is_code else "design_reviews"
+
+    # バッチ内の対象 Issue から pass / target_pass を取得
+    pass_nums: list[int] = []
+    target_passes: list[int] = []
+    pending_issues: list[dict] = []
+    for i in batch:
+        entry = i.get(review_key, {}).get(reviewer, {})
+        p = entry.get("pass", 1)
+        tp = entry.get("target_pass", 1)
+        if p < tp:
+            pass_nums.append(p)
+            target_passes.append(tp)
+            pending_issues.append(i)
+
+    if not pending_issues:
+        return ""
+
+    # バッチ内パス均一性チェック（防御的フォールバック）
+    if len(set(pass_nums)) > 1 or len(set(target_passes)) > 1:
+        logger.warning(
+            "NPASS pass numbers not uniform for reviewer %s: passes=%s, targets=%s",
+            reviewer, pass_nums, target_passes,
+        )
+    pass_num = min(pass_nums) + 1  # 次のパス番号
+    target_pass = min(target_passes) if target_passes else 1
+
+    # TODO チェックリスト
+    todo_lines: list[str] = []
+    review_cmds: list[str] = []
+    for i in pending_issues:
+        num = i["issue"]
+        title = i.get("title", "")
+        todo_lines.append(f"□ #{num}: {title}")
+        cmd = review_command(project, num, reviewer, round_num)
+        review_cmds.append(cmd)
+
+    todo_header = (
+        f"【タスク: {len(pending_issues)}件 — 全て完了するまで止めるな】\n"
+        + "\n".join(todo_lines)
+    )
+
+    cmds_block = "\n".join(review_cmds)
+    completion = (
+        f"\n\n【完了コマンド — 全Issue分を実行すること】\n"
+        f"```\n{cmds_block}\n```\n"
+        f"⚠️ 全Issueのreviewコマンドを実行するまでタスク未完了。途中で止めるな。"
+    )
+
+    from config import OWNER_NAME
+    comment_line = f"\n{OWNER_NAME}からの要望: {comment}" if comment else ""
+
+    from messages import render
+    review_module = "dev.code_review_npass" if is_code else "dev.design_review_npass"
+    msg = render(review_module, "review_request",
+        project=project, todo_header=todo_header, completion=completion,
+        pass_num=pass_num, target_pass=target_pass, comment_line=comment_line,
+    )
+
+    # スキルブロック付与
+    skill_phase = "code" if is_code else "design"
+    skill_block = load_skills(reviewer, project, skill_phase)
+    if skill_block:
+        msg = f"{skill_block}\n\n{msg}"
+
+    return msg
+
+
 def _trigger_blocked(project: str, reason: str) -> None:
     """パイプラインをBLOCKED状態に遷移させる。
 
@@ -647,10 +725,16 @@ def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
         if r not in AGENTS:
             continue
 
-        msg = format_review_request(project, state, batch, gitlab, reviewer=r,
-                                    repo_path=repo_path, prev_reviews=prev_reviews,
-                                    base_commit=base_commit, comment=comment,
-                                    round_num=round_num)
+        if state in ("DESIGN_REVIEW_NPASS", "CODE_REVIEW_NPASS"):
+            msg = _build_npass_review_message(
+                project, state, batch, reviewer=r,
+                round_num=round_num, comment=comment,
+            )
+        else:
+            msg = format_review_request(project, state, batch, gitlab, reviewer=r,
+                                        repo_path=repo_path, prev_reviews=prev_reviews,
+                                        base_commit=base_commit, comment=comment,
+                                        round_num=round_num)
         if not msg:
             logger.info("No pending issues for %s — skipping review request", r)
             continue

@@ -127,6 +127,9 @@ def get_notification_for_state(
     if state in ("DESIGN_REVIEW", "CODE_REVIEW"):
         return TransitionAction(send_review=True)
 
+    if state in ("DESIGN_REVIEW_NPASS", "CODE_REVIEW_NPASS"):
+        return TransitionAction(send_review=True)
+
     from config import OWNER_NAME
     comment_line = f"{OWNER_NAME}からの要望: {comment}\n" if comment else ""
 

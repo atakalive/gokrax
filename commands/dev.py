@@ -751,9 +751,9 @@ def cmd_review(args):
     def do_review(data):
         nonlocal _skipped, _dispute_accepted
         state = data.get("state", "IDLE")
-        if state == "DESIGN_REVIEW":
+        if state in ("DESIGN_REVIEW", "DESIGN_REVIEW_NPASS"):
             key = "design_reviews"
-        elif state == "CODE_REVIEW":
+        elif state in ("CODE_REVIEW", "CODE_REVIEW_NPASS"):
             key = "code_reviews"
         elif state in ("DESIGN_REVISE", "CODE_REVISE"):
             key = "design_reviews" if "DESIGN" in state else "code_reviews"
@@ -839,11 +839,17 @@ def cmd_review(args):
             raise SystemExit(f"Issue #{args.issue} not in batch")
         # 冪等性: 同じレビュアーが既にレビュー済みならスキップ（--force で上書き可）
         if args.reviewer in issue.get(key, {}) and not has_pending_dispute:
-            if not args.force:
+            existing = issue[key][args.reviewer]
+            # NPASS: pass < target_pass なら上書きを許可（次のパスのレビュー）
+            npass_overwrite = existing.get("pass", 1) < existing.get("target_pass", 1)
+            if not args.force and not npass_overwrite:
                 print(f"#{args.issue}: already reviewed by {args.reviewer}, skipping")
                 _skipped = True
                 return
-            print(f"#{args.issue}: overwriting existing review by {args.reviewer} (--force)")
+            if npass_overwrite:
+                print(f"#{args.issue}: NPASS overwrite (pass {existing.get('pass', 1)}/{existing.get('target_pass', 1)})")
+            elif args.force:
+                print(f"#{args.issue}: overwriting existing review by {args.reviewer} (--force)")
         # dispute accepted 時はレビューを削除して早期 return（次の REVIEW サイクルで再レビューを強制）
         if _dispute_accepted:
             issue[key].pop(args.reviewer, None)
@@ -851,6 +857,23 @@ def cmd_review(args):
         review_entry = {"verdict": args.verdict, "at": now_iso()}
         if args.summary:
             review_entry["summary"] = args.summary
+
+        # pass / target_pass の計算
+        from config import REVIEW_MODES as _REVIEW_MODES
+        review_mode = data.get("review_mode", "standard")
+        mode_config = _REVIEW_MODES.get(review_mode, {})
+        n_pass_config = mode_config.get("n_pass", {})
+        target_pass = n_pass_config.get(args.reviewer, 1)
+        if not isinstance(target_pass, int) or target_pass < 1:
+            print(f"WARNING: n_pass[{args.reviewer}] = {target_pass!r} is invalid, defaulting to 1")
+            target_pass = 1
+
+        existing_entry = issue.get(key, {}).get(args.reviewer, {})
+        current_pass = existing_entry.get("pass", 0) + 1  # 既存なし→0+1=1, 既存あり→pass+1
+
+        review_entry["pass"] = current_pass
+        review_entry["target_pass"] = target_pass
+
         issue[key][args.reviewer] = review_entry
 
     # SIGTERM を遅延させ、JSON 書き込み（update_pipeline）の完了を保証する
@@ -903,9 +926,23 @@ def cmd_review(args):
     # GitLab Issue note に自動投稿
     gitlab = data.get("gitlab", f"{GITLAB_NAMESPACE}/{args.project}")
     phase = "設計" if "DESIGN" in state else "コード"
-    note_body = f"[{args.reviewer}] {args.verdict} ({phase}レビュー)\n\n{args.summary or ''}"
-    if _post_gitlab_note(gitlab, args.issue, note_body):
-        print("  → GitLab issue note posted")
+
+    # NPASS 中間パスでは APPROVE の場合のみ GitLab note をスキップ
+    # P0/P1/P2 の指摘は中間パスでも GitLab に投稿（開発者が確認できるようにする）
+    issue = find_issue(data.get("batch", []), args.issue)
+    skip_note = False
+    if issue:
+        review_key = "code_reviews" if "CODE" in state else "design_reviews"
+        entry = issue.get(review_key, {}).get(args.reviewer, {})
+        if (entry.get("pass", 1) < entry.get("target_pass", 1)
+                and args.verdict.upper() == "APPROVE"):
+            print(f"  → GitLab note skipped (APPROVE at pass {entry['pass']}/{entry['target_pass']})")
+            skip_note = True
+
+    if not skip_note:
+        note_body = f"[{args.reviewer}] {args.verdict} ({phase}レビュー)\n\n{args.summary or ''}"
+        if _post_gitlab_note(gitlab, args.issue, note_body):
+            print("  → GitLab issue note posted")
 
 
 def cmd_dispute(args):

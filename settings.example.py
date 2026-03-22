@@ -77,6 +77,13 @@ REVIEW_MODES = {
         "min_reviews": 0,
         "grace_period_sec": 0,
     },
+    "standard-x2": {
+        "members": [],   # empty = all AGENTS
+        "min_reviews": 3,
+        "grace_period_sec": 0,
+        # n_pass: per-reviewer multi-pass count (positive int). Reviewers not listed default to 1.
+        "n_pass": {"reviewer1": 2, "reviewer3": 2},
+    },
 }
 
 # ===========================================================================

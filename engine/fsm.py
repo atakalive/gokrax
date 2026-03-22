@@ -41,6 +41,7 @@ class TransitionAction:
     dispute_nudge_reviewers: list | None = None  # dispute pending で催促が必要なレビュアー
     extend_notice: str | None = None  # タイムアウト延長案内メッセージ
     save_grace_met_at: str | None = None  # grace met_atをpipelineに保存する必要がある場合のキー名
+    npass_target_reviewers: list | None = None  # NPASS遷移時のターゲットレビュアー一覧
 
 
 def _get_state_entered_at(data: dict, state: str) -> _datetime | None:
@@ -105,6 +106,15 @@ def _check_nudge(state: str, data: dict) -> TransitionAction | None:
 
     return nudge
 
+
+
+def _get_reviewer_entry(batch: list, key: str, reviewer: str) -> dict | None:
+    """バッチの最初のIssueから指定レビュアーのレビューエントリを取得。"""
+    for issue in batch:
+        entry = issue.get(key, {}).get(reviewer)
+        if entry is not None:
+            return entry
+    return None
 
 
 def get_notification_for_state(
@@ -383,7 +393,26 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
                 if data:
                     data.pop(met_key, None)
                 comment = data.get("comment", "") if data else ""
-                return _resolve_review_outcome(state, data, batch, has_p0, has_p1, has_p2, comment=comment)
+                outcome = _resolve_review_outcome(state, data, batch, has_p0, has_p1, has_p2, comment=comment)
+
+                # NPASS interception: APPROVE 判定だが pass < target_pass のレビュアーがいる → NPASS
+                if outcome.new_state in ("DESIGN_APPROVED", "CODE_APPROVED"):
+                    npass_targets: list[str] = []
+                    seen: set[str] = set()
+                    for issue in batch:
+                        for reviewer, entry in issue.get(key, {}).items():
+                            if reviewer not in seen and entry.get("pass", 1) < entry.get("target_pass", 1):
+                                npass_targets.append(reviewer)
+                                seen.add(reviewer)
+                    if npass_targets:
+                        npass_state = "DESIGN_REVIEW_NPASS" if "DESIGN" in state else "CODE_REVIEW_NPASS"
+                        return TransitionAction(
+                            new_state=npass_state,
+                            send_review=True,
+                            npass_target_reviewers=npass_targets,
+                        )
+
+                return outcome
 
         # Not enough reviews yet
         # 1. タイムアウト判定（BLOCKEDのみ早期リターン）
@@ -406,6 +435,119 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
                 nudge_reviewers=sorted(pending) or None,
                 dispute_nudge_reviewers=sorted(dispute_awaiting) or None,
             )
+        return TransitionAction()
+
+    if state in ("DESIGN_REVIEW_NPASS", "CODE_REVIEW_NPASS"):
+        key = "design_reviews" if "DESIGN" in state else "code_reviews"
+        npass_targets = data.get("_npass_target_reviewers", []) if data else []
+
+        if not npass_targets:
+            return TransitionAction()
+
+        entered_at = _get_state_entered_at(data, state)
+        if entered_at is None:
+            return TransitionAction()
+
+        # 各ターゲットレビュアーの提出状況を確認（state 進入後に at が更新されたか）
+        all_submitted = True
+        has_p0 = False
+        has_p1 = False
+        has_p2 = False
+
+        for reviewer in npass_targets:
+            entry = _get_reviewer_entry(batch, key, reviewer)
+            if entry is None:
+                all_submitted = False
+                continue
+
+            review_at_str = entry.get("at")
+            if not review_at_str:
+                all_submitted = False
+                continue
+            try:
+                review_at = _datetime.fromisoformat(review_at_str)
+                if review_at <= entered_at:
+                    all_submitted = False
+                    continue
+            except (ValueError, TypeError):
+                all_submitted = False
+                continue
+
+            verdict = entry.get("verdict", "").upper()
+            if verdict in ("REJECT", "P0"):
+                has_p0 = True
+            elif verdict == "P1":
+                has_p1 = True
+            elif verdict == "P2":
+                has_p2 = True
+
+        if all_submitted:
+            pj = data.get("project", "") if data else ""
+            comment = data.get("comment", "") if data else ""
+            p2_fix = data.get("p2_fix", False) if data else False
+
+            # P0/P1 → REVISE
+            if has_p0 or has_p1:
+                revise_state = "DESIGN_REVISE" if "DESIGN" in state else "CODE_REVISE"
+                return TransitionAction(
+                    new_state=revise_state,
+                    impl_msg=get_notification_for_state(
+                        revise_state, project=pj, batch=batch, p2_fix=p2_fix, comment=comment,
+                    ).impl_msg,
+                )
+
+            # P2 + p2_fix → REVISE
+            if p2_fix and has_p2:
+                revise_state = "DESIGN_REVISE" if "DESIGN" in state else "CODE_REVISE"
+                return TransitionAction(
+                    new_state=revise_state,
+                    impl_msg=get_notification_for_state(
+                        revise_state, project=pj, batch=batch, p2_fix=True, comment=comment,
+                    ).impl_msg,
+                )
+
+            # まだパスが残っているレビュアー → 自己遷移
+            still_npass: list[str] = []
+            for reviewer in npass_targets:
+                entry = _get_reviewer_entry(batch, key, reviewer)
+                if entry and entry.get("pass", 1) < entry.get("target_pass", 1):
+                    still_npass.append(reviewer)
+
+            if still_npass:
+                return TransitionAction(
+                    new_state=state,
+                    send_review=True,
+                    npass_target_reviewers=still_npass,
+                )
+
+            # 全パス完了 → APPROVED
+            appr = "DESIGN_APPROVED" if "DESIGN" in state else "CODE_APPROVED"
+            return TransitionAction(
+                new_state=appr,
+                impl_msg=get_notification_for_state(
+                    appr, project=pj, batch=batch, comment=comment,
+                ).impl_msg,
+            )
+
+        # 未提出 — タイムアウト判定（NPASS は BLOCKED にならず強制 APPROVE）
+        base_state = state.replace("_NPASS", "")
+        block_sec = BLOCK_TIMERS.get(base_state, 3600)
+        if data:
+            block_sec += data.get("timeout_extension", 0)
+
+        elapsed = (_datetime.now(LOCAL_TZ) - entered_at).total_seconds()
+        if elapsed >= block_sec:
+            appr = "DESIGN_APPROVED" if "DESIGN" in state else "CODE_APPROVED"
+            pj = data.get("project", "") if data else ""
+            comment = data.get("comment", "") if data else ""
+            log(f"[NPASS] timeout ({elapsed:.0f}s >= {block_sec}s), forcing approval for {pj}")
+            return TransitionAction(
+                new_state=appr,
+                impl_msg=get_notification_for_state(
+                    appr, project=pj, batch=batch, comment=comment,
+                ).impl_msg,
+            )
+
         return TransitionAction()
 
     if state == "DESIGN_APPROVED":

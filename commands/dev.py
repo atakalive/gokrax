@@ -20,7 +20,7 @@ from pipeline_io import (
     clear_pending_notification,
 )
 from engine.fsm import get_notification_for_state
-from notify import notify_implementer, notify_reviewers, notify_discord, send_to_agent, send_to_agent_queued
+from notify import notify_implementer, notify_reviewers, notify_discord, send_to_agent, send_to_agent_queued, post_gitlab_note as _post_gitlab_note
 import os
 
 # Verdict severity for dispute resolution (Issue #86)
@@ -426,9 +426,11 @@ def _reset_to_idle(data: dict) -> None:
     # --- リソース解放（pop より先に実行）---
     from engine.cc import _kill_pytest_baseline
     from engine.reviewer import _cleanup_review_files
+    from notify import cleanup_npass_files
     pj = data.get("project", "")
     _kill_pytest_baseline(data, pj)
     _cleanup_review_files(pj)
+    cleanup_npass_files(pj)
 
     # --- 状態クリア ---
     data["batch"] = []
@@ -473,6 +475,8 @@ def _reset_to_idle(data: dict) -> None:
     # 前回レビュー退避
     data.pop("_prev_design_reviews", None)
     data.pop("_prev_code_reviews", None)
+    # NPASS
+    data.pop("_npass_target_reviewers", None)
     # 催促系（動的キー含む）
     data.pop("_last_nudge_at", None)
     for k in [k for k in data if k.startswith(("_nudge_failed_", "_last_nudge_"))]:
@@ -721,23 +725,8 @@ def _update_issue_title_with_level(gitlab: str, issue_num: int, level: int) -> b
     return False
 
 
-def _post_gitlab_note(gitlab: str, issue_num: int, body: str) -> bool:
-    """glab issue note を投稿。失敗時は2回リトライ（間隔3秒）。"""
-    for attempt in range(3):
-        try:
-            result = subprocess.run(
-                [GLAB_BIN, "issue", "note", str(issue_num), "-m", body, "-R", gitlab],
-                capture_output=True, text=True, timeout=GLAB_TIMEOUT,
-            )
-            if result.returncode == 0:
-                return True
-            _log(f"glab note failed (attempt {attempt+1}/3): {result.stderr.strip()}")
-        except Exception as e:
-            _log(f"glab note error (attempt {attempt+1}/3): {e}")
-        if attempt < 2:
-            time.sleep(3)
-    print("  ⚠ GitLab note failed after 3 attempts", file=sys.stderr)
-    return False
+
+# _post_gitlab_note is imported from notify.py (moved in Issue #177)
 
 
 def cmd_review(args):

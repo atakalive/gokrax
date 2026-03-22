@@ -376,11 +376,12 @@ def process(path: Path):
                 data.pop("_pytest_baseline", None)
                 data.pop("test_baseline", None)
 
-        # REVIEW→REVISE: Increment cycle counter (Issue #29)
-        if state in ("DESIGN_REVIEW", "CODE_REVIEW") and action.new_state in ("DESIGN_REVISE", "CODE_REVISE"):
+        # REVIEW/NPASS→REVISE: Increment cycle counter (Issue #29) + NPASS cleanup
+        if state in ("DESIGN_REVIEW", "CODE_REVIEW", "DESIGN_REVIEW_NPASS", "CODE_REVIEW_NPASS") and action.new_state in ("DESIGN_REVISE", "CODE_REVISE"):
             counter_key = "design_revise_count" if "DESIGN" in state else "code_revise_count"
             data[counter_key] = data.get(counter_key, 0) + 1
             log(f"[{pj}] {counter_key} incremented to {data[counter_key]}")
+            data.pop("_npass_target_reviewers", None)
 
         # REVISE → REVIEW: ロック内でレビュークリア
         if state in ("DESIGN_REVISE", "CODE_REVISE"):
@@ -471,6 +472,26 @@ def process(path: Path):
         add_history(data, state, action.new_state, actor="watchdog")
         data["state"] = action.new_state
 
+        # NPASS: ターゲットレビュアー保存/更新
+        if action.npass_target_reviewers is not None:
+            data["_npass_target_reviewers"] = action.npass_target_reviewers
+
+        # NPASS→APPROVED: タイムアウト時の GitLab note 情報を構築
+        _npass_timeout_notes: list[dict] = []
+        if state in ("DESIGN_REVIEW_NPASS", "CODE_REVIEW_NPASS") and action.new_state in ("DESIGN_APPROVED", "CODE_APPROVED"):
+            review_key = "design_reviews" if "DESIGN" in state else "code_reviews"
+            for reviewer in data.get("_npass_target_reviewers", []):
+                for issue in batch:
+                    entry = issue.get(review_key, {}).get(reviewer, {})
+                    if entry.get("pass", 1) < entry.get("target_pass", 1):
+                        _npass_timeout_notes.append({
+                            "issue_num": issue["issue"],
+                            "reviewer": reviewer,
+                            "pass": entry.get("pass", 1),
+                            "target_pass": entry.get("target_pass", 1),
+                        })
+            data.pop("_npass_target_reviewers", None)
+
         # ロック外通知用に情報を保存
         # DONE遷移時はbatchが既にクリア済みなので退避分を使う
         saved_batch = _done_batch if state == "DONE" else list(data.get("batch", []))
@@ -488,6 +509,8 @@ def process(path: Path):
             "queue_mode": _done_queue_mode if state == "DONE" else data.get("queue_mode", False),
             "p2_fix": data.get("p2_fix", False),
         })
+        if _npass_timeout_notes:
+            notification["_npass_timeout_notes"] = _npass_timeout_notes
 
         # Issue #59: _pending_notifications — at-least-once guarantee
         pending = {}
@@ -663,6 +686,19 @@ def process(path: Path):
         ts = _datetime.now(LOCAL_TZ).strftime("%m/%d %H:%M")
         q_prefix = "[Queue]" if notification.get("queue_mode") else ""
         notify_discord(f"{q_prefix}[{pj}] {notification['old_state']} → {action.new_state} ({ts})")
+
+        # NPASS timeout: GitLab note を投稿（ロック外）
+        _npass_timeout_notes = notification.get("_npass_timeout_notes", [])
+        if _npass_timeout_notes:
+            from notify import post_gitlab_note
+            gitlab = notification.get("gitlab", "")
+            for note in _npass_timeout_notes:
+                body = (
+                    f"[gokrax] NPASS timeout: {note['reviewer']} のパス "
+                    f"{note['pass']}/{note['target_pass']} が未完了のため、"
+                    f"承認にフォールバックしました。"
+                )
+                post_gitlab_note(gitlab, note["issue_num"], body)
 
         # REVISE遷移時: P0サマリーを投稿
         if action.new_state in ("DESIGN_REVISE", "CODE_REVISE"):

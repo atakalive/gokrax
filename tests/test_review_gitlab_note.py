@@ -69,8 +69,8 @@ class TestReviewGitlabNoteRetry:
             summary="LGTM",
             force=False,
         )
-        with patch("commands.dev.subprocess.run", side_effect=mock_run):
-            with patch("commands.dev.time.sleep"):
+        with patch("notify.subprocess.run", side_effect=mock_run):
+            with patch("notify.time.sleep"):
                 gokrax.cmd_review(args)
 
         assert call_count == 3
@@ -82,8 +82,8 @@ class TestReviewGitlabNoteRetry:
         assert "pascal" in reviews
         assert reviews["pascal"]["verdict"] == "APPROVE"
 
-    def test_all_fail_pipeline_updated_and_stderr_warning(self, tmp_pipelines, capsys):
-        """3回全失敗: pipeline JSON には review が記録され、stderr に警告が出る。"""
+    def test_all_fail_pipeline_updated_and_log_warning(self, tmp_pipelines, caplog):
+        """3回全失敗: pipeline JSON には review が記録され、logger に警告が出る。"""
         _make_pipeline(tmp_pipelines)
 
         fail_result = MagicMock()
@@ -99,9 +99,11 @@ class TestReviewGitlabNoteRetry:
             summary="minor issue",
             force=False,
         )
-        with patch("commands.dev.subprocess.run", return_value=fail_result):
-            with patch("commands.dev.time.sleep"):
-                gokrax.cmd_review(args)
+        import logging
+        with caplog.at_level(logging.WARNING, logger="gokrax.notify"):
+            with patch("notify.subprocess.run", return_value=fail_result):
+                with patch("notify.time.sleep"):
+                    gokrax.cmd_review(args)
 
         # pipeline JSON には review が記録される（失敗でも）
         path = tmp_pipelines / "test-pj.json"
@@ -110,10 +112,8 @@ class TestReviewGitlabNoteRetry:
         assert "leibniz" in reviews
         assert reviews["leibniz"]["verdict"] == "P1"
 
-        # stderr に警告が出る
-        captured = capsys.readouterr()
-        assert "⚠" in captured.err
-        assert "3 attempts" in captured.err
+        # logger に警告が出る（post_gitlab_note は logger.error を使用）
+        assert any("3 attempts" in r.message for r in caplog.records)
 
 
 class TestReviewForce:
@@ -137,8 +137,8 @@ class TestReviewForce:
             summary="",
             force=False,
         )
-        with patch("commands.dev.subprocess.run", return_value=ok_result):
-            with patch("commands.dev.time.sleep"):
+        with patch("notify.subprocess.run", return_value=ok_result):
+            with patch("notify.time.sleep"):
                 with patch("commands.dev.now_iso", return_value="2026-01-01T00:00:00+09:00"):
                     gokrax.cmd_review(args1)
 
@@ -156,8 +156,8 @@ class TestReviewForce:
             summary="",
             force=True,
         )
-        with patch("commands.dev.subprocess.run", return_value=ok_result):
-            with patch("commands.dev.time.sleep"):
+        with patch("notify.subprocess.run", return_value=ok_result):
+            with patch("notify.time.sleep"):
                 with patch("commands.dev.now_iso", return_value="2026-01-01T01:00:00+09:00"):
                     gokrax.cmd_review(args2)
 
@@ -184,8 +184,8 @@ class TestReviewForce:
             summary="",
             force=False,
         )
-        with patch("commands.dev.subprocess.run", return_value=ok_result):
-            with patch("commands.dev.time.sleep"):
+        with patch("notify.subprocess.run", return_value=ok_result):
+            with patch("notify.time.sleep"):
                 gokrax.cmd_review(args1)
 
         # 2回目: pascal が APPROVE を --force なしで投稿（スキップされるはず）
@@ -204,8 +204,8 @@ class TestReviewForce:
             summary="",
             force=False,
         )
-        with patch("commands.dev.subprocess.run", side_effect=mock_run_2nd):
-            with patch("commands.dev.time.sleep"):
+        with patch("notify.subprocess.run", side_effect=mock_run_2nd):
+            with patch("notify.time.sleep"):
                 gokrax.cmd_review(args2)
 
         # verdict は P0 のまま（上書きされていない）
@@ -234,8 +234,8 @@ class TestReviewForce:
             summary="LGTM",
             force=True,
         )
-        with patch("commands.dev.subprocess.run", return_value=ok_result):
-            with patch("commands.dev.time.sleep"):
+        with patch("notify.subprocess.run", return_value=ok_result):
+            with patch("notify.time.sleep"):
                 gokrax.cmd_review(args)
 
         path = tmp_pipelines / "test-pj.json"

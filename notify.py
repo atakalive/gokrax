@@ -361,7 +361,11 @@ def _build_npass_review_message(
     gitlab_ref = f" -R {gitlab}" if gitlab else ""
     issue_nums = [i["issue"] for i in pending_issues]
     if is_code:
-        refresher_cmds = "前パスで参照したファイル/コマンドを再実行して確認せよ。"
+        saved_path = _load_npass_review_file_path(project, reviewer)
+        if saved_path:
+            refresher_cmds = f"前パスの完全なレビュー内容: `cat {saved_path}`"
+        else:
+            refresher_cmds = "前パスで参照したファイル/コマンドを再実行して確認せよ。"
     else:
         view_cmds = [f"`glab issue view {n}{gitlab_ref}`" for n in issue_nums]
         note_cmds = [f"`glab issue note-list {n}{gitlab_ref}`" for n in issue_nums]
@@ -385,6 +389,74 @@ def _build_npass_review_message(
         msg = f"{skill_block}\n\n{msg}"
 
     return msg
+
+
+def post_gitlab_note(gitlab: str, issue_num: int, body: str) -> bool:
+    """glab issue note を投稿。失敗時は2回リトライ（間隔3秒）。"""
+    for attempt in range(3):
+        try:
+            result = subprocess.run(
+                [GLAB_BIN, "issue", "note", str(issue_num), "-m", body, "-R", gitlab],
+                capture_output=True, text=True, timeout=GLAB_TIMEOUT,
+            )
+            if result.returncode == 0:
+                return True
+            logger.warning("glab note failed (attempt %d/3): %s", attempt + 1, result.stderr.strip())
+        except Exception as e:
+            logger.warning("glab note error (attempt %d/3): %s", attempt + 1, e)
+        if attempt < 2:
+            time.sleep(3)
+    logger.error("GitLab note failed after 3 attempts")
+    return False
+
+
+def _npass_mapping_path(project: str) -> Path:
+    """NPASS レビューファイルマッピングのパスを返す。"""
+    sanitized = re.sub(r'[/\\\s]', '-', project)
+    return REVIEW_FILE_DIR / f"{sanitized}--npass-files.json"
+
+
+def _save_npass_review_file_path(project: str, reviewer: str, file_path: Path) -> None:
+    """NPASS 用にレビューファイルパスを保存。"""
+    mapping_path = _npass_mapping_path(project)
+    try:
+        os.makedirs(REVIEW_FILE_DIR, exist_ok=True)
+        mapping: dict[str, str] = {}
+        if mapping_path.exists():
+            mapping = json.loads(mapping_path.read_text(encoding="utf-8"))
+        mapping[reviewer] = str(file_path)
+        mapping_path.write_text(json.dumps(mapping, ensure_ascii=False), encoding="utf-8")
+    except OSError as e:
+        logger.warning("Failed to save NPASS review file path: %s", e)
+
+
+def _load_npass_review_file_path(project: str, reviewer: str) -> str | None:
+    """NPASS 用にレビューファイルパスを読み込み。"""
+    mapping_path = _npass_mapping_path(project)
+    try:
+        if not mapping_path.exists():
+            return None
+        mapping = json.loads(mapping_path.read_text(encoding="utf-8"))
+        return mapping.get(reviewer)
+    except (OSError, json.JSONDecodeError) as e:
+        logger.warning("Failed to load NPASS review file path: %s", e)
+        return None
+
+
+def cleanup_npass_files(project: str) -> None:
+    """NPASS 用レビューファイルとマッピングを削除。"""
+    mapping_path = _npass_mapping_path(project)
+    try:
+        if mapping_path.exists():
+            mapping = json.loads(mapping_path.read_text(encoding="utf-8"))
+            for path_str in mapping.values():
+                try:
+                    Path(path_str).unlink(missing_ok=True)
+                except OSError:
+                    pass
+            mapping_path.unlink(missing_ok=True)
+    except (OSError, json.JSONDecodeError):
+        pass
 
 
 def _trigger_blocked(project: str, reason: str) -> None:
@@ -755,20 +827,31 @@ def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
             logger.info("No pending issues for %s — skipping review request", r)
             continue
 
+        # 強制外部化: CODE_REVIEW で n_pass > 1 のレビュアー → NPASS 用にファイル参照を保存
+        force_externalize = False
+        if state == "CODE_REVIEW":
+            n_pass = mode_config.get("n_pass", {}).get(r, 1)
+            if n_pass > 1:
+                force_externalize = True
+
         # サイズ判定: CLI引数として渡す最終形態（JSON）のバイト数で MAX_CLI_ARG_BYTES と比較
         params_json_size = len(json.dumps({
             "sessionKey": f"agent:{r}:main",
             "message": msg,
             "idempotencyKey": "00000000-0000-0000-0000-000000000000",
         }).encode("utf-8"))
-        if params_json_size >= config.MAX_CLI_ARG_BYTES:
-            logger.info("Review message for %s is %d bytes (json), externalizing to file", r, params_json_size)
+        if force_externalize or params_json_size >= config.MAX_CLI_ARG_BYTES:
+            logger.info("Review message for %s is %d bytes (json), externalizing to file%s",
+                        r, params_json_size, " (forced for n_pass)" if force_externalize else "")
             file_path = _write_review_file(project, r, msg)
             if file_path is None:
                 # ファイル書き出し失敗 → BLOCKED遷移
                 logger.error("Failed to write review file for %s, triggering BLOCKED", r)
                 _trigger_blocked(project, f"レビューデータファイル書き出し失敗 (reviewer={r})")
                 return
+            # NPASS 用にファイルパスを保存
+            if force_externalize:
+                _save_npass_review_file_path(project, r, file_path)
             is_code = "CODE" in state
             short_msg = _build_file_review_message(project, is_code, r, file_path, batch, round_num)
             if not send_to_agent(r, short_msg):

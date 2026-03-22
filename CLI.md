@@ -106,6 +106,8 @@ gokrax start --pj myproject --mode standard
 | `--no-skip-cc-plan` | No | explicitly do not skip CC plan phase |
 | `--skip-test` | No | skip CODE_TEST phase, go directly to CODE_REVIEW |
 | `--no-skip-test` | No | explicitly do not skip CODE_TEST phase |
+| `--skip-assess` | No | skip ASSESSMENT phase, go directly to IMPLEMENTATION |
+| `--no-skip-assess` | No | explicitly do not skip ASSESSMENT phase |
 
 Prerequisite: project must be in IDLE state.
 

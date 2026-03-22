@@ -287,6 +287,8 @@ def cmd_start(args):
         args.skip_cc_plan = False
     if getattr(args, "no_skip_test", None):
         args.skip_test = False
+    if getattr(args, "no_skip_assess", None):
+        args.skip_assess = False
 
     # デフォルトオプション適用: CLI 引数で明示指定されていない（None のまま）オプションにデフォルト値を注入
     for key, default_val in DEFAULT_QUEUE_OPTIONS.items():
@@ -311,6 +313,7 @@ def cmd_start(args):
     def _clear_stale_skip(d):
         d.pop("skip_cc_plan", None)
         d.pop("skip_test", None)
+        d.pop("skip_assess", None)
     update_pipeline(path, _clear_stale_skip)
 
     # 2. Issue番号取得（--issue指定 or GitLab API）
@@ -346,7 +349,8 @@ def cmd_start(args):
     has_comment = bool(getattr(args, "comment", None))
     has_skip_cc_plan = getattr(args, "skip_cc_plan", False)
     has_skip_test = getattr(args, "skip_test", False)
-    if getattr(args, "mode", None) or has_keep_ctx or has_p2_fix or has_comment or has_skip_cc_plan or has_skip_test:
+    has_skip_assess = getattr(args, "skip_assess", False)
+    if getattr(args, "mode", None) or has_keep_ctx or has_p2_fix or has_comment or has_skip_cc_plan or has_skip_test or has_skip_assess:
         from config import REVIEW_MODES
         if getattr(args, "mode", None) and args.mode not in REVIEW_MODES:
             raise SystemExit(f"Invalid mode: {args.mode} (valid: {list(REVIEW_MODES)})")
@@ -368,6 +372,8 @@ def cmd_start(args):
                 data["skip_cc_plan"] = True
             if getattr(args, "skip_test", False):
                 data["skip_test"] = True
+            if getattr(args, "skip_assess", False):
+                data["skip_assess"] = True
         update_pipeline(path, do_mode)
 
 
@@ -421,6 +427,7 @@ def _reset_to_idle(data: dict) -> None:
     data.pop("comment", None)
     data.pop("skip_cc_plan", None)
     data.pop("skip_test", None)
+    data.pop("skip_assess", None)
     # タイムアウト延長
     data.pop("timeout_extension", None)
     data.pop("extend_count", None)
@@ -1199,6 +1206,8 @@ def cmd_qrun(args):
                 opts.append("skip-cc-plan")
             if e.get("skip_test"):
                 opts.append("skip-test")
+            if e.get("skip_assess"):
+                opts.append("skip-assess")
             opts_str = " " + " ".join(opts) if opts else ""
             print(f"{e['project']} {e['issues']}{mode}{opts_str}{done}")
         return
@@ -1224,6 +1233,7 @@ def cmd_qrun(args):
         comment=entry.get("comment") or None,
         skip_cc_plan=entry.get("skip_cc_plan", False),
         skip_test=entry.get("skip_test", False),
+        skip_assess=entry.get("skip_assess", False),
     )
 
     # queue_mode を先に設定（cmd_start 内の遷移通知で [Queue] prefix を使うため）
@@ -1255,6 +1265,8 @@ def cmd_qrun(args):
             data["skip_cc_plan"] = True
         if entry.get("skip_test"):
             data["skip_test"] = True
+        if entry.get("skip_assess"):
+            data["skip_assess"] = True
 
     update_pipeline(path, _save_queue_options)
 
@@ -1335,6 +1347,8 @@ def get_qstatus_text(entries: list[dict], running: "dict | None" = None) -> str:
             parts.append("skip-cc-plan")
         if e.get("skip_test"):
             parts.append("skip-test")
+        if e.get("skip_assess"):
+            parts.append("skip-assess")
         lines.append(f"[{idx}] {' '.join(parts)}")
     return "\n".join(lines)
 

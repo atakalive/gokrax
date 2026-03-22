@@ -398,6 +398,17 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
         return TransitionAction()
 
     if state == "DESIGN_APPROVED":
+        skip_assess = data.get("skip_assess", False) if data else False
+        if skip_assess:
+            return TransitionAction(
+                new_state="IMPLEMENTATION",
+                run_cc=True,
+                reset_reviewers=True,
+            )
+        return TransitionAction(new_state="ASSESSMENT")
+
+    if state == "ASSESSMENT":
+        # スケルトン: 判定ロジックなし、即通過
         return TransitionAction(
             new_state="IMPLEMENTATION",
             run_cc=True,

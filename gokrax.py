@@ -160,6 +160,9 @@ def main():
     p.add_argument("--skip-test", action="store_true", default=None, dest="skip_test",
                    help="skip CODE_TEST phase, go directly to CODE_REVIEW")
     p.add_argument("--no-skip-test", action="store_true", default=None, dest="no_skip_test")
+    p.add_argument("--skip-assess", action="store_true", default=None, dest="skip_assess",
+                   help="skip ASSESSMENT phase, go directly to IMPLEMENTATION")
+    p.add_argument("--no-skip-assess", action="store_true", default=None, dest="no_skip_assess")
 
     # transition
     p = sub.add_parser("transition", help="manually trigger a state transition (normally done by watchdog)")

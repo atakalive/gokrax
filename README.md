@@ -203,7 +203,7 @@ watchdog が以下を自動で駆動する：
 ```
 IDLE → INITIALIZE → DESIGN_PLAN → DESIGN_REVIEW ⇄ DESIGN_REVISE
                                         ↓
-                                  DESIGN_APPROVED → IMPLEMENTATION → CODE_TEST ⇄ CODE_FIX
+                                  DESIGN_APPROVED → ASSESSMENT → IMPLEMENTATION → CODE_TEST ⇄ CODE_FIX
                                                                           ↓
                                                                      CODE_REVIEW ⇄ CODE_REVISE
                                                                           ↓
@@ -213,7 +213,7 @@ IDLE → INITIALIZE → DESIGN_PLAN → DESIGN_REVIEW ⇄ DESIGN_REVISE
 
 設計の詳細は [docs/architecture.md](docs/architecture.md) を参照。
 
-`INITIALIZE` はエージェントセッションの初期化（コンテキストリセット判定含む）等を行う状態。`CODE_TEST` は現在実験的で、`skip_test` 設定時（デフォルト）は `IMPLEMENTATION` から直接 `CODE_REVIEW` に遷移する。キュー実行時は自動的に次バッチへ進む。
+`INITIALIZE` はエージェントセッションの初期化（コンテキストリセット判定含む）等を行う状態。`ASSESSMENT` は設計承認後の判定ステート（現在はスケルトンで即通過）。`--skip-assess` 指定時は `DESIGN_APPROVED` から直接 `IMPLEMENTATION` に遷移する。`CODE_TEST` は現在実験的で、`skip_test` 設定時（デフォルト）は `IMPLEMENTATION` から直接 `CODE_REVIEW` に遷移する。キュー実行時は自動的に次バッチへ進む。
 
 各状態にはタイムアウトが設定されている（`settings.py` の `BLOCK_TIMERS`）：
 
@@ -222,6 +222,7 @@ IDLE → INITIALIZE → DESIGN_PLAN → DESIGN_REVIEW ⇄ DESIGN_REVISE
 | `DESIGN_PLAN` | 30 分 |
 | `DESIGN_REVIEW` | 60 分 |
 | `DESIGN_REVISE` | 30 分 |
+| `ASSESSMENT` | 20 分 |
 | `IMPLEMENTATION` | 120 分 |
 | `CODE_TEST` | 10 分 |
 | `CODE_TEST_FIX` | 60 分 |

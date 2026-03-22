@@ -99,6 +99,7 @@ def parse_queue_line(line: str) -> dict:
         "comment": None,
         "skip_cc_plan": False,
         "skip_test": False,
+        "skip_assess": False,
         "original_line": line.rstrip("\n"),
     }
     result["_explicit_keys"] = set()
@@ -173,6 +174,12 @@ def parse_queue_line(line: str) -> dict:
         elif token == "no-skip-test":
             result["skip_test"] = False
             result["_explicit_keys"].add("skip_test")
+        elif token == "skip-assess":
+            result["skip_assess"] = True
+            result["_explicit_keys"].add("skip_assess")
+        elif token == "no-skip-assess":
+            result["skip_assess"] = False
+            result["_explicit_keys"].add("skip_assess")
         elif token in REVIEW_MODES:
             if result["mode"] is not None:
                 raise ValueError(f"Duplicate mode: already {result['mode']!r}, got {token!r}")

@@ -408,12 +408,16 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
         return TransitionAction(new_state="ASSESSMENT")
 
     if state == "ASSESSMENT":
-        # スケルトン: 判定ロジックなし、即通過
-        return TransitionAction(
-            new_state="IMPLEMENTATION",
-            run_cc=True,
-            reset_reviewers=True,
-        )
+        # assess-done 完了待ち
+        if data and data.get("assessment"):
+            return TransitionAction(
+                new_state="IMPLEMENTATION",
+                run_cc=True,
+                reset_reviewers=True,
+            )
+        # 未完了 → タイムアウト判定のみ
+        nudge = _check_nudge(state, data) if data is not None else None
+        return nudge or TransitionAction()
 
     if state == "CODE_APPROVED":
         return TransitionAction(

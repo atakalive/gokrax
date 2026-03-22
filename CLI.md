@@ -229,6 +229,23 @@ gokrax plan-done --pj myproject --issue 17 18 19
 
 Only valid in DESIGN_PLAN state. Run after the implementer has reviewed and edited issue descriptions.
 
+### `assess-done` -- Record assessment result
+
+```bash
+gokrax assess-done --pj myproject --level 3 --summary "複数モジュールにまたがる変更"
+```
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--pj` | Yes | project name |
+| `--level N` | Yes | difficulty level (1-5) |
+| `--summary TEXT` | No | assessment summary (max 500 chars) |
+
+Prerequisite: project must be in ASSESSMENT state.
+Records a batch-level assessment in pipeline JSON and prepends `[Lvl N]` to each issue title.
+Title update failure is a warning only — transition to IMPLEMENTATION proceeds regardless.
+Triggers transition to IMPLEMENTATION on next watchdog cycle.
+
 ### `design-revise` -- Mark design revision as done
 
 ```bash

@@ -103,7 +103,7 @@ from commands.dev import (  # noqa: F401 — re-export for backwards compatibili
     cmd_status, cmd_init, cmd_enable, cmd_disable, cmd_extend,
     cmd_triage, cmd_start, cmd_transition, cmd_reset,
     cmd_review, cmd_dispute, cmd_flag, cmd_commit,
-    cmd_cc_start, cmd_plan_done, cmd_design_revise, cmd_code_revise,
+    cmd_cc_start, cmd_plan_done, cmd_assess_done, cmd_design_revise, cmd_code_revise,
     cmd_review_mode, cmd_merge_summary,
     cmd_qrun, cmd_qstatus, cmd_qadd, cmd_qdel, cmd_qedit,
     get_status_text, get_qstatus_text, _get_running_info,
@@ -224,6 +224,13 @@ def main():
     p = sub.add_parser("plan-done", help="mark design plan as done: set design_ready flag on issues")
     p.add_argument("--pj", "--project", dest="project", required=True)
     p.add_argument("--issue", type=int, nargs="+", required=True, help="issue numbers (multiple allowed)")
+
+    # assess-done
+    p = sub.add_parser("assess-done", help="record assessment result and transition to IMPLEMENTATION")
+    p.add_argument("--pj", "--project", dest="project", required=True)
+    p.add_argument("--level", type=int, required=True, choices=range(1, 6),
+                   help="difficulty level (1-5)")
+    p.add_argument("--summary", default="", help="assessment summary (optional, max 500 chars)")
 
     # design-revise
     p = sub.add_parser("design-revise", help="mark design revision as done: set design_revised flag")
@@ -373,7 +380,7 @@ def main():
         "extend": cmd_extend, "start": cmd_start,
         "transition": cmd_transition, "reset": cmd_reset,
         "review": cmd_review, "flag": cmd_flag, "dispute": cmd_dispute, "commit": cmd_commit,
-        "cc-start": cmd_cc_start, "plan-done": cmd_plan_done,
+        "cc-start": cmd_cc_start, "plan-done": cmd_plan_done, "assess-done": cmd_assess_done,
         "design-revise": cmd_design_revise, "code-revise": cmd_code_revise,
         "review-mode": cmd_review_mode,
         "merge-summary": cmd_merge_summary,

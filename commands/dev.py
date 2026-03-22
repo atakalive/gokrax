@@ -428,6 +428,7 @@ def _reset_to_idle(data: dict) -> None:
     data.pop("skip_cc_plan", None)
     data.pop("skip_test", None)
     data.pop("skip_assess", None)
+    data.pop("assessment", None)
     # タイムアウト延長
     data.pop("timeout_extension", None)
     data.pop("extend_count", None)
@@ -652,6 +653,51 @@ def _log(msg: str) -> None:
             f.write(f"{now_iso()} {msg}\n")
     except Exception:
         pass
+
+
+def _update_issue_title_with_level(gitlab: str, issue_num: int, level: int) -> bool:
+    """Issue タイトルの先頭に [Lvl N] を付与。既に付いていれば置換。
+
+    glab issue view で現在のタイトルを取得し、glab issue update で更新。
+    リトライ3回（_post_gitlab_note と同方針）。
+    """
+    import re as _re
+
+    # 現在のタイトルを取得
+    try:
+        result = subprocess.run(
+            [GLAB_BIN, "issue", "view", str(issue_num), "--output", "json", "-R", gitlab],
+            capture_output=True, text=True, timeout=GLAB_TIMEOUT,
+        )
+        if result.returncode != 0:
+            _log(f"glab issue view failed for #{issue_num}: {result.stderr.strip()}")
+            return False
+        import json as _json
+        issue_data = _json.loads(result.stdout)
+        current_title = issue_data.get("title", "")
+    except Exception as e:
+        _log(f"glab issue view error for #{issue_num}: {e}")
+        return False
+
+    # [Lvl N] を付与（既存のものがあれば置換）
+    new_title = _re.sub(r'^\[Lvl \d+\]\s*', '', current_title)
+    new_title = f"[Lvl {level}] {new_title}"
+
+    # タイトル更新（リトライ3回）
+    for attempt in range(3):
+        try:
+            result = subprocess.run(
+                [GLAB_BIN, "issue", "update", str(issue_num), "--title", new_title, "-R", gitlab],
+                capture_output=True, text=True, timeout=GLAB_TIMEOUT,
+            )
+            if result.returncode == 0:
+                return True
+            _log(f"glab issue update failed (attempt {attempt+1}/3) for #{issue_num}: {result.stderr.strip()}")
+        except Exception as e:
+            _log(f"glab issue update error (attempt {attempt+1}/3) for #{issue_num}: {e}")
+        if attempt < 2:
+            time.sleep(3)
+    return False
 
 
 def _post_gitlab_note(gitlab: str, issue_num: int, body: str) -> bool:
@@ -1044,6 +1090,44 @@ def cmd_plan_done(args):
     update_pipeline(path, do_plan_done)
     done = ", ".join(f"#{n}" for n in args.issue)
     print(f"{args.project}: design plan done ({done})")
+
+
+def cmd_assess_done(args):
+    """ASSESSMENT: 難易度記録 + Issue タイトル更新"""
+    # summary の長さ制限
+    summary = args.summary[:500] if args.summary else ""
+
+    path = get_path(args.project)
+
+    def do_assess(data):
+        state = data.get("state", "IDLE")
+        if state != "ASSESSMENT":
+            raise SystemExit(f"Not in ASSESSMENT state: {state}")
+        data["assessment"] = {
+            "level": args.level,
+            "summary": summary,
+            "assessed_by": data.get("implementer", "kaneko"),
+            "timestamp": now_iso(),
+        }
+
+    update_pipeline(path, do_assess)
+
+    # Issue タイトル更新（失敗は warning、遷移はブロックしない）
+    data = load_pipeline(path)
+    gitlab = data.get("gitlab", f"atakalive/{args.project}")
+    batch = data.get("batch", [])
+    failed = []
+    for issue in batch:
+        issue_num = issue.get("issue")
+        if issue_num is None:
+            continue
+        if not _update_issue_title_with_level(gitlab, issue_num, args.level):
+            failed.append(issue_num)
+    if failed:
+        nums = ", ".join(f"#{n}" for n in failed)
+        print(f"  ⚠ title update failed for {nums} (warning only)", file=sys.stderr)
+
+    print(f"{args.project}: assessment done (Lvl {args.level})")
 
 
 def cmd_design_revise(args):

@@ -288,6 +288,7 @@ def process(path: Path):
             data.pop("skip_cc_plan", None)
             data.pop("skip_test", None)
             data.pop("skip_assess", None)
+            data.pop("assessment", None)
             # Issue #92: pytest baseline クリーンアップ
             _kill_pytest_baseline(data, pj)
             data.pop("test_baseline", None)

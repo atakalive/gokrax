@@ -101,7 +101,7 @@ gokrax start --pj myproject --mode standard
 | `--keep-ctx-all` | No | keep context across all steps |
 | `--keep-ctx-none` | No | discard context between steps |
 | `--p2-fix` | No | enable P2-fix mode (auto-revise on P2 verdicts) |
-| `--comment COMMENT` | No | note for the entire batch (injected into prompts) |
+| `--comment=COMMENT` | No | Batch-wide note (e.g., domain-specific risk) injected into prompts. Must be the last argument. |
 | `--skip-cc-plan` | No | skip CC plan phase, go directly to implementation |
 | `--no-skip-cc-plan` | No | explicitly do not skip CC plan phase |
 | `--skip-test` | No | skip CODE_TEST phase, go directly to CODE_REVIEW |
@@ -150,6 +150,7 @@ gokrax reset --force
 gokrax review \
   --pj myproject \
   --issue 17 \
+  --round 1 \
   --reviewer alice \
   --verdict APPROVE \
   --summary 'Design is sound. Boundary conditions handled properly.'
@@ -168,7 +169,7 @@ gokrax review \
 Idempotent: duplicate submissions from the same reviewer are skipped.
 GitLab integration: verdict + summary are posted as an issue note.
 
-### `flag` -- Human (M) verdict injection
+### `flag` -- Human verdict injection
 
 ```bash
 gokrax flag --pj myproject --issue 17 --verdict P0 --summary "Critical bug found"
@@ -268,7 +269,7 @@ gokrax review-mode --pj myproject --mode full
 | Option | Required | Description |
 |--------|----------|-------------|
 | `--pj` | Yes | project name |
-| `--mode` | Yes | review mode: `{full,standard,lite3_woOpus,lite3_woGoogle,lite3_woOpenAI,lite,cheap,min,skip}` |
+| `--mode` | Yes | review mode: `{full,standard,lite,skip}` |
 
 Reviewer membership for each mode is configured in `config`, not hardcoded in CLI.
 

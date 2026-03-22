@@ -31,7 +31,7 @@ def _is_cc_running(data: dict) -> bool:
 
 
 def _is_agent_inactive(agent_id: str, pipeline_data: dict | None = None) -> bool:
-    """エージェントが非アクティブ(81秒以上更新なし)かどうか判定。
+    """エージェントが非アクティブかどうか判定。
 
     CC実行中（cc_pid が /proc に存在）はアクティブと判定する。
     """

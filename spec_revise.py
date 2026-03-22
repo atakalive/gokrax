@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from config import (
-    GLAB_BIN, SPEC_REVIEW_TIMEOUT_SEC, SPEC_REVISE_SELF_REVIEW_PASSES,
+    GLAB_BIN, SPEC_BLOCK_TIMERS, SPEC_REVISE_SELF_REVIEW_PASSES,
     PIPELINES_DIR, GOKRAX_CLI,
 )
 from spec_review import (

@@ -6,7 +6,7 @@ from pathlib import Path
 from config import (
     PIPELINES_DIR, LOCAL_TZ, REVIEW_MODES, OWNER_NAME,
     MAX_SPEC_REVISE_CYCLES, MIN_VALID_REVIEWS_BY_MODE,
-    SPEC_REVIEW_TIMEOUT_SEC, SPEC_ISSUE_SUGGESTION_TIMEOUT_SEC,
+    SPEC_BLOCK_TIMERS,
     MAX_SPEC_RETRIES,
 )
 from pipeline_io import (
@@ -402,14 +402,14 @@ def cmd_spec_resume(args):
         for entry in sc.get("review_requests", {}).values():
             if entry.get("status") == "pending":
                 entry["timeout_at"] = (
-                    now + timedelta(seconds=SPEC_REVIEW_TIMEOUT_SEC)
+                    now + timedelta(seconds=SPEC_BLOCK_TIMERS["SPEC_REVIEW"])
                 ).isoformat()
 
         if target == "ISSUE_SUGGESTION":
             for entry in sc.get("issue_suggestions", {}).values():
                 if isinstance(entry, dict) and entry.get("status") == "pending":
                     entry["timeout_at"] = (
-                        now + timedelta(seconds=SPEC_ISSUE_SUGGESTION_TIMEOUT_SEC)
+                        now + timedelta(seconds=SPEC_BLOCK_TIMERS["ISSUE_SUGGESTION"])
                     ).isoformat()
 
         sc.setdefault("retry_counts", {})[target] = 0

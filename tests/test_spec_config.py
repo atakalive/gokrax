@@ -58,9 +58,9 @@ class TestSpecConstants:
         }
 
     def test_timeouts(self):
-        assert config.SPEC_REVIEW_TIMEOUT_SEC == 1800
-        assert config.SPEC_REVISE_TIMEOUT_SEC == 1800
-        assert config.SPEC_ISSUE_SUGGESTION_TIMEOUT_SEC == 600
+        assert config.SPEC_BLOCK_TIMERS["SPEC_REVIEW"] == 1800
+        assert config.SPEC_BLOCK_TIMERS["SPEC_REVISE"] == 1800
+        assert config.SPEC_BLOCK_TIMERS["ISSUE_SUGGESTION"] == 600
 
     def test_self_review_passes(self):
         assert config.SPEC_REVISE_SELF_REVIEW_PASSES == 2

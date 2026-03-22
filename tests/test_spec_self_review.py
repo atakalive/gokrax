@@ -439,12 +439,12 @@ class TestCheckSpecReviseSelfReview:
 
     def test_check_spec_revise_self_review_timeout(self):
         """self_review タイムアウト → リトライ（_self_review_pass +1）。"""
-        from config import SPEC_REVIEW_TIMEOUT_SEC
+        from config import SPEC_BLOCK_TIMERS
         sc = _make_spec_config(
             spec_implementer="kaneko",
             self_review_agent="pascal",
             _revise_sent="2026-03-01T10:00:00+09:00",
-            _self_review_sent=_past(SPEC_REVIEW_TIMEOUT_SEC + 60),
+            _self_review_sent=_past(SPEC_BLOCK_TIMERS["SPEC_REVIEW"] + 60),
             _self_review_response=None,
             _self_review_pass=0,
             _self_review_expected_ids=[c["id"] for c in DEFAULT_SELF_REVIEW_CHECKLIST],
@@ -457,12 +457,12 @@ class TestCheckSpecReviseSelfReview:
 
     def test_check_spec_revise_self_review_timeout_max(self):
         """self_review タイムアウトが最大回数 → SPEC_PAUSED。"""
-        from config import SPEC_REVIEW_TIMEOUT_SEC, SPEC_REVISE_SELF_REVIEW_PASSES
+        from config import SPEC_BLOCK_TIMERS, SPEC_REVISE_SELF_REVIEW_PASSES
         sc = _make_spec_config(
             spec_implementer="kaneko",
             self_review_agent="pascal",
             _revise_sent="2026-03-01T10:00:00+09:00",
-            _self_review_sent=_past(SPEC_REVIEW_TIMEOUT_SEC + 60),
+            _self_review_sent=_past(SPEC_BLOCK_TIMERS["SPEC_REVIEW"] + 60),
             _self_review_response=None,
             _self_review_pass=SPEC_REVISE_SELF_REVIEW_PASSES - 1,
             _self_review_expected_ids=[c["id"] for c in DEFAULT_SELF_REVIEW_CHECKLIST],

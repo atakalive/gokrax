@@ -8,9 +8,7 @@ from pathlib import Path
 
 from config import (
     LOCAL_TZ, GOKRAX_CLI,
-    SPEC_STATES, SPEC_REVIEW_TIMEOUT_SEC, SPEC_REVISE_TIMEOUT_SEC,
-    SPEC_ISSUE_SUGGESTION_TIMEOUT_SEC, SPEC_ISSUE_PLAN_TIMEOUT_SEC,
-    SPEC_QUEUE_PLAN_TIMEOUT_SEC,
+    SPEC_STATES, SPEC_BLOCK_TIMERS,
     MAX_SPEC_RETRIES, SPEC_REVISE_SELF_REVIEW_PASSES,
     SPEC_REVIEW_RAW_RETENTION_DAYS,
     NUDGE_GRACE_SEC,
@@ -100,7 +98,7 @@ def _check_spec_review(
             # 事後条件を patch に積む（元の req は変更しない）
             rr_patch[reviewer] = {
                 "sent_at": now.isoformat(),
-                "timeout_at": (now + _timedelta(seconds=SPEC_REVIEW_TIMEOUT_SEC)).isoformat(),
+                "timeout_at": (now + _timedelta(seconds=SPEC_BLOCK_TIMERS["SPEC_REVIEW"])).isoformat(),
             }
 
         elif status == "pending" and req.get("timeout_at"):
@@ -363,7 +361,7 @@ def _check_spec_revise(
     # -----------------------------------------------------------------------
     self_review_sent = spec_config.get("_self_review_sent")
     if self_review_sent:
-        # SPEC_REVIEW_TIMEOUT_SEC を流用（self_review 専用タイムアウトは不要。運用上同一SLA）
+        # SPEC_BLOCK_TIMERS["SPEC_REVIEW"] を流用（self_review 専用タイムアウトは不要。運用上同一SLA）
         try:
             baseline = _datetime.fromisoformat(self_review_sent)
             elapsed = (now - baseline).total_seconds()
@@ -397,7 +395,7 @@ def _check_spec_revise(
                 },
             )
 
-        if elapsed < SPEC_REVIEW_TIMEOUT_SEC:
+        if elapsed < SPEC_BLOCK_TIMERS["SPEC_REVIEW"]:
             return SpecTransitionAction(next_state=None)  # まだ待つ
 
         # タイムアウト → 機械的失敗としてリトライ or SPEC_PAUSED
@@ -572,10 +570,10 @@ def _check_spec_revise(
 
     # --- implementer 催促（#76）---
     # 猶予期間経過後、タイムアウト到達前の区間で催促
-    if elapsed >= NUDGE_GRACE_SEC and elapsed < SPEC_REVISE_TIMEOUT_SEC:
+    if elapsed >= NUDGE_GRACE_SEC and elapsed < SPEC_BLOCK_TIMERS["SPEC_REVISE"]:
         return SpecTransitionAction(next_state=None, nudge_implementer=True)
 
-    if elapsed < SPEC_REVISE_TIMEOUT_SEC:
+    if elapsed < SPEC_BLOCK_TIMERS["SPEC_REVISE"]:
         return SpecTransitionAction(next_state=None)
 
     # タイムアウト: retry_counts を更新
@@ -633,7 +631,7 @@ def _check_issue_suggestion(
             send_to[reviewer] = prompt
             rr_patch[reviewer] = {
                 "sent_at": now.isoformat(),
-                "timeout_at": (now + _timedelta(seconds=SPEC_ISSUE_SUGGESTION_TIMEOUT_SEC)).isoformat(),
+                "timeout_at": (now + _timedelta(seconds=SPEC_BLOCK_TIMERS["ISSUE_SUGGESTION"])).isoformat(),
             }
 
         elif status == "pending" and req.get("timeout_at"):
@@ -800,7 +798,7 @@ def _check_issue_plan(
         return SpecTransitionAction(next_state=None)
 
     elapsed = (now - sent_at).total_seconds()
-    if elapsed < SPEC_ISSUE_PLAN_TIMEOUT_SEC:
+    if elapsed < SPEC_BLOCK_TIMERS["ISSUE_PLAN"]:
         return SpecTransitionAction(next_state=None)
 
     # タイムアウト: リトライ管理
@@ -879,7 +877,7 @@ def _check_queue_plan(
         return SpecTransitionAction(next_state=None)
 
     elapsed = (now - sent_at).total_seconds()
-    if elapsed < SPEC_QUEUE_PLAN_TIMEOUT_SEC:
+    if elapsed < SPEC_BLOCK_TIMERS["QUEUE_PLAN"]:
         return SpecTransitionAction(next_state=None)
 
     # タイムアウト: リトライ管理

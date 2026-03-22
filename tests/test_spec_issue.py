@@ -258,7 +258,7 @@ class TestCheckIssueSuggestion:
 
     # 24. タイムアウト → rr_patch に status:timeout（既存フィールド保持）
     def test_timeout_sets_status(self):
-        past = _now() - timedelta(seconds=config.SPEC_ISSUE_SUGGESTION_TIMEOUT_SEC + 10)
+        past = _now() - timedelta(seconds=config.SPEC_BLOCK_TIMERS["ISSUE_SUGGESTION"] + 10)
         sc = self._base_sc()
         sc["review_requests"]["leibniz"].update({
             "sent_at": past.isoformat(),
@@ -276,7 +276,7 @@ class TestCheckIssueSuggestion:
         # 2人目のレビュアー（未応答）を追加 → all_complete=False の中間状態を作る
         sc["review_requests"]["dijkstra"] = {
             "status": "pending", "sent_at": _now().isoformat(),
-            "timeout_at": (_now() + timedelta(seconds=config.SPEC_ISSUE_SUGGESTION_TIMEOUT_SEC)).isoformat(),
+            "timeout_at": (_now() + timedelta(seconds=config.SPEC_BLOCK_TIMERS["ISSUE_SUGGESTION"])).isoformat(),
             "last_nudge_at": None, "response": None,
         }
         sc["review_requests"]["leibniz"]["sent_at"] = _now().isoformat()
@@ -407,7 +407,7 @@ class TestCheckIssuePlan:
 
     # 33. タイムアウト + リトライ → _issue_plan_sent リセット + discord_notify
     def test_timeout_retry(self):
-        old_time = _now() - timedelta(seconds=config.SPEC_ISSUE_PLAN_TIMEOUT_SEC + 10)
+        old_time = _now() - timedelta(seconds=config.SPEC_BLOCK_TIMERS["ISSUE_PLAN"] + 10)
         sc = self._base_sc(
             _issue_plan_sent=old_time.isoformat(),
             retry_counts={"ISSUE_PLAN": 0},
@@ -420,7 +420,7 @@ class TestCheckIssuePlan:
 
     # 34. タイムアウト + MAX_SPEC_RETRIES 超過 → SPEC_PAUSED + discord_notify
     def test_timeout_max_retries(self):
-        old_time = _now() - timedelta(seconds=config.SPEC_ISSUE_PLAN_TIMEOUT_SEC + 10)
+        old_time = _now() - timedelta(seconds=config.SPEC_BLOCK_TIMERS["ISSUE_PLAN"] + 10)
         sc = self._base_sc(
             _issue_plan_sent=old_time.isoformat(),
             retry_counts={"ISSUE_PLAN": config.MAX_SPEC_RETRIES},
@@ -494,12 +494,12 @@ class TestCheckQueuePlan:
             "review_requests": {
                 "pascal": {
                     "status": "pending", "sent_at": _now().isoformat(),
-                    "timeout_at": (_now() + timedelta(seconds=config.SPEC_ISSUE_SUGGESTION_TIMEOUT_SEC)).isoformat(),
+                    "timeout_at": (_now() + timedelta(seconds=config.SPEC_BLOCK_TIMERS["ISSUE_SUGGESTION"])).isoformat(),
                     "last_nudge_at": None, "response": None,
                 },
                 "leibniz": {
                     "status": "pending", "sent_at": _now().isoformat(),
-                    "timeout_at": (_now() + timedelta(seconds=config.SPEC_ISSUE_SUGGESTION_TIMEOUT_SEC)).isoformat(),
+                    "timeout_at": (_now() + timedelta(seconds=config.SPEC_BLOCK_TIMERS["ISSUE_SUGGESTION"])).isoformat(),
                     "last_nudge_at": None, "response": None,
                 },
             },

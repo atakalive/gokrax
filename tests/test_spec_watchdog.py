@@ -27,8 +27,7 @@ from config import (
     INACTIVE_THRESHOLD_SEC,
     MAX_SPEC_RETRIES,
     NUDGE_GRACE_SEC,
-    SPEC_REVIEW_TIMEOUT_SEC,
-    SPEC_REVISE_TIMEOUT_SEC,
+    SPEC_BLOCK_TIMERS,
 )
 
 LOCAL_TZ = timezone(timedelta(hours=9))
@@ -145,7 +144,7 @@ class TestCheckSpecReview:
         for r in ["pascal", "leibniz"]:
             sc["review_requests"][r]["status"] = "received"
             sc["review_requests"][r]["sent_at"] = _now().isoformat()
-            sc["review_requests"][r]["timeout_at"] = (_now() + timedelta(seconds=SPEC_REVIEW_TIMEOUT_SEC)).isoformat()
+            sc["review_requests"][r]["timeout_at"] = (_now() + timedelta(seconds=SPEC_BLOCK_TIMERS["SPEC_REVIEW"])).isoformat()
             sc["current_reviews"]["entries"][r] = {
                 "verdict": "APPROVE", "items": [], "raw_text": "",
                 "parse_success": True, "status": "received",
@@ -208,7 +207,7 @@ class TestCheckSpecRevise:
     def test_timeout_retry(self):
         """タイムアウト + リトライ余裕あり → retry_counts 更新 + 起点リセット。"""
         sc = {"retry_counts": {"SPEC_REVISE": 0}}
-        entered = _now() - timedelta(seconds=SPEC_REVISE_TIMEOUT_SEC + 1)
+        entered = _now() - timedelta(seconds=SPEC_BLOCK_TIMERS["SPEC_REVISE"] + 1)
         data = {
             "history": [{"from": "SPEC_REVIEW", "to": "SPEC_REVISE",
                          "at": entered.isoformat()}],
@@ -233,7 +232,7 @@ class TestCheckSpecRevise:
     def test_timeout_max_retries_paused(self):
         """MAX_SPEC_RETRIES 超過 → SPEC_PAUSED。"""
         sc = {"retry_counts": {"SPEC_REVISE": MAX_SPEC_RETRIES}}
-        entered = _now() - timedelta(seconds=SPEC_REVISE_TIMEOUT_SEC + 1)
+        entered = _now() - timedelta(seconds=SPEC_BLOCK_TIMERS["SPEC_REVISE"] + 1)
         data = {
             "history": [{"from": "SPEC_REVIEW", "to": "SPEC_REVISE",
                          "at": entered.isoformat()}],
@@ -493,7 +492,7 @@ class TestSpecNudge:
                 reviewer: {
                     "status": "pending",
                     "sent_at": sent_at,
-                    "timeout_at": (_now() + timedelta(seconds=SPEC_REVIEW_TIMEOUT_SEC)).isoformat(),
+                    "timeout_at": (_now() + timedelta(seconds=SPEC_BLOCK_TIMERS["SPEC_REVIEW"])).isoformat(),
                 }
             },
             "current_reviews": {"entries": {}},
@@ -576,7 +575,7 @@ class TestSpecNudge:
             "review_requests": {
                 "pascal": {"status": "pending", "sent_at": None, "timeout_at": None},   # 未送信
                 "leibniz": {"status": "pending", "sent_at": sent_at,
-                             "timeout_at": (_now() + timedelta(seconds=SPEC_REVIEW_TIMEOUT_SEC)).isoformat()},  # 送信済み
+                             "timeout_at": (_now() + timedelta(seconds=SPEC_BLOCK_TIMERS["SPEC_REVIEW"])).isoformat()},  # 送信済み
             },
             "current_reviews": {"entries": {}},
             "revise_count": 0,

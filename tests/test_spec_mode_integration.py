@@ -508,7 +508,7 @@ class TestAbnormalFlowE2E:
 
     def test_revise_timeout_retry_then_paused(self):
         """SPEC_REVISE タイムアウト × MAX_SPEC_RETRIES → SPEC_PAUSED"""
-        past = (_now() - timedelta(seconds=config.SPEC_REVISE_TIMEOUT_SEC + 100))
+        past = (_now() - timedelta(seconds=config.SPEC_BLOCK_TIMERS["SPEC_REVISE"] + 100))
         sc = _make_spec_config(
             spec_path="docs/test-spec.md",
             spec_implementer="kaneko",
@@ -840,14 +840,14 @@ class TestCurrentReviewsStructure:
 
     def test_status_pending_to_timeout(self):
         """timeout_at 超過 → timeout patch が生成される"""
-        past = _now() - timedelta(seconds=config.SPEC_REVIEW_TIMEOUT_SEC + 100)
+        past = _now() - timedelta(seconds=config.SPEC_BLOCK_TIMERS["SPEC_REVIEW"] + 100)
         sc = _make_spec_config(
             spec_path="docs/test-spec.md",
             spec_implementer="kaneko",
             review_requests={
                 "pascal": {"status": "pending",
                            "sent_at": past.isoformat(),
-                           "timeout_at": (past + timedelta(seconds=config.SPEC_REVIEW_TIMEOUT_SEC)).isoformat(),
+                           "timeout_at": (past + timedelta(seconds=config.SPEC_BLOCK_TIMERS["SPEC_REVIEW"])).isoformat(),
                            "last_nudge_at": None, "response": None},
             },
             current_reviews={"entries": {}},

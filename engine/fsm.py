@@ -455,62 +455,57 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
         has_p2 = False
 
         for reviewer in npass_targets:
+            # 全 Issue のレビュー完了を確認（バッチ内パス均一性を盲信しない）
+            reviewer_submitted = True
+            for issue in batch:
+                entry = issue.get(key, {}).get(reviewer)
+                if entry is None:
+                    reviewer_submitted = False
+                    break
+                review_at_str = entry.get("at")
+                if not review_at_str:
+                    reviewer_submitted = False
+                    break
+                try:
+                    review_at = _datetime.fromisoformat(review_at_str)
+                    if review_at <= entered_at:
+                        reviewer_submitted = False
+                        break
+                except (ValueError, TypeError):
+                    reviewer_submitted = False
+                    break
+
+            if not reviewer_submitted:
+                all_submitted = False
+                # verdict は提出済み Issue の最初のエントリから取得
+                entry = _get_reviewer_entry(batch, key, reviewer)
+                if entry:
+                    v = entry.get("verdict", "").upper()
+                    if v in ("REJECT", "P0"):
+                        has_p0 = True
+                    elif v == "P1":
+                        has_p1 = True
+                    elif v == "P2":
+                        has_p2 = True
+                continue
+
+            # 全 Issue 提出済み — verdict を収集（最初の Issue から取得、均一性前提）
             entry = _get_reviewer_entry(batch, key, reviewer)
-            if entry is None:
-                all_submitted = False
-                continue
-
-            review_at_str = entry.get("at")
-            if not review_at_str:
-                all_submitted = False
-                continue
-            try:
-                review_at = _datetime.fromisoformat(review_at_str)
-                if review_at <= entered_at:
-                    all_submitted = False
-                    continue
-            except (ValueError, TypeError):
-                all_submitted = False
-                continue
-
-            verdict = entry.get("verdict", "").upper()
-            if verdict in ("REJECT", "P0"):
-                has_p0 = True
-            elif verdict == "P1":
-                has_p1 = True
-            elif verdict == "P2":
-                has_p2 = True
+            if entry:
+                verdict = entry.get("verdict", "").upper()
+                if verdict in ("REJECT", "P0"):
+                    has_p0 = True
+                elif verdict == "P1":
+                    has_p1 = True
+                elif verdict == "P2":
+                    has_p2 = True
 
         if all_submitted:
-            pj = data.get("project", "") if data else ""
-            comment = data.get("comment", "") if data else ""
-            p2_fix = data.get("p2_fix", False) if data else False
-
-            # P0/P1 → REVISE
-            if has_p0 or has_p1:
-                revise_state = "DESIGN_REVISE" if "DESIGN" in state else "CODE_REVISE"
-                return TransitionAction(
-                    new_state=revise_state,
-                    impl_msg=get_notification_for_state(
-                        revise_state, project=pj, batch=batch, p2_fix=p2_fix, comment=comment,
-                    ).impl_msg,
-                )
-
-            # P2 + p2_fix → REVISE
-            if p2_fix and has_p2:
-                revise_state = "DESIGN_REVISE" if "DESIGN" in state else "CODE_REVISE"
-                return TransitionAction(
-                    new_state=revise_state,
-                    impl_msg=get_notification_for_state(
-                        revise_state, project=pj, batch=batch, p2_fix=True, comment=comment,
-                    ).impl_msg,
-                )
-
             # まだパスが残っているレビュアー → 自己遷移
             still_npass: list[str] = []
             for reviewer in npass_targets:
                 entry = _get_reviewer_entry(batch, key, reviewer)
-                if entry and entry.get("pass", 1) < entry.get("target_pass", 1):
+                if entry and entry.get("pass", 0) < entry.get("target_pass", 1):
                     still_npass.append(reviewer)
 
             if still_npass:
@@ -520,16 +515,21 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
                     npass_target_reviewers=still_npass,
                 )
 
-            # 全パス完了 → APPROVED
-            appr = "DESIGN_APPROVED" if "DESIGN" in state else "CODE_APPROVED"
-            return TransitionAction(
-                new_state=appr,
-                impl_msg=get_notification_for_state(
-                    appr, project=pj, batch=batch, comment=comment,
-                ).impl_msg,
+            # 全パス完了 → 全レビュアー（n_pass==1 含む）の verdict で遷移先を決定
+            _, all_has_p0, all_has_p1, all_has_p2 = count_reviews(batch, key)
+            comment = data.get("comment", "") if data else ""
+            return _resolve_review_outcome(
+                state, data, batch, all_has_p0, all_has_p1, all_has_p2, comment=comment,
             )
 
-        # 未提出 — タイムアウト判定（NPASS は BLOCKED にならず強制 APPROVE）
+        # 未提出あり — 提出済み verdict に P0/P1 があれば即 REVISE（タイムアウト待ち不要）
+        if has_p0 or has_p1:
+            comment = data.get("comment", "") if data else ""
+            return _resolve_review_outcome(
+                state, data, batch, has_p0, has_p1, has_p2, comment=comment,
+            )
+
+        # タイムアウト判定（NPASS は BLOCKED にならない）
         base_state = state.replace("_NPASS", "")
         block_sec = BLOCK_TIMERS.get(base_state, 3600)
         if data:
@@ -537,15 +537,15 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
 
         elapsed = (_datetime.now(LOCAL_TZ) - entered_at).total_seconds()
         if elapsed >= block_sec:
-            appr = "DESIGN_APPROVED" if "DESIGN" in state else "CODE_APPROVED"
             pj = data.get("project", "") if data else ""
             comment = data.get("comment", "") if data else ""
-            log(f"[NPASS] timeout ({elapsed:.0f}s >= {block_sec}s), forcing approval for {pj}")
-            return TransitionAction(
-                new_state=appr,
-                impl_msg=get_notification_for_state(
-                    appr, project=pj, batch=batch, comment=comment,
-                ).impl_msg,
+            log(f"[NPASS] timeout ({elapsed:.0f}s >= {block_sec}s), using current verdicts for {pj}")
+            # タイムアウト: 全レビュアーの現在の verdict で判定
+            # 未完了レビュアーは pass 1 verdict（上書きされていない）、
+            # 完了済みは最終パス verdict、n_pass==1 は pass 1 verdict
+            _, to_has_p0, to_has_p1, to_has_p2 = count_reviews(batch, key)
+            return _resolve_review_outcome(
+                state, data, batch, to_has_p0, to_has_p1, to_has_p2, comment=comment,
             )
 
         return TransitionAction()

@@ -282,6 +282,47 @@ class TestNpassCheckTransition:
         action = check_transition("CODE_REVIEW_NPASS", batch, data)
         assert action.new_state == "CODE_APPROVED"
 
+    def test_timeout_with_p0_goes_to_revise(self):
+        """タイムアウト時に提出済み P0 → REVISE（無条件 APPROVED にならない）。"""
+        entered = (datetime.now(JST) - timedelta(hours=2)).isoformat()
+        old_time = (datetime.now(JST) - timedelta(hours=3)).isoformat()
+        after_enter = (datetime.now(JST) - timedelta(minutes=30)).isoformat()
+        batch = [{
+            "issue": 1,
+            "code_reviews": {
+                "alice": {"verdict": "P0", "pass": 2, "target_pass": 2, "at": after_enter,
+                          "summary": "bug found"},
+                "bob": {"verdict": "APPROVE", "pass": 1, "target_pass": 2, "at": old_time},
+            },
+        }]
+        data = {
+            "project": "test-pj",
+            "_npass_target_reviewers": ["alice", "bob"],
+            "history": [{"from": "CODE_REVIEW", "to": "CODE_REVIEW_NPASS", "at": entered}],
+        }
+        action = check_transition("CODE_REVIEW_NPASS", batch, data)
+        assert action.new_state == "CODE_REVISE"
+
+    def test_npass1_reviewer_p0_causes_revise(self):
+        """n_pass==1 レビュアーの P0 が NPASS 完了判定で無視されない。"""
+        entered = (datetime.now(JST) - timedelta(minutes=5)).isoformat()
+        after_enter = (datetime.now(JST) - timedelta(minutes=1)).isoformat()
+        batch = [{
+            "issue": 1,
+            "code_reviews": {
+                "alice": {"verdict": "APPROVE", "pass": 2, "target_pass": 2, "at": after_enter},
+                "bob": {"verdict": "P0", "pass": 1, "target_pass": 1, "at": after_enter},
+            },
+        }]
+        data = {
+            "project": "test-pj",
+            "_npass_target_reviewers": ["alice"],
+            "review_mode": "standard",
+            "history": [{"from": "CODE_REVIEW", "to": "CODE_REVIEW_NPASS", "at": entered}],
+        }
+        action = check_transition("CODE_REVIEW_NPASS", batch, data)
+        assert action.new_state == "CODE_REVISE"
+
     def test_no_targets_returns_noop(self):
         """_npass_target_reviewers が空 → 何もしない。"""
         data = {

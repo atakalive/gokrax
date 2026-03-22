@@ -363,7 +363,8 @@ def _build_npass_review_message(
     if is_code:
         saved_path = _load_npass_review_file_path(project, reviewer)
         if saved_path:
-            refresher_cmds = f"前パスの完全なレビュー内容: `cat {saved_path}`"
+            from shlex import quote as _shquote
+            refresher_cmds = f"前パスの完全なレビュー内容: `cat {_shquote(saved_path)}`"
         else:
             refresher_cmds = "前パスで参照したファイル/コマンドを再実行して確認せよ。"
     else:
@@ -425,7 +426,20 @@ def _save_npass_review_file_path(project: str, reviewer: str, file_path: Path) -
         if mapping_path.exists():
             mapping = json.loads(mapping_path.read_text(encoding="utf-8"))
         mapping[reviewer] = str(file_path)
-        mapping_path.write_text(json.dumps(mapping, ensure_ascii=False), encoding="utf-8")
+        # アトミック書き込み（tempfile + rename）で破損リスクを回避
+        import tempfile
+        content = json.dumps(mapping, ensure_ascii=False)
+        tmp_fd, tmp_path = tempfile.mkstemp(dir=str(REVIEW_FILE_DIR), suffix=".tmp")
+        try:
+            with os.fdopen(tmp_fd, "w", encoding="utf-8") as tmp_f:
+                tmp_f.write(content)
+            os.replace(tmp_path, str(mapping_path))
+        except BaseException:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
     except OSError as e:
         logger.warning("Failed to save NPASS review file path: %s", e)
 
@@ -444,7 +458,11 @@ def _load_npass_review_file_path(project: str, reviewer: str) -> str | None:
 
 
 def cleanup_npass_files(project: str) -> None:
-    """NPASS 用レビューファイルとマッピングを削除。"""
+    """NPASS 用レビューファイルとマッピングメタ情報を削除。
+
+    メタファイル（マッピング）に加え、参照先のレビュー本体ファイルも削除する。
+    パイプライン終了時のゴミファイル残留を防ぐため。
+    """
     mapping_path = _npass_mapping_path(project)
     try:
         if mapping_path.exists():

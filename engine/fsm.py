@@ -164,6 +164,14 @@ def get_notification_for_state(
         )
         return TransitionAction(impl_msg=msg)
 
+    if state == "ASSESSMENT":
+        issues_str = ", ".join(f"#{i['issue']}" for i in batch) or "（全Issue）"
+        msg = render("dev.assessment", "transition",
+            project=project, issues_str=issues_str,
+            comment_line=comment_line, GOKRAX_CLI=GOKRAX_CLI,
+        )
+        return TransitionAction(impl_msg=msg)
+
     # 現在はシステム側でCCを動かしているため使っていないが、残しておく
     if state == "IMPLEMENTATION":
         return TransitionAction(run_cc=True, reset_reviewers=True)
@@ -405,7 +413,15 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
                 run_cc=True,
                 reset_reviewers=True,
             )
-        return TransitionAction(new_state="ASSESSMENT")
+        pj = data.get("project", "") if data else ""
+        comment = data.get("comment", "") if data else ""
+        notif = get_notification_for_state(
+            "ASSESSMENT", project=pj, batch=batch, comment=comment,
+        )
+        return TransitionAction(
+            new_state="ASSESSMENT",
+            impl_msg=notif.impl_msg,
+        )
 
     if state == "ASSESSMENT":
         # assess-done 完了待ち

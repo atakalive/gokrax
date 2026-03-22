@@ -648,6 +648,8 @@ def process(path: Path):
                 nudge_msg = render("dev.implementation", "nudge")
             elif nudge_state == "CODE_TEST_FIX":
                 nudge_msg = render("dev.code_test_fix", "nudge")
+            elif nudge_state == "ASSESSMENT":
+                nudge_msg = render("dev.assessment", "nudge")
             else:
                 nudge_msg = "[Remind] 作業を進め、完了してください。"
 

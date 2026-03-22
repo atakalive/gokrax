@@ -301,6 +301,7 @@ def _build_npass_review_message(
     reviewer: str,
     round_num: int | None = None,
     comment: str = "",
+    gitlab: str = "",
 ) -> str:
     """NPASS レビュー依頼メッセージを生成。Issue本文・diff は含めない。"""
     is_code = "CODE" in state
@@ -356,11 +357,25 @@ def _build_npass_review_message(
     from config import OWNER_NAME
     comment_line = f"\n{OWNER_NAME}からの要望: {comment}" if comment else ""
 
+    # Issue 内容の再取得コマンド（リテラル N ではなく具体的な Issue 番号）
+    gitlab_ref = f" -R {gitlab}" if gitlab else ""
+    issue_nums = [i["issue"] for i in pending_issues]
+    if is_code:
+        refresher_cmds = "前パスで参照したファイル/コマンドを再実行して確認せよ。"
+    else:
+        view_cmds = [f"`glab issue view {n}{gitlab_ref}`" for n in issue_nums]
+        note_cmds = [f"`glab issue note-list {n}{gitlab_ref}`" for n in issue_nums]
+        refresher_cmds = (
+            "Issue本文の確認: " + ", ".join(view_cmds) + "\n"
+            "前回レビューコメントの確認: " + ", ".join(note_cmds)
+        )
+
     from messages import render
     review_module = "dev.code_review_npass" if is_code else "dev.design_review_npass"
     msg = render(review_module, "review_request",
         project=project, todo_header=todo_header, completion=completion,
         pass_num=pass_num, target_pass=target_pass, comment_line=comment_line,
+        refresher_cmds=refresher_cmds,
     )
 
     # スキルブロック付与
@@ -729,6 +744,7 @@ def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
             msg = _build_npass_review_message(
                 project, state, batch, reviewer=r,
                 round_num=round_num, comment=comment,
+                gitlab=gitlab,
             )
         else:
             msg = format_review_request(project, state, batch, gitlab, reviewer=r,
@@ -769,8 +785,10 @@ def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
         review_key = "code_reviews" if "CODE" in state else "design_reviews"
         for i in batch:
             existing = i.get(review_key, {}).get(r, {})
+            # NPASS: pass < target_pass なら APPROVE 済みでもメトリクス記録（次パスの通知対象）
             if existing.get("verdict", "").upper() == "APPROVE":
-                continue
+                if existing.get("pass", 1) >= existing.get("target_pass", 1):
+                    continue
             append_metric("review_request", pj=project, issue=i["issue"],
                           phase=phase_key, reviewer=r)
 

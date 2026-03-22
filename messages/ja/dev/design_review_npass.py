@@ -9,6 +9,7 @@ Variables (review_request):
     pass_num: int          - 現在のパス番号
     target_pass: int       - 目標パス数
     comment_line: str      - オーナーコメント行
+    refresher_cmds: str    - 内容再取得コマンド（組み立て済み）
 """
 
 
@@ -19,14 +20,16 @@ def review_request(
     pass_num: int,
     target_pass: int,
     comment_line: str,
+    refresher_cmds: str = "",
     **_kw: object,
 ) -> str:
     """Nパスレビュー依頼メッセージ。"""
+    refresher = refresher_cmds or "前パスで参照したファイル/コマンドを再実行して確認せよ。"
     return (
         f"[gokrax] {project}: Nパス設計レビュー（パス {pass_num}/{target_pass}）{comment_line}\n\n"
         f"前回のレビューで見落とした箇所がないか再チェックせよ。\n"
         f"前回と同じ指摘を繰り返す必要はない。新たな観点で確認すること。\n\n"
-        f"Issue内容は前パスで既に送信済み。内容を忘れた場合は `glab issue view N` および `glab issue note-list N` で確認せよ。\n\n"
+        f"Issue内容は前パスで既に送信済み。内容を忘れた場合:\n{refresher}\n\n"
         f"{todo_header}\n\n{completion}\n\n"
         f"⚠️ 全Issueのreviewコマンドを実行するまでタスク未完了。途中で止めるな。"
     )

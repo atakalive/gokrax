@@ -134,7 +134,7 @@ TEST_CONFIG: dict = {
 # ---------------------------------------------------------------------------
 import importlib.util as _importlib_util  # noqa: E402
 
-if os.environ.get("GOKRAX_SKIP_USER_SETTINGS", "").strip() not in ("", "0", "false"):
+if os.environ.get("GOKRAX_SKIP_USER_SETTINGS", "").strip().lower() not in ("", "0", "false"):
     # テスト用: settings.py を読み込まず、config デフォルト値のみで動作
     pass
 else:

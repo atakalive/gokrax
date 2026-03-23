@@ -76,6 +76,10 @@ def guidance_code(**_kw) -> str:
         "- Do not assert that files, functions, or variables not in the diff \"do not exist\"\n"
         "- Findings of \"X is not found\" must remain P2 (suggestion) and must not be P0/P1\n"
         "- When raising a P0/P1 finding that depends on code outside the diff, confirm the evidence explicitly exists within the diff"
+        "\n\nVerdict selection:\n"
+        "- If you have any P0/P1/P2 findings, set the verdict to the most severe one\n"
+        "- Use APPROVE only when you have zero findings\n"
+        "- \"APPROVE with P2 in summary\" is not allowed. If you have P2 findings, use --verdict P2"
     )
 
 

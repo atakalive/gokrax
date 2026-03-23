@@ -29,6 +29,7 @@ Spec: {spec_path} (rev{current_rev})
 - Also verify consistency with the existing gokrax codebase
 - Look for state machine transition gaps and deadlocks
 - Include only **one** YAML block in your response
+- Verdict selection: critical → P0, major → P1, minor/suggestion → P2. Use APPROVE only when you have zero findings
 
 ## Output Format
 ```yaml
@@ -77,6 +78,7 @@ Last commit: {last_commit}
 - Check new additions for issues
 - Severity, section numbers, and YAML format are the same as before
 - Include only **one** YAML block in your response
+- Verdict selection: critical → P0, major → P1, minor/suggestion → P2. Use APPROVE only when you have zero findings
 
 ## Submission Instructions
 1. Save the YAML file in your workspace (any path)

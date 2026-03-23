@@ -58,6 +58,7 @@ def _old_build_spec_review_prompt_initial(
 - 既存gokraxコードベースとの整合性も確認
 - ステートマシン遷移の抜け穴・デッドロックを探せ
 - YAMLブロックは応答内で**1つだけ**
+- verdict の選び方: critical → P0, major → P1, minor/suggestion → P2。指摘ゼロの場合のみ APPROVE
 
 ## 出力フォーマット
 ```yaml
@@ -115,6 +116,7 @@ def _old_build_spec_review_prompt_revision(
 - 新たに追加された部分に問題がないか確認
 - 重篤度・セクション番号・YAMLフォーマットは前回と同様
 - YAMLブロックは応答内で**1つだけ**
+- verdict の選び方: critical → P0, major → P1, minor/suggestion → P2。指摘ゼロの場合のみ APPROVE
 
 ## レビュー結果の投入手順
 1. ワークスペース内にYAMLファイルを保存（パスは任意）

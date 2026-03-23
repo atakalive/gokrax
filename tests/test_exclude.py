@@ -67,6 +67,22 @@ class TestExcludeAdd:
                 cmd_exclude(args)
 
 
+    def test_remove_unknown_reviewer(self, tmp_path):
+        """--remove で不明なレビュアー名はエラー"""
+        pipeline = tmp_path / "myproject.json"
+        _write_pipeline(pipeline, {
+            "project": "myproject",
+            "state": "IDLE",
+            "excluded_reviewers": [],
+        })
+        args = argparse.Namespace(
+            project="myproject", add=None, remove=["unknown_reviewer"], list=False,
+        )
+        with patch("commands.dev.get_path", return_value=pipeline):
+            with pytest.raises(SystemExit):
+                cmd_exclude(args)
+
+
 class TestExcludeRemove:
     def test_remove_reviewer(self, tmp_path):
         """--remove で reviewer が削除されること"""
@@ -160,6 +176,24 @@ class TestDeadlockClamp:
         data = _load(pipeline)
         assert data["excluded_reviewers"] == ["kaneko"]
         assert "min_reviews_override" not in data
+
+
+class TestWatchdogSaveExcludedRegression:
+    """watchdog.py の _save_excluded 内 effective_count 計算が交差ベースであることの回帰テスト"""
+
+    def test_save_excluded_uses_intersection_calc(self):
+        """watchdog.py の _save_excluded が交差ベースの effective_count 計算を使っていることを確認"""
+        import inspect
+        import watchdog
+        source = inspect.getsource(watchdog.process)
+        # 旧式の計算（len(members) - len(excluded)）が含まれていないこと
+        assert "len(mode_config[\"members\"]) - len(excluded)" not in source, (
+            "watchdog.py still uses the old subtraction-based effective_count calculation"
+        )
+        # 交差ベースの計算が含まれていること
+        assert "if m not in excluded" in source, (
+            "watchdog.py _save_excluded should use intersection-based effective_count"
+        )
 
 
 class TestExcludeList:

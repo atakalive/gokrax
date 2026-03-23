@@ -1373,9 +1373,10 @@ def cmd_exclude(args):
     if args.add:
         added_names: list[str] = []
         final_excluded: list[str] = []
+        clamp_msg: str = ""
 
         def do_add(data: dict) -> None:
-            nonlocal added_names, final_excluded
+            nonlocal added_names, final_excluded, clamp_msg
             excluded = data.get("excluded_reviewers", [])
             added = []
             for name in args.add:
@@ -1391,6 +1392,7 @@ def cmd_exclude(args):
             if effective_count < min_reviews:
                 clamped = max(effective_count, 0)
                 data["min_reviews_override"] = clamped
+                clamp_msg = f"  deadlock clamp: effective={effective_count} < min_reviews={min_reviews}, override={clamped}"
             else:
                 data.pop("min_reviews_override", None)
             added_names = added
@@ -1401,25 +1403,17 @@ def cmd_exclude(args):
             print(f"{args.project}: excluded {added_names} (excluded_reviewers={final_excluded})")
         else:
             print(f"{args.project}: already excluded (excluded_reviewers={final_excluded})")
-        # deadlock clamp 通知
-        review_mode_name = "standard"
-        data = load_pipeline(path)
-        if "min_reviews_override" in data:
-            review_mode_name = data.get("review_mode", "standard")
-            mode_config = REVIEW_MODES.get(review_mode_name, REVIEW_MODES["standard"])
-            effective_count = len([m for m in mode_config["members"] if m not in final_excluded])
-            min_reviews = mode_config["min_reviews"]
-            if effective_count < min_reviews:
-                clamped = max(effective_count, 0)
-                print(f"  deadlock clamp: effective={effective_count} < min_reviews={min_reviews}, override={clamped}")
+        if clamp_msg:
+            print(clamp_msg)
         return
 
     if args.remove:
         removed_names: list[str] = []
         final_excluded_r: list[str] = []
+        clamp_msg_r: str = ""
 
         def do_remove(data: dict) -> None:
-            nonlocal removed_names, final_excluded_r
+            nonlocal removed_names, final_excluded_r, clamp_msg_r
             excluded = data.get("excluded_reviewers", [])
             removed = []
             for name in args.remove:
@@ -1435,6 +1429,7 @@ def cmd_exclude(args):
             if effective_count < min_reviews:
                 clamped = max(effective_count, 0)
                 data["min_reviews_override"] = clamped
+                clamp_msg_r = f"  deadlock clamp: effective={effective_count} < min_reviews={min_reviews}, override={clamped}"
             else:
                 data.pop("min_reviews_override", None)
             removed_names = removed
@@ -1445,6 +1440,8 @@ def cmd_exclude(args):
             print(f"{args.project}: unexcluded {removed_names} (excluded_reviewers={final_excluded_r})")
         else:
             print(f"{args.project}: not excluded (excluded_reviewers={final_excluded_r})")
+        if clamp_msg_r:
+            print(clamp_msg_r)
         return
 
 

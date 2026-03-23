@@ -1150,6 +1150,7 @@ def _handle_qrun(msg_id: str):
         skip_assess=entry.get("skip_assess", False),
         exclude_high_risk=entry.get("exclude_high_risk", False),
         exclude_any_risk=entry.get("exclude_any_risk", False),
+        allow_closed=entry.get("allow_closed", False),
     )
 
     # Call cmd_start with try-catch
@@ -1194,6 +1195,8 @@ def _handle_qrun(msg_id: str):
             data["exclude_high_risk"] = True
         if entry.get("exclude_any_risk"):
             data["exclude_any_risk"] = True
+        if entry.get("allow_closed"):
+            data["allow_closed"] = True
 
     update_pipeline(path, _save_queue_options)
 

@@ -111,6 +111,7 @@ def parse_queue_line(line: str) -> dict:
         "skip_assess": False,
         "exclude_high_risk": False,
         "exclude_any_risk": False,
+        "allow_closed": False,
         "original_line": line.rstrip("\n"),
     }
     result["_explicit_keys"] = set()
@@ -203,6 +204,9 @@ def parse_queue_line(line: str) -> dict:
         elif token == "no-exclude-any-risk":
             result["exclude_any_risk"] = False
             result["_explicit_keys"].add("exclude_any_risk")
+        elif token == "allow-closed":
+            result["allow_closed"] = True
+            result["_explicit_keys"].add("allow_closed")
         elif token in REVIEW_MODES:
             if result["mode"] is not None:
                 raise ValueError(f"Duplicate mode: already {result['mode']!r}, got {token!r}")

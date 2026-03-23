@@ -207,20 +207,43 @@ def _fetch_open_issues(gitlab: str) -> list[tuple[int, str]]:
         return []
 
 
-def _fetch_issue_title(issue_num: int, gitlab: str) -> str:
-    """GitLab APIでIssueタイトルを取得。失敗時は空文字列。"""
+def _fetch_issue_info(issue_num: int, gitlab: str) -> tuple[str, str | None]:
+    """GitLab APIでIssueのタイトルとstateを取得。
+
+    Returns:
+        (title, state) のタプル。
+        title: Issue タイトル。API失敗時は空文字列。
+        state: "opened" / "closed" / None。
+            - "opened": open issue
+            - "closed": closed issue
+            - None: API失敗（タイムアウト、ネットワークエラー、glab未検出）
+                    または未知の state 値（"opened" でも "closed" でもない）
+    """
     try:
         result = subprocess.run(
             [GLAB_BIN, "issue", "show", str(issue_num), "--output", "json", "-R", gitlab],
             capture_output=True, text=True, timeout=GLAB_TIMEOUT, check=False,
         )
         if result.returncode == 0:
-            import json
             data = json.loads(result.stdout)
-            return data.get("title", "")
-    except Exception:
-        pass
-    return ""
+            title = data.get("title", "")
+            raw_state = data.get("state")
+            if raw_state in ("opened", "closed"):
+                return (title, raw_state)
+            # 未知の state: None 扱い + 警告
+            print(f"Warning: issue #{issue_num} has unknown state '{raw_state}'",
+                  file=sys.stderr)
+            return (title, None)
+        # glab が非ゼロ終了
+        print(f"Warning: glab issue show failed for #{issue_num} (rc={result.returncode})",
+              file=sys.stderr)
+    except subprocess.TimeoutExpired:
+        print(f"Warning: glab issue show timed out for #{issue_num}", file=sys.stderr)
+    except FileNotFoundError:
+        print(f"Warning: glab binary not found: {GLAB_BIN}", file=sys.stderr)
+    except Exception as e:
+        print(f"Warning: failed to fetch issue #{issue_num}: {e}", file=sys.stderr)
+    return ("", None)
 
 
 def cmd_triage(args):
@@ -229,19 +252,73 @@ def cmd_triage(args):
     data = load_pipeline(get_path(args.project))
     gitlab = data.get("gitlab", f"{GITLAB_NAMESPACE}/{args.project}")
     titles = list(args.title) + [""] * (len(args.issue) - len(args.title))
-    # タイトルが空のIssueはGitLab APIで取得
+
+    # --- Phase 1: タイトル＋state 一括取得 ---
+    # タイトルが既知の場合でも state 確認のために API を呼ぶ。
+    # タイトルが既知の場合は API 取得の title は使わず、引数の title を維持する。
+    states: list[str | None] = [None] * len(args.issue)
     for idx, (num, title) in enumerate(zip(args.issue, titles)):
+        fetched_title, state = _fetch_issue_info(num, gitlab)
+        states[idx] = state
         if not title:
-            titles[idx] = _fetch_issue_title(num, gitlab)
+            titles[idx] = fetched_title
+
+    # --- Phase 2: closed フィルタリング（do_triage の外で実施） ---
+    skipped_closed: list[int] = []
+    unverified: list[int] = []
+    if not getattr(args, "allow_closed", False):
+        survivors = []
+        survivor_titles = []
+        for num, title, state in zip(args.issue, titles, states):
+            if state == "closed":
+                skipped_closed.append(num)
+            elif state is None:
+                # API失敗 or 未知state: スキップしない（可用性優先）
+                unverified.append(num)
+                survivors.append(num)
+                survivor_titles.append(title)
+            else:  # "opened"
+                survivors.append(num)
+                survivor_titles.append(title)
+    else:
+        survivors = list(args.issue)
+        survivor_titles = list(titles)
+
+    # --- Phase 3: Discord 通知（SystemExit より前に必ず送信） ---
+    # 通知対象: allow_closed=False の場合のみ。allow_closed=True では通知しない。
+    if skipped_closed or unverified:
+        from config import DISCORD_CHANNEL
+        from notify import post_discord
+        if skipped_closed:
+            nums_str = ", ".join(f"#{n}" for n in skipped_closed)
+            post_discord(DISCORD_CHANNEL, f"⚠️ Skipped closed issues: {nums_str}")
+            print(f"Skipped closed issues: {nums_str}")
+        if unverified:
+            nums_str = ", ".join(f"#{n}" for n in unverified)
+            post_discord(DISCORD_CHANNEL,
+                         f"⚠️ Could not verify issue state: {nums_str}")
+            print(f"Warning: could not verify state for issues: {nums_str}")
+
+    # --- Phase 4: all-closed チェック ---
+    if not survivors:
+        raise SystemExit("All issues are closed. Nothing to add to batch.")
+
+    # --- Phase 5: do_triage に filtered リストを渡してバッチ追加 ---
+    filtered_args = argparse.Namespace(
+        project=args.project,
+        issue=survivors,
+        title=survivor_titles,
+        allow_closed=getattr(args, "allow_closed", False),
+    )
 
     def do_triage(data):
         state = data.get("state", "IDLE")
         if state != "IDLE":
             raise SystemExit(f"Cannot add issues in state {state} (allowed: IDLE)")
         batch = data.get("batch", [])
-        if len(batch) + len(args.issue) > MAX_BATCH:
+        if len(batch) + len(filtered_args.issue) > MAX_BATCH:
             raise SystemExit(
-                f"Batch overflow: {len(batch)} existing + {len(args.issue)} new > {MAX_BATCH}"
+                f"Batch overflow: {len(batch)} existing + {len(filtered_args.issue)} new > {MAX_BATCH}"
             )
 
         # Clear reviewer metadata if starting a new batch
@@ -251,7 +328,7 @@ def cmd_triage(args):
             data.pop("design_min_reviews_met_at", None)
             data.pop("code_min_reviews_met_at", None)
 
-        for num, title in zip(args.issue, titles):
+        for num, title in zip(filtered_args.issue, filtered_args.title):
             if find_issue(batch, num):
                 raise SystemExit(f"Issue #{num} already in batch")
             batch.append({
@@ -266,7 +343,7 @@ def cmd_triage(args):
         data["batch"] = batch
 
     update_pipeline(path, do_triage)
-    nums = ", ".join(f"#{n}" for n in args.issue)
+    nums = ", ".join(f"#{n}" for n in filtered_args.issue)
     print(f"{args.project}: {nums} added to batch")
 
 
@@ -354,6 +431,7 @@ def cmd_start(args):
         project=args.project,
         issue=issue_nums,
         title=titles,
+        allow_closed=getattr(args, "allow_closed", False),
     )
     cmd_triage(triage_args)
 
@@ -1374,6 +1452,8 @@ def cmd_qrun(args):
                 opts.append("exclude-high-risk")
             if e.get("exclude_any_risk"):
                 opts.append("exclude-any-risk")
+            if e.get("allow_closed"):
+                opts.append("allow-closed")
             opts_str = " " + " ".join(opts) if opts else ""
             print(f"{e['project']} {e['issues']}{mode}{opts_str}{done}")
         return
@@ -1402,6 +1482,7 @@ def cmd_qrun(args):
         skip_assess=entry.get("skip_assess", False),
         exclude_high_risk=entry.get("exclude_high_risk", False),
         exclude_any_risk=entry.get("exclude_any_risk", False),
+        allow_closed=entry.get("allow_closed", False),
     )
 
     # queue_mode を先に設定（cmd_start 内の遷移通知で [Queue] prefix を使うため）
@@ -1439,6 +1520,8 @@ def cmd_qrun(args):
             data["exclude_high_risk"] = True
         if entry.get("exclude_any_risk"):
             data["exclude_any_risk"] = True
+        if entry.get("allow_closed"):
+            data["allow_closed"] = True
 
     update_pipeline(path, _save_queue_options)
 
@@ -1525,6 +1608,8 @@ def get_qstatus_text(entries: list[dict], running: "dict | None" = None) -> str:
             parts.append("exclude-high-risk")
         if e.get("exclude_any_risk"):
             parts.append("exclude-any-risk")
+        if e.get("allow_closed"):
+            parts.append("allow-closed")
         lines.append(f"[{idx}] {' '.join(parts)}")
     return "\n".join(lines)
 

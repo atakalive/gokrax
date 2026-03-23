@@ -170,6 +170,8 @@ def main():
     p.add_argument("--exclude-any-risk", action="store_true", default=None, dest="exclude_any_risk",
                    help="skip batch if domain_risk != none")
     p.add_argument("--no-exclude-any-risk", action="store_true", default=None, dest="no_exclude_any_risk")
+    p.add_argument("--allow-closed", action="store_true", default=False, dest="allow_closed",
+                   help="allow closed issues in batch (skip closed-issue filtering)")
 
     # transition
     p = sub.add_parser("transition", help="manually trigger a state transition (normally done by watchdog)")

@@ -112,6 +112,7 @@ gokrax start --pj myproject --mode standard
 | `--no-exclude-high-risk` | No | explicitly do not skip high-risk batches |
 | `--exclude-any-risk` | No | skip batch if domain_risk != none (superset of --exclude-high-risk) |
 | `--no-exclude-any-risk` | No | explicitly do not skip any-risk batches |
+| `--allow-closed` | No | allow closed issues in batch (skip closed-issue filtering) |
 
 Prerequisite: project must be in IDLE state.
 
@@ -355,6 +356,7 @@ gokrax qstatus
 
 ```bash
 gokrax qadd myproject 33,34 lite no-automerge comment=note
+gokrax qadd myproject 33,34 lite allow-closed
 gokrax qadd --file entries.txt
 echo "myproject 33 full" | gokrax qadd --stdin
 

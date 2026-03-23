@@ -1354,6 +1354,100 @@ def cmd_review_mode(args):
     print(f"{args.project}: review_mode → {args.mode} (reviewers: {members})")
 
 
+def cmd_exclude(args):
+    """レビュアーの動的除外を管理"""
+    path = get_path(args.project)
+
+    if args.list:
+        data = load_pipeline(path)
+        excluded = data.get("excluded_reviewers", [])
+        print(f"{args.project}: excluded_reviewers = {excluded}")
+        return
+
+    # --add / --remove 共通: レビュアー名バリデーション
+    names = args.add or args.remove
+    unknown = [n for n in names if n not in ALLOWED_REVIEWERS]
+    if unknown:
+        sys.exit(f"Unknown reviewer(s): {unknown}")
+
+    if args.add:
+        added_names: list[str] = []
+        final_excluded: list[str] = []
+
+        def do_add(data: dict) -> None:
+            nonlocal added_names, final_excluded
+            excluded = data.get("excluded_reviewers", [])
+            added = []
+            for name in args.add:
+                if name not in excluded:
+                    excluded.append(name)
+                    added.append(name)
+            data["excluded_reviewers"] = excluded
+            # deadlock clamp
+            review_mode = data.get("review_mode", "standard")
+            mode_config = REVIEW_MODES.get(review_mode, REVIEW_MODES["standard"])
+            effective_count = len([m for m in mode_config["members"] if m not in excluded])
+            min_reviews = mode_config["min_reviews"]
+            if effective_count < min_reviews:
+                clamped = max(effective_count, 0)
+                data["min_reviews_override"] = clamped
+            else:
+                data.pop("min_reviews_override", None)
+            added_names = added
+            final_excluded = list(excluded)
+
+        update_pipeline(path, do_add)
+        if added_names:
+            print(f"{args.project}: excluded {added_names} (excluded_reviewers={final_excluded})")
+        else:
+            print(f"{args.project}: already excluded (excluded_reviewers={final_excluded})")
+        # deadlock clamp 通知
+        review_mode_name = "standard"
+        data = load_pipeline(path)
+        if "min_reviews_override" in data:
+            review_mode_name = data.get("review_mode", "standard")
+            mode_config = REVIEW_MODES.get(review_mode_name, REVIEW_MODES["standard"])
+            effective_count = len([m for m in mode_config["members"] if m not in final_excluded])
+            min_reviews = mode_config["min_reviews"]
+            if effective_count < min_reviews:
+                clamped = max(effective_count, 0)
+                print(f"  deadlock clamp: effective={effective_count} < min_reviews={min_reviews}, override={clamped}")
+        return
+
+    if args.remove:
+        removed_names: list[str] = []
+        final_excluded_r: list[str] = []
+
+        def do_remove(data: dict) -> None:
+            nonlocal removed_names, final_excluded_r
+            excluded = data.get("excluded_reviewers", [])
+            removed = []
+            for name in args.remove:
+                if name in excluded:
+                    excluded.remove(name)
+                    removed.append(name)
+            data["excluded_reviewers"] = excluded
+            # deadlock clamp
+            review_mode = data.get("review_mode", "standard")
+            mode_config = REVIEW_MODES.get(review_mode, REVIEW_MODES["standard"])
+            effective_count = len([m for m in mode_config["members"] if m not in excluded])
+            min_reviews = mode_config["min_reviews"]
+            if effective_count < min_reviews:
+                clamped = max(effective_count, 0)
+                data["min_reviews_override"] = clamped
+            else:
+                data.pop("min_reviews_override", None)
+            removed_names = removed
+            final_excluded_r = list(excluded)
+
+        update_pipeline(path, do_remove)
+        if removed_names:
+            print(f"{args.project}: unexcluded {removed_names} (excluded_reviewers={final_excluded_r})")
+        else:
+            print(f"{args.project}: not excluded (excluded_reviewers={final_excluded_r})")
+        return
+
+
 def cmd_merge_summary(args):
     """マージサマリーを #gokrax に投稿し、MERGE_SUMMARY_SENT に遷移"""
     import logging

@@ -937,7 +937,7 @@ def process(path: Path):
                     data["reviewer_number_map"] = reviewer_number_map
 
                 # Calculate effective reviewer count
-                effective_count = len(mode_config["members"]) - len(excluded)
+                effective_count = len([m for m in mode_config["members"] if m not in excluded])
                 min_reviews = mode_config["min_reviews"]
 
                 # Clamp min_reviews if deadlock would occur

@@ -305,6 +305,31 @@ gokrax review-mode --pj myproject --mode full
 
 Reviewer membership for each mode is configured in `config`, not hardcoded in CLI.
 
+### `exclude` -- Manage excluded reviewers
+
+```bash
+gokrax exclude --pj myproject --add pascal
+gokrax exclude --pj myproject --remove pascal
+gokrax exclude --pj myproject --list
+```
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--pj` | Yes | project name |
+| `--add REVIEWER [...]` | one of | add reviewer(s) to excluded list |
+| `--remove REVIEWER [...]` | one of | remove reviewer(s) from excluded list |
+| `--list` | one of | show currently excluded reviewers |
+
+`--add`, `--remove`, `--list` are mutually exclusive (exactly one required).
+
+`excluded_reviewers` is stored globally across review modes. When the review mode changes, the list persists. Deadlock clamp is calculated based on the intersection of `excluded_reviewers` and the current mode's `members`.
+
+Reviewer names must be in `ALLOWED_REVIEWERS`. Unknown names cause an error (no partial application).
+
+When adding/removing, deadlock clamp is automatically applied: if effective reviewer count (current mode members not in excluded list) drops below `min_reviews`, `min_reviews_override` is set to `max(effective_count, 0)`. When effective count recovers, `min_reviews_override` is removed.
+
+Note: `reviewer_number_map` is not immediately updated by this command. The map is created/maintained by watchdog during state transitions, not by the exclude command.
+
 ### `merge-summary` -- Post merge summary
 
 ```bash

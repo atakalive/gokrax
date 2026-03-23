@@ -105,7 +105,7 @@ from commands.dev import (  # noqa: F401 — re-export for backwards compatibili
     cmd_triage, cmd_start, cmd_transition, cmd_reset,
     cmd_review, cmd_dispute, cmd_flag, cmd_commit,
     cmd_cc_start, cmd_plan_done, cmd_assess_done, cmd_design_revise, cmd_code_revise,
-    cmd_review_mode, cmd_merge_summary,
+    cmd_review_mode, cmd_exclude, cmd_merge_summary,
     cmd_qrun, cmd_qstatus, cmd_qadd, cmd_qdel, cmd_qedit,
     get_status_text, get_qstatus_text, _get_running_info,
     _reset_to_idle,
@@ -265,6 +265,17 @@ def main():
     p.add_argument("--mode", required=True, choices=list(REVIEW_MODES.keys()),
                    help="review mode (choices shown in --help)")
 
+    # exclude
+    p = sub.add_parser("exclude", help="manage excluded reviewers for a project")
+    p.add_argument("--pj", "--project", dest="project", required=True)
+    group = p.add_mutually_exclusive_group(required=True)
+    group.add_argument("--add", nargs="+", metavar="REVIEWER",
+                       help="add reviewer(s) to excluded list")
+    group.add_argument("--remove", nargs="+", metavar="REVIEWER",
+                       help="remove reviewer(s) from excluded list")
+    group.add_argument("--list", action="store_true",
+                       help="show currently excluded reviewers")
+
     # merge-summary
     p = sub.add_parser("merge-summary", help="post merge summary to #gokrax and await M approval")
     p.add_argument("--pj", "--project", dest="project", required=True)
@@ -397,6 +408,7 @@ def main():
         "cc-start": cmd_cc_start, "plan-done": cmd_plan_done, "assess-done": cmd_assess_done,
         "design-revise": cmd_design_revise, "code-revise": cmd_code_revise,
         "review-mode": cmd_review_mode,
+        "exclude": cmd_exclude,
         "merge-summary": cmd_merge_summary,
         "qrun": cmd_qrun,
         "qstatus": cmd_qstatus,

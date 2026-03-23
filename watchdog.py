@@ -744,6 +744,34 @@ def process(path: Path):
                 )
                 post_gitlab_note(gitlab, note["issue_num"], body)
 
+        # ASSESSMENT遷移時: assessment 結果を GitLab note に投稿 (Issue #186)
+        _RISK_LABELS = {"none": "No Risk", "low": "Low Risk", "high": "High Risk"}
+        if notification.get("old_state") == "ASSESSMENT" and action.new_state in ("IMPLEMENTATION", "IDLE"):
+            from notify import post_gitlab_note
+            gitlab = notification.get("gitlab", "")
+            _assess_batch = notification.get("skip_batch") if action.new_state == "IDLE" else notification.get("batch", [])
+            for issue in _assess_batch:
+                assessment = issue.get("assessment")
+                if not assessment:
+                    continue
+                complex_level = assessment.get("complex_level", "?")
+                domain_risk = assessment.get("domain_risk", "none")
+                risk_label = _RISK_LABELS.get(domain_risk, "Unknown Risk")
+                risk_reason = assessment.get("risk_reason", "") or ""
+                summary = assessment.get("summary", "") or ""
+                header = f"[gokrax] Assessment: Lvl {complex_level} / {risk_label}"
+                if action.new_state == "IDLE":
+                    header += " — 実装スキップ（除外条件に合致）"
+                lines = [header]
+                if domain_risk != "none" and risk_reason:
+                    lines.append(f"Risk reason: {risk_reason}")
+                if summary:
+                    lines.append(summary)
+                body = "\n".join(lines)
+                ok = post_gitlab_note(gitlab, issue["issue"], body)
+                if not ok:
+                    log(f"[{pj}] WARNING: assessment note failed for issue #{issue['issue']}")
+
         # REVISE遷移時: P0サマリーを投稿
         if action.new_state in ("DESIGN_REVISE", "CODE_REVISE"):
             review_key = "design_reviews" if "DESIGN" in action.new_state else "code_reviews"

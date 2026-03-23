@@ -389,15 +389,27 @@ def _build_npass_review_message(
     return msg
 
 
-def mask_agent_name(name: str) -> str:
+def mask_agent_name(name: str, reviewer_number_map: dict[str, int] | None = None) -> str:
     """MASK_AGENT_NAMES が True の場合、エージェント名を 'Reviewer N' に変換する。
 
-    N は ALLOWED_REVIEWERS リストにおけるインデックス + 1。
+    reviewer_number_map が渡された場合はバッチ固有の番号を使用する。
+    フォールバック: ALLOWED_REVIEWERS リストにおけるインデックス + 1。
     ALLOWED_REVIEWERS に含まれない名前はそのまま返す（M, dispute 等）。
     """
-    from config import MASK_AGENT_NAMES, ALLOWED_REVIEWERS
+    from config import MASK_AGENT_NAMES
     if not MASK_AGENT_NAMES:
         return name
+    if reviewer_number_map and name in reviewer_number_map:
+        return f"Reviewer {reviewer_number_map[name]}"
+    # フォールバック: reviewer_number_map が None または name が未登録の場合。
+    # 防御的コード。正常系では reviewer_number_map が常に渡されるはず。
+    # ここに到達した場合は番号の一貫性が保証されないため警告を出す。
+    import logging
+    logging.getLogger(__name__).warning(
+        "mask_agent_name: reviewer_number_map missing or incomplete for %s, "
+        "falling back to ALLOWED_REVIEWERS index", name
+    )
+    from config import ALLOWED_REVIEWERS
     try:
         idx = ALLOWED_REVIEWERS.index(name)
         return f"Reviewer {idx + 1}"

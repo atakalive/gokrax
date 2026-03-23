@@ -694,17 +694,16 @@ def _log(msg: str) -> None:
 
 
 def _update_issue_title_with_assessment(gitlab: str, issue_num: int, complex_level: int, domain_risk: str = "none") -> bool:
-    """Issue タイトルの末尾に [Lvl N / No Risk] 等を付与。既に付いていれば置換。
+    """Issue タイトルの末尾に [Lvl N] または [Lvl N / Low Risk] 等を付与。既に付いていれば置換。
 
+    domain_risk が "none" の場合はリスク部分を省略し [Lvl N] のみ。
     glab issue view で現在のタイトルを取得し、glab issue update で更新。
     リトライ3回（_post_gitlab_note と同方針）。
     """
     import re as _re
 
-    _RISK_DISPLAY = {"none": "No Risk", "low": "Low Risk", "high": "High Risk"}
-
-    # [Lvl N / No Risk] 等にマッチ。
-    _TAG_RE = r'\[Lvl \d+\s*/\s*(?:No|Low|High)\s+Risk\]'
+    # [Lvl N / No Risk] 等にマッチ（リスク部分はオプショナル）
+    _TAG_RE = r'\[Lvl \d+(?:\s*/\s*(?:No|Low|High)\s+Risk)?\]'
 
     # 現在のタイトルを取得
     try:
@@ -725,9 +724,13 @@ def _update_issue_title_with_assessment(gitlab: str, issue_num: int, complex_lev
     # 既存タグは先頭・末尾どちらにあっても除去する（異常状態の防御的クリーンアップ）
     new_title = _re.sub(r'^\s*' + _TAG_RE + r'\s*', '', current_title)
     new_title = _re.sub(r'\s*' + _TAG_RE + r'\s*$', '', new_title)
-    # 新規付与は常に末尾（risk level は常に表示）
-    risk_label = _RISK_DISPLAY.get(domain_risk, "No Risk")
-    new_title = f"{new_title} [Lvl {complex_level} / {risk_label}]"
+    # 新規付与は常に末尾
+    if domain_risk in ("low", "high"):
+        _RISK_DISPLAY = {"low": "Low Risk", "high": "High Risk"}
+        risk_label = _RISK_DISPLAY[domain_risk]
+        new_title = f"{new_title} [Lvl {complex_level} / {risk_label}]"
+    else:
+        new_title = f"{new_title} [Lvl {complex_level}]"
 
     # タイトル更新（リトライ3回）
     for attempt in range(3):
@@ -950,7 +953,8 @@ def cmd_review(args):
             skip_note = True
 
     if not skip_note:
-        masked = mask_agent_name(args.reviewer)
+        reviewer_map = data.get("reviewer_number_map")
+        masked = mask_agent_name(args.reviewer, reviewer_number_map=reviewer_map)
         note_body = f"[{masked}] {args.verdict} ({phase}レビュー)\n\n{args.summary or ''}"
         if _post_gitlab_note(gitlab, args.issue, note_body):
             print("  → GitLab issue note posted")
@@ -1043,7 +1047,8 @@ def cmd_dispute(args):
         print(f"WARNING: dispute 通知の送信に失敗 ({args.reviewer})")
 
     gitlab = data.get("gitlab", f"{GITLAB_NAMESPACE}/{args.project}")
-    masked = mask_agent_name(args.reviewer)
+    reviewer_map = data.get("reviewer_number_map")
+    masked = mask_agent_name(args.reviewer, reviewer_number_map=reviewer_map)
     note_body = (
         f"[dispute] #{args.issue}: {masked} の判定に異議申し立て\n\n"
         f"理由: {args.reason.strip()}"
@@ -1196,8 +1201,11 @@ def cmd_assess_done(args):
     if not _update_issue_title_with_assessment(gitlab, args.issue, args.complex_level, args.risk):
         print(f"  ⚠ title update failed for #{args.issue} (warning only)", file=sys.stderr)
 
-    risk_label = {"none": "No Risk", "low": "Low Risk", "high": "High Risk"}.get(args.risk, "No Risk")
-    print(f"{args.project}: assessment done for #{args.issue} (Lvl {args.complex_level} / {risk_label})")
+    if args.risk in ("low", "high"):
+        risk_label = {"low": "Low Risk", "high": "High Risk"}[args.risk]
+        print(f"{args.project}: assessment done for #{args.issue} (Lvl {args.complex_level} / {risk_label})")
+    else:
+        print(f"{args.project}: assessment done for #{args.issue} (Lvl {args.complex_level})")
 
 
 def cmd_design_revise(args):

@@ -16,6 +16,7 @@ def format_merge_summary(
     automerge: bool = False,
     queue_mode: bool = False,
     MERGE_SUMMARY_FOOTER: str = "",
+    reviewer_number_map: dict | None = None,
     **_kw,
 ) -> str:
     """#gokrax 投稿用マージサマリーを生成する。
@@ -33,7 +34,7 @@ def format_merge_summary(
         # コードレビュー結果を表示（なければ設計レビュー）
         reviews = item.get("code_reviews") or item.get("design_reviews") or {}
         for reviewer, rev in reviews.items():
-            masked = mask_agent_name(reviewer)
+            masked = mask_agent_name(reviewer, reviewer_number_map=reviewer_number_map)
             verdict = rev.get("verdict", "?")
             emoji = _VERDICT_EMOJI.get(verdict, "⚪")
             summary = rev.get("summary", "")

@@ -298,6 +298,8 @@ def process(path: Path):
             data.pop("test_result", None)
             data.pop("test_output", None)
             data.pop("test_retry_count", None)
+            # Issue #190: reviewer_number_map クリーンアップ
+            data.pop("reviewer_number_map", None)
 
         # ASSESSMENT → IDLE (リスクスキップ): クリーンアップ前に通知用データを退避 (Issue #181)
         _skip_assessment = {}
@@ -338,6 +340,8 @@ def process(path: Path):
             data.pop("test_result", None)
             data.pop("test_output", None)
             data.pop("test_retry_count", None)
+            # Issue #190: reviewer_number_map クリーンアップ
+            data.pop("reviewer_number_map", None)
 
         # INITIALIZE→DESIGN_PLAN: Reset REVISE cycle counters + 初期化処理 (Issue #29, #125)
         if state == "INITIALIZE" and action.new_state == "DESIGN_PLAN":
@@ -829,6 +833,7 @@ def process(path: Path):
                 project=pj, batch=batch, automerge=automerge,
                 queue_mode=notification.get("queue_mode", False),
                 MERGE_SUMMARY_FOOTER=MERGE_SUMMARY_FOOTER,
+                reviewer_number_map=pipeline_data.get("reviewer_number_map"),
             )
             message_id = post_discord(DISCORD_CHANNEL, content)
             if message_id:
@@ -917,8 +922,19 @@ def process(path: Path):
             mode_config = REVIEW_MODES.get(review_mode, REVIEW_MODES["standard"])
             path = get_path(pj)
 
+            # reviewer_number_map: バッチ参加レビュアーにランダム番号を割り当て
+            import random
+            active_reviewers = [r for r in mode_config["members"] if r not in excluded]
+            n = len(active_reviewers)
+            numbers = list(range(1, n + 1))
+            random.shuffle(numbers)
+            reviewer_number_map = dict(zip(active_reviewers, numbers))
+
             def _save_excluded(data):
                 data["excluded_reviewers"] = excluded
+                # reviewer_number_map は初回のみ生成（バッチ内で安定させるため）
+                if "reviewer_number_map" not in data:
+                    data["reviewer_number_map"] = reviewer_number_map
 
                 # Calculate effective reviewer count
                 effective_count = len(mode_config["members"]) - len(excluded)

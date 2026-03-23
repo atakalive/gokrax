@@ -694,16 +694,17 @@ def _log(msg: str) -> None:
 
 
 def _update_issue_title_with_assessment(gitlab: str, issue_num: int, complex_level: int, domain_risk: str = "none") -> bool:
-    """Issue タイトルの末尾に [Lvl N] or [Lvl N / Risk X] を付与。既に付いていれば置換。
+    """Issue タイトルの末尾に [Lvl N / No Risk] 等を付与。既に付いていれば置換。
 
     glab issue view で現在のタイトルを取得し、glab issue update で更新。
     リトライ3回（_post_gitlab_note と同方針）。
     """
     import re as _re
 
-    # [Lvl N] or [Lvl N / Risk X] にマッチ。
-    # \w+ は英数字+アンダースコア。ハイフンを含む Risk 値を追加する場合は更新が必要。
-    _TAG_RE = r'\[Lvl \d+(?:\s*/\s*Risk \w+)?\]'
+    _RISK_DISPLAY = {"none": "No Risk", "low": "Low Risk", "high": "High Risk"}
+
+    # [Lvl N / No Risk] 等にマッチ。
+    _TAG_RE = r'\[Lvl \d+\s*/\s*(?:No|Low|High)\s+Risk\]'
 
     # 現在のタイトルを取得
     try:
@@ -724,11 +725,9 @@ def _update_issue_title_with_assessment(gitlab: str, issue_num: int, complex_lev
     # 既存タグは先頭・末尾どちらにあっても除去する（異常状態の防御的クリーンアップ）
     new_title = _re.sub(r'^\s*' + _TAG_RE + r'\s*', '', current_title)
     new_title = _re.sub(r'\s*' + _TAG_RE + r'\s*$', '', new_title)
-    # 新規付与は常に末尾
-    if domain_risk != "none":
-        new_title = f"{new_title} [Lvl {complex_level} / Risk {domain_risk}]"
-    else:
-        new_title = f"{new_title} [Lvl {complex_level}]"
+    # 新規付与は常に末尾（risk level は常に表示）
+    risk_label = _RISK_DISPLAY.get(domain_risk, "No Risk")
+    new_title = f"{new_title} [Lvl {complex_level} / {risk_label}]"
 
     # タイトル更新（リトライ3回）
     for attempt in range(3):
@@ -1203,10 +1202,8 @@ def cmd_assess_done(args):
         nums = ", ".join(f"#{n}" for n in failed)
         print(f"  ⚠ title update failed for {nums} (warning only)", file=sys.stderr)
 
-    if args.risk != "none":
-        print(f"{args.project}: assessment done (Lvl {args.complex_level} / Risk {args.risk})")
-    else:
-        print(f"{args.project}: assessment done (Lvl {args.complex_level})")
+    risk_label = {"none": "No Risk", "low": "Low Risk", "high": "High Risk"}.get(args.risk, "No Risk")
+    print(f"{args.project}: assessment done (Lvl {args.complex_level} / {risk_label})")
 
 
 def cmd_design_revise(args):

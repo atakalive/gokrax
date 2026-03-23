@@ -128,7 +128,7 @@ class TestAssessmentFSMWait:
 class TestUpdateIssueTitleWithComplexLevel:
 
     def test_update_issue_title_with_assessment(self):
-        """8-6: 正常系 — [Lvl N] が末尾に付与される"""
+        """8-6: 正常系 — [Lvl N / No Risk] が末尾に付与される"""
         from commands.dev import _update_issue_title_with_assessment
 
         view_result = MagicMock(returncode=0, stdout=json.dumps({"title": "feat: do something"}))
@@ -140,13 +140,13 @@ class TestUpdateIssueTitleWithComplexLevel:
         assert ok is True
         # update コマンドのタイトル引数を確認
         update_call = mock_run.call_args_list[1]
-        assert "feat: do something [Lvl 3]" in update_call[0][0]
+        assert "feat: do something [Lvl 3 / No Risk]" in update_call[0][0]
 
     def test_update_issue_title_replaces_existing_complex_level(self):
         """8-7: 既存の [Lvl N] を置換（後方互換: 先頭タグの除去確認）"""
         from commands.dev import _update_issue_title_with_assessment
 
-        view_result = MagicMock(returncode=0, stdout=json.dumps({"title": "[Lvl 2] feat: do something"}))
+        view_result = MagicMock(returncode=0, stdout=json.dumps({"title": "[Lvl 2 / No Risk] feat: do something"}))
         update_result = MagicMock(returncode=0)
 
         with patch("subprocess.run", side_effect=[view_result, update_result]) as mock_run:
@@ -154,13 +154,13 @@ class TestUpdateIssueTitleWithComplexLevel:
 
         assert ok is True
         update_call = mock_run.call_args_list[1]
-        assert "feat: do something [Lvl 4]" in update_call[0][0]
+        assert "feat: do something [Lvl 4 / No Risk]" in update_call[0][0]
 
     def test_update_issue_title_replaces_existing_complex_level_at_end(self):
         """8-7b: 末尾の既存 [Lvl N] を置換"""
         from commands.dev import _update_issue_title_with_assessment
 
-        view_result = MagicMock(returncode=0, stdout=json.dumps({"title": "feat: do something [Lvl 2]"}))
+        view_result = MagicMock(returncode=0, stdout=json.dumps({"title": "feat: do something [Lvl 2 / Low Risk]"}))
         update_result = MagicMock(returncode=0)
 
         with patch("subprocess.run", side_effect=[view_result, update_result]) as mock_run:
@@ -168,13 +168,13 @@ class TestUpdateIssueTitleWithComplexLevel:
 
         assert ok is True
         update_call = mock_run.call_args_list[1]
-        assert "feat: do something [Lvl 4]" in update_call[0][0]
+        assert "feat: do something [Lvl 4 / No Risk]" in update_call[0][0]
 
     def test_update_issue_title_removes_both_front_and_end_tags(self):
         """8-7c: 先頭・末尾両方にタグがある異常状態 — 両方除去して末尾に1つだけ付与"""
         from commands.dev import _update_issue_title_with_assessment
 
-        view_result = MagicMock(returncode=0, stdout=json.dumps({"title": "[Lvl 2] feat: do something [Lvl 3]"}))
+        view_result = MagicMock(returncode=0, stdout=json.dumps({"title": "[Lvl 2 / Low Risk] feat: do something [Lvl 3 / High Risk]"}))
         update_result = MagicMock(returncode=0)
 
         with patch("subprocess.run", side_effect=[view_result, update_result]) as mock_run:
@@ -182,7 +182,7 @@ class TestUpdateIssueTitleWithComplexLevel:
 
         assert ok is True
         update_call = mock_run.call_args_list[1]
-        assert "feat: do something [Lvl 5]" in update_call[0][0]
+        assert "feat: do something [Lvl 5 / No Risk]" in update_call[0][0]
 
 
 # --- 8-8: ASSESSMENT タイムアウト ---
@@ -348,7 +348,7 @@ class TestCmdAssessDoneDomainRisk:
 class TestUpdateIssueTitleWithRisk:
 
     def test_update_title_with_risk(self):
-        """domain_risk="high" → [Lvl 3 / Risk high] が末尾に付与"""
+        """domain_risk="high" → [Lvl 3 / High Risk] が末尾に付与"""
         from commands.dev import _update_issue_title_with_assessment
 
         view_result = MagicMock(returncode=0, stdout=json.dumps({"title": "feat: do something"}))
@@ -359,10 +359,10 @@ class TestUpdateIssueTitleWithRisk:
 
         assert ok is True
         update_call = mock_run.call_args_list[1]
-        assert "feat: do something [Lvl 3 / Risk high]" in update_call[0][0]
+        assert "feat: do something [Lvl 3 / High Risk]" in update_call[0][0]
 
-    def test_update_title_risk_none_omits_risk(self):
-        """domain_risk="none" → [Lvl 3]（従来形式）"""
+    def test_update_title_risk_none_shows_no_risk(self):
+        """domain_risk="none" → [Lvl 3 / No Risk]"""
         from commands.dev import _update_issue_title_with_assessment
 
         view_result = MagicMock(returncode=0, stdout=json.dumps({"title": "feat: do something"}))
@@ -373,13 +373,13 @@ class TestUpdateIssueTitleWithRisk:
 
         assert ok is True
         update_call = mock_run.call_args_list[1]
-        assert "feat: do something [Lvl 3]" in update_call[0][0]
+        assert "feat: do something [Lvl 3 / No Risk]" in update_call[0][0]
 
-    def test_update_title_replaces_old_risk_tag(self):
-        """既存 [Lvl 2 / Risk low] → [Lvl 3 / Risk high] に置換"""
+    def test_update_title_replaces_existing_risk_tag(self):
+        """既存 [Lvl 2 / Low Risk] → [Lvl 3 / High Risk] に置換"""
         from commands.dev import _update_issue_title_with_assessment
 
-        view_result = MagicMock(returncode=0, stdout=json.dumps({"title": "feat: do something [Lvl 2 / Risk low]"}))
+        view_result = MagicMock(returncode=0, stdout=json.dumps({"title": "feat: do something [Lvl 2 / Low Risk]"}))
         update_result = MagicMock(returncode=0)
 
         with patch("subprocess.run", side_effect=[view_result, update_result]) as mock_run:
@@ -387,13 +387,13 @@ class TestUpdateIssueTitleWithRisk:
 
         assert ok is True
         update_call = mock_run.call_args_list[1]
-        assert "feat: do something [Lvl 3 / Risk high]" in update_call[0][0]
+        assert "feat: do something [Lvl 3 / High Risk]" in update_call[0][0]
 
-    def test_update_title_replaces_old_lvl_only_tag(self):
-        """既存 [Lvl 2]（旧形式）→ [Lvl 3 / Risk high] に置換"""
+    def test_update_title_replaces_no_risk_with_high_risk(self):
+        """既存 [Lvl 2 / No Risk] → [Lvl 3 / High Risk] に置換"""
         from commands.dev import _update_issue_title_with_assessment
 
-        view_result = MagicMock(returncode=0, stdout=json.dumps({"title": "feat: do something [Lvl 2]"}))
+        view_result = MagicMock(returncode=0, stdout=json.dumps({"title": "feat: do something [Lvl 2 / No Risk]"}))
         update_result = MagicMock(returncode=0)
 
         with patch("subprocess.run", side_effect=[view_result, update_result]) as mock_run:
@@ -401,4 +401,6 @@ class TestUpdateIssueTitleWithRisk:
 
         assert ok is True
         update_call = mock_run.call_args_list[1]
-        assert "feat: do something [Lvl 3 / Risk high]" in update_call[0][0]
+        assert "feat: do something [Lvl 3 / High Risk]" in update_call[0][0]
+
+

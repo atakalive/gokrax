@@ -436,8 +436,12 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
                 comment = data.get("comment", "") if data else ""
                 outcome = _resolve_review_outcome(state, data, batch, has_p0, has_p1, has_p2, comment=comment)
 
-                # NPASS interception: APPROVE 判定だが pass < target_pass のレビュアーがいる → NPASS
-                if outcome.new_state in ("DESIGN_APPROVED", "CODE_APPROVED"):
+                # NPASS interception: Round 1（revise_count == 0）かつ
+                # pass < target_pass のレビュアーがいる → verdict に関わらず NPASS へ遷移。
+                # Round 2+（revise_count > 0）ではスキップ。
+                counter_key = "design_revise_count" if "DESIGN" in state else "code_revise_count"
+                revise_count = data.get(counter_key, 0) if data else 0
+                if revise_count == 0:
                     npass_targets: list[str] = []
                     seen: set[str] = set()
                     for issue in batch:

@@ -138,8 +138,8 @@ class TestReviewToNpass:
             action = check_transition("CODE_REVIEW", batch, data)
         assert action.new_state == "CODE_APPROVED"
 
-    def test_p0_prevents_npass(self):
-        """P0 があれば pass < target_pass でも REVISE へ（NPASS にならない）。"""
+    def test_p0_round1_npass_fires(self):
+        """Round 1 で P0 + pass < target_pass → NPASS に遷移する（#182 修正）。"""
         batch = [{
             "issue": 1,
             "code_reviews": {
@@ -156,7 +156,8 @@ class TestReviewToNpass:
             "standard": {"members": ["alice", "bob"], "min_reviews": 2, "grace_period_sec": 0},
         }):
             action = check_transition("CODE_REVIEW", batch, data)
-        assert action.new_state == "CODE_REVISE"
+        assert action.new_state == "CODE_REVIEW_NPASS"
+        assert action.npass_target_reviewers == ["alice"]
 
     def test_design_review_npass(self):
         """DESIGN_REVIEW でも NPASS 遷移が動作する。"""

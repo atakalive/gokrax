@@ -446,3 +446,89 @@ class TestNpassValidation:
 
         captured = capsys.readouterr()
         assert "WARNING" in captured.out or "invalid" in captured.out
+
+
+# ---------------------------------------------------------------------------
+# 12. NPASS interception — Round 1 vs Round 2+ (Issue #182)
+# ---------------------------------------------------------------------------
+
+class TestNpassRoundGuard:
+    """NPASS interception が Round 1 のみ発火し、Round 2+ ではスキップされる。"""
+
+    def _now_iso(self) -> str:
+        from datetime import datetime, timedelta, timezone
+        JST = timezone(timedelta(hours=9))
+        return datetime.now(JST).isoformat()
+
+    def test_npass_fires_on_round1_with_p1_verdict(self):
+        """Round 1（revise_count=0）で P1 verdict があっても NPASS に遷移する。"""
+        from engine.fsm import check_transition
+        now = self._now_iso()
+        batch = [{
+            "issue": 1,
+            "design_reviews": {
+                "euler": {"verdict": "P1", "at": now, "pass": 1, "target_pass": 1},
+                "pascal": {"verdict": "APPROVE", "at": now, "pass": 1, "target_pass": 2},
+            },
+        }]
+        data = {
+            "project": "test-pj",
+            "review_mode": "npass_mode",
+            "design_revise_count": 0,
+            "history": [{"from": "DESIGN_PLAN", "to": "DESIGN_REVIEW", "at": now}],
+        }
+        with patch("engine.fsm.REVIEW_MODES", {
+            "npass_mode": {"members": ["euler", "pascal"], "min_reviews": 2, "grace_period_sec": 0},
+            "standard": {"members": ["euler", "pascal"], "min_reviews": 2, "grace_period_sec": 0},
+        }):
+            action = check_transition("DESIGN_REVIEW", batch, data)
+        assert action.new_state == "DESIGN_REVIEW_NPASS"
+        assert action.npass_target_reviewers == ["pascal"]
+
+    def test_npass_skipped_on_round2(self):
+        """Round 2+（revise_count > 0）では NPASS をスキップして直接 APPROVE する。"""
+        from engine.fsm import check_transition
+        now = self._now_iso()
+        batch = [{
+            "issue": 1,
+            "design_reviews": {
+                "euler": {"verdict": "APPROVE", "at": now, "pass": 1, "target_pass": 1},
+                "pascal": {"verdict": "APPROVE", "at": now, "pass": 1, "target_pass": 2},
+            },
+        }]
+        data = {
+            "project": "test-pj",
+            "review_mode": "npass_mode",
+            "design_revise_count": 1,
+            "history": [{"from": "DESIGN_REVISE", "to": "DESIGN_REVIEW", "at": now}],
+        }
+        with patch("engine.fsm.REVIEW_MODES", {
+            "npass_mode": {"members": ["euler", "pascal"], "min_reviews": 2, "grace_period_sec": 0},
+            "standard": {"members": ["euler", "pascal"], "min_reviews": 2, "grace_period_sec": 0},
+        }):
+            action = check_transition("DESIGN_REVIEW", batch, data)
+        assert action.new_state == "DESIGN_APPROVED"
+
+    def test_code_npass_skipped_on_round2(self):
+        """CODE_REVIEW Round 2+ でも NPASS をスキップする。"""
+        from engine.fsm import check_transition
+        now = self._now_iso()
+        batch = [{
+            "issue": 1,
+            "code_reviews": {
+                "euler": {"verdict": "APPROVE", "at": now, "pass": 1, "target_pass": 1},
+                "dijkstra": {"verdict": "APPROVE", "at": now, "pass": 1, "target_pass": 2},
+            },
+        }]
+        data = {
+            "project": "test-pj",
+            "review_mode": "npass_mode",
+            "code_revise_count": 1,
+            "history": [{"from": "CODE_REVISE", "to": "CODE_REVIEW", "at": now}],
+        }
+        with patch("engine.fsm.REVIEW_MODES", {
+            "npass_mode": {"members": ["euler", "dijkstra"], "min_reviews": 2, "grace_period_sec": 0},
+            "standard": {"members": ["euler", "dijkstra"], "min_reviews": 2, "grace_period_sec": 0},
+        }):
+            action = check_transition("CODE_REVIEW", batch, data)
+        assert action.new_state == "CODE_APPROVED"

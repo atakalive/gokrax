@@ -173,10 +173,11 @@ class TestFormatReviewRequest:
         import notify
         import config
         batch = [self._make_batch_item(42, "Test Issue", "abc123")]
-        result = notify.format_review_request(
-            project="test-pj", state="DESIGN_REVIEW",
-            batch=batch, gitlab="atakalive/test-pj", reviewer="pascal",
-        )
+        with patch("notify.fetch_issue_body", return_value=""):
+            result = notify.format_review_request(
+                project="test-pj", state="DESIGN_REVIEW",
+                batch=batch, gitlab="atakalive/test-pj", reviewer="pascal",
+            )
         assert str(config.GOKRAX_CLI) in result
         assert "/home/ataka/.openclaw/shared/bin/gokrax" in result
 
@@ -184,10 +185,11 @@ class TestFormatReviewRequest:
         """format_review_request() のコマンドに reviewer 名が含まれること。"""
         import notify
         batch = [self._make_batch_item(10)]
-        result = notify.format_review_request(
-            project="test-pj", state="CODE_REVIEW",
-            batch=batch, gitlab="atakalive/test-pj", reviewer="leibniz",
-        )
+        with patch("notify.fetch_issue_body", return_value=""):
+            result = notify.format_review_request(
+                project="test-pj", state="CODE_REVIEW",
+                batch=batch, gitlab="atakalive/test-pj", reviewer="leibniz",
+            )
         assert "--reviewer leibniz" in result
 
     def test_command_structure(self):
@@ -195,10 +197,11 @@ class TestFormatReviewRequest:
         import notify
         import config
         batch = [self._make_batch_item(5)]
-        result = notify.format_review_request(
-            project="proj", state="DESIGN_REVIEW",
-            batch=batch, gitlab="atakalive/proj", reviewer="hanfei",
-        )
+        with patch("notify.fetch_issue_body", return_value=""):
+            result = notify.format_review_request(
+                project="proj", state="DESIGN_REVIEW",
+                batch=batch, gitlab="atakalive/proj", reviewer="hanfei",
+            )
         assert f"{config.GOKRAX_CLI} review" in result
         # python3 prefix がないことを確認
         assert f"python3 {config.GOKRAX_CLI} review" not in result

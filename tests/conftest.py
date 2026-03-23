@@ -1,6 +1,7 @@
 """共通fixture — pipeline JSONのtmpディレクトリ等"""
 
 import json
+import os as _os
 import pytest
 from pathlib import Path
 from unittest.mock import patch
@@ -43,6 +44,54 @@ def _block_external_calls(request, tmp_path):
         yield
     config.LOG_FILE = orig_config
     watchdog.LOG_FILE = orig_watchdog
+
+
+@pytest.fixture(autouse=True)
+def block_dangerous_subprocess(monkeypatch):
+    """Prevent tests from invoking real external processes."""
+    import subprocess as _subprocess
+
+    original_run = _subprocess.run
+    original_popen = _subprocess.Popen
+
+    BLOCKED_PATTERNS = ["claude", "glab"]
+
+    def _check_cmd(cmd):
+        if isinstance(cmd, (list, tuple)):
+            cmd_str = " ".join(str(c) for c in cmd)
+        else:
+            cmd_str = str(cmd)
+        for pattern in BLOCKED_PATTERNS:
+            if pattern in cmd_str:
+                raise RuntimeError(
+                    f"Test attempted to invoke blocked process: {cmd_str!r}. "
+                    f"Use mock/monkeypatch instead."
+                )
+
+    def guarded_run(cmd, *args, **kwargs):
+        _check_cmd(cmd)
+        return original_run(cmd, *args, **kwargs)
+
+    def guarded_popen(cmd, *args, **kwargs):
+        _check_cmd(cmd)
+        return original_popen(cmd, *args, **kwargs)
+
+    def blocked_os_system(cmd):
+        raise RuntimeError(
+            f"Test attempted to use os.system({cmd!r}). "
+            f"Use subprocess + mock instead."
+        )
+
+    def blocked_os_popen(cmd, *args, **kwargs):
+        raise RuntimeError(
+            f"Test attempted to use os.popen({cmd!r}). "
+            f"Use subprocess + mock instead."
+        )
+
+    monkeypatch.setattr(_subprocess, "run", guarded_run)
+    monkeypatch.setattr(_subprocess, "Popen", guarded_popen)
+    monkeypatch.setattr(_os, "system", blocked_os_system)
+    monkeypatch.setattr(_os, "popen", blocked_os_popen)
 
 
 @pytest.fixture(autouse=True)

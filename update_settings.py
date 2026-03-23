@@ -51,9 +51,9 @@ def main(base_dir: Path) -> int:
     settings_path = base_dir / "settings.py"
 
     if not settings_path.exists():
-        print("settings.py not found. Run: cp settings.example.py settings.py",
-              file=sys.stderr)
-        return 1
+        shutil.copy2(example_path, settings_path)
+        print("Created settings.py from settings.example.py")
+        return 0
 
     example_src = example_path.read_text(encoding="utf-8")
     settings_src = settings_path.read_text(encoding="utf-8")

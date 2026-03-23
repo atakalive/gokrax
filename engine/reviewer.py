@@ -191,6 +191,8 @@ def clear_reviews(batch: list, key: str, revised_key: str):
         to_clear = [
             reviewer for reviewer, r in reviews.items()
             if r.get("verdict", "").upper() in ("REJECT", "P0", "P1", "P2")
+            or (r.get("verdict", "").upper() == "APPROVE"
+                and r.get("pass", 1) < r.get("target_pass", 1))
         ]
         for reviewer in to_clear:
             del reviews[reviewer]

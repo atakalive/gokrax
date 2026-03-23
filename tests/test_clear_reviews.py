@@ -93,6 +93,66 @@ class TestClearReviews:
         for issue in batch:
             assert "code_revised" not in issue
 
+    def test_npass_intermediate_approve_cleared(self):
+        """NPASS 中間パス（pass=1, target_pass=2）の APPROVE はクリアされる"""
+        batch = [
+            {
+                "issue": 1,
+                "design_reviews": {
+                    "pascal": {"verdict": "APPROVE", "at": "t", "pass": 1, "target_pass": 2},
+                },
+                "design_revised": True,
+            },
+        ]
+        clear_reviews(batch, "design_reviews", "design_revised")
+        assert "pascal" not in batch[0]["design_reviews"]
+
+    def test_npass_final_pass_approve_kept(self):
+        """NPASS 最終パス（pass=2, target_pass=2）の APPROVE は保持される"""
+        batch = [
+            {
+                "issue": 1,
+                "design_reviews": {
+                    "pascal": {"verdict": "APPROVE", "at": "t", "pass": 2, "target_pass": 2},
+                },
+                "design_revised": True,
+            },
+        ]
+        clear_reviews(batch, "design_reviews", "design_revised")
+        assert "pascal" in batch[0]["design_reviews"]
+
+    def test_single_pass_approve_kept(self):
+        """1-pass（pass/target_pass キーなし）の APPROVE は保持される（既存動作不変）"""
+        batch = [
+            {
+                "issue": 1,
+                "code_reviews": {
+                    "leibniz": {"verdict": "APPROVE", "at": "t"},
+                },
+                "code_revised": True,
+            },
+        ]
+        clear_reviews(batch, "code_reviews", "code_revised")
+        assert "leibniz" in batch[0]["code_reviews"]
+
+    def test_npass_mixed_reviewers(self):
+        """NPASS 中間パス APPROVE はクリア、同一 Issue の P1 もクリア、1-pass APPROVE は保持"""
+        batch = [
+            {
+                "issue": 1,
+                "design_reviews": {
+                    "pascal": {"verdict": "APPROVE", "at": "t", "pass": 1, "target_pass": 2},
+                    "euler": {"verdict": "P1", "at": "t"},
+                    "leibniz": {"verdict": "APPROVE", "at": "t"},
+                },
+                "design_revised": True,
+            },
+        ]
+        clear_reviews(batch, "design_reviews", "design_revised")
+        assert "pascal" not in batch[0]["design_reviews"]  # NPASS 中間 → クリア
+        assert "euler" not in batch[0]["design_reviews"]    # P1 → クリア
+        assert "leibniz" in batch[0]["design_reviews"]      # 1-pass APPROVE → 保持
+
     def test_p1_verdict_cleared(self):
         """P1 verdict → レビュークリア（Issue #36修正後）"""
         batch = [

@@ -35,7 +35,9 @@ def _block_external_calls(request, tmp_path):
          patch("watchdog.ping_agent", return_value=True), \
          patch("engine.reviewer._reset_reviewers", return_value=[]), \
          patch("engine.reviewer._reset_short_context_reviewers"), \
-         patch("engine.cc._start_cc"), \
+         patch("watchdog._start_cc"), \
+         patch("watchdog._start_code_test"), \
+         patch("watchdog._start_cc_test_fix"), \
          patch("watchdog.notify_discord"), \
          patch("time.sleep"):
         yield

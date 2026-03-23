@@ -82,6 +82,7 @@ ruff check *.py tests/
 - **`time.sleep()` をテストコードで直接呼ぶな。** conftest で `time.sleep` はグローバルにモック済み。プロダクションコードの sleep がテスト中に走ると累積して timeout する
 - sleep の動作を検証したい場合は `patch("time.sleep") as mock_sleep` で呼び出し回数・引数を assert する
 - **外部通信（Discord, agent 送信）はテストで実行するな。** conftest の `_block_external_calls` でモック済み。新しい外部通信関数を追加したら conftest にもモックを追加すること
+- **mock の patch 先は `from ... import` 後の束縛先を指定しろ。** `watchdog.py` が `from engine.cc import _start_cc` している場合、`patch("engine.cc._start_cc")` は無効。`patch("watchdog._start_cc")` が正解。`from X import Y` はモジュールロード時に束縛されるため、元モジュールを patch しても既存の束縛には影響しない
 - **`_reset_reviewers` / `_reset_short_context_reviewers` はテストで実行するな。** conftest でモック済み。直接テストする場合は `test_short_context.py` のように個別にモックを構成する
 
 ## 設計上の注意

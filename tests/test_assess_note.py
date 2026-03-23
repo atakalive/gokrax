@@ -61,7 +61,7 @@ class TestAssessmentNoteOnImplementation:
 
         mock_note = MagicMock(return_value=True)
         monkeypatch.setattr("watchdog.notify_discord", MagicMock())
-        monkeypatch.setattr("engine.cc._start_cc", MagicMock())
+        monkeypatch.setattr("watchdog._start_cc", MagicMock())
 
         with patch("notify.post_gitlab_note", mock_note):
             process(pipeline_path)
@@ -96,7 +96,7 @@ class TestAssessmentNoteOnImplementation:
 
         mock_note = MagicMock(return_value=True)
         monkeypatch.setattr("watchdog.notify_discord", MagicMock())
-        monkeypatch.setattr("engine.cc._start_cc", MagicMock())
+        monkeypatch.setattr("watchdog._start_cc", MagicMock())
 
         with patch("notify.post_gitlab_note", mock_note):
             process(pipeline_path)
@@ -119,7 +119,7 @@ class TestAssessmentNoteOnImplementation:
 
         mock_note = MagicMock(return_value=True)
         monkeypatch.setattr("watchdog.notify_discord", MagicMock())
-        monkeypatch.setattr("engine.cc._start_cc", MagicMock())
+        monkeypatch.setattr("watchdog._start_cc", MagicMock())
 
         with patch("notify.post_gitlab_note", mock_note):
             process(pipeline_path)
@@ -140,7 +140,7 @@ class TestAssessmentNoteOnImplementation:
 
         mock_note = MagicMock(return_value=False)
         monkeypatch.setattr("watchdog.notify_discord", MagicMock())
-        monkeypatch.setattr("engine.cc._start_cc", MagicMock())
+        monkeypatch.setattr("watchdog._start_cc", MagicMock())
 
         with patch("notify.post_gitlab_note", mock_note):
             process(pipeline_path)
@@ -168,7 +168,7 @@ class TestAssessmentNoteOnImplementation:
         )
         mock_note = MagicMock(return_value=True)
         monkeypatch.setattr("watchdog.notify_discord", MagicMock())
-        monkeypatch.setattr("engine.cc._start_cc", MagicMock())
+        monkeypatch.setattr("watchdog._start_cc", MagicMock())
         monkeypatch.setattr("watchdog.check_transition", lambda *a, **kw: mock_action)
 
         with patch("notify.post_gitlab_note", mock_note):
@@ -196,7 +196,7 @@ class TestAssessmentNoteOnImplementation:
         )
         mock_note = MagicMock(return_value=True)
         monkeypatch.setattr("watchdog.notify_discord", MagicMock())
-        monkeypatch.setattr("engine.cc._start_cc", MagicMock())
+        monkeypatch.setattr("watchdog._start_cc", MagicMock())
         monkeypatch.setattr("watchdog.check_transition", lambda *a, **kw: mock_action)
 
         with patch("notify.post_gitlab_note", mock_note):

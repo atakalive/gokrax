@@ -114,6 +114,9 @@ REVIEW_MODES = {
 #         "code": ["example-skill"],
 #     },
 # }
+PROJECT_RISK_FILES: dict[str, str] = {
+    # "MyProject": "/home/user/custom/domain_risk.md",
+}
 # MAX_SKILL_CHARS: int = 30_000
 # TEST_CONFIG: dict = {
 #     "myproject": {

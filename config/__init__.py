@@ -62,6 +62,7 @@ GLAB_TIMEOUT = 15
 SKILLS: dict[str, str] = {}
 AGENT_SKILLS: dict[str, dict[str, list[str]]] = {}
 PROJECT_SKILLS: dict[str, dict[str, list[str]]] = {}
+PROJECT_RISK_FILES: dict[str, str] = {}
 # スキルブロック合計の上限（文字数）。超過時は warning + 切り詰め
 MAX_SKILL_CHARS: int = 30_000
 

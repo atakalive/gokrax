@@ -117,6 +117,44 @@ def _get_reviewer_entry(batch: list, key: str, reviewer: str) -> dict | None:
     return None
 
 
+def _read_domain_risk(project: str, repo_path: str) -> str:
+    """DOMAIN_RISK.md を読み込んで内容を返す。ファイルなし/エラー時は空文字。"""
+    import logging
+    from pathlib import Path
+
+    from config import PROJECT_RISK_FILES
+
+    _logger = logging.getLogger(__name__)
+
+    # 1. カスタムパス優先
+    custom = PROJECT_RISK_FILES.get(project)
+    if custom:
+        if not Path(custom).is_absolute():
+            _logger.warning("PROJECT_RISK_FILES[%s] is a relative path: %s", project, custom)
+        risk_path = Path(custom)
+    elif repo_path:
+        risk_path = Path(repo_path) / "DOMAIN_RISK.md"
+    else:
+        return ""
+
+    if not risk_path.exists():
+        if custom:
+            _logger.warning("DOMAIN_RISK.md not found at custom path: %s", risk_path)
+        return ""
+
+    try:
+        content = risk_path.read_text(encoding="utf-8")
+    except Exception as e:
+        _logger.warning("Failed to read DOMAIN_RISK.md (%s): %s", risk_path, e)
+        return ""
+
+    if len(content) > 10_000:
+        _logger.warning("DOMAIN_RISK.md exceeds 10,000 chars (%d), truncating", len(content))
+        content = content[:10_000]
+
+    return content
+
+
 def get_notification_for_state(
     state: str,
     project: str = "",
@@ -125,6 +163,7 @@ def get_notification_for_state(
     implementer: str = "",
     p2_fix: bool = False,
     comment: str = "",
+    repo_path: str = "",
 ) -> TransitionAction:
     """全状態の通知メッセージを一元管理。
 
@@ -179,9 +218,11 @@ def get_notification_for_state(
 
     if state == "ASSESSMENT":
         issues_str = ", ".join(f"#{i['issue']}" for i in batch) or "（全Issue）"
+        domain_risk_content = _read_domain_risk(project, repo_path)
         msg = render("dev.assessment", "transition",
             project=project, issues_str=issues_str,
             comment_line=comment_line, GOKRAX_CLI=GOKRAX_CLI,
+            domain_risk_content=domain_risk_content,
         )
         return TransitionAction(impl_msg=msg)
 
@@ -562,6 +603,7 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
         comment = data.get("comment", "") if data else ""
         notif = get_notification_for_state(
             "ASSESSMENT", project=pj, batch=batch, comment=comment,
+            repo_path=data.get("repo_path", "") if data else "",
         )
         return TransitionAction(
             new_state="ASSESSMENT",

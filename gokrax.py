@@ -232,6 +232,10 @@ def main():
     p.add_argument("--complex-level", type=int, required=True, choices=range(1, 6),
                    dest="complex_level", help="complexity level (1-5)")
     p.add_argument("--summary", default="", help="assessment summary (optional, max 500 chars)")
+    p.add_argument("--risk", choices=["none", "low", "high"], default="none",
+                   help="domain risk level (none/low/high, default: none)")
+    p.add_argument("--risk-reason", default="", dest="risk_reason",
+                   help="risk assessment reason (required when --risk is low or high)")
 
     # design-revise
     p = sub.add_parser("design-revise", help="mark design revision as done: set design_revised flag")

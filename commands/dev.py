@@ -679,13 +679,17 @@ def _log(msg: str) -> None:
         pass
 
 
-def _update_issue_title_with_complex_level(gitlab: str, issue_num: int, complex_level: int) -> bool:
-    """Issue タイトルの末尾に [Lvl N] を付与。既に付いていれば置換。
+def _update_issue_title_with_assessment(gitlab: str, issue_num: int, complex_level: int, domain_risk: str = "none") -> bool:
+    """Issue タイトルの末尾に [Lvl N] or [Lvl N / Risk X] を付与。既に付いていれば置換。
 
     glab issue view で現在のタイトルを取得し、glab issue update で更新。
     リトライ3回（_post_gitlab_note と同方針）。
     """
     import re as _re
+
+    # [Lvl N] or [Lvl N / Risk X] にマッチ。
+    # \w+ は英数字+アンダースコア。ハイフンを含む Risk 値を追加する場合は更新が必要。
+    _TAG_RE = r'\[Lvl \d+(?:\s*/\s*Risk \w+)?\]'
 
     # 現在のタイトルを取得
     try:
@@ -703,10 +707,14 @@ def _update_issue_title_with_complex_level(gitlab: str, issue_num: int, complex_
         _log(f"glab issue view error for #{issue_num}: {e}")
         return False
 
-    # [Lvl N] を付与（既存のものがあれば置換）
-    new_title = _re.sub(r'^\s*\[Lvl \d+\]\s*', '', current_title)
-    new_title = _re.sub(r'\s*\[Lvl \d+\]\s*$', '', new_title)
-    new_title = f"{new_title} [Lvl {complex_level}]"
+    # 既存タグは先頭・末尾どちらにあっても除去する（異常状態の防御的クリーンアップ）
+    new_title = _re.sub(r'^\s*' + _TAG_RE + r'\s*', '', current_title)
+    new_title = _re.sub(r'\s*' + _TAG_RE + r'\s*$', '', new_title)
+    # 新規付与は常に末尾
+    if domain_risk != "none":
+        new_title = f"{new_title} [Lvl {complex_level} / Risk {domain_risk}]"
+    else:
+        new_title = f"{new_title} [Lvl {complex_level}]"
 
     # タイトル更新（リトライ3回）
     for attempt in range(3):
@@ -1144,6 +1152,11 @@ def cmd_assess_done(args):
     # summary の長さ制限
     summary = args.summary[:500] if args.summary else ""
 
+    # risk_reason の正規化とバリデーション
+    risk_reason = args.risk_reason.strip() if args.risk != "none" else ""
+    if args.risk != "none" and not risk_reason:
+        raise SystemExit("--risk-reason is required when --risk is low or high")
+
     path = get_path(args.project)
 
     def do_assess(data):
@@ -1152,6 +1165,8 @@ def cmd_assess_done(args):
             raise SystemExit(f"Not in ASSESSMENT state: {state}")
         data["assessment"] = {
             "complex_level": args.complex_level,
+            "domain_risk": args.risk,
+            "risk_reason": risk_reason,
             "summary": summary,
             "assessed_by": data.get("implementer", "kaneko"),
             "timestamp": now_iso(),
@@ -1168,13 +1183,16 @@ def cmd_assess_done(args):
         issue_num = issue.get("issue")
         if issue_num is None:
             continue
-        if not _update_issue_title_with_complex_level(gitlab, issue_num, args.complex_level):
+        if not _update_issue_title_with_assessment(gitlab, issue_num, args.complex_level, args.risk):
             failed.append(issue_num)
     if failed:
         nums = ", ".join(f"#{n}" for n in failed)
         print(f"  ⚠ title update failed for {nums} (warning only)", file=sys.stderr)
 
-    print(f"{args.project}: assessment done (Lvl {args.complex_level})")
+    if args.risk != "none":
+        print(f"{args.project}: assessment done (Lvl {args.complex_level} / Risk {args.risk})")
+    else:
+        print(f"{args.project}: assessment done (Lvl {args.complex_level})")
 
 
 def cmd_design_revise(args):

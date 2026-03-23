@@ -82,6 +82,72 @@ class TestAssessmentConfig:
         assert State.ASSESSMENT.value == "ASSESSMENT"
 
 
+class TestReadDomainRisk:
+
+    def test_read_domain_risk_file_exists(self, tmp_path):
+        """DOMAIN_RISK.md が存在する場合に内容が返される（非ASCII含む）"""
+        risk_file = tmp_path / "DOMAIN_RISK.md"
+        risk_file.write_text("## High Risk\n- 認証情報の変更\n", encoding="utf-8")
+        from engine.fsm import _read_domain_risk
+        content = _read_domain_risk("test-pj", str(tmp_path))
+        assert "認証情報の変更" in content
+        assert "## High Risk" in content
+
+    def test_read_domain_risk_file_missing(self, tmp_path):
+        """ファイルなし → 空文字"""
+        from engine.fsm import _read_domain_risk
+        content = _read_domain_risk("test-pj", str(tmp_path))
+        assert content == ""
+
+    def test_read_domain_risk_custom_path(self, tmp_path):
+        """PROJECT_RISK_FILES にカスタムパスを指定した場合にそのパスから読む"""
+        custom_file = tmp_path / "custom_risk.md"
+        custom_file.write_text("custom risk content", encoding="utf-8")
+        from engine.fsm import _read_domain_risk
+        from unittest.mock import patch
+        with patch("config.PROJECT_RISK_FILES", {"test-pj": str(custom_file)}):
+            content = _read_domain_risk("test-pj", "")
+        assert content == "custom risk content"
+
+    def test_read_domain_risk_custom_path_missing_file(self, tmp_path, caplog):
+        """カスタムパスのファイルが存在しない → 空文字（warning ログ）"""
+        import logging
+        from engine.fsm import _read_domain_risk
+        from unittest.mock import patch
+        with patch("config.PROJECT_RISK_FILES", {"test-pj": str(tmp_path / "nonexistent.md")}):
+            with caplog.at_level(logging.WARNING):
+                content = _read_domain_risk("test-pj", "")
+        assert content == ""
+        assert "not found at custom path" in caplog.text
+
+    def test_read_domain_risk_empty_repo_path_no_custom(self):
+        """repo_path="" かつカスタムパスなし → 空文字"""
+        from engine.fsm import _read_domain_risk
+        from unittest.mock import patch
+        with patch("config.PROJECT_RISK_FILES", {}):
+            content = _read_domain_risk("test-pj", "")
+        assert content == ""
+
+    def test_read_domain_risk_truncation(self, tmp_path):
+        """10,000 文字超のファイル → 先頭 10,000 文字に切り詰め"""
+        risk_file = tmp_path / "DOMAIN_RISK.md"
+        risk_file.write_text("x" * 15_000, encoding="utf-8")
+        from engine.fsm import _read_domain_risk
+        content = _read_domain_risk("test-pj", str(tmp_path))
+        assert len(content) == 10_000
+
+    def test_read_domain_risk_relative_path_warning(self, tmp_path, caplog):
+        """カスタムパスに相対パスが指定された場合 → warning ログ"""
+        import logging
+        from engine.fsm import _read_domain_risk
+        from unittest.mock import patch
+        rel_path = "relative/path/risk.md"
+        with patch("config.PROJECT_RISK_FILES", {"test-pj": rel_path}):
+            with caplog.at_level(logging.WARNING):
+                _read_domain_risk("test-pj", "")
+        assert "relative path" in caplog.text
+
+
 class TestParseQueueLineSkipAssess:
 
     def test_parse_queue_line_skip_assess(self):

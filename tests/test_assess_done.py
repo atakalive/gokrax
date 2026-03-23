@@ -51,8 +51,9 @@ class TestCmdAssessDone:
 
         args = SimpleNamespace(
             project="test-pj", complex_level=3, summary="medium difficulty",
+            risk="none", risk_reason="",
         )
-        with patch("commands.dev._update_issue_title_with_complex_level", return_value=True):
+        with patch("commands.dev._update_issue_title_with_assessment", return_value=True):
             from commands.dev import cmd_assess_done
             cmd_assess_done(args)
 
@@ -76,7 +77,7 @@ class TestCmdAssessDone:
             "history": [],
         })
 
-        args = SimpleNamespace(project="test-pj", complex_level=2, summary="")
+        args = SimpleNamespace(project="test-pj", complex_level=2, summary="", risk="none", risk_reason="")
         with pytest.raises(SystemExit, match="Not in ASSESSMENT state"):
             from commands.dev import cmd_assess_done
             cmd_assess_done(args)
@@ -97,8 +98,8 @@ class TestCmdAssessDone:
                 "batch": _make_batch(1),
                 "history": [],
             })
-            args = SimpleNamespace(project="test-pj", complex_level=complex_level, summary="")
-            with patch("commands.dev._update_issue_title_with_complex_level", return_value=True):
+            args = SimpleNamespace(project="test-pj", complex_level=complex_level, summary="", risk="none", risk_reason="")
+            with patch("commands.dev._update_issue_title_with_assessment", return_value=True):
                 cmd_assess_done(args)
             data = json.loads(path.read_text())
             assert data["assessment"]["complex_level"] == complex_level
@@ -123,18 +124,18 @@ class TestAssessmentFSMWait:
         assert action.reset_reviewers is True
 
 
-# --- 8-6, 8-7: _update_issue_title_with_complex_level ---
+# --- 8-6, 8-7: _update_issue_title_with_assessment ---
 class TestUpdateIssueTitleWithComplexLevel:
 
-    def test_update_issue_title_with_complex_level(self):
+    def test_update_issue_title_with_assessment(self):
         """8-6: 正常系 — [Lvl N] が末尾に付与される"""
-        from commands.dev import _update_issue_title_with_complex_level
+        from commands.dev import _update_issue_title_with_assessment
 
         view_result = MagicMock(returncode=0, stdout=json.dumps({"title": "feat: do something"}))
         update_result = MagicMock(returncode=0)
 
         with patch("subprocess.run", side_effect=[view_result, update_result]) as mock_run:
-            ok = _update_issue_title_with_complex_level("atakalive/test-pj", 42, 3)
+            ok = _update_issue_title_with_assessment("atakalive/test-pj", 42, 3)
 
         assert ok is True
         # update コマンドのタイトル引数を確認
@@ -143,13 +144,13 @@ class TestUpdateIssueTitleWithComplexLevel:
 
     def test_update_issue_title_replaces_existing_complex_level(self):
         """8-7: 既存の [Lvl N] を置換（後方互換: 先頭タグの除去確認）"""
-        from commands.dev import _update_issue_title_with_complex_level
+        from commands.dev import _update_issue_title_with_assessment
 
         view_result = MagicMock(returncode=0, stdout=json.dumps({"title": "[Lvl 2] feat: do something"}))
         update_result = MagicMock(returncode=0)
 
         with patch("subprocess.run", side_effect=[view_result, update_result]) as mock_run:
-            ok = _update_issue_title_with_complex_level("atakalive/test-pj", 42, 4)
+            ok = _update_issue_title_with_assessment("atakalive/test-pj", 42, 4)
 
         assert ok is True
         update_call = mock_run.call_args_list[1]
@@ -157,13 +158,13 @@ class TestUpdateIssueTitleWithComplexLevel:
 
     def test_update_issue_title_replaces_existing_complex_level_at_end(self):
         """8-7b: 末尾の既存 [Lvl N] を置換"""
-        from commands.dev import _update_issue_title_with_complex_level
+        from commands.dev import _update_issue_title_with_assessment
 
         view_result = MagicMock(returncode=0, stdout=json.dumps({"title": "feat: do something [Lvl 2]"}))
         update_result = MagicMock(returncode=0)
 
         with patch("subprocess.run", side_effect=[view_result, update_result]) as mock_run:
-            ok = _update_issue_title_with_complex_level("atakalive/test-pj", 42, 4)
+            ok = _update_issue_title_with_assessment("atakalive/test-pj", 42, 4)
 
         assert ok is True
         update_call = mock_run.call_args_list[1]
@@ -171,13 +172,13 @@ class TestUpdateIssueTitleWithComplexLevel:
 
     def test_update_issue_title_removes_both_front_and_end_tags(self):
         """8-7c: 先頭・末尾両方にタグがある異常状態 — 両方除去して末尾に1つだけ付与"""
-        from commands.dev import _update_issue_title_with_complex_level
+        from commands.dev import _update_issue_title_with_assessment
 
         view_result = MagicMock(returncode=0, stdout=json.dumps({"title": "[Lvl 2] feat: do something [Lvl 3]"}))
         update_result = MagicMock(returncode=0)
 
         with patch("subprocess.run", side_effect=[view_result, update_result]) as mock_run:
-            ok = _update_issue_title_with_complex_level("atakalive/test-pj", 42, 5)
+            ok = _update_issue_title_with_assessment("atakalive/test-pj", 42, 5)
 
         assert ok is True
         update_call = mock_run.call_args_list[1]
@@ -220,8 +221,8 @@ class TestAssessDoneTitleFailure:
             "history": [],
         })
 
-        args = SimpleNamespace(project="test-pj", complex_level=3, summary="")
-        with patch("commands.dev._update_issue_title_with_complex_level", return_value=False):
+        args = SimpleNamespace(project="test-pj", complex_level=3, summary="", risk="none", risk_reason="")
+        with patch("commands.dev._update_issue_title_with_assessment", return_value=False):
             cmd_assess_done(args)
 
         # assessment は記録されている
@@ -253,9 +254,151 @@ class TestAssessDoneSummaryTruncation:
         })
 
         long_summary = "x" * 600
-        args = SimpleNamespace(project="test-pj", complex_level=2, summary=long_summary)
-        with patch("commands.dev._update_issue_title_with_complex_level", return_value=True):
+        args = SimpleNamespace(project="test-pj", complex_level=2, summary=long_summary, risk="none", risk_reason="")
+        with patch("commands.dev._update_issue_title_with_assessment", return_value=True):
             cmd_assess_done(args)
 
         data = json.loads(path.read_text())
         assert len(data["assessment"]["summary"]) == 500
+
+
+# --- domain_risk テスト ---
+class TestCmdAssessDoneDomainRisk:
+
+    def test_assess_done_records_domain_risk(self, tmp_pipelines):
+        """--risk high --risk-reason "reason" → pipeline に記録される"""
+        from commands.dev import cmd_assess_done
+
+        path = tmp_pipelines / "test-pj.json"
+        _write_pipeline(path, {
+            "project": "test-pj", "gitlab": "atakalive/test-pj",
+            "state": "ASSESSMENT", "enabled": True,
+            "implementer": "kaneko", "batch": _make_batch(1), "history": [],
+        })
+        args = SimpleNamespace(
+            project="test-pj", complex_level=3, summary="test",
+            risk="high", risk_reason="credential handling change",
+        )
+        with patch("commands.dev._update_issue_title_with_assessment", return_value=True):
+            cmd_assess_done(args)
+
+        data = json.loads(path.read_text())
+        assert data["assessment"]["domain_risk"] == "high"
+        assert data["assessment"]["risk_reason"] == "credential handling change"
+
+    def test_assess_done_default_risk_none(self, tmp_pipelines):
+        """--risk 未指定 → domain_risk: "none", risk_reason: "" が記録される"""
+        from commands.dev import cmd_assess_done
+
+        path = tmp_pipelines / "test-pj.json"
+        _write_pipeline(path, {
+            "project": "test-pj", "gitlab": "atakalive/test-pj",
+            "state": "ASSESSMENT", "enabled": True,
+            "implementer": "kaneko", "batch": _make_batch(1), "history": [],
+        })
+        args = SimpleNamespace(
+            project="test-pj", complex_level=2, summary="",
+            risk="none", risk_reason="",
+        )
+        with patch("commands.dev._update_issue_title_with_assessment", return_value=True):
+            cmd_assess_done(args)
+
+        data = json.loads(path.read_text())
+        assert data["assessment"]["domain_risk"] == "none"
+        assert data["assessment"]["risk_reason"] == ""
+
+    def test_assess_done_risk_reason_required_for_non_none(self, tmp_pipelines):
+        """--risk high --risk-reason "" → SystemExit"""
+        from commands.dev import cmd_assess_done
+
+        path = tmp_pipelines / "test-pj.json"
+        _write_pipeline(path, {
+            "project": "test-pj", "state": "ASSESSMENT", "enabled": True,
+            "implementer": "kaneko", "batch": _make_batch(1), "history": [],
+        })
+        args = SimpleNamespace(
+            project="test-pj", complex_level=3, summary="",
+            risk="high", risk_reason="",
+        )
+        with pytest.raises(SystemExit, match="--risk-reason is required"):
+            cmd_assess_done(args)
+
+    def test_assess_done_risk_reason_normalized_for_none(self, tmp_pipelines):
+        """--risk none --risk-reason "something" → risk_reason: "" に正規化"""
+        from commands.dev import cmd_assess_done
+
+        path = tmp_pipelines / "test-pj.json"
+        _write_pipeline(path, {
+            "project": "test-pj", "gitlab": "atakalive/test-pj",
+            "state": "ASSESSMENT", "enabled": True,
+            "implementer": "kaneko", "batch": _make_batch(1), "history": [],
+        })
+        args = SimpleNamespace(
+            project="test-pj", complex_level=2, summary="",
+            risk="none", risk_reason="something",
+        )
+        with patch("commands.dev._update_issue_title_with_assessment", return_value=True):
+            cmd_assess_done(args)
+
+        data = json.loads(path.read_text())
+        assert data["assessment"]["domain_risk"] == "none"
+        assert data["assessment"]["risk_reason"] == ""
+
+
+class TestUpdateIssueTitleWithRisk:
+
+    def test_update_title_with_risk(self):
+        """domain_risk="high" → [Lvl 3 / Risk high] が末尾に付与"""
+        from commands.dev import _update_issue_title_with_assessment
+
+        view_result = MagicMock(returncode=0, stdout=json.dumps({"title": "feat: do something"}))
+        update_result = MagicMock(returncode=0)
+
+        with patch("subprocess.run", side_effect=[view_result, update_result]) as mock_run:
+            ok = _update_issue_title_with_assessment("atakalive/test-pj", 42, 3, "high")
+
+        assert ok is True
+        update_call = mock_run.call_args_list[1]
+        assert "feat: do something [Lvl 3 / Risk high]" in update_call[0][0]
+
+    def test_update_title_risk_none_omits_risk(self):
+        """domain_risk="none" → [Lvl 3]（従来形式）"""
+        from commands.dev import _update_issue_title_with_assessment
+
+        view_result = MagicMock(returncode=0, stdout=json.dumps({"title": "feat: do something"}))
+        update_result = MagicMock(returncode=0)
+
+        with patch("subprocess.run", side_effect=[view_result, update_result]) as mock_run:
+            ok = _update_issue_title_with_assessment("atakalive/test-pj", 42, 3, "none")
+
+        assert ok is True
+        update_call = mock_run.call_args_list[1]
+        assert "feat: do something [Lvl 3]" in update_call[0][0]
+
+    def test_update_title_replaces_old_risk_tag(self):
+        """既存 [Lvl 2 / Risk low] → [Lvl 3 / Risk high] に置換"""
+        from commands.dev import _update_issue_title_with_assessment
+
+        view_result = MagicMock(returncode=0, stdout=json.dumps({"title": "feat: do something [Lvl 2 / Risk low]"}))
+        update_result = MagicMock(returncode=0)
+
+        with patch("subprocess.run", side_effect=[view_result, update_result]) as mock_run:
+            ok = _update_issue_title_with_assessment("atakalive/test-pj", 42, 3, "high")
+
+        assert ok is True
+        update_call = mock_run.call_args_list[1]
+        assert "feat: do something [Lvl 3 / Risk high]" in update_call[0][0]
+
+    def test_update_title_replaces_old_lvl_only_tag(self):
+        """既存 [Lvl 2]（旧形式）→ [Lvl 3 / Risk high] に置換"""
+        from commands.dev import _update_issue_title_with_assessment
+
+        view_result = MagicMock(returncode=0, stdout=json.dumps({"title": "feat: do something [Lvl 2]"}))
+        update_result = MagicMock(returncode=0)
+
+        with patch("subprocess.run", side_effect=[view_result, update_result]) as mock_run:
+            ok = _update_issue_title_with_assessment("atakalive/test-pj", 42, 3, "high")
+
+        assert ok is True
+        update_call = mock_run.call_args_list[1]
+        assert "feat: do something [Lvl 3 / Risk high]" in update_call[0][0]

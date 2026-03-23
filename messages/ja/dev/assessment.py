@@ -29,7 +29,7 @@ def transition(
         f"  Lvl 4: 大規模な書き換え、複数の既存処理に影響\n"
         f"  Lvl 5: 全体に波及する構造変更\n"
         f"\n"
-        f"{GOKRAX_CLI} assess-done --project {project} --level N --summary \"判定理由\"\n"
+        f"{GOKRAX_CLI} assess-done --project {project} --complex-level N --summary \"判定理由\"\n"
         f"[お願い] 仕事は中断せず、完了まで一気にやること。"
     )
 
@@ -40,5 +40,5 @@ def nudge(
     """ASSESSMENT 催促メッセージ。"""
     return (
         "[Remind] 難易度判定を行い、assess-done を実行してください。\n"
-        "gokrax assess-done --project <project> --level N --summary \"理由\""
+        "gokrax assess-done --project <project> --complex-level N --summary \"理由\""
     )

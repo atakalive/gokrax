@@ -278,7 +278,7 @@ sequenceDiagram
     DB->>DB: Set state -> DESIGN_APPROVED
     DB->>DB: Auto -> ASSESSMENT
     WD->>CC: Assess complexity (Lvl 1-5)
-    CC->>DB: gokrax assess-done --level N
+    CC->>DB: gokrax assess-done --complex-level N
     DB->>DB: Auto -> IMPLEMENTATION
     DB->>DC: Implementation started
     WD->>CC: /new (implement task)

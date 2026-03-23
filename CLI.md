@@ -237,13 +237,13 @@ Only valid in DESIGN_PLAN state. Run after the implementer has reviewed and edit
 ### `assess-done` -- Record assessment result
 
 ```bash
-gokrax assess-done --pj myproject --level 3 --summary "複数モジュールにまたがる変更"
+gokrax assess-done --pj myproject --complex-level 3 --summary "複数モジュールにまたがる変更"
 ```
 
 | Option | Required | Description |
 |--------|----------|-------------|
 | `--pj` | Yes | project name |
-| `--level N` | Yes | difficulty level (1-5) |
+| `--complex-level N` | Yes | complexity level (1-5) |
 | `--summary TEXT` | No | assessment summary (max 500 chars) |
 
 Prerequisite: project must be in ASSESSMENT state.

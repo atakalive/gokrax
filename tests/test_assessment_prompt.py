@@ -33,7 +33,7 @@ class TestAssessmentTransitionMessage:
         assert "難易度判定フェーズ" in msg
         for lvl in range(1, 6):
             assert f"Lvl {lvl}" in msg
-        assert "assess-done --project test --level N" in msg
+        assert "assess-done --project test --complex-level N" in msg
 
     def test_assessment_transition_message_en(self):
         """6-2: 英語プロンプトに必須要素が含まれる"""
@@ -45,7 +45,7 @@ class TestAssessmentTransitionMessage:
         assert "assessment phase" in msg
         for lvl in range(1, 6):
             assert f"Lvl {lvl}" in msg
-        assert "assess-done --project test --level N" in msg
+        assert "assess-done --project test --complex-level N" in msg
 
     def test_assessment_nudge_ja(self):
         """6-3: 日本語催促に assess-done が含まれる"""

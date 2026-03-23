@@ -29,7 +29,7 @@ def transition(
         f"  Lvl 4: Large-scale rewrite, impacts multiple existing flows\n"
         f"  Lvl 5: Structural change affecting the entire codebase\n"
         f"\n"
-        f"{GOKRAX_CLI} assess-done --project {project} --level N --summary \"reason\"\n"
+        f"{GOKRAX_CLI} assess-done --project {project} --complex-level N --summary \"reason\"\n"
         f"[Request] Complete the work without interruption."
     )
 
@@ -40,5 +40,5 @@ def nudge(
     """ASSESSMENT reminder."""
     return (
         "[Remind] Assess the difficulty and run assess-done.\n"
-        "gokrax assess-done --project <project> --level N --summary \"reason\""
+        "gokrax assess-done --project <project> --complex-level N --summary \"reason\""
     )

@@ -679,7 +679,7 @@ def _log(msg: str) -> None:
         pass
 
 
-def _update_issue_title_with_level(gitlab: str, issue_num: int, level: int) -> bool:
+def _update_issue_title_with_complex_level(gitlab: str, issue_num: int, complex_level: int) -> bool:
     """Issue タイトルの末尾に [Lvl N] を付与。既に付いていれば置換。
 
     glab issue view で現在のタイトルを取得し、glab issue update で更新。
@@ -706,7 +706,7 @@ def _update_issue_title_with_level(gitlab: str, issue_num: int, level: int) -> b
     # [Lvl N] を付与（既存のものがあれば置換）
     new_title = _re.sub(r'^\s*\[Lvl \d+\]\s*', '', current_title)
     new_title = _re.sub(r'\s*\[Lvl \d+\]\s*$', '', new_title)
-    new_title = f"{new_title} [Lvl {level}]"
+    new_title = f"{new_title} [Lvl {complex_level}]"
 
     # タイトル更新（リトライ3回）
     for attempt in range(3):
@@ -1151,7 +1151,7 @@ def cmd_assess_done(args):
         if state != "ASSESSMENT":
             raise SystemExit(f"Not in ASSESSMENT state: {state}")
         data["assessment"] = {
-            "level": args.level,
+            "complex_level": args.complex_level,
             "summary": summary,
             "assessed_by": data.get("implementer", "kaneko"),
             "timestamp": now_iso(),
@@ -1168,13 +1168,13 @@ def cmd_assess_done(args):
         issue_num = issue.get("issue")
         if issue_num is None:
             continue
-        if not _update_issue_title_with_level(gitlab, issue_num, args.level):
+        if not _update_issue_title_with_complex_level(gitlab, issue_num, args.complex_level):
             failed.append(issue_num)
     if failed:
         nums = ", ".join(f"#{n}" for n in failed)
         print(f"  ⚠ title update failed for {nums} (warning only)", file=sys.stderr)
 
-    print(f"{args.project}: assessment done (Lvl {args.level})")
+    print(f"{args.project}: assessment done (Lvl {args.complex_level})")
 
 
 def cmd_design_revise(args):

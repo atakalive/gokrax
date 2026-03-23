@@ -50,14 +50,14 @@ class TestCmdAssessDone:
         })
 
         args = SimpleNamespace(
-            project="test-pj", level=3, summary="medium difficulty",
+            project="test-pj", complex_level=3, summary="medium difficulty",
         )
-        with patch("commands.dev._update_issue_title_with_level", return_value=True):
+        with patch("commands.dev._update_issue_title_with_complex_level", return_value=True):
             from commands.dev import cmd_assess_done
             cmd_assess_done(args)
 
         data = json.loads(path.read_text())
-        assert data["assessment"]["level"] == 3
+        assert data["assessment"]["complex_level"] == 3
         assert data["assessment"]["summary"] == "medium difficulty"
         assert data["assessment"]["assessed_by"] == "kaneko"
         assert "timestamp" in data["assessment"]
@@ -76,18 +76,18 @@ class TestCmdAssessDone:
             "history": [],
         })
 
-        args = SimpleNamespace(project="test-pj", level=2, summary="")
+        args = SimpleNamespace(project="test-pj", complex_level=2, summary="")
         with pytest.raises(SystemExit, match="Not in ASSESSMENT state"):
             from commands.dev import cmd_assess_done
             cmd_assess_done(args)
 
     # --- 8-3: level は 1-5 のみ（argparse が弾く。テストは境界確認）---
-    def test_assess_done_level_range(self, tmp_pipelines):
-        """8-3: level 1 と 5 が正常に記録される"""
+    def test_assess_done_complex_level_range(self, tmp_pipelines):
+        """8-3: complex_level 1 と 5 が正常に記録される"""
 
         from commands.dev import cmd_assess_done
 
-        for level in (1, 5):
+        for complex_level in (1, 5):
             path = tmp_pipelines / "test-pj.json"
             _write_pipeline(path, {
                 "project": "test-pj",
@@ -97,11 +97,11 @@ class TestCmdAssessDone:
                 "batch": _make_batch(1),
                 "history": [],
             })
-            args = SimpleNamespace(project="test-pj", level=level, summary="")
-            with patch("commands.dev._update_issue_title_with_level", return_value=True):
+            args = SimpleNamespace(project="test-pj", complex_level=complex_level, summary="")
+            with patch("commands.dev._update_issue_title_with_complex_level", return_value=True):
                 cmd_assess_done(args)
             data = json.loads(path.read_text())
-            assert data["assessment"]["level"] == level
+            assert data["assessment"]["complex_level"] == complex_level
 
 
 # --- 8-4, 8-5: FSM 遷移 ---
@@ -116,54 +116,54 @@ class TestAssessmentFSMWait:
     def test_assessment_transitions_after_assess_done(self):
         """8-5: assessment 設定済みなら IMPLEMENTATION へ遷移"""
         from engine.fsm import check_transition
-        data = {"assessment": {"level": 3}}
+        data = {"assessment": {"complex_level": 3}}
         action = check_transition("ASSESSMENT", _make_batch(), data)
         assert action.new_state == "IMPLEMENTATION"
         assert action.run_cc is True
         assert action.reset_reviewers is True
 
 
-# --- 8-6, 8-7: _update_issue_title_with_level ---
-class TestUpdateIssueTitleWithLevel:
+# --- 8-6, 8-7: _update_issue_title_with_complex_level ---
+class TestUpdateIssueTitleWithComplexLevel:
 
-    def test_update_issue_title_with_level(self):
+    def test_update_issue_title_with_complex_level(self):
         """8-6: 正常系 — [Lvl N] が末尾に付与される"""
-        from commands.dev import _update_issue_title_with_level
+        from commands.dev import _update_issue_title_with_complex_level
 
         view_result = MagicMock(returncode=0, stdout=json.dumps({"title": "feat: do something"}))
         update_result = MagicMock(returncode=0)
 
         with patch("subprocess.run", side_effect=[view_result, update_result]) as mock_run:
-            ok = _update_issue_title_with_level("atakalive/test-pj", 42, 3)
+            ok = _update_issue_title_with_complex_level("atakalive/test-pj", 42, 3)
 
         assert ok is True
         # update コマンドのタイトル引数を確認
         update_call = mock_run.call_args_list[1]
         assert "feat: do something [Lvl 3]" in update_call[0][0]
 
-    def test_update_issue_title_replaces_existing_level(self):
+    def test_update_issue_title_replaces_existing_complex_level(self):
         """8-7: 既存の [Lvl N] を置換（後方互換: 先頭タグの除去確認）"""
-        from commands.dev import _update_issue_title_with_level
+        from commands.dev import _update_issue_title_with_complex_level
 
         view_result = MagicMock(returncode=0, stdout=json.dumps({"title": "[Lvl 2] feat: do something"}))
         update_result = MagicMock(returncode=0)
 
         with patch("subprocess.run", side_effect=[view_result, update_result]) as mock_run:
-            ok = _update_issue_title_with_level("atakalive/test-pj", 42, 4)
+            ok = _update_issue_title_with_complex_level("atakalive/test-pj", 42, 4)
 
         assert ok is True
         update_call = mock_run.call_args_list[1]
         assert "feat: do something [Lvl 4]" in update_call[0][0]
 
-    def test_update_issue_title_replaces_existing_level_at_end(self):
+    def test_update_issue_title_replaces_existing_complex_level_at_end(self):
         """8-7b: 末尾の既存 [Lvl N] を置換"""
-        from commands.dev import _update_issue_title_with_level
+        from commands.dev import _update_issue_title_with_complex_level
 
         view_result = MagicMock(returncode=0, stdout=json.dumps({"title": "feat: do something [Lvl 2]"}))
         update_result = MagicMock(returncode=0)
 
         with patch("subprocess.run", side_effect=[view_result, update_result]) as mock_run:
-            ok = _update_issue_title_with_level("atakalive/test-pj", 42, 4)
+            ok = _update_issue_title_with_complex_level("atakalive/test-pj", 42, 4)
 
         assert ok is True
         update_call = mock_run.call_args_list[1]
@@ -171,13 +171,13 @@ class TestUpdateIssueTitleWithLevel:
 
     def test_update_issue_title_removes_both_front_and_end_tags(self):
         """8-7c: 先頭・末尾両方にタグがある異常状態 — 両方除去して末尾に1つだけ付与"""
-        from commands.dev import _update_issue_title_with_level
+        from commands.dev import _update_issue_title_with_complex_level
 
         view_result = MagicMock(returncode=0, stdout=json.dumps({"title": "[Lvl 2] feat: do something [Lvl 3]"}))
         update_result = MagicMock(returncode=0)
 
         with patch("subprocess.run", side_effect=[view_result, update_result]) as mock_run:
-            ok = _update_issue_title_with_level("atakalive/test-pj", 42, 5)
+            ok = _update_issue_title_with_complex_level("atakalive/test-pj", 42, 5)
 
         assert ok is True
         update_call = mock_run.call_args_list[1]
@@ -220,13 +220,13 @@ class TestAssessDoneTitleFailure:
             "history": [],
         })
 
-        args = SimpleNamespace(project="test-pj", level=3, summary="")
-        with patch("commands.dev._update_issue_title_with_level", return_value=False):
+        args = SimpleNamespace(project="test-pj", complex_level=3, summary="")
+        with patch("commands.dev._update_issue_title_with_complex_level", return_value=False):
             cmd_assess_done(args)
 
         # assessment は記録されている
         data = json.loads(path.read_text())
-        assert data["assessment"]["level"] == 3
+        assert data["assessment"]["complex_level"] == 3
 
         # stderr に warning が出る
         captured = capsys.readouterr()
@@ -253,8 +253,8 @@ class TestAssessDoneSummaryTruncation:
         })
 
         long_summary = "x" * 600
-        args = SimpleNamespace(project="test-pj", level=2, summary=long_summary)
-        with patch("commands.dev._update_issue_title_with_level", return_value=True):
+        args = SimpleNamespace(project="test-pj", complex_level=2, summary=long_summary)
+        with patch("commands.dev._update_issue_title_with_complex_level", return_value=True):
             cmd_assess_done(args)
 
         data = json.loads(path.read_text())

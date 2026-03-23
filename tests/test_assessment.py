@@ -34,7 +34,7 @@ class TestAssessmentTransitions:
 
     def test_assessment_transitions_to_implementation(self):
         from engine.fsm import check_transition
-        data = {"assessment": {"level": 3}}
+        data = {"assessment": {"complex_level": 3}}
         action = check_transition("ASSESSMENT", _make_batch(), data)
         assert action.new_state == "IMPLEMENTATION"
         assert action.run_cc is True
@@ -56,7 +56,7 @@ class TestAssessmentTransitions:
 
     def test_assessment_ignores_skip_assess(self):
         from engine.fsm import check_transition
-        data = {"skip_assess": True, "assessment": {"level": 3}}
+        data = {"skip_assess": True, "assessment": {"complex_level": 3}}
         action = check_transition("ASSESSMENT", _make_batch(), data)
         assert action.new_state == "IMPLEMENTATION"
 

@@ -53,12 +53,12 @@ DEFAULT_QUEUE_OPTIONS: dict[str, bool | str] = {
 
 REVIEW_MODES = {
     "full": {
-        "members": [],
+        "members": ["reviewer1", "reviewer2", "reviewer3", "reviewer4"],
         "min_reviews": 4,
         "grace_period_sec": 0,
     },
     "standard": {
-        "members": [],
+        "members": ["reviewer1", "reviewer2", "reviewer3"],
         "min_reviews": 3,
         "grace_period_sec": 0,
     },
@@ -67,18 +67,18 @@ REVIEW_MODES = {
         "min_reviews": 2,
         "grace_period_sec": 0,
     },
-    "lite3": {
-        "members": ["reviewer1", "reviewer2", "reviewer3"],
-        "min_reviews": 2,
-        "grace_period_sec": 300,
-    },
     "skip": {
         "members": [],
         "min_reviews": 0,
         "grace_period_sec": 0,
     },
+    "lite3": {
+        "members": ["reviewer1", "reviewer2", "reviewer3"],
+        "min_reviews": 2,
+        "grace_period_sec": 300,
+    },
     "standard-x2": {
-        "members": [],   # empty = all AGENTS
+        "members": ["reviewer1", "reviewer2", "reviewer3"],
         "min_reviews": 3,
         "grace_period_sec": 0,
         # n_pass: per-reviewer multi-pass count (positive int). Reviewers not listed default to 1.

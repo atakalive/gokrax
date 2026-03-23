@@ -97,7 +97,7 @@ python3 update_settings.py   # settings.example.py から settings.py を生成
 ln -s "$(pwd)/gokrax.py" ~/.local/bin/gokrax
 ```
 
-`setup.py` は初回実行時に `settings.example.py` を `settings.py` にコピーする。アップデート後（`git pull`）に再実行すると、新しいバージョンで追加された設定項目だけを `settings.py` の末尾に追記する（既存の設定は変更しない）。
+`update_settings.py` は初回実行時に `settings.example.py` を `settings.py` にコピーする。アップデート後（`git pull`）に再実行すると、新しいバージョンで追加された設定項目だけを `settings.py` の末尾に追記する（既存の設定は変更しない）。
 
 設定ファイル（`settings.py`）の主要項目については[設定](#設定)セクションを参照。
 

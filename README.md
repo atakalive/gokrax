@@ -215,7 +215,7 @@ IDLE → INITIALIZE → DESIGN_PLAN → DESIGN_REVIEW ⇄ DESIGN_REVISE
 
 設計の詳細は [docs/architecture.md](docs/architecture.md) を参照。
 
-`INITIALIZE` はエージェントセッションの初期化（コンテキストリセット判定含む）等を行う状態。`ASSESSMENT` は設計承認後の判定ステート（現在はスケルトンで即通過）。`--skip-assess` 指定時は `DESIGN_APPROVED` から直接 `IMPLEMENTATION` に遷移する。`CODE_TEST` は現在実験的で、`skip_test` 設定時（デフォルト）は `IMPLEMENTATION` から直接 `CODE_REVIEW` に遷移する。キュー実行時は自動的に次バッチへ進む。
+`INITIALIZE` はエージェントセッションの初期化（コンテキストリセット判定含む）等を行う状態。`ASSESSMENT` は設計承認後の判定ステートで、ドメインリスク判定（domain_risk: none/low/high）を行う。`--exclude-high-risk` / `--exclude-any-risk` 指定時はリスクレベルに応じてバッチ全体をスキップし IDLE に戻す。`--skip-assess` 指定時は `DESIGN_APPROVED` から直接 `IMPLEMENTATION` に遷移する。`CODE_TEST` は現在実験的で、`skip_test` 設定時（デフォルト）は `IMPLEMENTATION` から直接 `CODE_REVIEW` に遷移する。キュー実行時は自動的に次バッチへ進む。
 
 各状態にはタイムアウトが設定されている（`settings.py` の `BLOCK_TIMERS`）：
 

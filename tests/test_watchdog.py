@@ -4940,3 +4940,175 @@ class TestHandleQedit:
         mock_post.assert_called_once()
         msg = mock_post.call_args[0][1]
         assert "見つからない" in msg or "空" in msg
+
+
+class TestAssessmentToIdleSkip:
+    """ASSESSMENT → IDLE リスクスキップのテスト (Issue #181)"""
+
+    def test_assessment_to_idle_triggers_check_queue(self, tmp_path, monkeypatch):
+        """ASSESSMENT → IDLE 遷移 + queue_mode=True で _check_queue() が呼ばれること"""
+        from watchdog import process
+
+        pipeline_path = tmp_path / "test.json"
+        pipeline_data = {
+            "project": "test-pj",
+            "state": "ASSESSMENT",
+            "enabled": True,
+            "batch": [{"issue": 1, "title": "t", "commit": None,
+                       "cc_session_id": None,
+                       "design_reviews": {}, "code_reviews": {},
+                       "added_at": "2025-01-01T00:00:00+09:00"}],
+            "assessment": {"complex_level": 3, "domain_risk": "high"},
+            "exclude_high_risk": True,
+            "queue_mode": True,
+            "implementer": "kaneko",
+            "history": [{"from": "DESIGN_APPROVED", "to": "ASSESSMENT", "at": "2025-01-01T00:00:00+09:00", "actor": "watchdog"}],
+        }
+        _write_pipeline(pipeline_path, pipeline_data)
+
+        mock_check_queue = MagicMock()
+        monkeypatch.setattr("watchdog._check_queue", mock_check_queue)
+        monkeypatch.setattr("watchdog.notify_discord", MagicMock())
+        monkeypatch.setattr("notify.post_discord", MagicMock())
+
+        process(pipeline_path)
+
+        mock_check_queue.assert_called_once()
+
+    def test_done_to_idle_still_triggers_check_queue(self, tmp_path, monkeypatch):
+        """DONE → IDLE 遷移 + queue_mode=True で _check_queue() が呼ばれること（既存動作不変の回帰テスト）"""
+        from watchdog import process
+
+        pipeline_path = tmp_path / "test.json"
+        pipeline_data = {
+            "state": "DONE",
+            "enabled": True,
+            "batch": [],
+            "queue_mode": True,
+        }
+        _write_pipeline(pipeline_path, pipeline_data)
+
+        mock_check_queue = MagicMock()
+        mock_auto_push = MagicMock()
+        monkeypatch.setattr("watchdog._check_queue", mock_check_queue)
+        monkeypatch.setattr("watchdog._auto_push_and_close", mock_auto_push)
+        monkeypatch.setattr("watchdog.notify_discord", MagicMock())
+
+        process(pipeline_path)
+
+        mock_check_queue.assert_called_once()
+
+    def test_skip_notification_sent(self, tmp_path, monkeypatch):
+        """ASSESSMENT → IDLE スキップ時に Discord 通知が送信されること"""
+        from watchdog import process
+
+        pipeline_path = tmp_path / "test.json"
+        pipeline_data = {
+            "project": "test-pj",
+            "state": "ASSESSMENT",
+            "enabled": True,
+            "batch": [{"issue": 42, "title": "t", "commit": None,
+                       "cc_session_id": None,
+                       "design_reviews": {}, "code_reviews": {},
+                       "added_at": "2025-01-01T00:00:00+09:00"}],
+            "assessment": {"complex_level": 3, "domain_risk": "high"},
+            "exclude_high_risk": True,
+            "implementer": "kaneko",
+            "history": [{"from": "DESIGN_APPROVED", "to": "ASSESSMENT", "at": "2025-01-01T00:00:00+09:00", "actor": "watchdog"}],
+        }
+        _write_pipeline(pipeline_path, pipeline_data)
+
+        mock_post_discord = MagicMock()
+        monkeypatch.setattr("watchdog.notify_discord", MagicMock())
+        monkeypatch.setattr("notify.post_discord", mock_post_discord)
+
+        process(pipeline_path)
+
+        # post_discord が呼ばれること
+        assert mock_post_discord.call_count >= 1
+        # 通知に domain_risk と Issue 番号が含まれること
+        calls = [str(c) for c in mock_post_discord.call_args_list]
+        combined = " ".join(calls)
+        assert "domain_risk=high" in combined
+        assert "#42" in combined
+
+    def test_skip_notification_queue_prefix(self, tmp_path, monkeypatch):
+        """queue_mode 時に [Queue] prefix が付与されること"""
+        from watchdog import process
+
+        pipeline_path = tmp_path / "test.json"
+        pipeline_data = {
+            "project": "test-pj",
+            "state": "ASSESSMENT",
+            "enabled": True,
+            "batch": [{"issue": 7, "title": "t", "commit": None,
+                       "cc_session_id": None,
+                       "design_reviews": {}, "code_reviews": {},
+                       "added_at": "2025-01-01T00:00:00+09:00"}],
+            "assessment": {"complex_level": 3, "domain_risk": "low"},
+            "exclude_any_risk": True,
+            "queue_mode": True,
+            "implementer": "kaneko",
+            "history": [{"from": "DESIGN_APPROVED", "to": "ASSESSMENT", "at": "2025-01-01T00:00:00+09:00", "actor": "watchdog"}],
+        }
+        _write_pipeline(pipeline_path, pipeline_data)
+
+        mock_check_queue = MagicMock()
+        mock_post_discord = MagicMock()
+        monkeypatch.setattr("watchdog._check_queue", mock_check_queue)
+        monkeypatch.setattr("watchdog.notify_discord", MagicMock())
+        monkeypatch.setattr("notify.post_discord", mock_post_discord)
+
+        process(pipeline_path)
+
+        assert mock_post_discord.call_count >= 1
+        calls = [str(c) for c in mock_post_discord.call_args_list]
+        combined = " ".join(calls)
+        assert "[Queue]" in combined
+
+    def test_assessment_to_idle_cleans_pipeline(self, tmp_path, monkeypatch):
+        """ASSESSMENT → IDLE スキップ後にパイプラインが正しくリセットされること"""
+        from watchdog import process
+
+        pipeline_path = tmp_path / "test.json"
+        pipeline_data = {
+            "project": "test-pj",
+            "state": "ASSESSMENT",
+            "enabled": True,
+            "batch": [{"issue": 1, "title": "t", "commit": None,
+                       "cc_session_id": None,
+                       "design_reviews": {}, "code_reviews": {},
+                       "added_at": "2025-01-01T00:00:00+09:00"}],
+            "assessment": {"complex_level": 3, "domain_risk": "high"},
+            "exclude_high_risk": True,
+            "exclude_any_risk": True,
+            "queue_mode": True,
+            "automerge": True,
+            "skip_cc_plan": True,
+            "skip_test": True,
+            "skip_assess": True,
+            "comment": "test comment",
+            "implementer": "kaneko",
+            "history": [{"from": "DESIGN_APPROVED", "to": "ASSESSMENT", "at": "2025-01-01T00:00:00+09:00", "actor": "watchdog"}],
+        }
+        _write_pipeline(pipeline_path, pipeline_data)
+
+        monkeypatch.setattr("watchdog._check_queue", MagicMock())
+        monkeypatch.setattr("watchdog.notify_discord", MagicMock())
+        monkeypatch.setattr("notify.post_discord", MagicMock())
+
+        process(pipeline_path)
+
+        saved = json.loads(pipeline_path.read_text())
+        assert saved["state"] == "IDLE"
+        assert saved["batch"] == []
+        assert saved["enabled"] is False
+        assert "assessment" not in saved
+        assert "exclude_high_risk" not in saved
+        assert "exclude_any_risk" not in saved
+        assert "queue_mode" not in saved
+        assert "automerge" not in saved
+        assert "skip_cc_plan" not in saved
+        assert "skip_test" not in saved
+        assert "skip_assess" not in saved
+        assert "comment" not in saved

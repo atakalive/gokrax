@@ -164,6 +164,12 @@ def main():
     p.add_argument("--skip-assess", action="store_true", default=None, dest="skip_assess",
                    help="skip ASSESSMENT phase, go directly to IMPLEMENTATION")
     p.add_argument("--no-skip-assess", action="store_true", default=None, dest="no_skip_assess")
+    p.add_argument("--exclude-high-risk", action="store_true", default=None, dest="exclude_high_risk",
+                   help="skip batch if domain_risk == high")
+    p.add_argument("--no-exclude-high-risk", action="store_true", default=None, dest="no_exclude_high_risk")
+    p.add_argument("--exclude-any-risk", action="store_true", default=None, dest="exclude_any_risk",
+                   help="skip batch if domain_risk != none")
+    p.add_argument("--no-exclude-any-risk", action="store_true", default=None, dest="no_exclude_any_risk")
 
     # transition
     p = sub.add_parser("transition", help="manually trigger a state transition (normally done by watchdog)")

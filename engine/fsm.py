@@ -617,6 +617,35 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
     if state == "ASSESSMENT":
         # assess-done 完了待ち
         if data and data.get("assessment"):
+            # リスク除外判定
+            domain_risk = data["assessment"].get("domain_risk", "none")
+
+            # domain_risk の値域チェック: none/low/high 以外は warning + スキップしない（安全側）
+            valid_risks = {"none", "low", "high"}
+            if domain_risk not in valid_risks:
+                log(f"[ASSESSMENT] WARNING: unknown domain_risk={domain_risk!r}, treating as non-skip")
+                return TransitionAction(
+                    new_state="IMPLEMENTATION",
+                    run_cc=True,
+                    reset_reviewers=True,
+                )
+
+            # domain_risk キー欠損時の warning
+            if "domain_risk" not in data["assessment"]:
+                log("[ASSESSMENT] WARNING: domain_risk key missing in assessment, defaulting to none")
+
+            exclude_any = data.get("exclude_any_risk", False)
+            exclude_high = data.get("exclude_high_risk", False)
+
+            skip = False
+            if exclude_any and domain_risk != "none":
+                skip = True
+            elif exclude_high and domain_risk == "high":
+                skip = True
+
+            if skip:
+                return TransitionAction(new_state="IDLE")
+
             return TransitionAction(
                 new_state="IMPLEMENTATION",
                 run_cc=True,

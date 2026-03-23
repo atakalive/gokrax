@@ -287,12 +287,52 @@ def process(path: Path):
             data.pop("skip_cc_plan", None)
             data.pop("skip_test", None)
             data.pop("skip_assess", None)
+            data.pop("exclude_high_risk", None)
+            data.pop("exclude_any_risk", None)
             data.pop("assessment", None)
             # Issue #92: pytest baseline クリーンアップ
             _kill_pytest_baseline(data, pj)
             data.pop("test_baseline", None)
             # Issue #87: code test クリーンアップ
             _kill_code_test(data, pj)
+            data.pop("test_result", None)
+            data.pop("test_output", None)
+            data.pop("test_retry_count", None)
+
+        # ASSESSMENT → IDLE (リスクスキップ): クリーンアップ前に通知用データを退避 (Issue #181)
+        _skip_assessment = {}
+        _skip_batch = []
+        _skip_queue_mode = False
+        if state == "ASSESSMENT" and action.new_state == "IDLE":
+            _skip_assessment = dict(data.get("assessment", {}))
+            _skip_batch = list(data.get("batch", []))
+            _skip_queue_mode = data.get("queue_mode", False)
+
+        # ASSESSMENT → IDLE (リスクスキップ): DONE と同等のクリーンアップ (Issue #181)
+        if state == "ASSESSMENT" and action.new_state == "IDLE":
+            _cleanup_review_files(pj)
+            data["batch"] = []
+            data["enabled"] = False
+            data.pop("timeout_extension", None)
+            data.pop("extend_count", None)
+            data.pop("design_revise_count", None)
+            data.pop("code_revise_count", None)
+            data.pop("automerge", None)
+            data.pop("p2_fix", None)
+            data.pop("cc_plan_model", None)
+            data.pop("cc_impl_model", None)
+            data.pop("keep_context", None)
+            data.pop("keep_ctx_batch", None)
+            data.pop("keep_ctx_intra", None)
+            data.pop("queue_mode", None)
+            data.pop("comment", None)
+            data.pop("skip_cc_plan", None)
+            data.pop("skip_test", None)
+            data.pop("skip_assess", None)
+            data.pop("exclude_high_risk", None)
+            data.pop("exclude_any_risk", None)
+            data.pop("assessment", None)
+            data.pop("test_baseline", None)
             data.pop("test_result", None)
             data.pop("test_output", None)
             data.pop("test_retry_count", None)
@@ -494,7 +534,7 @@ def process(path: Path):
 
         # ロック外通知用に情報を保存
         # DONE遷移時はbatchが既にクリア済みなので退避分を使う
-        saved_batch = _done_batch if state == "DONE" else list(data.get("batch", []))
+        saved_batch = _done_batch if state == "DONE" else (_skip_batch if state == "ASSESSMENT" and action.new_state == "IDLE" else list(data.get("batch", [])))
         notification.update({
             "pj": pj,
             "old_state": state,
@@ -506,11 +546,13 @@ def process(path: Path):
             "review_mode": data.get("review_mode", "standard"),
             "keep_ctx_batch": data.get("keep_ctx_batch", False),
             "keep_ctx_intra": data.get("keep_ctx_intra", False),
-            "queue_mode": _done_queue_mode if state == "DONE" else data.get("queue_mode", False),
+            "queue_mode": _done_queue_mode if state == "DONE" else (_skip_queue_mode if state == "ASSESSMENT" and action.new_state == "IDLE" else data.get("queue_mode", False)),
             "p2_fix": data.get("p2_fix", False),
         })
         if _npass_timeout_notes:
             notification["_npass_timeout_notes"] = _npass_timeout_notes
+        notification["skip_assessment"] = _skip_assessment
+        notification["skip_batch"] = _skip_batch
 
         # Issue #59: _pending_notifications — at-least-once guarantee
         pending = {}
@@ -798,10 +840,24 @@ def process(path: Path):
                 pj,
             )
 
-        # DONE→IDLE遷移後: キューモードのときだけ次行を自動起動 (Issue #45)
-        # gokrax start で起動した場合は queue_mode=False なのでスキップ
-        if (notification.get("old_state") == "DONE"
-                and action.new_state == "IDLE"
+        # ASSESSMENT → IDLE スキップ通知 (Issue #181)
+        if notification.get("old_state") == "ASSESSMENT" and action.new_state == "IDLE":
+            from notify import post_discord
+            from config import DISCORD_CHANNEL
+            skip_assessment = notification.get("skip_assessment", {})
+            skip_batch = notification.get("skip_batch", [])
+            domain_risk = skip_assessment.get("domain_risk", "none")
+            issue_nums = ", ".join(f"#{i['issue']}" for i in skip_batch if isinstance(i, dict) and "issue" in i)
+            skip_q_prefix = "[Queue] " if notification.get("queue_mode") else ""
+            skip_msg = (
+                f"{skip_q_prefix}[gokrax] {pj}: ⏭️ バッチスキップ（domain_risk={domain_risk}、除外条件に合致）\n"
+                f"スキップされた Issues: {issue_nums}"
+            )
+            post_discord(DISCORD_CHANNEL, skip_msg)
+
+        # IDLE遷移後: キューモードのときだけ次行を自動起動 (Issue #45, #181)
+        # DONE→IDLE, ASSESSMENT→IDLE(リスクスキップ) の両方をカバー
+        if (action.new_state == "IDLE"
                 and notification.get("queue_mode")):
             _check_queue()
 
@@ -1045,6 +1101,9 @@ def _handle_qrun(msg_id: str):
         comment=entry.get("comment") or None,
         skip_cc_plan=entry.get("skip_cc_plan", False),
         skip_test=entry.get("skip_test", False),
+        skip_assess=entry.get("skip_assess", False),
+        exclude_high_risk=entry.get("exclude_high_risk", False),
+        exclude_any_risk=entry.get("exclude_any_risk", False),
     )
 
     # Call cmd_start with try-catch
@@ -1083,6 +1142,12 @@ def _handle_qrun(msg_id: str):
             data["skip_cc_plan"] = True
         if entry.get("skip_test"):
             data["skip_test"] = True
+        if entry.get("skip_assess"):
+            data["skip_assess"] = True
+        if entry.get("exclude_high_risk"):
+            data["exclude_high_risk"] = True
+        if entry.get("exclude_any_risk"):
+            data["exclude_any_risk"] = True
 
     update_pipeline(path, _save_queue_options)
 

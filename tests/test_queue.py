@@ -1497,3 +1497,54 @@ class TestCmdStartDefaultModelOptions:
             cmd_start(args)
         data = _json.loads(path.read_text())
         assert data.get("cc_impl_model") == "opus"
+
+
+class TestExcludeRiskDryRunAndCleanup:
+    """exclude-high-risk / exclude-any-risk の dry-run 表示・クリーンアップテスト (Issue #181)"""
+
+    def test_qrun_dry_run_shows_exclude_high_risk(self, tmp_path, monkeypatch, capsys):
+        """cmd_qrun --dry-run で exclude-high-risk が表示されること"""
+        import config
+        import argparse
+        queue_file = tmp_path / "queue.txt"
+        queue_file.write_text("Foo 1,2 exclude-high-risk\n")
+        monkeypatch.setattr(config, "QUEUE_FILE", queue_file)
+
+        from gokrax import cmd_qrun
+        args = argparse.Namespace(dry_run=True, queue=None)
+        cmd_qrun(args)
+
+        captured = capsys.readouterr()
+        assert "exclude-high-risk" in captured.out
+
+    def test_qrun_dry_run_shows_exclude_any_risk(self, tmp_path, monkeypatch, capsys):
+        """cmd_qrun --dry-run で exclude-any-risk が表示されること"""
+        import config
+        import argparse
+        queue_file = tmp_path / "queue.txt"
+        queue_file.write_text("Foo 1,2 exclude-any-risk\n")
+        monkeypatch.setattr(config, "QUEUE_FILE", queue_file)
+
+        from gokrax import cmd_qrun
+        args = argparse.Namespace(dry_run=True, queue=None)
+        cmd_qrun(args)
+
+        captured = capsys.readouterr()
+        assert "exclude-any-risk" in captured.out
+
+    def test_reset_to_idle_pops_exclude_flags(self, tmp_path):
+        """_reset_to_idle が exclude_high_risk / exclude_any_risk を pop すること"""
+        from gokrax import _reset_to_idle
+        data = {
+            "project": "test-pj",
+            "state": "ASSESSMENT",
+            "batch": [],
+            "exclude_high_risk": True,
+            "exclude_any_risk": True,
+        }
+        with patch("engine.cc._kill_pytest_baseline"), \
+             patch("engine.reviewer._cleanup_review_files"), \
+             patch("notify.cleanup_npass_files"):
+            _reset_to_idle(data)
+        assert "exclude_high_risk" not in data
+        assert "exclude_any_risk" not in data

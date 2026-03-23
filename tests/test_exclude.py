@@ -178,16 +178,16 @@ class TestDeadlockClamp:
         assert "min_reviews_override" not in data
 
 
-class TestWatchdogSaveExcludedRegression:
-    """watchdog.py の _save_excluded 内 effective_count 計算が交差ベースであることの回帰テスト"""
+class TestIntersectionClampLogic:
+    """交差ベース deadlock clamp ロジックのテスト。
 
-    def test_save_excluded_cross_mode_no_spurious_clamp(self, tmp_path):
-        """watchdog の _save_excluded がモード外 excluded で誤った clamp を起こさないことを状態ベースで検証。
+    watchdog.py の _save_excluded は process() 内のローカル関数で直接呼べないため、
+    同一ロジックのレプリカで交差計算の正しさを検証する。
+    watchdog 側の実装が乖離した場合はこのテストでは検出できない点に注意。
+    """
 
-        watchdog.process() 内の _save_excluded はローカル関数で直接呼べないため、
-        同一のクロージャ変数セットアップを再現し update_pipeline コールバックとして実行する。
-        これは watchdog.py L940 の effective_count 計算が交差ベースであることの回帰テスト。
-        """
+    def test_cross_mode_excluded_no_spurious_clamp(self, tmp_path):
+        """モード外 excluded reviewer が deadlock clamp を誤発動させないことを状態ベースで検証。"""
         from pipeline_io import update_pipeline as _up
 
         pipeline = tmp_path / "testpj.json"

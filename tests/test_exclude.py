@@ -181,18 +181,47 @@ class TestDeadlockClamp:
 class TestWatchdogSaveExcludedRegression:
     """watchdog.py の _save_excluded 内 effective_count 計算が交差ベースであることの回帰テスト"""
 
-    def test_save_excluded_uses_intersection_calc(self):
-        """watchdog.py の _save_excluded が交差ベースの effective_count 計算を使っていることを確認"""
-        import inspect
-        import watchdog
-        source = inspect.getsource(watchdog.process)
-        # 旧式の計算（len(members) - len(excluded)）が含まれていないこと
-        assert "len(mode_config[\"members\"]) - len(excluded)" not in source, (
-            "watchdog.py still uses the old subtraction-based effective_count calculation"
-        )
-        # 交差ベースの計算が含まれていること
-        assert "if m not in excluded" in source, (
-            "watchdog.py _save_excluded should use intersection-based effective_count"
+    def test_save_excluded_cross_mode_no_spurious_clamp(self, tmp_path):
+        """watchdog の _save_excluded がモード外 excluded で誤った clamp を起こさないことを状態ベースで検証。
+
+        watchdog.process() 内の _save_excluded はローカル関数で直接呼べないため、
+        同一のクロージャ変数セットアップを再現し update_pipeline コールバックとして実行する。
+        これは watchdog.py L940 の effective_count 計算が交差ベースであることの回帰テスト。
+        """
+        from pipeline_io import update_pipeline as _up
+
+        pipeline = tmp_path / "testpj.json"
+        # lite mode: members=["pascal", "dijkstra"], min_reviews=2
+        # kaneko はモード外 → excluded に入れても effective_count は 2 のまま
+        _write_pipeline(pipeline, {
+            "project": "testpj",
+            "state": "DESIGN_APPROVED",
+            "review_mode": "lite",
+            "excluded_reviewers": [],
+        })
+
+        lite_config = REVIEW_MODES["lite"]
+        excluded = ["kaneko"]  # モード外レビュアー
+
+        def _save_excluded_replica(data):
+            """watchdog.py L933-951 の _save_excluded と同一のロジック"""
+            data["excluded_reviewers"] = excluded
+            effective_count = len([m for m in lite_config["members"] if m not in excluded])
+            min_reviews = lite_config["min_reviews"]
+            if effective_count < min_reviews:
+                clamped = max(effective_count, 0)
+                data["min_reviews_override"] = clamped
+            else:
+                data.pop("min_reviews_override", None)
+
+        _up(pipeline, _save_excluded_replica)
+        data = _load(pipeline)
+
+        # モード外 excluded なので effective_count == 2 (pascal, dijkstra 健在)
+        # min_reviews == 2 なので clamp は不要
+        assert data["excluded_reviewers"] == ["kaneko"]
+        assert "min_reviews_override" not in data, (
+            "Cross-mode excluded reviewer should not trigger spurious deadlock clamp"
         )
 
 

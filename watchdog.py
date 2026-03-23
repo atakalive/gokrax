@@ -304,7 +304,9 @@ def process(path: Path):
         _skip_batch = []
         _skip_queue_mode = False
         if state == "ASSESSMENT" and action.new_state == "IDLE":
-            _skip_assessment = dict(data.get("assessment", {}))
+            from engine.fsm import _worst_risk
+            worst_risk = _worst_risk(data.get("batch", []))
+            _skip_assessment = {"domain_risk": worst_risk}
             _skip_batch = list(data.get("batch", []))
             _skip_queue_mode = data.get("queue_mode", False)
 
@@ -713,7 +715,7 @@ def process(path: Path):
             elif nudge_state == "CODE_TEST_FIX":
                 nudge_msg = render("dev.code_test_fix", "nudge")
             elif nudge_state == "ASSESSMENT":
-                nudge_msg = render("dev.assessment", "nudge")
+                nudge_msg = render("dev.assessment", "nudge", batch=data.get("batch", []))
             else:
                 nudge_msg = "[Remind] 作業を進め、完了してください。"
 

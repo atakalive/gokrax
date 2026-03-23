@@ -1163,11 +1163,8 @@ def cmd_plan_done(args):
 
 
 def cmd_assess_done(args):
-    """ASSESSMENT: 難易度記録 + Issue タイトル更新"""
-    # summary の長さ制限
+    """ASSESSMENT: Issue 単位で難易度記録 + Issue タイトル更新"""
     summary = args.summary[:500] if args.summary else ""
-
-    # risk_reason の正規化とバリデーション
     risk_reason = args.risk_reason.strip() if args.risk != "none" else ""
     if args.risk != "none" and not risk_reason:
         raise SystemExit("--risk-reason is required when --risk is low or high")
@@ -1178,7 +1175,11 @@ def cmd_assess_done(args):
         state = data.get("state", "IDLE")
         if state != "ASSESSMENT":
             raise SystemExit(f"Not in ASSESSMENT state: {state}")
-        data["assessment"] = {
+        batch = data.get("batch", [])
+        issue_entry = find_issue(batch, args.issue)
+        if not issue_entry:
+            raise SystemExit(f"Issue #{args.issue} not in batch")
+        issue_entry["assessment"] = {
             "complex_level": args.complex_level,
             "domain_risk": args.risk,
             "risk_reason": risk_reason,
@@ -1192,20 +1193,11 @@ def cmd_assess_done(args):
     # Issue タイトル更新（失敗は warning、遷移はブロックしない）
     data = load_pipeline(path)
     gitlab = data.get("gitlab", f"{GITLAB_NAMESPACE}/{args.project}")
-    batch = data.get("batch", [])
-    failed = []
-    for issue in batch:
-        issue_num = issue.get("issue")
-        if issue_num is None:
-            continue
-        if not _update_issue_title_with_assessment(gitlab, issue_num, args.complex_level, args.risk):
-            failed.append(issue_num)
-    if failed:
-        nums = ", ".join(f"#{n}" for n in failed)
-        print(f"  ⚠ title update failed for {nums} (warning only)", file=sys.stderr)
+    if not _update_issue_title_with_assessment(gitlab, args.issue, args.complex_level, args.risk):
+        print(f"  ⚠ title update failed for #{args.issue} (warning only)", file=sys.stderr)
 
     risk_label = {"none": "No Risk", "low": "Low Risk", "high": "High Risk"}.get(args.risk, "No Risk")
-    print(f"{args.project}: assessment done (Lvl {args.complex_level} / {risk_label})")
+    print(f"{args.project}: assessment done for #{args.issue} (Lvl {args.complex_level} / {risk_label})")
 
 
 def cmd_design_revise(args):

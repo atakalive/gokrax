@@ -235,6 +235,7 @@ def main():
     # assess-done
     p = sub.add_parser("assess-done", help="record assessment result and transition to IMPLEMENTATION")
     p.add_argument("--pj", "--project", dest="project", required=True)
+    p.add_argument("--issue", type=int, required=True, help="target issue number")
     p.add_argument("--complex-level", type=int, required=True, choices=range(1, 6),
                    dest="complex_level", help="complexity level (1-5)")
     p.add_argument("--summary", default="", help="assessment summary (optional, max 500 chars)")

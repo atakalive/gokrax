@@ -23,6 +23,17 @@ def _make_batch(n=1, **kwargs):
     return items
 
 
+def _make_assessed_batch(n=1, complex_level=3, domain_risk="none"):
+    """全 Issue に assessment 済みのバッチを生成する。"""
+    batch = _make_batch(n)
+    for issue in batch:
+        issue["assessment"] = {
+            "complex_level": complex_level,
+            "domain_risk": domain_risk,
+        }
+    return batch
+
+
 class TestAssessmentTransitions:
 
     def test_design_approved_transitions_to_assessment(self):
@@ -34,8 +45,8 @@ class TestAssessmentTransitions:
 
     def test_assessment_transitions_to_implementation(self):
         from engine.fsm import check_transition
-        data = {"assessment": {"complex_level": 3}}
-        action = check_transition("ASSESSMENT", _make_batch(), data)
+        batch = _make_assessed_batch(1)
+        action = check_transition("ASSESSMENT", batch)
         assert action.new_state == "IMPLEMENTATION"
         assert action.run_cc is True
         assert action.reset_reviewers is True
@@ -56,9 +67,27 @@ class TestAssessmentTransitions:
 
     def test_assessment_ignores_skip_assess(self):
         from engine.fsm import check_transition
-        data = {"skip_assess": True, "assessment": {"complex_level": 3}}
-        action = check_transition("ASSESSMENT", _make_batch(), data)
+        batch = _make_assessed_batch(1)
+        data = {"skip_assess": True}
+        action = check_transition("ASSESSMENT", batch, data)
         assert action.new_state == "IMPLEMENTATION"
+
+    def test_partial_assessment_does_not_transition(self):
+        """バッチ内の一部 Issue のみ assessed の場合、遷移しない"""
+        from engine.fsm import check_transition
+        batch = _make_batch(3)
+        batch[0]["assessment"] = {"complex_level": 2, "domain_risk": "none"}
+        # batch[1] and batch[2] have no assessment
+        action = check_transition("ASSESSMENT", batch)
+        assert action.new_state is None
+
+    def test_all_assessed_transitions(self):
+        """バッチ内全 Issue が assessed なら IMPLEMENTATION へ遷移"""
+        from engine.fsm import check_transition
+        batch = _make_assessed_batch(3)
+        action = check_transition("ASSESSMENT", batch)
+        assert action.new_state == "IMPLEMENTATION"
+        assert action.run_cc is True
 
 
 class TestAssessmentConfig:
@@ -197,11 +226,9 @@ class TestDomainRiskSkip:
     def test_exclude_high_risk_with_high(self):
         """exclude_high_risk=True + domain_risk=high → IDLE"""
         from engine.fsm import check_transition
-        data = {
-            "assessment": {"complex_level": 3, "domain_risk": "high"},
-            "exclude_high_risk": True,
-        }
-        action = check_transition("ASSESSMENT", _make_batch(), data)
+        batch = _make_assessed_batch(1, domain_risk="high")
+        data = {"exclude_high_risk": True}
+        action = check_transition("ASSESSMENT", batch, data)
         assert action.new_state == "IDLE"
         assert action.run_cc is False
         assert action.reset_reviewers is False
@@ -209,11 +236,9 @@ class TestDomainRiskSkip:
     def test_exclude_high_risk_with_low(self):
         """exclude_high_risk=True + domain_risk=low → IMPLEMENTATION（スキップされない）"""
         from engine.fsm import check_transition
-        data = {
-            "assessment": {"complex_level": 3, "domain_risk": "low"},
-            "exclude_high_risk": True,
-        }
-        action = check_transition("ASSESSMENT", _make_batch(), data)
+        batch = _make_assessed_batch(1, domain_risk="low")
+        data = {"exclude_high_risk": True}
+        action = check_transition("ASSESSMENT", batch, data)
         assert action.new_state == "IMPLEMENTATION"
         assert action.run_cc is True
         assert action.reset_reviewers is True
@@ -221,50 +246,40 @@ class TestDomainRiskSkip:
     def test_exclude_high_risk_with_none(self):
         """exclude_high_risk=True + domain_risk=none → IMPLEMENTATION"""
         from engine.fsm import check_transition
-        data = {
-            "assessment": {"complex_level": 3, "domain_risk": "none"},
-            "exclude_high_risk": True,
-        }
-        action = check_transition("ASSESSMENT", _make_batch(), data)
+        batch = _make_assessed_batch(1, domain_risk="none")
+        data = {"exclude_high_risk": True}
+        action = check_transition("ASSESSMENT", batch, data)
         assert action.new_state == "IMPLEMENTATION"
 
     def test_exclude_any_risk_with_low(self):
         """exclude_any_risk=True + domain_risk=low → IDLE"""
         from engine.fsm import check_transition
-        data = {
-            "assessment": {"complex_level": 3, "domain_risk": "low"},
-            "exclude_any_risk": True,
-        }
-        action = check_transition("ASSESSMENT", _make_batch(), data)
+        batch = _make_assessed_batch(1, domain_risk="low")
+        data = {"exclude_any_risk": True}
+        action = check_transition("ASSESSMENT", batch, data)
         assert action.new_state == "IDLE"
 
     def test_exclude_any_risk_with_high(self):
         """exclude_any_risk=True + domain_risk=high → IDLE"""
         from engine.fsm import check_transition
-        data = {
-            "assessment": {"complex_level": 3, "domain_risk": "high"},
-            "exclude_any_risk": True,
-        }
-        action = check_transition("ASSESSMENT", _make_batch(), data)
+        batch = _make_assessed_batch(1, domain_risk="high")
+        data = {"exclude_any_risk": True}
+        action = check_transition("ASSESSMENT", batch, data)
         assert action.new_state == "IDLE"
 
     def test_exclude_any_risk_with_none(self):
         """exclude_any_risk=True + domain_risk=none → IMPLEMENTATION"""
         from engine.fsm import check_transition
-        data = {
-            "assessment": {"complex_level": 3, "domain_risk": "none"},
-            "exclude_any_risk": True,
-        }
-        action = check_transition("ASSESSMENT", _make_batch(), data)
+        batch = _make_assessed_batch(1, domain_risk="none")
+        data = {"exclude_any_risk": True}
+        action = check_transition("ASSESSMENT", batch, data)
         assert action.new_state == "IMPLEMENTATION"
 
     def test_no_exclude_flags_with_high(self):
         """除外フラグなし + domain_risk=high → IMPLEMENTATION（既存動作不変）"""
         from engine.fsm import check_transition
-        data = {
-            "assessment": {"complex_level": 3, "domain_risk": "high"},
-        }
-        action = check_transition("ASSESSMENT", _make_batch(), data)
+        batch = _make_assessed_batch(1, domain_risk="high")
+        action = check_transition("ASSESSMENT", batch)
         assert action.new_state == "IMPLEMENTATION"
 
     def test_assessment_to_idle_in_valid_transitions(self):
@@ -277,26 +292,22 @@ class TestDomainRiskSkip:
         """domain_risk が未知の値 → IMPLEMENTATION（安全側）+ warning ログ"""
         from engine.fsm import check_transition
         from unittest.mock import patch
-        data = {
-            "assessment": {"complex_level": 3, "domain_risk": "critical"},
-            "exclude_any_risk": True,
-        }
+        batch = _make_batch(1)
+        batch[0]["assessment"] = {"complex_level": 3, "domain_risk": "critical"}
+        data = {"exclude_any_risk": True}
         with patch("engine.fsm.log") as mock_log:
-            action = check_transition("ASSESSMENT", _make_batch(), data)
+            action = check_transition("ASSESSMENT", batch, data)
         assert action.new_state == "IMPLEMENTATION"
         mock_log.assert_called_once()
         assert "unknown domain_risk" in mock_log.call_args[0][0]
 
-    def test_domain_risk_key_missing(self):
-        """domain_risk キー欠損 → IMPLEMENTATION（none 扱い）+ warning ログ"""
+    def test_worst_risk_aggregation(self):
+        """バッチ内の最悪リスクが採用される"""
         from engine.fsm import check_transition
-        from unittest.mock import patch
-        data = {
-            "assessment": {"complex_level": 3},
-            "exclude_any_risk": True,
-        }
-        with patch("engine.fsm.log") as mock_log:
-            action = check_transition("ASSESSMENT", _make_batch(), data)
-        assert action.new_state == "IMPLEMENTATION"
-        mock_log.assert_called_once()
-        assert "domain_risk key missing" in mock_log.call_args[0][0]
+        batch = _make_batch(3)
+        batch[0]["assessment"] = {"complex_level": 2, "domain_risk": "none"}
+        batch[1]["assessment"] = {"complex_level": 3, "domain_risk": "high"}
+        batch[2]["assessment"] = {"complex_level": 1, "domain_risk": "low"}
+        data = {"exclude_high_risk": True}
+        action = check_transition("ASSESSMENT", batch, data)
+        assert action.new_state == "IDLE"

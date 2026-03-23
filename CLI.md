@@ -238,24 +238,25 @@ gokrax plan-done --pj myproject --issue 17 18 19
 
 Only valid in DESIGN_PLAN state. Run after the implementer has reviewed and edited issue descriptions.
 
-### `assess-done` -- Record assessment result
+### `assess-done` -- Record assessment result (per issue)
 
 ```bash
-gokrax assess-done --pj myproject --complex-level 3 --risk high --risk-reason "Changes to channel control logic" --summary "複数モジュールにまたがる変更"
+gokrax assess-done --pj myproject --issue 42 --complex-level 3 --risk high --risk-reason "Changes to channel control logic" --summary "複数モジュールにまたがる変更"
 ```
 
 | Option | Required | Description |
 |--------|----------|-------------|
 | `--pj` | Yes | project name |
+| `--issue N` | Yes | target issue number |
 | `--complex-level N` | Yes | complexity level (1-5) |
 | `--risk LEVEL` | No | domain risk level (none/low/high, default: none) |
 | `--risk-reason TEXT` | Conditional | risk assessment reason (required when --risk is low or high) |
 | `--summary TEXT` | No | assessment summary (max 500 chars) |
 
 Prerequisite: project must be in ASSESSMENT state.
-Records a batch-level assessment in pipeline JSON and appends `[Lvl N]` (or `[Lvl N / Risk X]` when domain_risk is not none) to each issue title (suffix).
-Title update failure is a warning only — transition to IMPLEMENTATION proceeds regardless.
-Triggers transition to IMPLEMENTATION on next watchdog cycle.
+Records a per-issue assessment in the batch entry and appends `[Lvl N / Risk X]` to the issue title (suffix).
+When all issues in the batch have been assessed, watchdog transitions to IMPLEMENTATION (or IDLE if domain risk exclusion applies).
+Title update failure is a warning only — it does not block assessment recording.
 
 ### `design-revise` -- Mark design revision as done
 

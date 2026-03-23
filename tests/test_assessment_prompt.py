@@ -26,26 +26,32 @@ class TestAssessmentTransitionMessage:
     def test_assessment_transition_message_ja(self):
         """6-1: 日本語プロンプトに必須要素が含まれる"""
         from messages import render
+        batch = _make_batch(2)
         msg = render("dev.assessment", "transition",
             project="test", issues_str="#1, #2",
             comment_line="", GOKRAX_CLI="gokrax", lang="ja",
+            batch=batch,
         )
         assert "難易度判定フェーズ" in msg
         for lvl in range(1, 6):
             assert f"Lvl {lvl}" in msg
-        assert "assess-done --project test --complex-level N" in msg
+        assert "assess-done --project test --issue 1 --complex-level N" in msg
+        assert "assess-done --project test --issue 2 --complex-level N" in msg
 
     def test_assessment_transition_message_en(self):
         """6-2: 英語プロンプトに必須要素が含まれる"""
         from messages import render
+        batch = _make_batch(2)
         msg = render("dev.assessment", "transition",
             project="test", issues_str="#1, #2",
             comment_line="", GOKRAX_CLI="gokrax", lang="en",
+            batch=batch,
         )
         assert "assessment phase" in msg
         for lvl in range(1, 6):
             assert f"Lvl {lvl}" in msg
-        assert "assess-done --project test --complex-level N" in msg
+        assert "assess-done --project test --issue 1 --complex-level N" in msg
+        assert "assess-done --project test --issue 2 --complex-level N" in msg
 
     def test_assessment_nudge_ja(self):
         """6-3: 日本語催促に assess-done が含まれる"""
@@ -58,6 +64,39 @@ class TestAssessmentTransitionMessage:
         from messages import render
         msg = render("dev.assessment", "nudge", lang="en")
         assert "assess-done" in msg
+
+    def test_assessment_transition_two_issues_two_commands(self):
+        """batch に2 Issue → 2行のコマンドが生成される"""
+        from messages import render
+        batch = _make_batch(2)
+        msg = render("dev.assessment", "transition",
+            project="test", issues_str="#1, #2",
+            comment_line="", GOKRAX_CLI="gokrax", lang="ja",
+            batch=batch,
+        )
+        assert "--issue 1" in msg
+        assert "--issue 2" in msg
+
+    def test_assessment_nudge_with_batch_ja(self):
+        """nudge に batch を渡し、未判定 Issue の --issue N が含まれる"""
+        from messages import render
+        batch = _make_batch(3)
+        batch[0]["assessment"] = {"complex_level": 2, "domain_risk": "none"}
+        # batch[1] and batch[2] have no assessment
+        msg = render("dev.assessment", "nudge", lang="ja", batch=batch)
+        assert "--issue 2" in msg
+        assert "--issue 3" in msg
+        assert "--issue 1" not in msg
+
+    def test_assessment_nudge_with_batch_en(self):
+        """nudge に batch を渡し、未判定 Issue の --issue N が含まれる (en)"""
+        from messages import render
+        batch = _make_batch(3)
+        batch[0]["assessment"] = {"complex_level": 2, "domain_risk": "none"}
+        msg = render("dev.assessment", "nudge", lang="en", batch=batch)
+        assert "--issue 2" in msg
+        assert "--issue 3" in msg
+        assert "--issue 1" not in msg
 
 
 class TestAssessmentNotification:

@@ -117,6 +117,18 @@ def _get_reviewer_entry(batch: list, key: str, reviewer: str) -> dict | None:
     return None
 
 
+def _worst_risk(batch: list) -> str:
+    """バッチ内の全 Issue の domain_risk から最悪リスクを返す。"""
+    _RISK_ORDER = {"none": 0, "low": 1, "high": 2}
+    worst = "none"
+    for issue in batch:
+        a = issue.get("assessment", {})
+        ir = a.get("domain_risk", "none")
+        if _RISK_ORDER.get(ir, 0) > _RISK_ORDER.get(worst, 0):
+            worst = ir
+    return worst
+
+
 def _read_domain_risk(project: str, repo_path: str) -> str:
     """DOMAIN_RISK.md を読み込んで内容を返す。ファイルなし/エラー時は空文字。"""
     import logging
@@ -223,6 +235,7 @@ def get_notification_for_state(
             project=project, issues_str=issues_str,
             comment_line=comment_line, GOKRAX_CLI=GOKRAX_CLI,
             domain_risk_content=domain_risk_content,
+            batch=batch,
         )
         return TransitionAction(impl_msg=msg)
 
@@ -615,32 +628,27 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
         )
 
     if state == "ASSESSMENT":
-        # assess-done 完了待ち
-        if data and data.get("assessment"):
-            # リスク除外判定
-            domain_risk = data["assessment"].get("domain_risk", "none")
+        batch = batch or []
+        # 全 Issue が assessment 済みかチェック
+        all_assessed = batch and all(issue.get("assessment") for issue in batch)
+        if all_assessed:
+            # リスク除外判定: バッチ内で最も高いリスクレベルを採用
+            worst_risk = _worst_risk(batch)
 
-            # domain_risk の値域チェック: none/low/high 以外は warning + スキップしない（安全側）
+            # domain_risk の値域チェック（個別 Issue レベルで unknown があれば warning）
             valid_risks = {"none", "low", "high"}
-            if domain_risk not in valid_risks:
-                log(f"[ASSESSMENT] WARNING: unknown domain_risk={domain_risk!r}, treating as non-skip")
-                return TransitionAction(
-                    new_state="IMPLEMENTATION",
-                    run_cc=True,
-                    reset_reviewers=True,
-                )
+            for issue in batch:
+                ir = issue["assessment"].get("domain_risk", "none")
+                if ir not in valid_risks:
+                    log(f"[ASSESSMENT] WARNING: unknown domain_risk={ir!r} in #{issue.get('issue')}, treating as none")
 
-            # domain_risk キー欠損時の warning
-            if "domain_risk" not in data["assessment"]:
-                log("[ASSESSMENT] WARNING: domain_risk key missing in assessment, defaulting to none")
-
-            exclude_any = data.get("exclude_any_risk", False)
-            exclude_high = data.get("exclude_high_risk", False)
+            exclude_any = data.get("exclude_any_risk", False) if data else False
+            exclude_high = data.get("exclude_high_risk", False) if data else False
 
             skip = False
-            if exclude_any and domain_risk != "none":
+            if exclude_any and worst_risk != "none":
                 skip = True
-            elif exclude_high and domain_risk == "high":
+            elif exclude_high and worst_risk == "high":
                 skip = True
 
             if skip:
@@ -651,7 +659,7 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
                 run_cc=True,
                 reset_reviewers=True,
             )
-        # 未完了 → タイムアウト判定のみ
+        # 未判定 Issue がある → ASSESSMENT 継続（遷移しない）
         nudge = _check_nudge(state, data) if data is not None else None
         return nudge or TransitionAction()
 

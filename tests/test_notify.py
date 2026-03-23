@@ -1296,3 +1296,51 @@ class TestCleanupReviewFiles:
         engine.reviewer._cleanup_review_files("proj")
         assert tmp_path.exists()
         assert tmp_path.is_dir()
+
+
+class TestNpassSkillInjection:
+    """Issue #185: NPASS ではスキル注入をスキップする"""
+
+    SKILL_BLOCK = "<skills>\n--- skill: test ---\ntest content\n</skills>"
+
+    def test_npass_review_message_no_skills(self):
+        """_build_npass_review_message() の返り値に <skills> タグが含まれないこと"""
+        import notify
+        batch = [
+            {
+                "issue": 1,
+                "title": "t",
+                "design_reviews": {"pascal": {"verdict": "REVISE", "pass": 1, "target_pass": 2}},
+                "code_reviews": {},
+            },
+        ]
+        with patch("notify.load_skills", return_value=self.SKILL_BLOCK):
+            msg = notify._build_npass_review_message(
+                "proj", "DESIGN_REVIEW_NPASS", batch, "pascal", round_num=1,
+            )
+        assert msg  # non-empty
+        assert "<skills>" not in msg
+
+    def test_file_review_message_skip_skills(self, tmp_path):
+        """_build_file_review_message(skip_skills=True) で <skills> タグが含まれないこと"""
+        import notify
+        file_path = tmp_path / "test.md"
+        batch = [{"issue": 1, "title": "t", "design_reviews": {}, "code_reviews": {}}]
+        with patch("notify.load_skills", return_value=self.SKILL_BLOCK):
+            msg = notify._build_file_review_message(
+                "proj", False, "pascal", file_path, batch, round_num=1,
+                skip_skills=True,
+            )
+        assert "<skills>" not in msg
+
+    def test_file_review_message_default_has_skills(self, tmp_path):
+        """_build_file_review_message(skip_skills=False) で <skills> タグが含まれること（回帰テスト）"""
+        import notify
+        file_path = tmp_path / "test.md"
+        batch = [{"issue": 1, "title": "t", "design_reviews": {}, "code_reviews": {}}]
+        with patch("notify.load_skills", return_value=self.SKILL_BLOCK):
+            msg = notify._build_file_review_message(
+                "proj", False, "pascal", file_path, batch, round_num=1,
+                skip_skills=False,
+            )
+        assert "<skills>" in msg

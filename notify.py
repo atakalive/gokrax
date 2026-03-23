@@ -247,6 +247,8 @@ def _build_file_review_message(
     file_path: Path,
     batch: list,
     round_num: int | None,
+    *,
+    skip_skills: bool = False,
 ) -> str:
     """ファイル外部化時のレビュー依頼メッセージを生成する。
 
@@ -285,11 +287,12 @@ def _build_file_review_message(
         project=project, n=n, file_path=str(file_path), cmds_block=cmds_block,
     )
 
-    # スキルブロック付与
-    skill_phase = "code" if is_code else "design"
-    skill_block = load_skills(reviewer, project, skill_phase)
-    if skill_block:
-        msg = f"{skill_block}\n\n{msg}"
+    # スキルブロック付与（NPASS では初回レビューで注入済みのためスキップ）
+    if not skip_skills:
+        skill_phase = "code" if is_code else "design"
+        skill_block = load_skills(reviewer, project, skill_phase)
+        if skill_block:
+            msg = f"{skill_block}\n\n{msg}"
 
     return msg
 
@@ -382,12 +385,6 @@ def _build_npass_review_message(
         pass_num=pass_num, target_pass=target_pass, comment_line=comment_line,
         refresher_cmds=refresher_cmds,
     )
-
-    # スキルブロック付与
-    skill_phase = "code" if is_code else "design"
-    skill_block = load_skills(reviewer, project, skill_phase)
-    if skill_block:
-        msg = f"{skill_block}\n\n{msg}"
 
     return msg
 
@@ -871,7 +868,8 @@ def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
             if force_externalize:
                 _save_npass_review_file_path(project, r, file_path)
             is_code = "CODE" in state
-            short_msg = _build_file_review_message(project, is_code, r, file_path, batch, round_num)
+            is_npass = state in ("DESIGN_REVIEW_NPASS", "CODE_REVIEW_NPASS")
+            short_msg = _build_file_review_message(project, is_code, r, file_path, batch, round_num, skip_skills=is_npass)
             if not send_to_agent(r, short_msg):
                 logger.warning("Failed to send short review request to %s", r)
                 continue

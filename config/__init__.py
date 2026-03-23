@@ -97,6 +97,7 @@ REVIEW_FILE_WRITE_RETRY_DELAY: float = 2.0
 
 AGENTS: dict[str, str] = {}  # Must be set in settings.py
 ALLOWED_REVIEWERS: list[str] = []
+MASK_AGENT_NAMES: bool = True
 
 REVIEWER_TIERS: dict[str, list[str]] = {"regular": [], "free": [], "short-context": []}
 REVIEW_MODES: dict[str, dict] = {}

@@ -22,6 +22,7 @@ def format_merge_summary(
 
     2000文字超は post_discord が自動分割するので、ここでは切り詰めない。
     """
+    from notify import mask_agent_name
     q_prefix = "[Queue]" if queue_mode else ""
     lines = [f"**{q_prefix}[{project}] マージサマリー**\n"]
     for item in batch:
@@ -32,15 +33,16 @@ def format_merge_summary(
         # コードレビュー結果を表示（なければ設計レビュー）
         reviews = item.get("code_reviews") or item.get("design_reviews") or {}
         for reviewer, rev in reviews.items():
+            masked = mask_agent_name(reviewer)
             verdict = rev.get("verdict", "?")
             emoji = _VERDICT_EMOJI.get(verdict, "⚪")
             summary = rev.get("summary", "")
             # summary の1行目だけ使う（長いレビューは切る）
             first_line = summary.split("\n")[0][:120] if summary else ""
             if first_line:
-                lines.append(f"  {emoji} **{reviewer}**: {verdict} — {first_line}")
+                lines.append(f"  {emoji} **{masked}**: {verdict} — {first_line}")
             else:
-                lines.append(f"  {emoji} **{reviewer}**: {verdict}")
+                lines.append(f"  {emoji} **{masked}**: {verdict}")
         lines.append("")  # 空行で区切り
 
     # Footer (Issue #45: automerge時は文言変更)

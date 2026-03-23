@@ -389,6 +389,22 @@ def _build_npass_review_message(
     return msg
 
 
+def mask_agent_name(name: str) -> str:
+    """MASK_AGENT_NAMES が True の場合、エージェント名を 'Reviewer N' に変換する。
+
+    N は ALLOWED_REVIEWERS リストにおけるインデックス + 1。
+    ALLOWED_REVIEWERS に含まれない名前はそのまま返す（M, dispute 等）。
+    """
+    from config import MASK_AGENT_NAMES, ALLOWED_REVIEWERS
+    if not MASK_AGENT_NAMES:
+        return name
+    try:
+        idx = ALLOWED_REVIEWERS.index(name)
+        return f"Reviewer {idx + 1}"
+    except ValueError:
+        return name
+
+
 def post_gitlab_note(gitlab: str, issue_num: int, body: str) -> bool:
     """glab issue note を投稿。失敗時は2回リトライ（間隔3秒）。"""
     for attempt in range(3):

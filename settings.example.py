@@ -44,6 +44,7 @@ PROMPT_LANG: str = "en"
 LOCAL_TZ = timezone(timedelta(hours=0))  # GMT = 0
 CC_MODEL_PLAN = "sonnet"
 CC_MODEL_IMPL = "sonnet"
+MASK_AGENT_NAMES = True
 
 DEFAULT_QUEUE_OPTIONS: dict[str, bool | str] = {
     "skip_cc_plan": True,

@@ -20,7 +20,7 @@ from pipeline_io import (
     clear_pending_notification,
 )
 from engine.fsm import get_notification_for_state
-from notify import notify_implementer, notify_reviewers, notify_discord, send_to_agent, send_to_agent_queued, post_gitlab_note as _post_gitlab_note
+from notify import notify_implementer, notify_reviewers, notify_discord, send_to_agent, send_to_agent_queued, post_gitlab_note as _post_gitlab_note, mask_agent_name
 import os
 
 # Verdict severity for dispute resolution (Issue #86)
@@ -950,7 +950,8 @@ def cmd_review(args):
             skip_note = True
 
     if not skip_note:
-        note_body = f"[{args.reviewer}] {args.verdict} ({phase}レビュー)\n\n{args.summary or ''}"
+        masked = mask_agent_name(args.reviewer)
+        note_body = f"[{masked}] {args.verdict} ({phase}レビュー)\n\n{args.summary or ''}"
         if _post_gitlab_note(gitlab, args.issue, note_body):
             print("  → GitLab issue note posted")
 
@@ -1042,8 +1043,9 @@ def cmd_dispute(args):
         print(f"WARNING: dispute 通知の送信に失敗 ({args.reviewer})")
 
     gitlab = data.get("gitlab", f"{GITLAB_NAMESPACE}/{args.project}")
+    masked = mask_agent_name(args.reviewer)
     note_body = (
-        f"[dispute] #{args.issue}: {args.reviewer} の判定に異議申し立て\n\n"
+        f"[dispute] #{args.issue}: {masked} の判定に異議申し立て\n\n"
         f"理由: {args.reason.strip()}"
     )
     _post_gitlab_note(gitlab, args.issue, note_body)

@@ -22,6 +22,7 @@ def format_merge_summary(
 
     Messages over 2000 characters are auto-split by post_discord, so no truncation here.
     """
+    from notify import mask_agent_name
     q_prefix = "[Queue]" if queue_mode else ""
     lines = [f"**{q_prefix}[{project}] merge summary**\n"]
     for item in batch:
@@ -32,15 +33,16 @@ def format_merge_summary(
         # Show code review results (fall back to design reviews)
         reviews = item.get("code_reviews") or item.get("design_reviews") or {}
         for reviewer, rev in reviews.items():
+            masked = mask_agent_name(reviewer)
             verdict = rev.get("verdict", "?")
             emoji = _VERDICT_EMOJI.get(verdict, "⚪")
             summary = rev.get("summary", "")
             # Use only first line of summary (truncate long reviews)
             first_line = summary.split("\n")[0][:120] if summary else ""
             if first_line:
-                lines.append(f"  {emoji} **{reviewer}**: {verdict} — {first_line}")
+                lines.append(f"  {emoji} **{masked}**: {verdict} — {first_line}")
             else:
-                lines.append(f"  {emoji} **{reviewer}**: {verdict}")
+                lines.append(f"  {emoji} **{masked}**: {verdict}")
         lines.append("")  # blank line separator
 
     # Footer (Issue #45: change wording when automerge is on)

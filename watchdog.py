@@ -783,9 +783,29 @@ def process(path: Path):
                 if not ok:
                     log(f"[{pj}] WARNING: assessment note failed for issue #{issue['issue']}")
 
-            # Issue #200: 一部除外時のスキップ通知
+            # Issue #200: 一部除外時、除外 Issue にも assessment note を投稿（Excluded 付記）
             skipped = notification.get("skipped_issues", [])
             if skipped:
+                for issue in skipped:
+                    assessment = issue.get("assessment")
+                    if not assessment:
+                        continue
+                    complex_level = assessment.get("complex_level", "?")
+                    domain_risk = assessment.get("domain_risk", "none")
+                    risk_label = _RISK_LABELS.get(domain_risk, "Unknown Risk")
+                    risk_reason = assessment.get("risk_reason", "") or ""
+                    summary = assessment.get("summary", "") or ""
+                    header = f"[gokrax] Assessment: Lvl {complex_level} / {risk_label} — Excluded by risk filter"
+                    lines = [header]
+                    if domain_risk != "none" and risk_reason:
+                        lines.append(f"Risk reason: {risk_reason}")
+                    if summary:
+                        lines.append(summary)
+                    body = "\n".join(lines)
+                    ok = post_gitlab_note(gitlab, issue["issue"], body)
+                    if not ok:
+                        log(f"[{pj}] WARNING: assessment note (excluded) failed for issue #{issue['issue']}")
+
                 from notify import post_discord
                 from config import DISCORD_CHANNEL
                 skipped_nums = ", ".join(f"#{i['issue']}" for i in skipped if isinstance(i, dict) and "issue" in i)

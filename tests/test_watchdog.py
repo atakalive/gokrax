@@ -5252,10 +5252,12 @@ class TestAssessmentPartialExclude:
         _write_pipeline(pipeline_path, pipeline_data)
 
         mock_post_discord = MagicMock()
+        mock_post_gitlab_note = MagicMock(return_value=True)
         monkeypatch.setattr("watchdog.get_path", lambda pj: pipeline_path)
         monkeypatch.setattr("pipeline_io.get_path", lambda pj: pipeline_path)
         monkeypatch.setattr("watchdog.notify_discord", MagicMock())
         monkeypatch.setattr("notify.post_discord", mock_post_discord)
+        monkeypatch.setattr("notify.post_gitlab_note", mock_post_gitlab_note)
 
         process(pipeline_path)
 
@@ -5264,3 +5266,12 @@ class TestAssessmentPartialExclude:
         combined = " ".join(calls)
         assert "#10" in combined  # high risk が除外通知に含まれる
         assert "Excluded by risk filter" in combined
+
+        # 除外 Issue にも assessment note が投稿されること（Excluded 付記）
+        gitlab_calls = mock_post_gitlab_note.call_args_list
+        excluded_note_calls = [
+            c for c in gitlab_calls
+            if len(c.args) >= 2 and c.args[1] == 10
+            and "Excluded by risk filter" in (c.args[2] if len(c.args) >= 3 else "")
+        ]
+        assert len(excluded_note_calls) == 1, f"Expected 1 excluded note for #10, got {len(excluded_note_calls)}"

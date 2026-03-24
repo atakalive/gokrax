@@ -1563,3 +1563,17 @@ class TestParseQueueLineSkipDesign:
         from task_queue import parse_queue_line
         result = parse_queue_line("gokrax 1,2 no-skip-design")
         assert result["skip_design"] is False
+
+
+class TestParseQueueLineNoCc:
+    """Issue #206: no-cc / no-no-cc トークンテスト"""
+
+    def test_parse_queue_line_no_cc(self):
+        from task_queue import parse_queue_line
+        result = parse_queue_line("gokrax 1,2 no-cc")
+        assert result["no_cc"] is True
+
+    def test_parse_queue_line_no_no_cc(self):
+        from task_queue import parse_queue_line
+        result = parse_queue_line("gokrax 1,2 no-no-cc")
+        assert result["no_cc"] is False

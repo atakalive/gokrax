@@ -717,9 +717,10 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
     if state == "DESIGN_APPROVED":
         skip_assess = data.get("skip_assess", False) if data else False
         if skip_assess:
+            no_cc = data.get("no_cc", False) if data else False
             return TransitionAction(
                 new_state="IMPLEMENTATION",
-                run_cc=True,
+                run_cc=not no_cc,
                 reset_reviewers=True,
             )
         pj = data.get("project", "") if data else ""
@@ -749,6 +750,7 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
 
             exclude_any = data.get("exclude_any_risk", False) if data else False
             exclude_high = data.get("exclude_high_risk", False) if data else False
+            no_cc = data.get("no_cc", False) if data else False
 
             # Issue ごとに除外判定
             remaining = []
@@ -774,7 +776,7 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
                 # 一部除外: remaining と skipped を TransitionAction 経由で watchdog に伝える
                 return TransitionAction(
                     new_state="IMPLEMENTATION",
-                    run_cc=True,
+                    run_cc=not no_cc,
                     reset_reviewers=True,
                     skipped_issues=skipped,
                     remaining_issues=remaining,
@@ -783,7 +785,7 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
             # 除外なし: 全 Issue で IMPLEMENTATION へ
             return TransitionAction(
                 new_state="IMPLEMENTATION",
-                run_cc=True,
+                run_cc=not no_cc,
                 reset_reviewers=True,
             )
         # 未判定 Issue がある → ASSESSMENT 継続（遷移しない）
@@ -864,10 +866,15 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
                 return TransitionAction(new_state="CODE_TEST", run_test=True)
             else:
                 return TransitionAction(new_state="CODE_REVIEW", send_review=True)
-        # 2. CC未実行 → 起動指示
+        # 2. no_cc モード: CC を起動しない。実装者の手動 commit を待つ
+        no_cc = data.get("no_cc", False) if data else False
+        if no_cc:
+            # no_cc ではタイムアウトを無効化。手動実装に BLOCK_TIMERS は適用しない
+            return TransitionAction()
+        # 3. CC未実行 → 起動指示
         if data is not None and not _is_cc_running(data):
             return TransitionAction(run_cc=True)
-        # 3. CC実行中だが進捗なし → タイムアウト判定
+        # 4. CC実行中だが進捗なし → タイムアウト判定
         nudge = _check_nudge(state, data) if data is not None else None
         return nudge or TransitionAction()
 

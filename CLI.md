@@ -110,6 +110,8 @@ gokrax start --pj myproject --mode standard
 | `--no-skip-assess` | No | explicitly do not skip ASSESSMENT phase |
 | `--skip-design` | No | DESIGN_PLAN/DESIGN_REVIEW をスキップし DESIGN_APPROVED へ直行 |
 | `--no-skip-design` | No | --skip-design を無効化 |
+| `--no-cc` | No | IMPLEMENTATION で CC を使用せず手動実装モードにする |
+| `--no-no-cc` | No | CC 使用を強制（--no-cc を打ち消す） |
 | `--exclude-high-risk` | No | skip batch if domain_risk == high |
 | `--no-exclude-high-risk` | No | explicitly do not skip high-risk batches |
 | `--exclude-any-risk` | No | skip batch if domain_risk != none (superset of --exclude-high-risk) |

@@ -288,6 +288,7 @@ def process(path: Path):
             data.pop("skip_test", None)
             data.pop("skip_assess", None)
             data.pop("skip_design", None)
+            data.pop("no_cc", None)
             data.pop("exclude_high_risk", None)
             data.pop("exclude_any_risk", None)
             data.pop("assessment", None)
@@ -335,6 +336,7 @@ def process(path: Path):
             data.pop("skip_test", None)
             data.pop("skip_assess", None)
             data.pop("skip_design", None)
+            data.pop("no_cc", None)
             data.pop("exclude_high_risk", None)
             data.pop("exclude_any_risk", None)
             data.pop("assessment", None)
@@ -573,6 +575,16 @@ def process(path: Path):
         # Issue #200: 一部除外時の skipped_issues を通知に格納
         if action.skipped_issues:
             notification["skipped_issues"] = list(action.skipped_issues)
+
+        # Issue #206: no_cc モード — 実装者に手動実装通知
+        if action.new_state == "IMPLEMENTATION" and data.get("no_cc", False):
+            issues_str = ", ".join(f"#{i['issue']}" for i in data.get("batch", []) if not i.get("commit"))
+            notification["no_cc_msg"] = (
+                f"手動実装モード（--no-cc）。\n"
+                f"対象: {issues_str}\n"
+                f"完了後: gokrax commit --pj {pj} --issue N --hash HASH\n"
+                f"※ タイムアウトは無効化されています。"
+            )
 
         # Issue #59: _pending_notifications — at-least-once guarantee
         pending = {}
@@ -1047,6 +1059,15 @@ def process(path: Path):
                 notify_discord(f"[{pj}] ⚠️ CC起動失敗: {e} ({ts})")
             clear_pending_notification(pj, "run_cc")
 
+        # Issue #206: no_cc モード通知
+        if notification.get("no_cc_msg"):
+            notify_implementer(
+                notification["implementer"],
+                f"[gokrax] {pj}: {notification['no_cc_msg']}",
+                project=pj,
+                phase="code",
+            )
+
         # Issue #87: CODE_TEST テスト起動
         if notification.get("run_test"):
             try:
@@ -1203,6 +1224,7 @@ def _handle_qrun(msg_id: str):
         skip_test=entry.get("skip_test", False),
         skip_assess=entry.get("skip_assess", False),
         skip_design=entry.get("skip_design", False),
+        no_cc=entry.get("no_cc", False),
         exclude_high_risk=entry.get("exclude_high_risk", False),
         exclude_any_risk=entry.get("exclude_any_risk", False),
         allow_closed=entry.get("allow_closed", False),
@@ -1248,6 +1270,8 @@ def _handle_qrun(msg_id: str):
             data["skip_assess"] = True
         if entry.get("skip_design"):
             data["skip_design"] = True
+        if entry.get("no_cc"):
+            data["no_cc"] = True
         if entry.get("exclude_high_risk"):
             data["exclude_high_risk"] = True
         if entry.get("exclude_any_risk"):

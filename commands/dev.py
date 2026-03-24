@@ -374,6 +374,8 @@ def cmd_start(args):
         args.skip_assess = False
     if getattr(args, "no_skip_design", None):
         args.skip_design = False
+    if getattr(args, "no_no_cc", None):
+        args.no_cc = False
     if getattr(args, "no_exclude_high_risk", None):
         args.exclude_high_risk = False
     if getattr(args, "no_exclude_any_risk", None):
@@ -417,6 +419,7 @@ def cmd_start(args):
         d.pop("skip_test", None)
         d.pop("skip_assess", None)
         d.pop("skip_design", None)
+        d.pop("no_cc", None)
         d.pop("exclude_high_risk", None)
         d.pop("exclude_any_risk", None)
     update_pipeline(path, _clear_stale_skip)
@@ -457,11 +460,12 @@ def cmd_start(args):
     has_skip_test = getattr(args, "skip_test", False)
     has_skip_assess = getattr(args, "skip_assess", False)
     has_skip_design = getattr(args, "skip_design", False)
+    has_no_cc = getattr(args, "no_cc", False)
     has_exclude_high_risk = getattr(args, "exclude_high_risk", False)
     has_exclude_any_risk = getattr(args, "exclude_any_risk", False)
     has_cc_plan_model = bool(getattr(args, "cc_plan_model", None))
     has_cc_impl_model = bool(getattr(args, "cc_impl_model", None))
-    if getattr(args, "mode", None) or has_keep_ctx or has_p2_fix or has_comment or has_skip_cc_plan or has_skip_test or has_skip_assess or has_skip_design or has_exclude_high_risk or has_exclude_any_risk or has_cc_plan_model or has_cc_impl_model:
+    if getattr(args, "mode", None) or has_keep_ctx or has_p2_fix or has_comment or has_skip_cc_plan or has_skip_test or has_skip_assess or has_skip_design or has_no_cc or has_exclude_high_risk or has_exclude_any_risk or has_cc_plan_model or has_cc_impl_model:
         from config import REVIEW_MODES
         if getattr(args, "mode", None) and args.mode not in REVIEW_MODES:
             raise SystemExit(f"Invalid mode: {args.mode} (valid: {list(REVIEW_MODES)})")
@@ -487,6 +491,8 @@ def cmd_start(args):
                 data["skip_assess"] = True
             if getattr(args, "skip_design", False):
                 data["skip_design"] = True
+            if getattr(args, "no_cc", False):
+                data["no_cc"] = True
             if getattr(args, "exclude_high_risk", False):
                 data["exclude_high_risk"] = True
             if getattr(args, "exclude_any_risk", False):
@@ -552,6 +558,7 @@ def _reset_to_idle(data: dict) -> None:
     data.pop("skip_test", None)
     data.pop("skip_assess", None)
     data.pop("skip_design", None)
+    data.pop("no_cc", None)
     data.pop("exclude_high_risk", None)
     data.pop("exclude_any_risk", None)
     data.pop("assessment", None)
@@ -1590,6 +1597,8 @@ def cmd_qrun(args):
                 opts.append("skip-assess")
             if e.get("skip_design"):
                 opts.append("skip-design")
+            if e.get("no_cc"):
+                opts.append("no-cc")
             if e.get("exclude_high_risk"):
                 opts.append("exclude-high-risk")
             if e.get("exclude_any_risk"):
@@ -1623,6 +1632,7 @@ def cmd_qrun(args):
         skip_test=entry.get("skip_test", False),
         skip_assess=entry.get("skip_assess", False),
         skip_design=entry.get("skip_design", False),
+        no_cc=entry.get("no_cc", False),
         exclude_high_risk=entry.get("exclude_high_risk", False),
         exclude_any_risk=entry.get("exclude_any_risk", False),
         allow_closed=entry.get("allow_closed", False),
@@ -1661,6 +1671,8 @@ def cmd_qrun(args):
             data["skip_assess"] = True
         if entry.get("skip_design"):
             data["skip_design"] = True
+        if entry.get("no_cc"):
+            data["no_cc"] = True
         if entry.get("exclude_high_risk"):
             data["exclude_high_risk"] = True
         if entry.get("exclude_any_risk"):
@@ -1751,6 +1763,8 @@ def get_qstatus_text(entries: list[dict], running: "dict | None" = None) -> str:
             parts.append("skip-assess")
         if e.get("skip_design"):
             parts.append("skip-design")
+        if e.get("no_cc"):
+            parts.append("no-cc")
         if e.get("exclude_high_risk"):
             parts.append("exclude-high-risk")
         if e.get("exclude_any_risk"):

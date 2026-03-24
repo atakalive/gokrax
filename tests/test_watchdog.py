@@ -5399,8 +5399,8 @@ class TestReviewerNumberMapPhaseOverride:
         assert set(rmap.keys()) == {r1, r3}
         assert sorted(rmap.values()) == [1, 2]
 
-    def test_fallback_to_mode_config_when_review_config_empty(self, tmp_pipelines, monkeypatch):
-        """review_config が空辞書のとき mode_config['members'] にフォールバック"""
+    def test_normal_members_included_without_override(self, tmp_pipelines, monkeypatch):
+        """フェーズ上書きなしの通常モードで、ベースメンバーがマップに含まれる"""
         r1, r2 = "reviewer1", "reviewer2"
         mode_config = {
             "members": [r1, r2], "min_reviews": 1, "grace_period_sec": 0,
@@ -5411,8 +5411,7 @@ class TestReviewerNumberMapPhaseOverride:
             mode_config=mode_config,
             excluded=[],
         )
-        # build_review_config が通常どおり生成するので、まず正常動作を確認
-        # フォールバックの直接テストは別途 _save_excluded を直接呼んで検証
+        # build_review_config が通常どおり生成するので、正常動作を確認
         rmap = saved.get("reviewer_number_map", {})
         assert set(rmap.keys()) == {r1, r2}
         assert sorted(rmap.values()) == [1, 2]

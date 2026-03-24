@@ -217,8 +217,9 @@ IDLE → INITIALIZE → DESIGN_PLAN → DESIGN_REVIEW ⇄ DESIGN_REVISE
 
 設計の詳細は [docs/architecture.md](docs/architecture.md) を参照。
 
-- `ASSESSMENT` は設計承認後の判定ステートで、5段階のコード複雑性判定と、3段階のドメインリスク判定を行う。`--exclude-high-risk` / `--exclude-any-risk` 指定時はリスク判定結果に従って Issue をスキップする。
-- `CODE_TEST` は現在実験的で、`skip_test` 設定時（デフォルト）は `IMPLEMENTATION` から直接 `CODE_REVIEW` に遷移する。キュー実行時は自動的に次バッチへ進む。
+- `ASSESSMENT` は設計承認後の判定ステートで、5段階のコード複雑性判定と、3段階のドメインリスク判定を行う。`--exclude-high-risk` / `--exclude-any-risk` 指定時はリスク判定結果に従って Issue をスキップする。（デフォルト: `skip-assess: True`）
+- `CODE_TEST` は現在実験段階。テストをパスするように修正してから `CODE_REVIEW` に遷移する。`CODE_REVISE` 後も、テストをパスしてから再レビューに遷移する。（デフォルト: `skip_test: True`）
+- `DONE` → `IDLE` 遷移後、キュー実行時は自動的に次バッチへ進む。
 
 各状態にはタイムアウトが設定されている（`settings.py` の `BLOCK_TIMERS`）：
 
@@ -246,7 +247,7 @@ IDLE → INITIALIZE → DESIGN_PLAN → DESIGN_REVIEW ⇄ DESIGN_REVISE
 - **修正ループ上限到達**: レビューで P0 または P1 指摘が出て修正を繰り返し、`MAX_REVISE_CYCLES`（初期値: 4）に達した場合。設計レビュー・コードレビューの両方に適用。
 - **テスト修正上限到達**: `CODE_TEST_FIX` が `MAX_TEST_RETRY`（初期値: 4）に達した場合。
 
-`BLOCKED` からの復帰手順（DESIGN_REVIEW -> BLOCKED想定）：
+`BLOCKED` からの復帰手順（`DESIGN_REVIEW` -> `BLOCKED` を想定）：
 
 ```bash
 # 1. 状態を戻す (問題なければ DESIGN_APPROVED 遷移も可)

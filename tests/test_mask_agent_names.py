@@ -88,6 +88,7 @@ def test_review_done_note_masked(tmp_pipelines, monkeypatch):
 
     monkeypatch.setattr("config.MASK_AGENT_NAMES", True)
     monkeypatch.setattr("config.ALLOWED_REVIEWERS", ["alice"])
+    monkeypatch.setattr("commands.dev.ALLOWED_REVIEWERS", ["alice"])
     monkeypatch.setattr("config.REVIEW_MODES", {
         "standard": {
             "members": ["alice"],
@@ -104,6 +105,7 @@ def test_review_done_note_masked(tmp_pipelines, monkeypatch):
         verdict="APPROVE",
         summary="LGTM",
         force=False,
+        round=None,
     )
 
     mock_note = MagicMock(return_value=True)

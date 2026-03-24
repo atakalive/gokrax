@@ -194,7 +194,7 @@ def main():
     p = sub.add_parser("review", help="record review result (idempotent: duplicate from same reviewer is skipped)")
     p.add_argument("--pj", "--project", dest="project", required=True)
     p.add_argument("--issue", type=int, required=True)
-    p.add_argument("--reviewer", required=True, choices=ALLOWED_REVIEWERS)
+    p.add_argument("--reviewer", required=True)
     p.add_argument("--verdict", required=True, choices=VALID_VERDICTS,
                    help="verdict: APPROVE / P0 / P1 / P2 / REJECT")
     p.add_argument("--summary", default="", help="review summary")
@@ -214,7 +214,7 @@ def main():
     p = sub.add_parser("dispute", help="dispute a P0/P1 verdict during REVISE")
     p.add_argument("--pj", "--project", dest="project", required=True)
     p.add_argument("--issue", type=int, required=True)
-    p.add_argument("--reviewer", required=True, choices=ALLOWED_REVIEWERS)
+    p.add_argument("--reviewer", required=True)
     p.add_argument("--reason", required=True, help="reason for the dispute")
 
     # commit

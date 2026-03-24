@@ -20,7 +20,7 @@ from pipeline_io import (
     clear_pending_notification,
 )
 from engine.fsm import get_notification_for_state
-from notify import notify_implementer, notify_reviewers, notify_discord, send_to_agent, send_to_agent_queued, post_gitlab_note as _post_gitlab_note, mask_agent_name
+from notify import notify_implementer, notify_reviewers, notify_discord, send_to_agent, send_to_agent_queued, post_gitlab_note as _post_gitlab_note, mask_agent_name, resolve_reviewer_arg
 import os
 
 # Verdict severity for dispute resolution (Issue #86)
@@ -831,11 +831,25 @@ def _update_issue_title_with_assessment(gitlab: str, issue_num: int, complex_lev
 # _post_gitlab_note is imported from notify.py (moved in Issue #177)
 
 
+def _masked_reviewer(
+    reviewer: str,
+    reviewer_number_map: dict[str, int] | None,
+) -> str:
+    """print 出力用のマスク済みレビュアー名を返す。"""
+    return mask_agent_name(reviewer, reviewer_number_map=reviewer_number_map)
+
+
 def cmd_review(args):
     """レビュー結果を記録（pipeline JSON + GitLab Issue note）"""
     import signal
 
     path = get_path(args.project)
+    _pipeline: dict = load_pipeline(path)
+    args.reviewer = resolve_reviewer_arg(
+        args.reviewer, _pipeline.get("reviewer_number_map")
+    )
+    if args.reviewer not in ALLOWED_REVIEWERS:
+        raise SystemExit(f"Unknown reviewer: {args.reviewer}")
     _skipped = False
     _dispute_accepted = False
 
@@ -885,7 +899,7 @@ def cmd_review(args):
             # 非レビュー状態（IMPLEMENTATION 等）で届いたレビューは静かに破棄する。
             # エラーにするとレビュアーが transition --force で状態を巻き戻す事故が起きる (#135, #136)。
             _skipped = True
-            print(f"#{args.issue}: review by {args.reviewer} silently discarded (state={state})")
+            print(f"#{args.issue}: review by {_masked_reviewer(args.reviewer, _pipeline.get('reviewer_number_map'))} silently discarded (state={state})")
             return
         # ラウンド番号検証: stale なレビュー（前サイクルの Remind 応答等）を拒否する。
         # DESIGN_REVISE/CODE_REVISE 状態では dispute レビュー（--force 必須）のみ
@@ -934,13 +948,13 @@ def cmd_review(args):
             # NPASS: pass < target_pass なら上書きを許可（次のパスのレビュー）
             npass_overwrite = existing.get("pass", 1) < existing.get("target_pass", 1)
             if not args.force and not npass_overwrite:
-                print(f"#{args.issue}: already reviewed by {args.reviewer}, skipping")
+                print(f"#{args.issue}: already reviewed by {_masked_reviewer(args.reviewer, _pipeline.get('reviewer_number_map'))}, skipping")
                 _skipped = True
                 return
             if npass_overwrite:
                 print(f"#{args.issue}: NPASS overwrite (pass {existing.get('pass', 1)}/{existing.get('target_pass', 1)})")
             elif args.force:
-                print(f"#{args.issue}: overwriting existing review by {args.reviewer} (--force)")
+                print(f"#{args.issue}: overwriting existing review by {_masked_reviewer(args.reviewer, _pipeline.get('reviewer_number_map'))} (--force)")
         # dispute accepted 時はレビューを削除して早期 return（次の REVIEW サイクルで再レビューを強制）
         if _dispute_accepted:
             issue[key].pop(args.reviewer, None)
@@ -956,7 +970,7 @@ def cmd_review(args):
         n_pass_config = mode_config.get("n_pass", {})
         target_pass = n_pass_config.get(args.reviewer, 1)
         if not isinstance(target_pass, int) or target_pass < 1:
-            print(f"WARNING: n_pass[{args.reviewer}] = {target_pass!r} is invalid, defaulting to 1")
+            print(f"WARNING: n_pass[{_masked_reviewer(args.reviewer, _pipeline.get('reviewer_number_map'))}] = {target_pass!r} is invalid, defaulting to 1")
             target_pass = 1
 
         existing_entry = issue.get(key, {}).get(args.reviewer, {})
@@ -987,7 +1001,7 @@ def cmd_review(args):
         return
 
     state = data.get("state", "IDLE")
-    print(f"{args.project}: #{args.issue} review by {args.reviewer} = {args.verdict}")
+    print(f"{args.project}: #{args.issue} review by {_masked_reviewer(args.reviewer, data.get('reviewer_number_map'))} = {args.verdict}")
 
     # メトリクス記録（Issue #81）
     from pipeline_io import append_metric
@@ -1043,6 +1057,10 @@ def cmd_dispute(args):
     import signal
 
     path = get_path(args.project)
+    _pipeline: dict = load_pipeline(path)
+    args.reviewer = resolve_reviewer_arg(
+        args.reviewer, _pipeline.get("reviewer_number_map")
+    )
 
     def do_dispute(data):
         state = data.get("state", "IDLE")
@@ -1061,7 +1079,7 @@ def cmd_dispute(args):
         verdict = reviewer_review.get("verdict", "").upper()
         if verdict not in ("P0", "P1"):
             raise SystemExit(
-                f"#{args.issue}: {args.reviewer} の verdict は {verdict or '(なし)'} — "
+                f"#{args.issue}: {_masked_reviewer(args.reviewer, _pipeline.get('reviewer_number_map'))} の verdict は {verdict or '(なし)'} — "
                 f"P0/P1 のみ dispute 可能"
             )
 
@@ -1072,7 +1090,7 @@ def cmd_dispute(args):
         )
         if has_pending:
             raise SystemExit(
-                f"#{args.issue}: {args.reviewer} への dispute は既に pending"
+                f"#{args.issue}: {_masked_reviewer(args.reviewer, _pipeline.get('reviewer_number_map'))} への dispute は既に pending"
             )
 
         if not args.reason.strip():
@@ -1103,7 +1121,7 @@ def cmd_dispute(args):
         if _deferred:
             signal.raise_signal(signal.SIGTERM)
 
-    print(f"{args.project}: #{args.issue} dispute filed against {args.reviewer}")
+    print(f"{args.project}: #{args.issue} dispute filed against {_masked_reviewer(args.reviewer, data.get('reviewer_number_map'))}")
 
     # dispute 即時通知（best-effort）
     state = data.get("state", "IDLE")
@@ -1122,7 +1140,7 @@ def cmd_dispute(args):
         f"--reviewer {args.reviewer} --verdict <APPROVE/P0/P1/P2> --summary \"...\" --force"
     )
     if not send_to_agent_queued(args.reviewer, dispute_msg):
-        print(f"WARNING: dispute 通知の送信に失敗 ({args.reviewer})")
+        print(f"WARNING: dispute 通知の送信に失敗 ({_masked_reviewer(args.reviewer, data.get('reviewer_number_map'))})")
 
     gitlab = data.get("gitlab", f"{GITLAB_NAMESPACE}/{args.project}")
     reviewer_map = data.get("reviewer_number_map")
@@ -1361,8 +1379,17 @@ def cmd_exclude(args):
     if args.list:
         data = load_pipeline(path)
         excluded = data.get("excluded_reviewers", [])
-        print(f"{args.project}: excluded_reviewers = {excluded}")
+        _rnm_list = data.get("reviewer_number_map")
+        masked_excluded = [_masked_reviewer(n, _rnm_list) for n in excluded]
+        print(f"{args.project}: excluded_reviewers = {masked_excluded}")
         return
+
+    _pipeline: dict = load_pipeline(path)
+    _rnm: dict[str, int] | None = _pipeline.get("reviewer_number_map")
+    if args.add:
+        args.add = [resolve_reviewer_arg(n, _rnm) for n in args.add]
+    elif args.remove:
+        args.remove = [resolve_reviewer_arg(n, _rnm) for n in args.remove]
 
     # --add / --remove 共通: レビュアー名バリデーション
     names = args.add or args.remove
@@ -1399,10 +1426,12 @@ def cmd_exclude(args):
             final_excluded = list(excluded)
 
         update_pipeline(path, do_add)
+        _masked_added = [_masked_reviewer(n, _rnm) for n in added_names]
+        _masked_final = [_masked_reviewer(n, _rnm) for n in final_excluded]
         if added_names:
-            print(f"{args.project}: excluded {added_names} (excluded_reviewers={final_excluded})")
+            print(f"{args.project}: excluded {_masked_added} (excluded_reviewers={_masked_final})")
         else:
-            print(f"{args.project}: already excluded (excluded_reviewers={final_excluded})")
+            print(f"{args.project}: already excluded (excluded_reviewers={_masked_final})")
         if clamp_msg:
             print(clamp_msg)
         return
@@ -1436,10 +1465,12 @@ def cmd_exclude(args):
             final_excluded_r = list(excluded)
 
         update_pipeline(path, do_remove)
+        _masked_removed = [_masked_reviewer(n, _rnm) for n in removed_names]
+        _masked_final_r = [_masked_reviewer(n, _rnm) for n in final_excluded_r]
         if removed_names:
-            print(f"{args.project}: unexcluded {removed_names} (excluded_reviewers={final_excluded_r})")
+            print(f"{args.project}: unexcluded {_masked_removed} (excluded_reviewers={_masked_final_r})")
         else:
-            print(f"{args.project}: not excluded (excluded_reviewers={final_excluded_r})")
+            print(f"{args.project}: not excluded (excluded_reviewers={_masked_final_r})")
         if clamp_msg_r:
             print(clamp_msg_r)
         return

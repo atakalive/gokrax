@@ -417,6 +417,34 @@ def mask_agent_name(name: str, reviewer_number_map: dict[str, int] | None = None
         return name
 
 
+def resolve_reviewer_arg(
+    name_or_number: str,
+    reviewer_number_map: dict[str, int] | None,
+) -> str:
+    """CLI引数の番号指定 ("3") を実名 ("basho") に解決する。
+
+    - name_or_number が数字文字列の場合:
+      - reviewer_number_map が None → SystemExit（番号指定は利用不可）
+      - reviewer_number_map に該当番号がない → SystemExit（無効な番号）
+      - 該当番号がある → 実名を返す
+    - name_or_number が数字でない場合: そのまま返す（実名フォールバック）。
+    """
+    if not name_or_number.isdigit():
+        return name_or_number
+    if reviewer_number_map is None:
+        raise SystemExit(
+            "Reviewer number is only available after batch start"
+        )
+    number = int(name_or_number)
+    reverse_map = {v: k for k, v in reviewer_number_map.items()}
+    if number not in reverse_map:
+        raise SystemExit(
+            f"Reviewer {number} not found in current batch. "
+            f"Check GitLab issue comments for valid reviewer numbers"
+        )
+    return reverse_map[number]
+
+
 def post_gitlab_note(gitlab: str, issue_num: int, body: str) -> bool:
     """glab issue note を投稿。失敗時は2回リトライ（間隔3秒）。"""
     for attempt in range(3):

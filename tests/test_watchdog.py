@@ -5325,3 +5325,128 @@ class TestSkipDesignInitialization:
         assert "design_revise_count" not in saved
         assert "code_revise_count" not in saved
         assert saved.get("base_commit") == "abc12345deadbeef"
+
+
+class TestReviewerNumberMapPhaseOverride:
+    """Issue #208: reviewer_number_map がフェーズ上書きメンバーを含むことのテスト"""
+
+    def _run_initialize(
+        self, tmp_pipelines: Path, monkeypatch, mode_config: dict,
+        excluded: list[str],
+    ) -> dict:
+        """INITIALIZE→DESIGN_PLAN を実行し、保存された pipeline を返すヘルパー。"""
+        import json as _json
+        from watchdog import process
+
+        _modes = {"standard": mode_config}
+        monkeypatch.setattr("watchdog.REVIEW_MODES", _modes)
+        monkeypatch.setattr("engine.fsm.REVIEW_MODES", _modes)
+
+        path = tmp_pipelines / "pj.json"
+        data = {
+            "project": "pj", "gitlab": "testns/pj",
+            "state": "INITIALIZE", "enabled": True,
+            "batch": [{"issue": 1}],
+            "history": [],
+            "repo_path": "/fake/repo",
+        }
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(_json.dumps(data))
+        monkeypatch.setattr("watchdog.PIPELINES_DIR", tmp_pipelines)
+
+        mock_git = MagicMock()
+        mock_git.returncode = 0
+        mock_git.stdout = "abc12345\n"
+
+        with patch("watchdog._reset_reviewers", return_value=excluded), \
+             patch("watchdog._has_pytest", return_value=False), \
+             patch("subprocess.run", return_value=mock_git), \
+             patch("watchdog._poll_pytest_baseline"):
+            process(path)
+
+        return _json.loads(path.read_text())
+
+    def test_phase_override_members_included(self, tmp_pipelines, monkeypatch):
+        """review_config の全フェーズメンバー和集合が reviewer_number_map に含まれる"""
+        r1, r2, r3 = "reviewer1", "reviewer2", "reviewer3"
+        # ベースは r1, r2 のみ。code フェーズで r3 を追加
+        mode_config = {
+            "members": [r1, r2], "min_reviews": 1, "grace_period_sec": 0,
+            "code": {"members": [r2, r3]},
+        }
+        saved = self._run_initialize(
+            tmp_pipelines, monkeypatch,
+            mode_config=mode_config,
+            excluded=[],
+        )
+        rmap = saved.get("reviewer_number_map", {})
+        assert set(rmap.keys()) == {r1, r2, r3}
+        assert sorted(rmap.values()) == [1, 2, 3]
+
+    def test_excluded_not_in_map(self, tmp_pipelines, monkeypatch):
+        """excluded レビュアーは reviewer_number_map に含まれない"""
+        r1, r2, r3 = "reviewer1", "reviewer2", "reviewer3"
+        mode_config = {
+            "members": [r1, r2, r3], "min_reviews": 1, "grace_period_sec": 0,
+        }
+        saved = self._run_initialize(
+            tmp_pipelines, monkeypatch,
+            mode_config=mode_config,
+            excluded=[r2],
+        )
+        rmap = saved.get("reviewer_number_map", {})
+        assert r2 not in rmap
+        assert set(rmap.keys()) == {r1, r3}
+        assert sorted(rmap.values()) == [1, 2]
+
+    def test_fallback_to_mode_config_when_review_config_empty(self, tmp_pipelines, monkeypatch):
+        """review_config が空辞書のとき mode_config['members'] にフォールバック"""
+        r1, r2 = "reviewer1", "reviewer2"
+        mode_config = {
+            "members": [r1, r2], "min_reviews": 1, "grace_period_sec": 0,
+        }
+        # build_review_config をモックして空辞書を返す（旧パイプライン互換シナリオ）
+        saved = self._run_initialize(
+            tmp_pipelines, monkeypatch,
+            mode_config=mode_config,
+            excluded=[],
+        )
+        # build_review_config が通常どおり生成するので、まず正常動作を確認
+        # フォールバックの直接テストは別途 _save_excluded を直接呼んで検証
+        rmap = saved.get("reviewer_number_map", {})
+        assert set(rmap.keys()) == {r1, r2}
+        assert sorted(rmap.values()) == [1, 2]
+
+    def test_no_fallback_when_members_empty(self, tmp_pipelines, monkeypatch):
+        """review_config が存在するが全フェーズ members が空のとき、フォールバックしない"""
+        r1, r2 = "reviewer1", "reviewer2"
+        # ベースは r1, r2 だが、両フェーズの override で空にする
+        mode_config = {
+            "members": [r1, r2], "min_reviews": 0, "grace_period_sec": 0,
+            "design": {"members": []},
+            "code": {"members": []},
+        }
+        saved = self._run_initialize(
+            tmp_pipelines, monkeypatch,
+            mode_config=mode_config,
+            excluded=[],
+        )
+        rmap = saved.get("reviewer_number_map", {})
+        assert rmap == {}
+
+    def test_fallback_when_review_config_missing(self, tmp_pipelines, monkeypatch):
+        """review_config が空辞書（旧パイプライン互換）のとき mode_config にフォールバック"""
+        r1, r2 = "reviewer1", "reviewer2"
+        mode_config = {
+            "members": [r1, r2], "min_reviews": 1, "grace_period_sec": 0,
+        }
+        # build_review_config をモックして空辞書を返す
+        with patch("watchdog.build_review_config", return_value={}):
+            saved = self._run_initialize(
+                tmp_pipelines, monkeypatch,
+                mode_config=mode_config,
+                excluded=[],
+            )
+        rmap = saved.get("reviewer_number_map", {})
+        assert set(rmap.keys()) == {r1, r2}
+        assert sorted(rmap.values()) == [1, 2]

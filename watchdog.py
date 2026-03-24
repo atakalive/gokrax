@@ -966,19 +966,29 @@ def process(path: Path):
             mode_config = REVIEW_MODES.get(review_mode, REVIEW_MODES["standard"])
             path = get_path(pj)
 
-            # reviewer_number_map: バッチ参加レビュアーにランダム番号を割り当て
             import random
-            active_reviewers = [r for r in mode_config["members"] if r not in excluded]
-            n = len(active_reviewers)
-            numbers = list(range(1, n + 1))
-            random.shuffle(numbers)
-            reviewer_number_map = dict(zip(active_reviewers, numbers))
 
-            def _save_excluded(data):
+            def _save_excluded(data: dict) -> None:
                 data["excluded_reviewers"] = excluded
                 # reviewer_number_map は初回のみ生成（バッチ内で安定させるため）
                 if "reviewer_number_map" not in data:
-                    data["reviewer_number_map"] = reviewer_number_map
+                    # reviewer_number_map: バッチ参加レビュアーにランダム番号を割り当て
+                    # review_config からフェーズ別メンバーの和集合を取得（フェーズ上書き対応）
+                    rc = data.get("review_config", {})
+                    all_phase_members: set[str] = set()
+                    for phase_cfg in rc.values():
+                        if isinstance(phase_cfg, dict) and "members" in phase_cfg:
+                            all_phase_members.update(phase_cfg["members"])
+                    # review_config 自体が存在しない場合のフォールバック（旧パイプライン互換）
+                    # 注: review_config が存在するが全フェーズの members が空リストの場合は
+                    # フォールバックしない（空集合は意図的な設定）。
+                    if not rc:
+                        all_phase_members = set(mode_config.get("members", []))
+                    active_reviewers = sorted(r for r in all_phase_members if r not in excluded)
+                    n = len(active_reviewers)
+                    numbers = list(range(1, n + 1))
+                    random.shuffle(numbers)
+                    data["reviewer_number_map"] = dict(zip(active_reviewers, numbers))
 
                 # Calculate effective reviewer count
                 effective_count = len([m for m in mode_config["members"] if m not in excluded])

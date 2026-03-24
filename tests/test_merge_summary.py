@@ -21,10 +21,10 @@ def write_pipeline(path: Path, data: dict):
 def _make_pipeline(state="CODE_APPROVED", **kwargs):
     data = {
         "project": "test-pj",
-        "gitlab": "atakalive/test-pj",
+        "gitlab": "testns/test-pj",
         "state": state,
         "enabled": True,
-        "implementer": "kaneko",
+        "implementer": "implementer1",
         "batch": [
             {
                 "issue": 1, "title": "Fix bug", "commit": "abc123",
@@ -166,7 +166,7 @@ class TestCmdMergeSummary:
         agent_id = call_args[0][0]
         message = call_args[0][1]
 
-        assert agent_id == "kaneko"
+        assert agent_id == "implementer1"
         assert "[gokrax] test-pj: バッチ完了" in message
         assert "上記の作業を振り返り" in message
         assert "NO_REPLY で構いません" in message
@@ -176,7 +176,7 @@ class TestCmdMergeSummary:
         """implementer フィールドがカスタム値の場合、正しいエージェントに通知すること"""
         path = tmp_pipelines / "test-pj.json"
         data = _make_pipeline()
-        data["implementer"] = "pascal"
+        data["implementer"] = "reviewer1"
         write_pipeline(path, data)
         from gokrax import cmd_merge_summary
         args = argparse.Namespace(project="test-pj")
@@ -187,7 +187,7 @@ class TestCmdMergeSummary:
 
         call_args = mock_send.call_args
         agent_id = call_args[0][0]
-        assert agent_id == "pascal"
+        assert agent_id == "reviewer1"
 
     def test_merge_summary_continues_on_send_failure(self, tmp_pipelines):
         """send_to_agent が失敗してもフローが継続すること (Issue #48)"""
@@ -233,8 +233,8 @@ class TestWatchdogCodeApprovedPostsSummary:
         """check_transition が send_merge_summary=True を返すこと"""
         from engine.fsm import check_transition
         batch = [{"issue": 1, "title": "Fix", "commit": "abc123",
-                  "design_reviews": {"pascal": {"verdict": "APPROVE"}},
-                  "code_reviews": {"pascal": {"verdict": "APPROVE"}}}]
+                  "design_reviews": {"reviewer1": {"verdict": "APPROVE"}},
+                  "code_reviews": {"reviewer1": {"verdict": "APPROVE"}}}]
         action = check_transition("CODE_APPROVED", batch)
         assert action.new_state == "MERGE_SUMMARY_SENT"
         assert action.send_merge_summary is True

@@ -201,14 +201,14 @@ class TestBuildPrompts:
             "spec_path": "docs/spec.md",
             "current_rev": "2",
             "issue_suggestions": {
-                "leibniz": {"phases": [{"name": "P1", "issues": [{"title": "Foo"}]}]},
-                "dijkstra": {"phases": [{"name": "P1", "issues": [{"title": "Bar"}]}]},
+                "reviewer2": {"phases": [{"name": "P1", "issues": [{"title": "Foo"}]}]},
+                "reviewer3": {"phases": [{"name": "P1", "issues": [{"title": "Bar"}]}]},
             },
         }
         data = {"project": "myproj"}
         prompt = build_issue_plan_prompt(sc, data)
-        assert "leibniz" in prompt
-        assert "dijkstra" in prompt
+        assert "reviewer2" in prompt
+        assert "reviewer3" in prompt
         assert "重複を排除" in prompt
         assert "統合" in prompt
         assert "myproj" in prompt
@@ -239,7 +239,7 @@ class TestCheckIssueSuggestion:
             "spec_path": "docs/spec.md",
             "current_rev": "1",
             "review_requests": {
-                "leibniz": {"status": "pending", "sent_at": None, "timeout_at": None,
+                "reviewer2": {"status": "pending", "sent_at": None, "timeout_at": None,
                             "last_nudge_at": None, "response": None},
             },
             "current_reviews": {"entries": {}},
@@ -250,62 +250,62 @@ class TestCheckIssueSuggestion:
         sc = self._base_sc()
         action = _check_issue_suggestion(sc, _now(), {"project": "gokrax"})
         assert action.send_to is not None
-        assert "leibniz" in action.send_to
-        assert len(action.send_to["leibniz"]) > 0
+        assert "reviewer2" in action.send_to
+        assert len(action.send_to["reviewer2"]) > 0
         rr_patch = action.pipeline_updates["review_requests_patch"]
-        assert "sent_at" in rr_patch["leibniz"]
-        assert "timeout_at" in rr_patch["leibniz"]
+        assert "sent_at" in rr_patch["reviewer2"]
+        assert "timeout_at" in rr_patch["reviewer2"]
 
     # 24. タイムアウト → rr_patch に status:timeout（既存フィールド保持）
     def test_timeout_sets_status(self):
         past = _now() - timedelta(seconds=config.SPEC_BLOCK_TIMERS["ISSUE_SUGGESTION"] + 10)
         sc = self._base_sc()
-        sc["review_requests"]["leibniz"].update({
+        sc["review_requests"]["reviewer2"].update({
             "sent_at": past.isoformat(),
             "timeout_at": past.isoformat(),  # 既に超過
         })
         action = _check_issue_suggestion(sc, _now(), {"project": "gokrax"})
         rr_patch = action.pipeline_updates["review_requests_patch"]
-        assert rr_patch["leibniz"]["status"] == "timeout"
-        assert "sent_at" in rr_patch["leibniz"]
-        assert "timeout_at" in rr_patch["leibniz"]
+        assert rr_patch["reviewer2"]["status"] == "timeout"
+        assert "sent_at" in rr_patch["reviewer2"]
+        assert "timeout_at" in rr_patch["reviewer2"]
 
     # 25. パース成功 → rr_patch に status:received（2人中1人が応答した中間状態）
     def test_parse_success_received(self):
         sc = self._base_sc()
         # 2人目のレビュアー（未応答）を追加 → all_complete=False の中間状態を作る
-        sc["review_requests"]["dijkstra"] = {
+        sc["review_requests"]["reviewer3"] = {
             "status": "pending", "sent_at": _now().isoformat(),
             "timeout_at": (_now() + timedelta(seconds=config.SPEC_BLOCK_TIMERS["ISSUE_SUGGESTION"])).isoformat(),
             "last_nudge_at": None, "response": None,
         }
-        sc["review_requests"]["leibniz"]["sent_at"] = _now().isoformat()
+        sc["review_requests"]["reviewer2"]["sent_at"] = _now().isoformat()
         raw = _yaml_block(
             "phases:\n"
             "  - name: Phase 1\n"
             "    issues:\n"
             "      - title: Implement auth\n"
         )
-        sc["current_reviews"]["entries"]["leibniz"] = {
+        sc["current_reviews"]["entries"]["reviewer2"] = {
             "status": "received",
             "raw_text": raw,
         }
         action = _check_issue_suggestion(sc, _now(), {"project": "gokrax"})
-        # dijkstra はまだ pending → all_complete=False → review_requests_patch に "received" が残る
+        # reviewer3 はまだ pending → all_complete=False → review_requests_patch に "received" が残る
         rr_patch = action.pipeline_updates["review_requests_patch"]
-        assert rr_patch["leibniz"]["status"] == "received"
+        assert rr_patch["reviewer2"]["status"] == "received"
 
     # 26. パース失敗 → rr_patch に status:parse_failed
     def test_parse_failure_parse_failed(self):
         sc = self._base_sc()
-        sc["review_requests"]["leibniz"]["sent_at"] = _now().isoformat()
-        sc["current_reviews"]["entries"]["leibniz"] = {
+        sc["review_requests"]["reviewer2"]["sent_at"] = _now().isoformat()
+        sc["current_reviews"]["entries"]["reviewer2"] = {
             "status": "received",
             "raw_text": "this is not valid yaml suggestion",
         }
         action = _check_issue_suggestion(sc, _now(), {"project": "gokrax"})
         rr_patch = action.pipeline_updates["review_requests_patch"]
-        assert rr_patch["leibniz"]["status"] == "parse_failed"
+        assert rr_patch["reviewer2"]["status"] == "parse_failed"
 
     # 27. 全員応答（1件有効）→ ISSUE_PLAN 遷移 + review_requests 完全リセット
     def test_all_responded_valid_transitions_to_issue_plan(self):
@@ -316,8 +316,8 @@ class TestCheckIssueSuggestion:
             "    issues:\n"
             "      - title: Implement foo\n"
         )
-        sc["review_requests"]["leibniz"]["sent_at"] = _now().isoformat()
-        sc["current_reviews"]["entries"]["leibniz"] = {
+        sc["review_requests"]["reviewer2"]["sent_at"] = _now().isoformat()
+        sc["current_reviews"]["entries"]["reviewer2"] = {
             "status": "received",
             "raw_text": raw,
         }
@@ -325,7 +325,7 @@ class TestCheckIssueSuggestion:
         assert action.next_state == "ISSUE_PLAN"
         assert "[Spec] Issue分割提案回収完了" in action.discord_notify
         # review_requests 完全リセット確認
-        reset = action.pipeline_updates["review_requests_patch"]["leibniz"]
+        reset = action.pipeline_updates["review_requests_patch"]["reviewer2"]
         assert reset["status"] == "pending"
         assert reset["sent_at"] is None
         assert reset["timeout_at"] is None
@@ -335,8 +335,8 @@ class TestCheckIssueSuggestion:
     # 28. 全員応答（0件有効）→ SPEC_PAUSED
     def test_all_responded_none_valid_transitions_to_paused(self):
         sc = self._base_sc()
-        sc["review_requests"]["leibniz"]["sent_at"] = _now().isoformat()
-        sc["current_reviews"]["entries"]["leibniz"] = {
+        sc["review_requests"]["reviewer2"]["sent_at"] = _now().isoformat()
+        sc["current_reviews"]["entries"]["reviewer2"] = {
             "status": "received",
             "raw_text": "not a valid suggestion",
         }
@@ -355,9 +355,9 @@ class TestCheckIssuePlan:
         sc = {
             "spec_path": "docs/spec.md",
             "current_rev": "1",
-            "spec_implementer": "hanfei",
+            "spec_implementer": "reviewer4",
             "issue_suggestions": {
-                "leibniz": {"phases": [{"name": "P1", "issues": [{"title": "Foo"}]}]},
+                "reviewer2": {"phases": [{"name": "P1", "issues": [{"title": "Foo"}]}]},
             },
             "retry_counts": {},
         }
@@ -369,7 +369,7 @@ class TestCheckIssuePlan:
         sc = self._base_sc()
         action = _check_issue_plan(sc, _now(), {"project": "gokrax"})
         assert action.send_to is not None
-        assert "hanfei" in action.send_to
+        assert "reviewer4" in action.send_to
         assert action.pipeline_updates.get("_issue_plan_sent") is not None
 
     # 30. 応答あり（正常, no_queue=false）→ QUEUE_PLAN 遷移 + created_issues 設定
@@ -438,7 +438,7 @@ class TestCheckQueuePlan:
     def _base_sc(self, **kwargs):
         sc = {
             "spec_path": "docs/spec.md",
-            "spec_implementer": "hanfei",
+            "spec_implementer": "reviewer4",
             "created_issues": [51, 52, 53],
             "retry_counts": {},
         }
@@ -450,7 +450,7 @@ class TestCheckQueuePlan:
         sc = self._base_sc()
         action = _check_queue_plan(sc, _now(), {"project": "gokrax"})
         assert action.send_to is not None
-        assert "hanfei" in action.send_to
+        assert "reviewer4" in action.send_to
         assert action.pipeline_updates.get("_queue_plan_sent") is not None
 
     # 36. 応答あり（正常）→ SPEC_DONE 遷移
@@ -481,23 +481,23 @@ class TestCheckQueuePlan:
 
     # 38. 複数reviewer・受領と完了が別tick（Leibniz P0再現テスト）
     def test_multi_tick_issue_suggestions_preserved(self):
-        """tick1でpascalがreceived→永続化、tick2でleibnizがtimeout→all_complete。
-        issue_suggestionsにpascalの提案が残っていること。"""
+        """tick1でreviewer1がreceived→永続化、tick2でreviewer2がtimeout→all_complete。
+        issue_suggestionsにreviewer1の提案が残っていること。"""
         raw = _yaml_block(
             "phases:\n"
             "  - name: Phase 1\n"
             "    issues:\n"
             "      - title: Implement foo\n"
         )
-        # tick1: pascal received, leibniz still pending
+        # tick1: reviewer1 received, reviewer2 still pending
         sc = {
             "review_requests": {
-                "pascal": {
+                "reviewer1": {
                     "status": "pending", "sent_at": _now().isoformat(),
                     "timeout_at": (_now() + timedelta(seconds=config.SPEC_BLOCK_TIMERS["ISSUE_SUGGESTION"])).isoformat(),
                     "last_nudge_at": None, "response": None,
                 },
-                "leibniz": {
+                "reviewer2": {
                     "status": "pending", "sent_at": _now().isoformat(),
                     "timeout_at": (_now() + timedelta(seconds=config.SPEC_BLOCK_TIMERS["ISSUE_SUGGESTION"])).isoformat(),
                     "last_nudge_at": None, "response": None,
@@ -505,27 +505,27 @@ class TestCheckQueuePlan:
             },
             "current_reviews": {
                 "entries": {
-                    "pascal": {"status": "received", "raw_text": raw},
+                    "reviewer1": {"status": "received", "raw_text": raw},
                 },
             },
             "spec_path": "docs/spec.md",
             "current_rev": "1",
         }
         action1 = _check_issue_suggestion(sc, _now(), {"project": "gokrax"})
-        # pascal は received になり、issue_suggestions に格納される
-        assert action1.pipeline_updates["issue_suggestions"]["pascal"] is not None
-        assert action1.next_state is None  # leibniz がまだ pending
+        # reviewer1 は received になり、issue_suggestions に格納される
+        assert action1.pipeline_updates["issue_suggestions"]["reviewer1"] is not None
+        assert action1.next_state is None  # reviewer2 がまだ pending
 
-        # tick2: pascal の提案は永続化済み(spec_configに反映)、leibniz がtimeout
+        # tick2: reviewer1 の提案は永続化済み(spec_configに反映)、reviewer2 がtimeout
         sc2 = {
             "review_requests": {
-                "pascal": {
+                "reviewer1": {
                     "status": "received",  # tick1 で更新済み
                     "sent_at": _now().isoformat(),
                     "timeout_at": (_now() - timedelta(seconds=1)).isoformat(),
                     "last_nudge_at": None, "response": None,
                 },
-                "leibniz": {
+                "reviewer2": {
                     "status": "pending", "sent_at": _now().isoformat(),
                     "timeout_at": (_now() - timedelta(seconds=1)).isoformat(),  # expired
                     "last_nudge_at": None, "response": None,
@@ -533,12 +533,12 @@ class TestCheckQueuePlan:
             },
             "current_reviews": {"entries": {}},
             # tick1 で永続化された issue_suggestions
-            "issue_suggestions": {"pascal": {"phases": [{"name": "Phase 1", "issues": [{"title": "Implement foo"}]}]}},
+            "issue_suggestions": {"reviewer1": {"phases": [{"name": "Phase 1", "issues": [{"title": "Implement foo"}]}]}},
             "spec_path": "docs/spec.md",
             "current_rev": "1",
         }
         action2 = _check_issue_suggestion(sc2, _now(), {"project": "gokrax"})
-        # all_complete (pascal=received, leibniz=timeout) → ISSUE_PLAN
+        # all_complete (reviewer1=received, reviewer2=timeout) → ISSUE_PLAN
         assert action2.next_state == "ISSUE_PLAN"
-        # pascal の提案が保持されていること
-        assert "pascal" in action2.pipeline_updates["issue_suggestions"]
+        # reviewer1 の提案が保持されていること
+        assert "reviewer1" in action2.pipeline_updates["issue_suggestions"]

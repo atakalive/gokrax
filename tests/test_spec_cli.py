@@ -23,12 +23,12 @@ def _make_pipeline(state="IDLE", spec_mode=False, spec_config=None, **kwargs):
     """テスト用 pipeline JSON 辞書を生成。"""
     data = {
         "project": "test-pj",
-        "gitlab": "atakalive/test-pj",
+        "gitlab": "testns/test-pj",
         "state": state,
         "spec_mode": spec_mode,
         "spec_config": spec_config if spec_config is not None else {},
         "enabled": True,
-        "implementer": "kaneko",
+        "implementer": "implementer1",
         "review_mode": "full",
         "batch": [],
         "history": [],
@@ -50,9 +50,9 @@ def _make_active_pipeline(state="SPEC_REVIEW", **sc_overrides):
     """spec_mode=True の active pipeline を生成。"""
     sc = _make_spec_config(
         spec_path="docs/spec.md",
-        spec_implementer="kaneko",
+        spec_implementer="implementer1",
         review_requests={
-            "pascal": {"status": "pending", "sent_at": None, "timeout_at": None,
+            "reviewer1": {"status": "pending", "sent_at": None, "timeout_at": None,
                        "last_nudge_at": None, "response": None},
             "aria": {"status": "pending", "sent_at": None, "timeout_at": None,
                      "last_nudge_at": None, "response": None},
@@ -86,7 +86,7 @@ class TestCmdSpecStart:
 
         from commands.spec import cmd_spec_start
         args = _args(
-            project="test-pj", spec="docs/spec.md", implementer="kaneko",
+            project="test-pj", spec="docs/spec.md", implementer="implementer1",
             review_only=False, no_queue=False, skip_review=False,
             max_cycles=None, review_mode=None, model=None, auto_continue=False, auto_qrun=False,
         )
@@ -99,13 +99,13 @@ class TestCmdSpecStart:
         assert data["enabled"] is True
         sc = data["spec_config"]
         assert sc["spec_path"].endswith("docs/spec.md")
-        assert sc["spec_implementer"] == "kaneko"
+        assert sc["spec_implementer"] == "implementer1"
         assert sc["auto_continue"] is False
         assert sc["review_only"] is False
         assert sc["no_queue"] is False
         assert sc["skip_review"] is False
-        assert "pascal" in sc["review_requests"]
-        assert sc["review_requests"]["pascal"]["status"] == "pending"
+        assert "reviewer1" in sc["review_requests"]
+        assert sc["review_requests"]["reviewer1"]["status"] == "pending"
         assert sc["revise_count"] == 0
         assert sc["review_history"] == []
         assert sc["force_events"] == []
@@ -117,7 +117,7 @@ class TestCmdSpecStart:
 
         from commands.spec import cmd_spec_start
         args = _args(
-            project="test-pj", spec="docs/spec.md", implementer="kaneko",
+            project="test-pj", spec="docs/spec.md", implementer="implementer1",
             review_only=False, no_queue=False, skip_review=True,
             max_cycles=None, review_mode=None, model=None, auto_continue=False, auto_qrun=False,
         )
@@ -136,7 +136,7 @@ class TestCmdSpecStart:
 
         from commands.spec import cmd_spec_start
         args = _args(
-            project="test-pj", spec="docs/spec.md", implementer="kaneko",
+            project="test-pj", spec="docs/spec.md", implementer="implementer1",
             review_only=True, no_queue=False, skip_review=False,
             max_cycles=None, review_mode=None, model=None, auto_continue=True, auto_qrun=False,
         )
@@ -156,7 +156,7 @@ class TestCmdSpecStart:
 
         from commands.spec import cmd_spec_start
         args = _args(
-            project="test-pj", spec="docs/spec.md", implementer="kaneko",
+            project="test-pj", spec="docs/spec.md", implementer="implementer1",
             review_only=True, no_queue=False, skip_review=True,
             max_cycles=None, review_mode=None, model=None, auto_continue=False, auto_qrun=False,
         )
@@ -170,7 +170,7 @@ class TestCmdSpecStart:
 
         from commands.spec import cmd_spec_start
         args = _args(
-            project="test-pj", spec="docs/spec.md", implementer="kaneko",
+            project="test-pj", spec="docs/spec.md", implementer="implementer1",
             review_only=False, no_queue=False, skip_review=False,
             max_cycles=None, review_mode=None, model=None, auto_continue=False, auto_qrun=False,
         )
@@ -184,7 +184,7 @@ class TestCmdSpecStart:
 
         from commands.spec import cmd_spec_start
         args = _args(
-            project="test-pj", spec="docs/spec.md", implementer="kaneko",
+            project="test-pj", spec="docs/spec.md", implementer="implementer1",
             review_only=False, no_queue=False, skip_review=False,
             max_cycles=None, review_mode=None, model=None, auto_continue=False, auto_qrun=False,
         )
@@ -198,7 +198,7 @@ class TestCmdSpecStart:
 
         from commands.spec import cmd_spec_start
         args = _args(
-            project="test-pj", spec="docs/nonexistent.md", implementer="kaneko",
+            project="test-pj", spec="docs/nonexistent.md", implementer="implementer1",
             review_only=False, no_queue=False, skip_review=False,
             max_cycles=None, review_mode=None, model=None, auto_continue=False, auto_qrun=False,
         )
@@ -212,7 +212,7 @@ class TestCmdSpecStart:
 
         from commands.spec import cmd_spec_start
         args = _args(
-            project="test-pj", spec="docs/spec.md", implementer="kaneko",
+            project="test-pj", spec="docs/spec.md", implementer="implementer1",
             review_only=False, no_queue=False, skip_review=False,
             max_cycles=0, review_mode=None, model=None, auto_continue=False, auto_qrun=False,
         )
@@ -232,10 +232,10 @@ class TestCmdSpecApprove:
         """SPEC_REVIEW (P0/P1 なし) → SPEC_APPROVED"""
         path = tmp_pipelines / "test-pj.json"
         sc = _make_spec_config(
-            spec_path="docs/spec.md", spec_implementer="kaneko",
+            spec_path="docs/spec.md", spec_implementer="implementer1",
             current_reviews={
                 "entries": {
-                    "pascal": {"verdict": "APPROVE", "items": []},
+                    "reviewer1": {"verdict": "APPROVE", "items": []},
                 }
             },
         )
@@ -253,7 +253,7 @@ class TestCmdSpecApprove:
         sc = _make_spec_config(
             current_reviews={
                 "entries": {
-                    "pascal": {"verdict": "P1", "items": [{"id": "r1", "severity": "major"}]},
+                    "reviewer1": {"verdict": "P1", "items": [{"id": "r1", "severity": "major"}]},
                 }
             },
         )
@@ -271,7 +271,7 @@ class TestCmdSpecApprove:
             current_rev="2",
             current_reviews={
                 "entries": {
-                    "pascal": {
+                    "reviewer1": {
                         "verdict": "P0",
                         "items": [{"id": "item1", "severity": "critical"}],
                     },
@@ -294,7 +294,7 @@ class TestCmdSpecApprove:
         fe = sc_out["force_events"][0]
         assert fe["actor"] == "M"
         assert fe["from_state"] == "SPEC_REVIEW"
-        assert "pascal:item1" in fe["remaining_p1_items"]
+        assert "reviewer1:item1" in fe["remaining_p1_items"]
 
 
     def test_approve_invalid_state(self, tmp_pipelines):
@@ -373,12 +373,12 @@ class TestCmdSpecRetry:
         sc = _make_spec_config(
             spec_path="docs/spec.md",
             review_requests={
-                "pascal": {"status": "responded", "sent_at": "2026-01-01T00:00:00+09:00",
+                "reviewer1": {"status": "responded", "sent_at": "2026-01-01T00:00:00+09:00",
                            "timeout_at": None, "last_nudge_at": None, "response": "P0"},
                 "aria": {"status": "timeout", "sent_at": "2026-01-01T00:00:00+09:00",
                          "timeout_at": None, "last_nudge_at": None, "response": None},
             },
-            current_reviews={"entries": {"pascal": {"verdict": "P0", "items": []}}},
+            current_reviews={"entries": {"reviewer1": {"verdict": "P0", "items": []}}},
         )
         write_pipeline(path, _make_pipeline(
             state="SPEC_REVIEW_FAILED", spec_mode=True, spec_config=sc
@@ -435,10 +435,10 @@ class TestCmdSpecResume:
             spec_path="docs/spec.md",
             paused_from="SPEC_REVIEW",
             review_requests={
-                "pascal": {"status": "responded", "sent_at": "2026-01-01T00:00:00+09:00",
+                "reviewer1": {"status": "responded", "sent_at": "2026-01-01T00:00:00+09:00",
                            "timeout_at": None, "last_nudge_at": None, "response": "APPROVE"},
             },
-            current_reviews={"entries": {"pascal": {"verdict": "APPROVE", "items": []}}},
+            current_reviews={"entries": {"reviewer1": {"verdict": "APPROVE", "items": []}}},
         )
         write_pipeline(path, _make_pipeline(state="SPEC_PAUSED", spec_mode=True, spec_config=sc))
 
@@ -449,8 +449,8 @@ class TestCmdSpecResume:
         assert data["state"] == "SPEC_REVIEW"
         sc_out = data["spec_config"]
         assert sc_out["current_reviews"] == {}
-        assert sc_out["review_requests"]["pascal"]["status"] == "pending"
-        assert sc_out["review_requests"]["pascal"]["response"] is None
+        assert sc_out["review_requests"]["reviewer1"]["status"] == "pending"
+        assert sc_out["review_requests"]["reviewer1"]["response"] is None
 
     def test_resume_from_issue_suggestion_recalculates_timeout(self, tmp_pipelines):
         """paused_from=ISSUE_SUGGESTION: issue_suggestions の timeout_at 再計算"""
@@ -540,7 +540,7 @@ class TestCmdSpecExtend:
         """extend で current_reviews はクリアされない"""
         path = tmp_pipelines / "test-pj.json"
         existing_reviews = {
-            "entries": {"pascal": {"verdict": "P1", "items": [{"id": "x", "severity": "major"}]}}
+            "entries": {"reviewer1": {"verdict": "P1", "items": [{"id": "x", "severity": "major"}]}}
         }
         sc = _make_spec_config(
             spec_path="docs/spec.md",
@@ -566,13 +566,13 @@ class TestCmdSpecStatus:
         path = tmp_pipelines / "test-pj.json"
         sc = _make_spec_config(
             spec_path="docs/spec.md",
-            spec_implementer="kaneko",
+            spec_implementer="implementer1",
             current_rev="3",
             rev_index=2,
             max_revise_cycles=5,
             retry_counts={"SPEC_REVIEW": 1},
             review_requests={
-                "pascal": {"status": "pending", "sent_at": None, "timeout_at": None,
+                "reviewer1": {"status": "pending", "sent_at": None, "timeout_at": None,
                            "last_nudge_at": None, "response": None},
             },
             pipelines_dir="/tmp/spec-reviews",
@@ -589,8 +589,8 @@ class TestCmdSpecStatus:
         assert "rev3" in captured.out
         assert "cycle rev2/5" in captured.out
         assert "docs/spec.md" in captured.out
-        assert "kaneko" in captured.out
-        assert "pascal" in captured.out
+        assert "implementer1" in captured.out
+        assert "reviewer1" in captured.out
         assert "/tmp/spec-reviews" in captured.out
 
     def test_status_not_active(self, tmp_pipelines, capsys):

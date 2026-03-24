@@ -149,7 +149,7 @@ class TestCmdExtend:
     def test_extend_discord_notification(self, tmp_pipelines, sample_pipeline):
         """Discord通知が送信されること"""
         sample_pipeline["state"] = "DESIGN_PLAN"
-        sample_pipeline["implementer"] = "kaneko"
+        sample_pipeline["implementer"] = "implementer1"
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
 
@@ -163,6 +163,6 @@ class TestCmdExtend:
         mock_discord.assert_called_once()
         call_args = mock_discord.call_args[0][0]
         assert "test-pj" in call_args
-        assert "kaneko" in call_args
+        assert "implementer1" in call_args
         assert "600秒延長" in call_args
         assert "累計+600秒" in call_args

@@ -41,12 +41,12 @@ def _make_spec_config(**overrides):
 def _make_pipeline(state="SPEC_REVISE", spec_config=None, **kwargs):
     data = {
         "project": "test-pj",
-        "gitlab": "atakalive/test-pj",
+        "gitlab": "testns/test-pj",
         "state": state,
         "spec_mode": True,
         "spec_config": spec_config if spec_config is not None else {},
         "enabled": True,
-        "implementer": "kaneko",
+        "implementer": "implementer1",
         "review_mode": "full",
         "batch": [],
         "history": [],
@@ -314,9 +314,9 @@ class TestCheckSpecReviseSelfReview:
     def test_check_spec_revise_self_review_clean(self):
         """self_review_response が clean → SPEC_REVIEW 遷移。"""
         sc = _make_spec_config(
-            spec_implementer="kaneko",
+            spec_implementer="implementer1",
             review_requests={
-                "pascal": {"status": "pending", "sent_at": None, "timeout_at": None,
+                "reviewer1": {"status": "pending", "sent_at": None, "timeout_at": None,
                            "last_nudge_at": None, "response": None},
             },
             _revise_sent="2026-03-01T10:00:00+09:00",
@@ -349,7 +349,7 @@ class TestCheckSpecReviseSelfReview:
     def test_check_spec_revise_self_review_issues(self):
         """self_review issues_found → SPEC_REVISE のまま差し戻し。_self_review_pass は 0 のまま。"""
         sc = _make_spec_config(
-            spec_implementer="kaneko",
+            spec_implementer="implementer1",
             _revise_sent="2026-03-01T10:00:00+09:00",
             _self_review_sent="2026-03-01T11:00:00+09:00",
             _self_review_response=_default_yaml_one_no(),
@@ -369,12 +369,12 @@ class TestCheckSpecReviseSelfReview:
         assert pu.get("_self_review_pending_updates") is None
         # implementer に send_to が設定される
         assert action.send_to is not None
-        assert "kaneko" in action.send_to
+        assert "implementer1" in action.send_to
 
     def test_check_spec_revise_self_review_issues_no_double_send(self):
         """issues_found 差し戻し後、_revise_sent が更新されており (E) の初回送信が発火しない。"""
         sc = _make_spec_config(
-            spec_implementer="kaneko",
+            spec_implementer="implementer1",
             _revise_sent="2026-03-01T10:00:00+09:00",
             _self_review_sent="2026-03-01T11:00:00+09:00",
             _self_review_response=_default_yaml_one_no(),
@@ -390,7 +390,7 @@ class TestCheckSpecReviseSelfReview:
     def test_check_spec_revise_self_review_issues_timeout_reset(self):
         """issues_found 後の _revise_sent が now に更新され、(D) のタイムアウト基準がリセットされる。"""
         sc = _make_spec_config(
-            spec_implementer="kaneko",
+            spec_implementer="implementer1",
             _revise_sent="2026-02-28T10:00:00+09:00",  # 古い値
             _self_review_sent="2026-03-01T11:00:00+09:00",
             _self_review_response=_default_yaml_one_no(),
@@ -406,8 +406,8 @@ class TestCheckSpecReviseSelfReview:
     def test_check_spec_revise_self_review_parse_fail_retry(self):
         """self_review parse_failed → リトライ（_self_review_pass +1）。"""
         sc = _make_spec_config(
-            spec_implementer="kaneko",
-            self_review_agent="pascal",
+            spec_implementer="implementer1",
+            self_review_agent="reviewer1",
             _revise_sent="2026-03-01T10:00:00+09:00",
             _self_review_sent="2026-03-01T11:00:00+09:00",
             _self_review_response="```yaml\nnot valid\n```",
@@ -424,8 +424,8 @@ class TestCheckSpecReviseSelfReview:
         """parse_failed が SPEC_REVISE_SELF_REVIEW_PASSES 回到達 → SPEC_PAUSED。"""
         from config import SPEC_REVISE_SELF_REVIEW_PASSES
         sc = _make_spec_config(
-            spec_implementer="kaneko",
-            self_review_agent="pascal",
+            spec_implementer="implementer1",
+            self_review_agent="reviewer1",
             _revise_sent="2026-03-01T10:00:00+09:00",
             _self_review_sent="2026-03-01T11:00:00+09:00",
             _self_review_response="```yaml\nnot valid\n```",
@@ -441,8 +441,8 @@ class TestCheckSpecReviseSelfReview:
         """self_review タイムアウト → リトライ（_self_review_pass +1）。"""
         from config import SPEC_BLOCK_TIMERS
         sc = _make_spec_config(
-            spec_implementer="kaneko",
-            self_review_agent="pascal",
+            spec_implementer="implementer1",
+            self_review_agent="reviewer1",
             _revise_sent="2026-03-01T10:00:00+09:00",
             _self_review_sent=_past(SPEC_BLOCK_TIMERS["SPEC_REVIEW"] + 60),
             _self_review_response=None,
@@ -459,8 +459,8 @@ class TestCheckSpecReviseSelfReview:
         """self_review タイムアウトが最大回数 → SPEC_PAUSED。"""
         from config import SPEC_BLOCK_TIMERS, SPEC_REVISE_SELF_REVIEW_PASSES
         sc = _make_spec_config(
-            spec_implementer="kaneko",
-            self_review_agent="pascal",
+            spec_implementer="implementer1",
+            self_review_agent="reviewer1",
             _revise_sent="2026-03-01T10:00:00+09:00",
             _self_review_sent=_past(SPEC_BLOCK_TIMERS["SPEC_REVIEW"] + 60),
             _self_review_response=None,
@@ -485,12 +485,12 @@ changes:
 ```
 """
         sc = _make_spec_config(
-            spec_implementer="kaneko",
-            self_review_agent="pascal",
+            spec_implementer="implementer1",
+            self_review_agent="reviewer1",
             spec_path="/repo/docs/test-spec.md",
             current_rev="1",
             review_requests={
-                "pascal": {"status": "pending", "sent_at": None, "timeout_at": None,
+                "reviewer1": {"status": "pending", "sent_at": None, "timeout_at": None,
                            "last_nudge_at": None, "response": None},
             },
             _revise_sent="2026-03-01T10:00:00+09:00",
@@ -518,12 +518,12 @@ changes:
 ```
 """
         sc = _make_spec_config(
-            spec_implementer="kaneko",
-            self_review_agent="pascal",
+            spec_implementer="implementer1",
+            self_review_agent="reviewer1",
             spec_path="/repo/docs/test-spec.md",
             current_rev="1",
             review_requests={
-                "pascal": {"status": "pending", "sent_at": None, "timeout_at": None,
+                "reviewer1": {"status": "pending", "sent_at": None, "timeout_at": None,
                            "last_nudge_at": None, "response": None},
             },
             _revise_sent="2026-03-01T10:00:00+09:00",
@@ -551,13 +551,13 @@ changes:
 ```
 """
         sc = _make_spec_config(
-            spec_implementer="kaneko",
-            self_review_agent="pascal",
+            spec_implementer="implementer1",
+            self_review_agent="reviewer1",
             spec_path="/repo/docs/test-spec.md",
             current_rev="1",
             self_review_checklist=custom,
             review_requests={
-                "pascal": {"status": "pending", "sent_at": None, "timeout_at": None,
+                "reviewer1": {"status": "pending", "sent_at": None, "timeout_at": None,
                            "last_nudge_at": None, "response": None},
             },
             _revise_sent="2026-03-01T10:00:00+09:00",
@@ -747,7 +747,7 @@ checklist:
             _self_review_expected_ids=None,
             _revise_retry_at="2026-02-28T10:00:00+09:00",
             _revise_sent="2026-02-28T10:00:00+09:00",
-            spec_implementer="neumann",
+            spec_implementer="implementer2",
         )
         result = _check_spec_revise(sc, _now(), _make_pipeline(spec_config=sc))
         assert result.next_state is None  # SPEC_REVISE のまま
@@ -787,7 +787,7 @@ checklist:
             _self_review_pass=0,
             _self_review_pending_updates={"current_rev": "2"},
             _self_review_expected_ids=None,
-            spec_implementer="neumann",
+            spec_implementer="implementer2",
         )
         result = _check_spec_revise(sc, _now(), _make_pipeline(spec_config=sc))
         # リトライ（next_state=None, send_to あり, pass インクリメント）
@@ -804,7 +804,7 @@ checklist:
             _self_review_pass=SPEC_REVISE_SELF_REVIEW_PASSES - 1,
             _self_review_pending_updates={"current_rev": "2"},
             _self_review_expected_ids=None,
-            spec_implementer="neumann",
+            spec_implementer="implementer2",
         )
         result = _check_spec_revise(sc, _now(), _make_pipeline(spec_config=sc))
         assert result.next_state == "SPEC_PAUSED"

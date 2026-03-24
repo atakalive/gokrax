@@ -30,10 +30,10 @@ def _make_pipeline(tmp_pipelines, state="DESIGN_REVISE", issues=None):
     ]
     data = {
         "project": "test-pj",
-        "gitlab": "atakalive/test-pj",
+        "gitlab": "testns/test-pj",
         "state": state,
         "enabled": True,
-        "implementer": "kaneko",
+        "implementer": "implementer1",
         "batch": batch,
         "history": [],
         "created_at": "2025-01-01T00:00:00+09:00",
@@ -121,8 +121,8 @@ class TestDesignRevise:
             gokrax.cmd_design_revise(args)
 
         assert mock_post.call_count == 2
-        mock_post.assert_any_call("atakalive/test-pj", 1, "修正完了")
-        mock_post.assert_any_call("atakalive/test-pj", 2, "修正完了")
+        mock_post.assert_any_call("testns/test-pj", 1, "修正完了")
+        mock_post.assert_any_call("testns/test-pj", 2, "修正完了")
 
 
 class TestCodeRevise:
@@ -203,5 +203,5 @@ class TestCodeRevise:
             gokrax.cmd_code_revise(args)
 
         assert mock_post.call_count == 2
-        mock_post.assert_any_call("atakalive/test-pj", 1, "修正完了")
-        mock_post.assert_any_call("atakalive/test-pj", 2, "修正完了")
+        mock_post.assert_any_call("testns/test-pj", 1, "修正完了")
+        mock_post.assert_any_call("testns/test-pj", 2, "修正完了")

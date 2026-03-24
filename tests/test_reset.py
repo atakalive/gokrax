@@ -26,10 +26,10 @@ def read_pipeline(path: Path) -> dict:
 def make_pipeline(project: str, state: str = "IDLE", **kwargs) -> dict:
     data = {
         "project": project,
-        "gitlab": f"atakalive/{project}",
+        "gitlab": f"testns/{project}",
         "state": state,
         "enabled": False,
-        "implementer": "kaneko",
+        "implementer": "implementer1",
         "batch": [],
         "history": [],
         "created_at": "2025-01-01T00:00:00+09:00",

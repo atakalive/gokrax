@@ -126,6 +126,53 @@ TEST_IMPLEMENTERS = ["implementer1", "implementer2"]
 TEST_PROJECTS = ["project1", "project2", "project3"]
 TEST_GITLAB_NS = "testns"
 
+# Reviewer tiers / review modes using test-only names
+TEST_REVIEWER_TIERS = {
+    "regular": ["reviewer1", "reviewer3", "reviewer6"],
+    "free": [],
+    "short-context": ["reviewer2", "reviewer4", "reviewer5"],
+}
+TEST_REVIEW_MODES = {
+    "full": {"members": ["reviewer1", "reviewer3", "reviewer5", "reviewer6"], "min_reviews": 4, "grace_period_sec": 0},
+    "standard": {"members": ["reviewer1", "reviewer3", "reviewer6"], "min_reviews": 3, "grace_period_sec": 0},
+    "lite": {"members": ["reviewer1", "reviewer3"], "min_reviews": 2, "grace_period_sec": 0},
+    "min": {"members": ["reviewer1"], "min_reviews": 1, "grace_period_sec": 0},
+    "skip": {"members": [], "min_reviews": 0, "grace_period_sec": 0},
+}
+# AGENTS maps all known agents (reviewers + implementers).
+TEST_AGENTS = {name: f"agent:{name}:main" for name in TEST_REVIEWERS + TEST_IMPLEMENTERS}
+TEST_ALLOWED_REVIEWERS_AND_IMPLEMENTERS = TEST_REVIEWERS + TEST_IMPLEMENTERS
+
+
+@pytest.fixture(autouse=True)
+def _override_config_names(monkeypatch):
+    """Replace real agent/project names in config with test-only names."""
+    import config
+    # Preserve original values for CLI integration tests (subprocess doesn't inherit monkeypatch)
+    if not hasattr(config, "_REAL_ALLOWED_REVIEWERS"):
+        config._REAL_ALLOWED_REVIEWERS = config.ALLOWED_REVIEWERS[:]
+    _config_overrides = {
+        "ALLOWED_REVIEWERS": TEST_ALLOWED_REVIEWERS_AND_IMPLEMENTERS[:],
+        "REVIEWER_TIERS": TEST_REVIEWER_TIERS,
+        "REVIEW_MODES": TEST_REVIEW_MODES,
+        "GITLAB_NAMESPACE": TEST_GITLAB_NS,
+        "AGENTS": TEST_AGENTS,
+    }
+    for attr, val in _config_overrides.items():
+        if hasattr(config, attr):
+            monkeypatch.setattr(config, attr, val)
+    # Patch modules that import these at module level
+    for mod_name in ("notify", "engine.reviewer", "engine.fsm", "task_queue",
+                      "commands.dev", "commands.spec", "watchdog", "gokrax"):
+        try:
+            import importlib
+            mod = importlib.import_module(mod_name)
+            for attr, val in _config_overrides.items():
+                if hasattr(mod, attr):
+                    monkeypatch.setattr(mod, attr, val)
+        except (ImportError, AttributeError):
+            pass
+
 
 @pytest.fixture
 def sample_pipeline():

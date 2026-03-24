@@ -26,12 +26,12 @@ def _make_spec_config(**overrides):
 def _make_pipeline(state="IDLE", spec_mode=True, spec_config=None, **kwargs):
     data = {
         "project": "test-pj",
-        "gitlab": "atakalive/test-pj",
+        "gitlab": "testns/test-pj",
         "state": state,
         "spec_mode": spec_mode,
         "spec_config": spec_config if spec_config is not None else {},
         "enabled": True,
-        "implementer": "kaneko",
+        "implementer": "implementer1",
         "review_mode": "full",
         "batch": [],
         "history": [],
@@ -368,7 +368,7 @@ class TestSuggestionSubmitNormal:
 
     def _suggestion_pipeline(self, **sc_overrides):
         sc = _make_spec_config(
-            review_requests=_review_requests("leibniz", "pascal"),
+            review_requests=_review_requests("reviewer2", "reviewer1"),
             **sc_overrides,
         )
         return _make_pipeline(state="ISSUE_SUGGESTION", spec_config=sc)
@@ -381,15 +381,15 @@ class TestSuggestionSubmitNormal:
         f.write_text(SUGGESTION_FENCED, encoding="utf-8")
 
         from gokrax import cmd_spec_suggestion_submit
-        cmd_spec_suggestion_submit(_args(project="test-pj", reviewer="leibniz", file=str(f)))
+        cmd_spec_suggestion_submit(_args(project="test-pj", reviewer="reviewer2", file=str(f)))
 
         data = json.loads(path.read_text())
         sc = data["spec_config"]
-        entry = sc["current_reviews"]["entries"]["leibniz"]
+        entry = sc["current_reviews"]["entries"]["reviewer2"]
         assert entry["status"] == "received"
         assert entry["raw_text"] == SUGGESTION_FENCED
         # review_requests.status は更新しない (Leibniz P0-1)
-        assert sc["review_requests"]["leibniz"]["status"] == "pending"
+        assert sc["review_requests"]["reviewer2"]["status"] == "pending"
 
     def test_raw_yaml_fallback(self, tmp_pipelines, tmp_path):
         path = tmp_pipelines / "test-pj.json"
@@ -399,20 +399,20 @@ class TestSuggestionSubmitNormal:
         f.write_text(SUGGESTION_RAW, encoding="utf-8")
 
         from gokrax import cmd_spec_suggestion_submit
-        cmd_spec_suggestion_submit(_args(project="test-pj", reviewer="leibniz", file=str(f)))
+        cmd_spec_suggestion_submit(_args(project="test-pj", reviewer="reviewer2", file=str(f)))
 
         data = json.loads(path.read_text())
-        stored = data["spec_config"]["current_reviews"]["entries"]["leibniz"]["raw_text"]
+        stored = data["spec_config"]["current_reviews"]["entries"]["reviewer2"]["raw_text"]
         assert stored.startswith("```yaml\n")
         assert stored.endswith("\n```")
         # review_requests.status は更新しない
-        assert data["spec_config"]["review_requests"]["leibniz"]["status"] == "pending"
+        assert data["spec_config"]["review_requests"]["reviewer2"]["status"] == "pending"
 
     def test_idempotent_skip(self, tmp_pipelines, tmp_path, capsys):
         pipeline = self._suggestion_pipeline()
         pipeline["spec_config"]["current_reviews"] = {
             "entries": {
-                "leibniz": {"status": "received", "raw_text": "..."},
+                "reviewer2": {"status": "received", "raw_text": "..."},
             },
         }
         path = tmp_pipelines / "test-pj.json"
@@ -422,7 +422,7 @@ class TestSuggestionSubmitNormal:
         f.write_text(SUGGESTION_FENCED, encoding="utf-8")
 
         from gokrax import cmd_spec_suggestion_submit
-        cmd_spec_suggestion_submit(_args(project="test-pj", reviewer="leibniz", file=str(f)))
+        cmd_spec_suggestion_submit(_args(project="test-pj", reviewer="reviewer2", file=str(f)))
 
         assert "already submitted, skipping" in capsys.readouterr().out
 
@@ -431,7 +431,7 @@ class TestSuggestionSubmitErrors:
 
     def _suggestion_pipeline(self, **sc_overrides):
         sc = _make_spec_config(
-            review_requests=_review_requests("leibniz", "pascal"),
+            review_requests=_review_requests("reviewer2", "reviewer1"),
             **sc_overrides,
         )
         return _make_pipeline(state="ISSUE_SUGGESTION", spec_config=sc)
@@ -439,7 +439,7 @@ class TestSuggestionSubmitErrors:
     def test_wrong_state(self, tmp_pipelines, tmp_path):
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, _make_pipeline(state="IDLE", spec_config=_make_spec_config(
-            review_requests=_review_requests("leibniz"),
+            review_requests=_review_requests("reviewer2"),
         )))
 
         f = tmp_path / "suggestion.yaml"
@@ -447,7 +447,7 @@ class TestSuggestionSubmitErrors:
 
         from gokrax import cmd_spec_suggestion_submit
         with pytest.raises(SystemExit, match="Not in ISSUE_SUGGESTION state"):
-            cmd_spec_suggestion_submit(_args(project="test-pj", reviewer="leibniz", file=str(f)))
+            cmd_spec_suggestion_submit(_args(project="test-pj", reviewer="reviewer2", file=str(f)))
 
     def test_invalid_reviewer(self, tmp_pipelines, tmp_path):
         path = tmp_pipelines / "test-pj.json"
@@ -463,7 +463,7 @@ class TestSuggestionSubmitErrors:
     def test_sent_at_none(self, tmp_pipelines, tmp_path):
         """sent_at=None のレビュアーに応答投入 → SystemExit"""
         sc = _make_spec_config(
-            review_requests=_review_requests("leibniz", sent_at=None),
+            review_requests=_review_requests("reviewer2", sent_at=None),
         )
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, _make_pipeline(state="ISSUE_SUGGESTION", spec_config=sc))
@@ -473,7 +473,7 @@ class TestSuggestionSubmitErrors:
 
         from gokrax import cmd_spec_suggestion_submit
         with pytest.raises(SystemExit, match="sent_at is None"):
-            cmd_spec_suggestion_submit(_args(project="test-pj", reviewer="leibniz", file=str(f)))
+            cmd_spec_suggestion_submit(_args(project="test-pj", reviewer="reviewer2", file=str(f)))
 
     def test_parse_failure(self, tmp_pipelines, tmp_path):
         path = tmp_pipelines / "test-pj.json"
@@ -484,4 +484,4 @@ class TestSuggestionSubmitErrors:
 
         from gokrax import cmd_spec_suggestion_submit
         with pytest.raises(SystemExit, match="Failed to parse issue suggestion"):
-            cmd_spec_suggestion_submit(_args(project="test-pj", reviewer="leibniz", file=str(f)))
+            cmd_spec_suggestion_submit(_args(project="test-pj", reviewer="reviewer2", file=str(f)))

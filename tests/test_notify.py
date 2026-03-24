@@ -176,7 +176,7 @@ class TestFormatReviewRequest:
         with patch("notify.fetch_issue_body", return_value=""):
             result = notify.format_review_request(
                 project="test-pj", state="DESIGN_REVIEW",
-                batch=batch, gitlab="atakalive/test-pj", reviewer="pascal",
+                batch=batch, gitlab="testns/test-pj", reviewer="reviewer1",
             )
         assert str(config.GOKRAX_CLI) in result
         assert "/home/ataka/.openclaw/shared/bin/gokrax" in result
@@ -188,9 +188,9 @@ class TestFormatReviewRequest:
         with patch("notify.fetch_issue_body", return_value=""):
             result = notify.format_review_request(
                 project="test-pj", state="CODE_REVIEW",
-                batch=batch, gitlab="atakalive/test-pj", reviewer="leibniz",
+                batch=batch, gitlab="testns/test-pj", reviewer="reviewer2",
             )
-        assert "--reviewer leibniz" in result
+        assert "--reviewer reviewer2" in result
 
     def test_command_structure(self):
         """生成コマンドが <GOKRAX_CLI> review ... 形式であること（python3 prefix なし）。"""
@@ -200,7 +200,7 @@ class TestFormatReviewRequest:
         with patch("notify.fetch_issue_body", return_value=""):
             result = notify.format_review_request(
                 project="proj", state="DESIGN_REVIEW",
-                batch=batch, gitlab="atakalive/proj", reviewer="hanfei",
+                batch=batch, gitlab="testns/proj", reviewer="reviewer4",
             )
         assert f"{config.GOKRAX_CLI} review" in result
         # python3 prefix がないことを確認
@@ -210,13 +210,13 @@ class TestFormatReviewRequest:
 class TestNotifyImplementer:
 
     def test_known_agent_sends_with_agent_id(self):
-        """notify_implementer('kaneko', ...) → send_to_agent が agentId 'kaneko' で呼ばれること。"""
+        """notify_implementer('implementer1', ...) → send_to_agent が agentId 'implementer1' で呼ばれること。"""
         import notify
         with patch("notify.send_to_agent") as mock_send:
-            notify.notify_implementer("kaneko", "test message")
+            notify.notify_implementer("implementer1", "test message")
         mock_send.assert_called_once()
         args = mock_send.call_args[0]
-        assert args[0] == "kaneko"
+        assert args[0] == "implementer1"
         assert "test message" in args[1]
 
     def test_unknown_agent_logs_error_no_send(self, caplog):
@@ -250,7 +250,7 @@ class TestNotifyReviewers:
         batch = [self._make_batch_item(1)]
         with patch("notify.send_to_agent") as mock_send:
             with patch("notify.fetch_issue_body", return_value="body"):
-                notify.notify_reviewers("proj", "DESIGN_REVIEW", batch, "atakalive/proj")
+                notify.notify_reviewers("proj", "DESIGN_REVIEW", batch, "testns/proj")
 
         # レビュー依頼メッセージのみ（/new はwatchdog側で先行送信）
         called_agents = [c.args[0] for c in mock_send.call_args_list]
@@ -265,7 +265,7 @@ class TestNotifyReviewers:
         import logging
 
         # REVIEW_MODES に未知のキーを混入
-        test_mode = {"members": ["pascal", "unknown_reviewer"], "min_reviews": 1}
+        test_mode = {"members": ["reviewer1", "unknown_reviewer"], "min_reviews": 1}
         monkeypatch.setitem(config.REVIEW_MODES, "test_mode", test_mode)
         monkeypatch.setattr(notify, "REVIEW_MODES", config.REVIEW_MODES)
 
@@ -273,13 +273,13 @@ class TestNotifyReviewers:
         with patch("notify.send_to_agent") as mock_send:
             with patch("notify.fetch_issue_body", return_value="body"):
                 with caplog.at_level(logging.ERROR, logger="gokrax.notify"):
-                    notify.notify_reviewers("proj", "CODE_REVIEW", batch, "atakalive/proj",
+                    notify.notify_reviewers("proj", "CODE_REVIEW", batch, "testns/proj",
                                           review_mode="test_mode")
 
-        # 既知の pascal にはレビュー依頼が送信される
+        # 既知の reviewer1 にはレビュー依頼が送信される
         called_agents = [c.args[0] for c in mock_send.call_args_list]
-        assert "pascal" in called_agents
-        assert called_agents.count("pascal") == 1
+        assert "reviewer1" in called_agents
+        assert called_agents.count("reviewer1") == 1
 
 
 class TestFetchDiscordReplies:
@@ -360,7 +360,7 @@ class TestFetchIssueBody:
         mock_result.returncode = 0
         mock_result.stdout = json.dumps({"description": "Issue body text"})
         with patch("notify.subprocess.run", return_value=mock_result):
-            result = notify.fetch_issue_body(42, "atakalive/proj")
+            result = notify.fetch_issue_body(42, "testns/proj")
         assert result == "Issue body text"
 
     def test_glab_failure_returns_none(self, caplog):
@@ -370,7 +370,7 @@ class TestFetchIssueBody:
         mock_result.stderr = "issue not found"
         with patch("notify.subprocess.run", return_value=mock_result):
             with caplog.at_level(logging.WARNING, logger="gokrax.notify"):
-                result = notify.fetch_issue_body(999, "atakalive/proj")
+                result = notify.fetch_issue_body(999, "testns/proj")
         assert result is None
         assert "glab issue show failed" in caplog.text
 
@@ -380,14 +380,14 @@ class TestFetchIssueBody:
         mock_result.returncode = 0
         mock_result.stdout = json.dumps({"description": ""})
         with patch("notify.subprocess.run", return_value=mock_result):
-            result = notify.fetch_issue_body(10, "atakalive/proj")
+            result = notify.fetch_issue_body(10, "testns/proj")
         assert result == ""
 
     def test_timeout_returns_none(self, caplog):
         import notify
         with patch("notify.subprocess.run", side_effect=subprocess.TimeoutExpired("cmd", 15)):
             with caplog.at_level(logging.WARNING, logger="gokrax.notify"):
-                result = notify.fetch_issue_body(5, "atakalive/proj")
+                result = notify.fetch_issue_body(5, "testns/proj")
         assert result is None
         assert "timed out" in caplog.text
 
@@ -431,7 +431,7 @@ class TestFormatReviewRequestEmbedded:
         batch = [self._make_batch_item(10, "Test")]
         with patch("notify.fetch_issue_body", return_value="Issue body content"):
             result = notify.format_review_request(
-                "proj", "DESIGN_REVIEW", batch, "atakalive/proj", "pascal"
+                "proj", "DESIGN_REVIEW", batch, "testns/proj", "reviewer1"
             )
         assert "Issue body content" in result
         assert "**Issue本文:**" in result
@@ -442,7 +442,7 @@ class TestFormatReviewRequestEmbedded:
         with patch("notify.fetch_issue_body", return_value="body"):
             with patch("notify._fetch_commit_diff", return_value="diff content"):
                 result = notify.format_review_request(
-                    "proj", "CODE_REVIEW", batch, "atakalive/proj", "pascal",
+                    "proj", "CODE_REVIEW", batch, "testns/proj", "reviewer1",
                     repo_path="/repo"
                 )
         assert "diff content" in result
@@ -453,7 +453,7 @@ class TestFormatReviewRequestEmbedded:
         batch = [self._make_batch_item(30, "Broken")]
         with patch("notify.fetch_issue_body", return_value=None):
             result = notify.format_review_request(
-                "proj", "DESIGN_REVIEW", batch, "atakalive/proj", "pascal"
+                "proj", "DESIGN_REVIEW", batch, "testns/proj", "reviewer1"
             )
         assert "glab issue show 30" in result
         assert "Issue詳細:" in result
@@ -464,7 +464,7 @@ class TestFormatReviewRequestEmbedded:
         with patch("notify.fetch_issue_body", return_value="body"):
             with patch("notify._fetch_commit_diff", return_value="diff"):
                 result = notify.format_review_request(
-                    "proj", "CODE_REVIEW", batch, "atakalive/proj", "pascal",
+                    "proj", "CODE_REVIEW", batch, "testns/proj", "reviewer1",
                     repo_path="/repo"
                 )
         assert "スコープ制約:" in result
@@ -477,7 +477,7 @@ class TestFormatReviewRequestEmbedded:
         batch = [self._make_batch_item(10, "Spec")]
         with patch("notify.fetch_issue_body", return_value="body"):
             result = notify.format_review_request(
-                "proj", "DESIGN_REVIEW", batch, "atakalive/proj", "pascal"
+                "proj", "DESIGN_REVIEW", batch, "testns/proj", "reviewer1"
             )
         assert "スコープ制約:" not in result
 
@@ -496,7 +496,7 @@ class TestNotifyReviewersWithMode:
         batch = [{"issue": 1, "title": "t", "commit": None, "design_reviews": {}, "code_reviews": {}}]
         with patch("notify.send_to_agent") as mock_send:
             with patch("notify.fetch_issue_body", return_value="body"):
-                notify.notify_reviewers("proj", "DESIGN_REVIEW", batch, "atakalive/proj",
+                notify.notify_reviewers("proj", "DESIGN_REVIEW", batch, "testns/proj",
                                        review_mode="standard")
 
         # /new は送信されない（watchdog 側で先行送信済み）
@@ -509,7 +509,7 @@ class TestNotifyReviewersWithMode:
         import notify
         batch = [{"issue": 1, "title": "t", "commit": None, "design_reviews": {}, "code_reviews": {}}]
         with patch("notify.send_to_agent") as mock_send:
-            notify.notify_reviewers("proj", "DESIGN_REVIEW", batch, "atakalive/proj",
+            notify.notify_reviewers("proj", "DESIGN_REVIEW", batch, "testns/proj",
                                    review_mode="skip")
         mock_send.assert_not_called()
 
@@ -524,7 +524,7 @@ class TestNotifyReviewersWithMode:
         batch = [{"issue": 1, "title": "t", "commit": None, "design_reviews": {}, "code_reviews": {}}]
         with patch("notify.send_to_agent") as mock_send:
             with patch("notify.fetch_issue_body", return_value="body"):
-                notify.notify_reviewers("proj", "DESIGN_REVIEW", batch, "atakalive/proj",
+                notify.notify_reviewers("proj", "DESIGN_REVIEW", batch, "testns/proj",
                                        review_mode="full")
 
         # full mode has 4 reviewers × 1 call = 4 calls
@@ -546,7 +546,7 @@ class TestPrevReviews:
         batch = [self._make_batch_item(42, "Test Issue")]
         prev_reviews = {
             42: {
-                "pascal": {
+                "reviewer1": {
                     "verdict": "P0",
                     "summary": "InitAsync メソッドがありません",
                     "at": "2026-02-25T10:00:00+09:00"
@@ -557,7 +557,7 @@ class TestPrevReviews:
         with patch("notify.fetch_issue_body", return_value="Fix the bug"):
             msg = notify.format_review_request(
                 "TestPJ", "DESIGN_REVIEW", batch, "test/repo",
-                reviewer="pascal", prev_reviews=prev_reviews
+                reviewer="reviewer1", prev_reviews=prev_reviews
             )
 
         # Check that previous feedback is quoted
@@ -570,7 +570,7 @@ class TestPrevReviews:
         batch = [self._make_batch_item(1, "Test")]
         prev_reviews = {
             1: {
-                "pascal": {
+                "reviewer1": {
                     "verdict": "P1",
                     "summary": "Line 1\nLine 2\nLine 3"
                 }
@@ -580,7 +580,7 @@ class TestPrevReviews:
         with patch("notify.fetch_issue_body", return_value=""):
             msg = notify.format_review_request(
                 "TestPJ", "DESIGN_REVIEW", batch, "test/repo",
-                reviewer="pascal", prev_reviews=prev_reviews
+                reviewer="reviewer1", prev_reviews=prev_reviews
             )
 
         assert "> Line 1\n> Line 2\n> Line 3" in msg
@@ -593,7 +593,7 @@ class TestPrevReviews:
         with patch("notify.fetch_issue_body", return_value="Fix it"):
             msg = notify.format_review_request(
                 "TestPJ", "DESIGN_REVIEW", batch, "test/repo",
-                reviewer="pascal", prev_reviews=None
+                reviewer="reviewer1", prev_reviews=None
             )
 
         assert "前回の" not in msg
@@ -604,14 +604,14 @@ class TestPrevReviews:
         batch = [self._make_batch_item(1, "Test")]
         prev_reviews = {
             1: {
-                "leibniz": {"verdict": "P0", "summary": "Bad code"}
+                "reviewer2": {"verdict": "P0", "summary": "Bad code"}
             }
         }
 
         with patch("notify.fetch_issue_body", return_value=""):
             msg = notify.format_review_request(
                 "TestPJ", "DESIGN_REVIEW", batch, "test/repo",
-                reviewer="pascal", prev_reviews=prev_reviews
+                reviewer="reviewer1", prev_reviews=prev_reviews
             )
 
         assert "前回の" not in msg
@@ -622,13 +622,13 @@ class TestPrevReviews:
         import notify
         batch = [self._make_batch_item(1, "Test")]
         prev_reviews = {
-            1: {"pascal": {"verdict": "P0", "summary": ""}}
+            1: {"reviewer1": {"verdict": "P0", "summary": ""}}
         }
 
         with patch("notify.fetch_issue_body", return_value=""):
             msg = notify.format_review_request(
                 "TestPJ", "DESIGN_REVIEW", batch, "test/repo",
-                reviewer="pascal", prev_reviews=prev_reviews
+                reviewer="reviewer1", prev_reviews=prev_reviews
             )
 
         assert "前回の" not in msg
@@ -672,7 +672,7 @@ class TestBaseCommitDiff:
             with patch("notify.fetch_issue_body", return_value="body"):
                 with patch("notify.format_review_request", return_value="msg") as mock_fmt:
                     notify.notify_reviewers(
-                        "proj", "CODE_REVIEW", batch, "atakalive/proj",
+                        "proj", "CODE_REVIEW", batch, "testns/proj",
                         base_commit="abc123"
                     )
         # format_review_request が base_commit="abc123" で呼ばれたことを検証
@@ -697,7 +697,7 @@ class TestFormatReviewRequestComment:
         batch = self._make_batch()
         with patch("notify.fetch_issue_body", return_value="body"):
             msg = notify.format_review_request(
-                "proj", "DESIGN_REVIEW", batch, "atakalive/proj", "pascal"
+                "proj", "DESIGN_REVIEW", batch, "testns/proj", "reviewer1"
             )
         assert "Mからの要望" not in msg
 
@@ -707,7 +707,7 @@ class TestFormatReviewRequestComment:
         batch = self._make_batch()
         with patch("notify.fetch_issue_body", return_value="body"):
             msg = notify.format_review_request(
-                "proj", "DESIGN_REVIEW", batch, "atakalive/proj", "pascal",
+                "proj", "DESIGN_REVIEW", batch, "testns/proj", "reviewer1",
                 comment="テスト注意事項"
             )
         assert "Mからの要望: テスト注意事項" in msg
@@ -720,7 +720,7 @@ class TestFormatReviewRequestComment:
             with patch("notify.fetch_issue_body", return_value="body"):
                 with patch("notify.format_review_request", return_value="msg") as mock_fmt:
                     notify.notify_reviewers(
-                        "proj", "DESIGN_REVIEW", batch, "atakalive/proj",
+                        "proj", "DESIGN_REVIEW", batch, "testns/proj",
                         comment="コメントテスト"
                     )
         for c in mock_fmt.call_args_list:
@@ -813,7 +813,7 @@ class TestNotifyReviewersSquash:
                 with patch("notify.fetch_issue_body", return_value="body"):
                     with caplog.at_level(logging.WARNING, logger="gokrax.notify"):
                         notify.notify_reviewers(
-                            "proj", "CODE_REVIEW", batch, "atakalive/proj",
+                            "proj", "CODE_REVIEW", batch, "testns/proj",
                             base_commit="a" * 40, repo_path="/repo"
                         )
         # squash 警告はログに出る
@@ -829,7 +829,7 @@ class TestNotifyReviewersSquash:
             with patch("notify._check_squash", return_value=[]):
                 with patch("notify.fetch_issue_body", return_value="body"):
                     notify.notify_reviewers(
-                        "proj", "CODE_REVIEW", batch, "atakalive/proj",
+                        "proj", "CODE_REVIEW", batch, "testns/proj",
                         base_commit="a" * 40, repo_path="/repo"
                     )
         assert mock_send.call_count > 0
@@ -848,7 +848,7 @@ class TestFormatReviewRequestNoDiffBaseCommit:
         with patch("notify.fetch_issue_body", return_value="body"):
             with patch("notify._fetch_commit_diff", return_value="diff") as mock_diff:
                 notify.format_review_request(
-                    "proj", "CODE_REVIEW", batch, "atakalive/proj", "pascal",
+                    "proj", "CODE_REVIEW", batch, "testns/proj", "reviewer1",
                     repo_path="/repo", base_commit="abc123"
                 )
         mock_diff.assert_called_once_with("def456", "/repo")
@@ -873,13 +873,13 @@ class TestFormatReviewRequestDisputeEmbedding:
         """pending dispute があるレビュアーへのレビュー依頼に「実装者からの異議」が含まれること"""
         import notify
         disputes = [{
-            "reviewer": "pascal", "status": "pending", "phase": "design",
+            "reviewer": "reviewer1", "status": "pending", "phase": "design",
             "reason": "理由テキスト", "filed_verdict": "P0",
         }]
         batch = self._make_batch(disputes=disputes)
         with patch("notify.fetch_issue_body", return_value="body"):
             msg = notify.format_review_request(
-                "proj", "DESIGN_REVIEW", batch, "atakalive/proj", reviewer="pascal"
+                "proj", "DESIGN_REVIEW", batch, "testns/proj", reviewer="reviewer1"
             )
         assert "実装者からの異議" in msg
         assert "理由テキスト" in msg
@@ -890,7 +890,7 @@ class TestFormatReviewRequestDisputeEmbedding:
         batch = self._make_batch(disputes=[])
         with patch("notify.fetch_issue_body", return_value="body"):
             msg = notify.format_review_request(
-                "proj", "DESIGN_REVIEW", batch, "atakalive/proj", reviewer="pascal"
+                "proj", "DESIGN_REVIEW", batch, "testns/proj", reviewer="reviewer1"
             )
         assert "実装者からの異議" not in msg
 
@@ -898,13 +898,13 @@ class TestFormatReviewRequestDisputeEmbedding:
         """別のレビュアーの dispute は埋め込まれないこと"""
         import notify
         disputes = [{
-            "reviewer": "leibniz", "status": "pending", "phase": "design",
+            "reviewer": "reviewer2", "status": "pending", "phase": "design",
             "reason": "理由テキスト", "filed_verdict": "P0",
         }]
         batch = self._make_batch(disputes=disputes)
         with patch("notify.fetch_issue_body", return_value="body"):
             msg = notify.format_review_request(
-                "proj", "DESIGN_REVIEW", batch, "atakalive/proj", reviewer="pascal"
+                "proj", "DESIGN_REVIEW", batch, "testns/proj", reviewer="reviewer1"
             )
         assert "実装者からの異議" not in msg
         assert "理由テキスト" not in msg
@@ -914,13 +914,13 @@ class TestFormatReviewRequestDisputeEmbedding:
         import notify
         for status in ("accepted", "rejected"):
             disputes = [{
-                "reviewer": "pascal", "status": status, "phase": "design",
+                "reviewer": "reviewer1", "status": status, "phase": "design",
                 "reason": "理由テキスト", "filed_verdict": "P0",
             }]
             batch = self._make_batch(disputes=disputes)
             with patch("notify.fetch_issue_body", return_value="body"):
                 msg = notify.format_review_request(
-                    "proj", "DESIGN_REVIEW", batch, "atakalive/proj", reviewer="pascal"
+                    "proj", "DESIGN_REVIEW", batch, "testns/proj", reviewer="reviewer1"
                 )
             assert "実装者からの異議" not in msg, f"status={status} should not embed dispute"
 
@@ -929,26 +929,26 @@ class TestFormatReviewRequestDisputeEmbedding:
         import notify
         # design dispute → code review: not embedded
         disputes_design = [{
-            "reviewer": "pascal", "status": "pending", "phase": "design",
+            "reviewer": "reviewer1", "status": "pending", "phase": "design",
             "reason": "理由テキスト", "filed_verdict": "P0",
         }]
         batch = self._make_batch(disputes=disputes_design)
         with patch("notify.fetch_issue_body", return_value="body"):
             with patch("notify._fetch_commit_diff", return_value="diff"):
                 msg = notify.format_review_request(
-                    "proj", "CODE_REVIEW", batch, "atakalive/proj", reviewer="pascal"
+                    "proj", "CODE_REVIEW", batch, "testns/proj", reviewer="reviewer1"
                 )
         assert "実装者からの異議" not in msg
 
         # code dispute → design review: not embedded
         disputes_code = [{
-            "reviewer": "pascal", "status": "pending", "phase": "code",
+            "reviewer": "reviewer1", "status": "pending", "phase": "code",
             "reason": "理由テキスト", "filed_verdict": "P0",
         }]
         batch2 = self._make_batch(disputes=disputes_code)
         with patch("notify.fetch_issue_body", return_value="body"):
             msg2 = notify.format_review_request(
-                "proj", "DESIGN_REVIEW", batch2, "atakalive/proj", reviewer="pascal"
+                "proj", "DESIGN_REVIEW", batch2, "testns/proj", reviewer="reviewer1"
             )
         assert "実装者からの異議" not in msg2
 
@@ -956,13 +956,13 @@ class TestFormatReviewRequestDisputeEmbedding:
         """reason が空文字列の dispute は「実装者からの異議」セクションを出力しないこと"""
         import notify
         disputes = [{
-            "reviewer": "pascal", "status": "pending", "phase": "design",
+            "reviewer": "reviewer1", "status": "pending", "phase": "design",
             "reason": "", "filed_verdict": "P0",
         }]
         batch = self._make_batch(disputes=disputes)
         with patch("notify.fetch_issue_body", return_value="body"):
             msg = notify.format_review_request(
-                "proj", "DESIGN_REVIEW", batch, "atakalive/proj", reviewer="pascal"
+                "proj", "DESIGN_REVIEW", batch, "testns/proj", reviewer="reviewer1"
             )
         assert "実装者からの異議" not in msg
 
@@ -970,19 +970,19 @@ class TestFormatReviewRequestDisputeEmbedding:
         """dispute 埋め込み後も、メッセージ末尾の {phase}レビュー依頼 が正しいこと（dispute_phase 変数名衝突回避の回帰テスト）"""
         import notify
         disputes = [{
-            "reviewer": "pascal", "status": "pending", "phase": "design",
+            "reviewer": "reviewer1", "status": "pending", "phase": "design",
             "reason": "理由テキスト", "filed_verdict": "P0",
         }]
         batch = self._make_batch(disputes=disputes)
         with patch("notify.fetch_issue_body", return_value="body"):
             msg_design = notify.format_review_request(
-                "proj", "DESIGN_REVIEW", batch, "atakalive/proj", reviewer="pascal"
+                "proj", "DESIGN_REVIEW", batch, "testns/proj", reviewer="reviewer1"
             )
         assert "設計レビュー依頼" in msg_design
         assert "コードレビュー依頼" not in msg_design
 
         disputes_code = [{
-            "reviewer": "pascal", "status": "pending", "phase": "code",
+            "reviewer": "reviewer1", "status": "pending", "phase": "code",
             "reason": "理由テキスト", "filed_verdict": "P0",
         }]
         batch_code = [{
@@ -993,7 +993,7 @@ class TestFormatReviewRequestDisputeEmbedding:
         with patch("notify.fetch_issue_body", return_value="body"):
             with patch("notify._fetch_commit_diff", return_value="diff"):
                 msg_code = notify.format_review_request(
-                    "proj", "CODE_REVIEW", batch_code, "atakalive/proj", reviewer="pascal",
+                    "proj", "CODE_REVIEW", batch_code, "testns/proj", reviewer="reviewer1",
                     repo_path="/repo"
                 )
         assert "コードレビュー依頼" in msg_code
@@ -1007,14 +1007,14 @@ class TestCheckTransitionNoDisputeQueueing:
         """pending dispute があっても pending_notifications に dispute エントリが追加されないこと"""
         import watchdog
         dispute = {
-            "reviewer": "pascal", "status": "pending", "phase": "design",
+            "reviewer": "reviewer1", "status": "pending", "phase": "design",
             "reason": "理由テキスト", "filed_at": "2025-01-01T00:00:00+09:00",
             "filed_verdict": "P0",
         }
         issue = {
             "issue": 1,
             "design_reviews": {
-                "pascal": {"verdict": "P0", "at": "2025-01-01T00:00:00+09:00"},
+                "reviewer1": {"verdict": "P0", "at": "2025-01-01T00:00:00+09:00"},
             },
             "code_reviews": {},
             "disputes": [dispute],
@@ -1041,7 +1041,7 @@ class TestSkillInjection:
         skill_file.write_text("Skill content here", encoding="utf-8")
 
         monkeypatch.setattr(config, "SKILLS", {"test-skill": str(skill_file)})
-        monkeypatch.setattr(config, "AGENT_SKILLS", {"pascal": {"design": ["test-skill"], "code": []}})
+        monkeypatch.setattr(config, "AGENT_SKILLS", {"reviewer1": {"design": ["test-skill"], "code": []}})
         monkeypatch.setattr(config, "PROJECT_SKILLS", {})
 
         batch = [{
@@ -1054,7 +1054,7 @@ class TestSkillInjection:
         with patch("notify.fetch_issue_body", return_value="issue body"):
             result = notify.format_review_request(
                 "test-pj", "DESIGN_REVIEW", batch, "gitlab/repo",
-                reviewer="pascal",
+                reviewer="reviewer1",
             )
 
         assert result.startswith("<skills>\n")
@@ -1071,7 +1071,7 @@ class TestSkillInjection:
         skill_file.write_text("Impl skill", encoding="utf-8")
 
         monkeypatch.setattr(config, "SKILLS", {"impl-skill": str(skill_file)})
-        monkeypatch.setattr(config, "AGENT_SKILLS", {"kaneko": {"code": ["impl-skill"]}})
+        monkeypatch.setattr(config, "AGENT_SKILLS", {"implementer1": {"code": ["impl-skill"]}})
         monkeypatch.setattr(config, "PROJECT_SKILLS", {})
 
         sent_messages = []
@@ -1082,7 +1082,7 @@ class TestSkillInjection:
 
         monkeypatch.setattr(notify, "send_to_agent", mock_send)
 
-        notify.notify_implementer("kaneko", "Original message", project="test-pj", phase="code")
+        notify.notify_implementer("implementer1", "Original message", project="test-pj", phase="code")
 
         assert len(sent_messages) == 1
         _, msg = sent_messages[0]
@@ -1099,12 +1099,12 @@ class TestWriteReviewFile:
         import notify
         monkeypatch.setattr(config, "REVIEW_FILE_DIR", tmp_path)
         monkeypatch.setattr(notify, "REVIEW_FILE_DIR", tmp_path)
-        result = notify._write_review_file("proj", "pascal", "review content")
+        result = notify._write_review_file("proj", "reviewer1", "review content")
         assert result is not None
         assert result.exists()
         assert result.read_text(encoding="utf-8") == "review content"
         assert result.parent == tmp_path
-        assert "proj--pascal-" in result.name  # ダブルハイフンセパレータ
+        assert "proj--reviewer1-" in result.name  # ダブルハイフンセパレータ
         assert result.suffix == ".md"
 
     def test_creates_directory_if_missing(self, tmp_path, monkeypatch):
@@ -1113,7 +1113,7 @@ class TestWriteReviewFile:
         new_dir = tmp_path / "subdir"
         monkeypatch.setattr(config, "REVIEW_FILE_DIR", new_dir)
         monkeypatch.setattr(notify, "REVIEW_FILE_DIR", new_dir)
-        result = notify._write_review_file("proj", "euler", "content")
+        result = notify._write_review_file("proj", "reviewer6", "content")
         assert result is not None
         assert new_dir.exists()
 
@@ -1135,7 +1135,7 @@ class TestWriteReviewFile:
                 raise OSError("disk full")
             original_write_text(self_path, *args, **kwargs)
         monkeypatch.setattr(Path, "write_text", flaky_write)
-        result = notify._write_review_file("proj", "pascal", "content")
+        result = notify._write_review_file("proj", "reviewer1", "content")
         assert result is not None
         assert call_count == 3
 
@@ -1150,7 +1150,7 @@ class TestWriteReviewFile:
         monkeypatch.setattr(notify, "REVIEW_FILE_WRITE_RETRY_DELAY", 0.01)
         monkeypatch.setattr(Path, "write_text", lambda *a, **kw: (_ for _ in ()).throw(OSError("fail")))
         with caplog.at_level(logging.ERROR, logger="gokrax.notify"):
-            result = notify._write_review_file("proj", "pascal", "content")
+            result = notify._write_review_file("proj", "reviewer1", "content")
         assert result is None
 
     def test_project_name_sanitized(self, tmp_path, monkeypatch):
@@ -1158,17 +1158,17 @@ class TestWriteReviewFile:
         import notify
         monkeypatch.setattr(config, "REVIEW_FILE_DIR", tmp_path)
         monkeypatch.setattr(notify, "REVIEW_FILE_DIR", tmp_path)
-        result = notify._write_review_file("my/project name", "pascal", "content")
+        result = notify._write_review_file("my/project name", "reviewer1", "content")
         assert result is not None
-        assert "my-project-name--pascal-" in result.name  # ダブルハイフンセパレータ
+        assert "my-project-name--reviewer1-" in result.name  # ダブルハイフンセパレータ
 
     def test_no_prefix_collision(self, tmp_path, monkeypatch):
         """プロジェクト名がプレフィックス関係でも衝突しないこと"""
         import notify
         monkeypatch.setattr(config, "REVIEW_FILE_DIR", tmp_path)
         monkeypatch.setattr(notify, "REVIEW_FILE_DIR", tmp_path)
-        result_foo = notify._write_review_file("foo", "pascal", "content1")
-        result_foobar = notify._write_review_file("foo-bar", "pascal", "content2")
+        result_foo = notify._write_review_file("foo", "reviewer1", "content1")
+        result_foobar = notify._write_review_file("foo-bar", "reviewer1", "content2")
         assert result_foo is not None
         assert result_foobar is not None
         assert result_foo.name.startswith("foo--")
@@ -1184,7 +1184,7 @@ class TestBuildFileReviewMessage:
         import notify
         file_path = tmp_path / "test.md"
         batch = [{"issue": 1, "title": "t", "design_reviews": {}, "code_reviews": {}}]
-        msg = notify._build_file_review_message("proj", False, "pascal", file_path, batch, round_num=1)
+        msg = notify._build_file_review_message("proj", False, "reviewer1", file_path, batch, round_num=1)
         assert f"Read {file_path}" in msg
 
     def test_contains_review_commands_for_pending_issues(self, tmp_path):
@@ -1193,10 +1193,10 @@ class TestBuildFileReviewMessage:
         file_path = tmp_path / "test.md"
         batch = [
             {"issue": 1, "title": "a", "design_reviews": {}, "code_reviews": {}},
-            {"issue": 2, "title": "b", "design_reviews": {"pascal": {"verdict": "APPROVE"}}, "code_reviews": {}},
+            {"issue": 2, "title": "b", "design_reviews": {"reviewer1": {"verdict": "APPROVE"}}, "code_reviews": {}},
             {"issue": 3, "title": "c", "design_reviews": {}, "code_reviews": {}},
         ]
-        msg = notify._build_file_review_message("proj", False, "pascal", file_path, batch, round_num=1)
+        msg = notify._build_file_review_message("proj", False, "reviewer1", file_path, batch, round_num=1)
         assert "--issue 1" in msg
         assert "--issue 2" not in msg
         assert "--issue 3" in msg
@@ -1208,11 +1208,11 @@ class TestBuildFileReviewMessage:
         skill_file = tmp_path / "skill.md"
         skill_file.write_text("Skill", encoding="utf-8")
         monkeypatch.setattr(cfg, "SKILLS", {"s": str(skill_file)})
-        monkeypatch.setattr(cfg, "AGENT_SKILLS", {"pascal": {"design": ["s"], "code": []}})
+        monkeypatch.setattr(cfg, "AGENT_SKILLS", {"reviewer1": {"design": ["s"], "code": []}})
         monkeypatch.setattr(cfg, "PROJECT_SKILLS", {})
         file_path = tmp_path / "test.md"
         batch = [{"issue": 1, "title": "t", "design_reviews": {}, "code_reviews": {}}]
-        msg = notify._build_file_review_message("proj", False, "pascal", file_path, batch, round_num=None)
+        msg = notify._build_file_review_message("proj", False, "reviewer1", file_path, batch, round_num=None)
         assert msg.startswith("<skills>\n")
 
     def test_is_code_true_uses_code_reviews(self, tmp_path):
@@ -1220,10 +1220,10 @@ class TestBuildFileReviewMessage:
         import notify
         file_path = tmp_path / "test.md"
         batch = [
-            {"issue": 1, "title": "a", "design_reviews": {}, "code_reviews": {"pascal": {"verdict": "APPROVE"}}},
+            {"issue": 1, "title": "a", "design_reviews": {}, "code_reviews": {"reviewer1": {"verdict": "APPROVE"}}},
             {"issue": 2, "title": "b", "design_reviews": {}, "code_reviews": {}},
         ]
-        msg = notify._build_file_review_message("proj", True, "pascal", file_path, batch, round_num=1)
+        msg = notify._build_file_review_message("proj", True, "reviewer1", file_path, batch, round_num=1)
         assert "--issue 1" not in msg
         assert "--issue 2" in msg
         assert "コードレビュー依頼" in msg
@@ -1242,7 +1242,7 @@ class TestNotifyReviewersExternalization:
             with patch("notify.fetch_issue_body", return_value="body"):
                 with patch("notify._write_review_file") as mock_write:
                     notify.notify_reviewers("proj", "DESIGN_REVIEW", self._make_batch(),
-                                           "atakalive/proj", review_mode="min")
+                                           "testns/proj", review_mode="min")
         mock_write.assert_not_called()
         mock_send.assert_called()
 
@@ -1257,7 +1257,7 @@ class TestNotifyReviewersExternalization:
                 with patch("notify._write_review_file", return_value=file_path) as mock_write:
                     with patch("notify._build_file_review_message", return_value="short") as mock_short:
                         notify.notify_reviewers("proj", "DESIGN_REVIEW", self._make_batch(),
-                                               "atakalive/proj", review_mode="min")
+                                               "testns/proj", review_mode="min")
         mock_write.assert_called_once()
         mock_short.assert_called_once()
         mock_send.assert_called_once()
@@ -1272,7 +1272,7 @@ class TestNotifyReviewersExternalization:
                 with patch("notify._write_review_file", return_value=None):
                     with patch("notify._trigger_blocked") as mock_blocked:
                         notify.notify_reviewers("proj", "DESIGN_REVIEW", self._make_batch(),
-                                               "atakalive/proj", review_mode="min")
+                                               "testns/proj", review_mode="min")
         mock_blocked.assert_called_once()
         mock_send.assert_not_called()
 
@@ -1283,22 +1283,22 @@ class TestCleanupReviewFiles:
         """当該プロジェクトのファイルのみ削除されること（ダブルハイフンセパレータ）"""
         import engine.reviewer
         monkeypatch.setattr(config, "REVIEW_FILE_DIR", tmp_path)
-        (tmp_path / "projA--pascal-uuid1.md").write_text("a")
-        (tmp_path / "projA--euler-uuid2.md").write_text("b")
-        (tmp_path / "projB--pascal-uuid3.md").write_text("c")
+        (tmp_path / "projA--reviewer1-uuid1.md").write_text("a")
+        (tmp_path / "projA--reviewer6-uuid2.md").write_text("b")
+        (tmp_path / "projB--reviewer1-uuid3.md").write_text("c")
         engine.reviewer._cleanup_review_files("projA")
         remaining = sorted(f.name for f in tmp_path.iterdir())
-        assert remaining == ["projB--pascal-uuid3.md"]
+        assert remaining == ["projB--reviewer1-uuid3.md"]
 
     def test_no_prefix_collision_cleanup(self, tmp_path, monkeypatch):
         """プレフィックスが部分一致するプロジェクトのファイルを誤削除しないこと"""
         import engine.reviewer
         monkeypatch.setattr(config, "REVIEW_FILE_DIR", tmp_path)
-        (tmp_path / "foo--pascal-uuid1.md").write_text("a")
-        (tmp_path / "foo-bar--pascal-uuid2.md").write_text("b")
+        (tmp_path / "foo--reviewer1-uuid1.md").write_text("a")
+        (tmp_path / "foo-bar--reviewer1-uuid2.md").write_text("b")
         engine.reviewer._cleanup_review_files("foo")
         remaining = sorted(f.name for f in tmp_path.iterdir())
-        assert remaining == ["foo-bar--pascal-uuid2.md"]
+        assert remaining == ["foo-bar--reviewer1-uuid2.md"]
 
     def test_directory_not_exists(self, tmp_path, monkeypatch):
         """ディレクトリが存在しない場合にエラーにならないこと"""
@@ -1310,7 +1310,7 @@ class TestCleanupReviewFiles:
         """ディレクトリ自体は削除されないこと"""
         import engine.reviewer
         monkeypatch.setattr(config, "REVIEW_FILE_DIR", tmp_path)
-        (tmp_path / "proj--pascal-uuid.md").write_text("x")
+        (tmp_path / "proj--reviewer1-uuid.md").write_text("x")
         engine.reviewer._cleanup_review_files("proj")
         assert tmp_path.exists()
         assert tmp_path.is_dir()
@@ -1328,13 +1328,13 @@ class TestNpassSkillInjection:
             {
                 "issue": 1,
                 "title": "t",
-                "design_reviews": {"pascal": {"verdict": "REVISE", "pass": 1, "target_pass": 2}},
+                "design_reviews": {"reviewer1": {"verdict": "REVISE", "pass": 1, "target_pass": 2}},
                 "code_reviews": {},
             },
         ]
         with patch("notify.load_skills", return_value=self.SKILL_BLOCK):
             msg = notify._build_npass_review_message(
-                "proj", "DESIGN_REVIEW_NPASS", batch, "pascal", round_num=1,
+                "proj", "DESIGN_REVIEW_NPASS", batch, "reviewer1", round_num=1,
             )
         assert msg  # non-empty
         assert "<skills>" not in msg
@@ -1346,7 +1346,7 @@ class TestNpassSkillInjection:
         batch = [{"issue": 1, "title": "t", "design_reviews": {}, "code_reviews": {}}]
         with patch("notify.load_skills", return_value=self.SKILL_BLOCK):
             msg = notify._build_file_review_message(
-                "proj", False, "pascal", file_path, batch, round_num=1,
+                "proj", False, "reviewer1", file_path, batch, round_num=1,
                 skip_skills=True,
             )
         assert "<skills>" not in msg
@@ -1358,7 +1358,7 @@ class TestNpassSkillInjection:
         batch = [{"issue": 1, "title": "t", "design_reviews": {}, "code_reviews": {}}]
         with patch("notify.load_skills", return_value=self.SKILL_BLOCK):
             msg = notify._build_file_review_message(
-                "proj", False, "pascal", file_path, batch, round_num=1,
+                "proj", False, "reviewer1", file_path, batch, round_num=1,
                 skip_skills=False,
             )
         assert "<skills>" in msg

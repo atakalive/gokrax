@@ -77,87 +77,87 @@ class TestParseReviewYaml:
 
     def test_approve_no_items(self):
         text = self._make_yaml("APPROVE")
-        result = parse_review_yaml(text, "pascal")
+        result = parse_review_yaml(text, "reviewer1")
         assert result.parse_success is True
         assert result.verdict == "APPROVE"
         assert result.items == []
-        assert result.reviewer == "pascal"
+        assert result.reviewer == "reviewer1"
 
     def test_p0_with_items(self):
         text = self._make_yaml("P0", [
             {"id": "C-1", "severity": "critical", "section": "§6.2",
              "title": "Bug", "description": "Bad"},
         ])
-        result = parse_review_yaml(text, "leibniz")
+        result = parse_review_yaml(text, "reviewer2")
         assert result.parse_success is True
         assert result.verdict == "P0"
         assert len(result.items) == 1
-        assert result.items[0].normalized_id == "leibniz:C-1"
+        assert result.items[0].normalized_id == "reviewer2:C-1"
         assert result.items[0].severity == "critical"
 
     def test_alias_reject_becomes_p0(self):
         text = self._make_yaml("reject")
-        result = parse_review_yaml(text, "pascal")
+        result = parse_review_yaml(text, "reviewer1")
         assert result.verdict == "P0"
 
     def test_alias_case_insensitive(self):
         """Approve, P1 等の大文字混在も strip().lower() で正規化される。"""
         text = "```yaml\nverdict: Approve\n```"
-        result = parse_review_yaml(text, "pascal")
+        result = parse_review_yaml(text, "reviewer1")
         assert result.parse_success is True
         assert result.verdict == "APPROVE"
 
     def test_verdict_with_whitespace(self):
         text = "```yaml\nverdict: '  P1  '\n```"
-        result = parse_review_yaml(text, "pascal")
+        result = parse_review_yaml(text, "reviewer1")
         assert result.parse_success is True
         assert result.verdict == "P1"
 
     def test_no_yaml_block(self):
-        result = parse_review_yaml("No yaml here", "pascal")
+        result = parse_review_yaml("No yaml here", "reviewer1")
         assert result.parse_success is False
 
     def test_invalid_verdict(self):
         text = "```yaml\nverdict: LGTM\n```"
-        result = parse_review_yaml(text, "pascal")
+        result = parse_review_yaml(text, "reviewer1")
         assert result.parse_success is False
 
     def test_invalid_severity(self):
         text = self._make_yaml("P1", [
             {"id": "X-1", "severity": "blocker"},
         ])
-        result = parse_review_yaml(text, "pascal")
+        result = parse_review_yaml(text, "reviewer1")
         assert result.parse_success is False
 
     def test_items_null(self):
         """items: null → 空リストとして扱い parse_success=True（APPROVE時の正常動作）"""
         text = "```yaml\nverdict: APPROVE\nitems: null\n```"
-        result = parse_review_yaml(text, "pascal")
+        result = parse_review_yaml(text, "reviewer1")
         assert result.parse_success is True
         assert result.items == []
 
     def test_items_not_list(self):
         """items が string → parse_success=False（Leibniz P0-1）"""
         text = "```yaml\nverdict: APPROVE\nitems: not-a-list\n```"
-        result = parse_review_yaml(text, "pascal")
+        result = parse_review_yaml(text, "reviewer1")
         assert result.parse_success is False
 
     def test_item_missing_id(self):
         """item に id キーなし → parse_success=False（Leibniz P0-2）"""
         text = "```yaml\nverdict: P1\nitems:\n  - severity: major\n    title: t\n```"
-        result = parse_review_yaml(text, "pascal")
+        result = parse_review_yaml(text, "reviewer1")
         assert result.parse_success is False
 
     def test_item_missing_severity(self):
         """item に severity キーなし → parse_success=False（Leibniz P0-2）"""
         text = "```yaml\nverdict: P1\nitems:\n  - id: C-1\n    title: t\n```"
-        result = parse_review_yaml(text, "pascal")
+        result = parse_review_yaml(text, "reviewer1")
         assert result.parse_success is False
 
     def test_item_optional_keys_fallback(self):
         """section/title/description/suggestion 省略 → 空文字/None"""
         text = "```yaml\nverdict: P1\nitems:\n  - id: C-1\n    severity: critical\n```"
-        result = parse_review_yaml(text, "pascal")
+        result = parse_review_yaml(text, "reviewer1")
         assert result.parse_success is True
         assert result.items[0].section == ""
         assert result.items[0].title == ""
@@ -165,29 +165,29 @@ class TestParseReviewYaml:
 
     def test_multiple_yaml_blocks_uses_first(self):
         text = "```yaml\nverdict: APPROVE\n```\n\n```yaml\nverdict: P0\n```"
-        result = parse_review_yaml(text, "pascal")
+        result = parse_review_yaml(text, "reviewer1")
         assert result.parse_success is True
         assert result.verdict == "APPROVE"
 
     def test_malformed_yaml(self):
         text = "```yaml\n: : :\n```"
-        result = parse_review_yaml(text, "pascal")
+        result = parse_review_yaml(text, "reviewer1")
         assert result.parse_success is False
 
     def test_yml_fence(self):
         text = "```yml\nverdict: APPROVE\n```"
-        result = parse_review_yaml(text, "pascal")
+        result = parse_review_yaml(text, "reviewer1")
         assert result.parse_success is True
 
     def test_raw_text_preserved_on_failure(self):
         text = "no yaml"
-        result = parse_review_yaml(text, "pascal")
+        result = parse_review_yaml(text, "reviewer1")
         assert result.raw_text == text
 
     def test_item_not_dict(self):
         """items 内に非dict → parse_success=False"""
         text = "```yaml\nverdict: P1\nitems:\n  - just a string\n```"
-        result = parse_review_yaml(text, "pascal")
+        result = parse_review_yaml(text, "reviewer1")
         assert result.parse_success is False
 
 
@@ -228,10 +228,10 @@ class TestShouldContinueReview:
     def _full_approve_entries(self):
         """full mode (min_valid=4) の全員 APPROVE エントリ。"""
         return {
-            "pascal": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
-            "dijkstra": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
-            "euler": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
-            "basho": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
+            "reviewer1": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
+            "reviewer3": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
+            "reviewer6": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
+            "reviewer5": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
         }
 
     def test_all_approve(self):
@@ -240,41 +240,41 @@ class TestShouldContinueReview:
 
     def test_one_p0(self):
         entries = self._full_approve_entries()
-        entries["pascal"]["verdict"] = "P0"
+        entries["reviewer1"]["verdict"] = "P0"
         assert should_continue_review(self._config(entries), "full") == "revise"
 
     def test_max_reached_stalled(self):
         entries = self._full_approve_entries()
-        entries["pascal"]["verdict"] = "P1"
+        entries["reviewer1"]["verdict"] = "P1"
         cfg = self._config(entries, rev_index=5, max_revise_cycles=5)
         assert should_continue_review(cfg, "full") == "stalled"
 
     def test_all_timeout_failed(self):
         entries = {
-            "pascal": {"status": "timeout"},
-            "leibniz": {"status": "timeout"},
+            "reviewer1": {"status": "timeout"},
+            "reviewer2": {"status": "timeout"},
         }
         assert should_continue_review(self._config(entries), "full") == "failed"
 
     def test_parse_fail_plus_insufficient(self):
         entries = {
-            "pascal": {"status": "parse_failed"},
-            "leibniz": {"status": "timeout"},
+            "reviewer1": {"status": "parse_failed"},
+            "reviewer2": {"status": "timeout"},
         }
         assert should_continue_review(self._config(entries), "full") == "paused"
 
     def test_one_received_insufficient_for_full(self):
         entries = {
-            "pascal": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
-            "leibniz": {"status": "timeout"},
+            "reviewer1": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
+            "reviewer2": {"status": "timeout"},
         }
         # full requires 3, only 1 received, no parse_fail → failed
         assert should_continue_review(self._config(entries), "full") == "failed"
 
     def test_lite_mode_one_approve(self):
         entries = {
-            "pascal": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
-            "leibniz": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
+            "reviewer1": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
+            "reviewer2": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
         }
         assert should_continue_review(self._config(entries), "lite") == "approved"
 
@@ -284,28 +284,28 @@ class TestShouldContinueReview:
     def test_received_invalid_entry_demoted(self):
         """received だが不変条件違反 → parse_failed に降格（Leibniz P0-4）"""
         entries = {
-            "pascal": {"status": "received", "verdict": None, "items": [], "parse_success": True},
-            "leibniz": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
+            "reviewer1": {"status": "received", "verdict": None, "items": [], "parse_success": True},
+            "reviewer2": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
         }
-        # pascal は降格 → received=1 (leibniz only), parsed_fail=1 (pascal)
+        # reviewer1 は降格 → received=1 (reviewer2 only), parsed_fail=1 (reviewer1)
         # full requires 3, received=1 < min_valid, parsed_fail=1 → paused
         assert should_continue_review(self._config(entries), "full") == "paused"
 
     def test_received_sufficient_with_parse_fail(self):
         """received >= min_valid かつ parsed_fail > 0 → 通常判定続行（Leibniz P0-5）"""
         entries = {
-            "pascal": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
-            "dijkstra": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
-            "euler": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
-            "basho": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
-            "hanfei": {"status": "parse_failed"},
+            "reviewer1": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
+            "reviewer3": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
+            "reviewer6": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
+            "reviewer5": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
+            "reviewer4": {"status": "parse_failed"},
         }
         assert should_continue_review(self._config(entries), "full") == "approved"
 
     def test_missing_rev_index_raises(self):
         """rev_index 欠落 → KeyError（Dijkstra P1-2）"""
         entries = self._full_approve_entries()
-        entries["pascal"]["verdict"] = "P1"
+        entries["reviewer1"]["verdict"] = "P1"
         cfg = {"current_reviews": {"entries": entries}}
         with pytest.raises(KeyError):
             should_continue_review(cfg, "full")
@@ -320,7 +320,7 @@ class TestResetReviewRequests:
     def test_resets_all_fields(self):
         spec_config = {
             "review_requests": {
-                "pascal": {
+                "reviewer1": {
                     "status": "received",
                     "sent_at": "2026-01-01T00:00:00",
                     "timeout_at": "2026-01-01T00:30:00",
@@ -330,7 +330,7 @@ class TestResetReviewRequests:
             },
         }
         _reset_review_requests(spec_config, self._now())
-        entry = spec_config["review_requests"]["pascal"]
+        entry = spec_config["review_requests"]["reviewer1"]
         assert entry["status"] == "pending"
         assert entry["sent_at"] is None
         assert entry["timeout_at"] is None
@@ -340,8 +340,8 @@ class TestResetReviewRequests:
     def test_multiple_reviewers(self):
         spec_config = {
             "review_requests": {
-                "pascal": {"status": "received", "sent_at": "x", "timeout_at": "x", "last_nudge_at": "x", "response": "x"},
-                "leibniz": {"status": "timeout", "sent_at": "y", "timeout_at": "y", "last_nudge_at": None, "response": None},
+                "reviewer1": {"status": "received", "sent_at": "x", "timeout_at": "x", "last_nudge_at": "x", "response": "x"},
+                "reviewer2": {"status": "timeout", "sent_at": "y", "timeout_at": "y", "last_nudge_at": None, "response": None},
             },
         }
         _reset_review_requests(spec_config, self._now())
@@ -358,10 +358,10 @@ class TestResetReviewRequests:
 class TestMergeReviews:
     def test_severity_order(self):
         r1 = SpecReviewResult(
-            reviewer="pascal", verdict="P0",
+            reviewer="reviewer1", verdict="P0",
             items=[
-                SpecReviewItem("M-1", "minor", "§1", "t", "d", None, "pascal", "pascal:M-1"),
-                SpecReviewItem("C-1", "critical", "§2", "t", "d", None, "pascal", "pascal:C-1"),
+                SpecReviewItem("M-1", "minor", "§1", "t", "d", None, "reviewer1", "reviewer1:M-1"),
+                SpecReviewItem("C-1", "critical", "§2", "t", "d", None, "reviewer1", "reviewer1:C-1"),
             ],
             raw_text="", parse_success=True,
         )
@@ -371,16 +371,16 @@ class TestMergeReviews:
 
     def test_summary_counts(self):
         r1 = SpecReviewResult(
-            reviewer="pascal", verdict="P0",
+            reviewer="reviewer1", verdict="P0",
             items=[
-                SpecReviewItem("C-1", "critical", "§1", "t", "d", None, "pascal", "pascal:C-1"),
+                SpecReviewItem("C-1", "critical", "§1", "t", "d", None, "reviewer1", "reviewer1:C-1"),
             ],
             raw_text="", parse_success=True,
         )
         r2 = SpecReviewResult(
-            reviewer="leibniz", verdict="P1",
+            reviewer="reviewer2", verdict="P1",
             items=[
-                SpecReviewItem("M-1", "major", "§2", "t", "d", None, "leibniz", "leibniz:M-1"),
+                SpecReviewItem("M-1", "major", "§2", "t", "d", None, "reviewer2", "reviewer2:M-1"),
             ],
             raw_text="", parse_success=True,
         )
@@ -416,15 +416,15 @@ class TestFormatMergedReport:
         assert "# Rev1 レビュー統合レポート" in text
 
     def test_items_listed(self):
-        items = [SpecReviewItem("C-1", "critical", "§1", "Bug", "desc", "fix it", "pascal", "pascal:C-1")]
+        items = [SpecReviewItem("C-1", "critical", "§1", "Bug", "desc", "fix it", "reviewer1", "reviewer1:C-1")]
         report = MergedReviewReport(
-            [SpecReviewResult("pascal", "P0", items, "", True)],
+            [SpecReviewResult("reviewer1", "P0", items, "", True)],
             items,
             {"critical": 1, "major": 0, "minor": 0, "suggestion": 0},
             "P0",
         )
         text = format_merged_report(report, "2")
-        assert "pascal:C-1" in text
+        assert "reviewer1:C-1" in text
         assert "fix it" in text
 
 
@@ -440,7 +440,7 @@ class TestBuildReviewHistoryEntry:
             "current_reviews": {
                 "reviewed_rev": "2",
                 "entries": {
-                    "pascal": {
+                    "reviewer1": {
                         "status": "received",
                         "verdict": "P0",
                         "items": [
@@ -448,7 +448,7 @@ class TestBuildReviewHistoryEntry:
                             {"severity": "major"},
                         ],
                     },
-                    "leibniz": {
+                    "reviewer2": {
                         "status": "timeout",
                         "verdict": None,
                         "items": [],
@@ -460,8 +460,8 @@ class TestBuildReviewHistoryEntry:
         assert entry["rev"] == "2"
         assert entry["rev_index"] == 2
         assert entry["commit"] == "abc1234"
-        assert "pascal" in entry["reviews"]
-        assert "leibniz" not in entry["reviews"]  # timeout excluded
+        assert "reviewer1" in entry["reviews"]
+        assert "reviewer2" not in entry["reviews"]  # timeout excluded
         assert entry["merged_counts"]["critical"] == 1
         assert entry["merged_counts"]["major"] == 1
 
@@ -482,7 +482,7 @@ class TestBuildReviewHistoryEntry:
             "current_rev": "1", "rev_index": 1, "last_commit": None,
             "current_reviews": {
                 "entries": {
-                    "pascal": {
+                    "reviewer1": {
                         "status": "received",
                         "verdict": "P0",
                         "items": ["not-a-dict", {"severity": "critical"}],

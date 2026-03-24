@@ -16,10 +16,10 @@ def _make_pipeline(tmp_pipelines, state="DESIGN_REVIEW", design_revise_count=0, 
     """指定状態 + issue #1 入りのパイプラインを作成して返す。"""
     data = {
         "project": "test-pj",
-        "gitlab": "atakalive/test-pj",
+        "gitlab": "testns/test-pj",
         "state": state,
         "enabled": True,
-        "implementer": "kaneko",
+        "implementer": "implementer1",
         "design_revise_count": design_revise_count,
         "code_revise_count": code_revise_count,
         "batch": [
@@ -68,13 +68,13 @@ class TestReviewCommand:
     def test_review_command_with_round(self):
         """round_num=2 指定 → 出力文字列に --round 2 が含まれる"""
         from notify import review_command
-        cmd = review_command("test-pj", 1, "pascal", round_num=2)
+        cmd = review_command("test-pj", 1, "reviewer1", round_num=2)
         assert "--round 2" in cmd
 
     def test_review_command_without_round(self):
         """round_num 省略 → 出力文字列に --round が含まれない"""
         from notify import review_command
-        cmd = review_command("test-pj", 1, "pascal")
+        cmd = review_command("test-pj", 1, "reviewer1")
         assert "--round" not in cmd
 
 
@@ -92,7 +92,7 @@ class TestRoundValidation:
         args = argparse.Namespace(
             project="test-pj",
             issue=1,
-            reviewer="pascal",
+            reviewer="reviewer1",
             verdict="APPROVE",
             summary="LGTM",
             force=False,
@@ -105,8 +105,8 @@ class TestRoundValidation:
         path = tmp_pipelines / "test-pj.json"
         data = json.loads(path.read_text())
         reviews = data["batch"][0]["design_reviews"]
-        assert "pascal" in reviews
-        assert reviews["pascal"]["verdict"] == "APPROVE"
+        assert "reviewer1" in reviews
+        assert reviews["reviewer1"]["verdict"] == "APPROVE"
 
     def test_round_mismatch_rejected(self, tmp_pipelines):
         """--round が現在のラウンドと不一致 → SystemExit、design_reviews は空のまま"""
@@ -116,7 +116,7 @@ class TestRoundValidation:
         args = argparse.Namespace(
             project="test-pj",
             issue=1,
-            reviewer="pascal",
+            reviewer="reviewer1",
             verdict="APPROVE",
             summary="LGTM",
             force=False,
@@ -144,7 +144,7 @@ class TestRoundValidation:
         args = argparse.Namespace(
             project="test-pj",
             issue=1,
-            reviewer="pascal",
+            reviewer="reviewer1",
             verdict="P1",
             summary="minor issue",
             force=False,
@@ -157,5 +157,5 @@ class TestRoundValidation:
         path = tmp_pipelines / "test-pj.json"
         data = json.loads(path.read_text())
         reviews = data["batch"][0]["design_reviews"]
-        assert "pascal" in reviews
-        assert reviews["pascal"]["verdict"] == "P1"
+        assert "reviewer1" in reviews
+        assert reviews["reviewer1"]["verdict"] == "P1"

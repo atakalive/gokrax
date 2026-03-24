@@ -24,10 +24,10 @@ def _make_pipeline(tmp_pipelines: Path, state: str = "CODE_REVIEW",
     """パイプラインJSONを作成。"""
     data = {
         "project": "test-pj",
-        "gitlab": "atakalive/test-pj",
+        "gitlab": "testns/test-pj",
         "state": state,
         "enabled": True,
-        "implementer": "kaneko",
+        "implementer": "implementer1",
         "review_mode": review_mode,
         "batch": [
             {
@@ -135,13 +135,13 @@ class TestNpassReviewEntry:
         # n_pass 付きモードを設定
         monkeypatch.setattr("config.REVIEW_MODES", {
             "npass-test": {
-                "members": ["pascal"],
+                "members": ["reviewer1"],
                 "min_reviews": 1,
                 "grace_period_sec": 0,
-                "n_pass": {"pascal": 2},
+                "n_pass": {"reviewer1": 2},
             },
             "standard": {
-                "members": ["pascal"],
+                "members": ["reviewer1"],
                 "min_reviews": 1,
                 "grace_period_sec": 0,
             },
@@ -151,7 +151,7 @@ class TestNpassReviewEntry:
         args = argparse.Namespace(
             project="test-pj",
             issue=1,
-            reviewer="pascal",
+            reviewer="reviewer1",
             verdict="APPROVE",
             summary="LGTM",
             force=False,
@@ -166,7 +166,7 @@ class TestNpassReviewEntry:
 
         path = tmp_pipelines / "test-pj.json"
         data = json.loads(path.read_text())
-        entry = data["batch"][0]["code_reviews"]["pascal"]
+        entry = data["batch"][0]["code_reviews"]["reviewer1"]
         assert entry["pass"] == 1
         assert entry["target_pass"] == 2
 
@@ -179,19 +179,19 @@ class TestNpassIdempotencyBypass:
 
     def test_npass_allows_overwrite_when_pass_lt_target(self, tmp_pipelines, monkeypatch, capsys):
         """pass: 1, target_pass: 2 の状態で --force なしで cmd_review を実行 → スキップされない。"""
-        existing = {"pascal": {"verdict": "APPROVE", "at": "2025-01-01T00:00:00+09:00", "pass": 1, "target_pass": 2}}
+        existing = {"reviewer1": {"verdict": "APPROVE", "at": "2025-01-01T00:00:00+09:00", "pass": 1, "target_pass": 2}}
         _make_pipeline(tmp_pipelines, state="CODE_REVIEW", review_mode="npass-test",
                        existing_reviews=existing)
 
         monkeypatch.setattr("config.REVIEW_MODES", {
             "npass-test": {
-                "members": ["pascal"],
+                "members": ["reviewer1"],
                 "min_reviews": 1,
                 "grace_period_sec": 0,
-                "n_pass": {"pascal": 2},
+                "n_pass": {"reviewer1": 2},
             },
             "standard": {
-                "members": ["pascal"],
+                "members": ["reviewer1"],
                 "min_reviews": 1,
                 "grace_period_sec": 0,
             },
@@ -201,7 +201,7 @@ class TestNpassIdempotencyBypass:
         args = argparse.Namespace(
             project="test-pj",
             issue=1,
-            reviewer="pascal",
+            reviewer="reviewer1",
             verdict="APPROVE",
             summary="2nd pass",
             force=False,
@@ -217,7 +217,7 @@ class TestNpassIdempotencyBypass:
         # レビューが更新されたことを確認（スキップされていない）
         path = tmp_pipelines / "test-pj.json"
         data = json.loads(path.read_text())
-        entry = data["batch"][0]["code_reviews"]["pascal"]
+        entry = data["batch"][0]["code_reviews"]["reviewer1"]
         assert entry["pass"] == 2
         assert entry["summary"] == "2nd pass"
 
@@ -238,13 +238,13 @@ class TestNpassGitlabNoteSkip:
 
         monkeypatch.setattr("config.REVIEW_MODES", {
             "npass-test": {
-                "members": ["pascal"],
+                "members": ["reviewer1"],
                 "min_reviews": 1,
                 "grace_period_sec": 0,
-                "n_pass": {"pascal": 2},
+                "n_pass": {"reviewer1": 2},
             },
             "standard": {
-                "members": ["pascal"],
+                "members": ["reviewer1"],
                 "min_reviews": 1,
                 "grace_period_sec": 0,
             },
@@ -254,7 +254,7 @@ class TestNpassGitlabNoteSkip:
         args = argparse.Namespace(
             project="test-pj",
             issue=1,
-            reviewer="pascal",
+            reviewer="reviewer1",
             verdict="APPROVE",
             summary="",
             force=False,
@@ -283,13 +283,13 @@ class TestNpassGitlabNotePosted:
 
         monkeypatch.setattr("config.REVIEW_MODES", {
             "npass-test": {
-                "members": ["pascal"],
+                "members": ["reviewer1"],
                 "min_reviews": 1,
                 "grace_period_sec": 0,
-                "n_pass": {"pascal": 2},
+                "n_pass": {"reviewer1": 2},
             },
             "standard": {
-                "members": ["pascal"],
+                "members": ["reviewer1"],
                 "min_reviews": 1,
                 "grace_period_sec": 0,
             },
@@ -299,7 +299,7 @@ class TestNpassGitlabNotePosted:
         args = argparse.Namespace(
             project="test-pj",
             issue=1,
-            reviewer="pascal",
+            reviewer="reviewer1",
             verdict="P1",
             summary="issue found",
             force=False,
@@ -325,12 +325,12 @@ class TestNpassFinalPassNote:
 
         monkeypatch.setattr("config.REVIEW_MODES", {
             "npass-test": {
-                "members": ["pascal"],
+                "members": ["reviewer1"],
                 "min_reviews": 1,
                 "grace_period_sec": 0,
             },
             "standard": {
-                "members": ["pascal"],
+                "members": ["reviewer1"],
                 "min_reviews": 1,
                 "grace_period_sec": 0,
             },
@@ -340,7 +340,7 @@ class TestNpassFinalPassNote:
         args = argparse.Namespace(
             project="test-pj",
             issue=1,
-            reviewer="pascal",
+            reviewer="reviewer1",
             verdict="APPROVE",
             summary="LGTM",
             force=False,
@@ -366,7 +366,7 @@ class TestNpassDefaultTargetPass:
 
         monkeypatch.setattr("config.REVIEW_MODES", {
             "standard": {
-                "members": ["pascal"],
+                "members": ["reviewer1"],
                 "min_reviews": 1,
                 "grace_period_sec": 0,
             },
@@ -376,7 +376,7 @@ class TestNpassDefaultTargetPass:
         args = argparse.Namespace(
             project="test-pj",
             issue=1,
-            reviewer="pascal",
+            reviewer="reviewer1",
             verdict="APPROVE",
             summary="LGTM",
             force=False,
@@ -392,7 +392,7 @@ class TestNpassDefaultTargetPass:
 
         path = tmp_pipelines / "test-pj.json"
         data = json.loads(path.read_text())
-        entry = data["batch"][0]["code_reviews"]["pascal"]
+        entry = data["batch"][0]["code_reviews"]["reviewer1"]
         assert entry["target_pass"] == 1
 
 
@@ -409,13 +409,13 @@ class TestNpassValidation:
 
         monkeypatch.setattr("config.REVIEW_MODES", {
             "bad-mode": {
-                "members": ["pascal"],
+                "members": ["reviewer1"],
                 "min_reviews": 1,
                 "grace_period_sec": 0,
-                "n_pass": {"pascal": bad_value},
+                "n_pass": {"reviewer1": bad_value},
             },
             "standard": {
-                "members": ["pascal"],
+                "members": ["reviewer1"],
                 "min_reviews": 1,
                 "grace_period_sec": 0,
             },
@@ -425,7 +425,7 @@ class TestNpassValidation:
         args = argparse.Namespace(
             project="test-pj",
             issue=1,
-            reviewer="pascal",
+            reviewer="reviewer1",
             verdict="APPROVE",
             summary="",
             force=False,
@@ -441,7 +441,7 @@ class TestNpassValidation:
 
         path = tmp_pipelines / "test-pj.json"
         data = json.loads(path.read_text())
-        entry = data["batch"][0]["code_reviews"]["pascal"]
+        entry = data["batch"][0]["code_reviews"]["reviewer1"]
         assert entry["target_pass"] == 1
 
         captured = capsys.readouterr()
@@ -467,8 +467,8 @@ class TestNpassRoundGuard:
         batch = [{
             "issue": 1,
             "design_reviews": {
-                "euler": {"verdict": "P1", "at": now, "pass": 1, "target_pass": 1},
-                "pascal": {"verdict": "APPROVE", "at": now, "pass": 1, "target_pass": 2},
+                "reviewer6": {"verdict": "P1", "at": now, "pass": 1, "target_pass": 1},
+                "reviewer1": {"verdict": "APPROVE", "at": now, "pass": 1, "target_pass": 2},
             },
         }]
         data = {
@@ -478,12 +478,12 @@ class TestNpassRoundGuard:
             "history": [{"from": "DESIGN_PLAN", "to": "DESIGN_REVIEW", "at": now}],
         }
         with patch("engine.fsm.REVIEW_MODES", {
-            "npass_mode": {"members": ["euler", "pascal"], "min_reviews": 2, "grace_period_sec": 0},
-            "standard": {"members": ["euler", "pascal"], "min_reviews": 2, "grace_period_sec": 0},
+            "npass_mode": {"members": ["reviewer6", "reviewer1"], "min_reviews": 2, "grace_period_sec": 0},
+            "standard": {"members": ["reviewer6", "reviewer1"], "min_reviews": 2, "grace_period_sec": 0},
         }):
             action = check_transition("DESIGN_REVIEW", batch, data)
         assert action.new_state == "DESIGN_REVIEW_NPASS"
-        assert action.npass_target_reviewers == ["pascal"]
+        assert action.npass_target_reviewers == ["reviewer1"]
 
     def test_npass_skipped_on_round2(self):
         """Round 2+（revise_count > 0）では NPASS をスキップして直接 APPROVE する。"""
@@ -492,8 +492,8 @@ class TestNpassRoundGuard:
         batch = [{
             "issue": 1,
             "design_reviews": {
-                "euler": {"verdict": "APPROVE", "at": now, "pass": 1, "target_pass": 1},
-                "pascal": {"verdict": "APPROVE", "at": now, "pass": 1, "target_pass": 2},
+                "reviewer6": {"verdict": "APPROVE", "at": now, "pass": 1, "target_pass": 1},
+                "reviewer1": {"verdict": "APPROVE", "at": now, "pass": 1, "target_pass": 2},
             },
         }]
         data = {
@@ -503,8 +503,8 @@ class TestNpassRoundGuard:
             "history": [{"from": "DESIGN_REVISE", "to": "DESIGN_REVIEW", "at": now}],
         }
         with patch("engine.fsm.REVIEW_MODES", {
-            "npass_mode": {"members": ["euler", "pascal"], "min_reviews": 2, "grace_period_sec": 0},
-            "standard": {"members": ["euler", "pascal"], "min_reviews": 2, "grace_period_sec": 0},
+            "npass_mode": {"members": ["reviewer6", "reviewer1"], "min_reviews": 2, "grace_period_sec": 0},
+            "standard": {"members": ["reviewer6", "reviewer1"], "min_reviews": 2, "grace_period_sec": 0},
         }):
             action = check_transition("DESIGN_REVIEW", batch, data)
         assert action.new_state == "DESIGN_APPROVED"
@@ -516,8 +516,8 @@ class TestNpassRoundGuard:
         batch = [{
             "issue": 1,
             "code_reviews": {
-                "euler": {"verdict": "APPROVE", "at": now, "pass": 1, "target_pass": 1},
-                "dijkstra": {"verdict": "APPROVE", "at": now, "pass": 1, "target_pass": 2},
+                "reviewer6": {"verdict": "APPROVE", "at": now, "pass": 1, "target_pass": 1},
+                "reviewer3": {"verdict": "APPROVE", "at": now, "pass": 1, "target_pass": 2},
             },
         }]
         data = {
@@ -527,8 +527,8 @@ class TestNpassRoundGuard:
             "history": [{"from": "CODE_REVISE", "to": "CODE_REVIEW", "at": now}],
         }
         with patch("engine.fsm.REVIEW_MODES", {
-            "npass_mode": {"members": ["euler", "dijkstra"], "min_reviews": 2, "grace_period_sec": 0},
-            "standard": {"members": ["euler", "dijkstra"], "min_reviews": 2, "grace_period_sec": 0},
+            "npass_mode": {"members": ["reviewer6", "reviewer3"], "min_reviews": 2, "grace_period_sec": 0},
+            "standard": {"members": ["reviewer6", "reviewer3"], "min_reviews": 2, "grace_period_sec": 0},
         }):
             action = check_transition("CODE_REVIEW", batch, data)
         assert action.new_state == "CODE_APPROVED"

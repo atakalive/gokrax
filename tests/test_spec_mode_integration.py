@@ -43,12 +43,12 @@ def _now():
 def _make_pipeline(state="IDLE", spec_mode=False, spec_config=None, **kwargs):
     data = {
         "project": "test-pj",
-        "gitlab": "atakalive/test-pj",
+        "gitlab": "testns/test-pj",
         "state": state,
         "spec_mode": spec_mode,
         "spec_config": spec_config if spec_config is not None else {},
         "enabled": True,
-        "implementer": "kaneko",
+        "implementer": "implementer1",
         "review_mode": "full",
         "batch": [],
         "history": [],
@@ -79,7 +79,7 @@ def _pending_review_requests():
 def _make_active_pipeline(state="SPEC_REVIEW", **sc_overrides):
     sc = _make_spec_config(
         spec_path="docs/test-spec.md",
-        spec_implementer="kaneko",
+        spec_implementer="implementer1",
         review_requests=_pending_review_requests(),
         **sc_overrides,
     )
@@ -208,7 +208,7 @@ class TestNormalFlowE2E:
         """SPEC_REVIEW → SPEC_APPROVED → ISSUE_SUGGESTION → ISSUE_PLAN → QUEUE_PLAN → SPEC_DONE"""
         sc = _make_spec_config(
             spec_path="docs/test-spec.md",
-            spec_implementer="kaneko",
+            spec_implementer="implementer1",
             auto_continue=True,
             review_requests=_pending_review_requests(),
         )
@@ -307,13 +307,13 @@ class TestReviewCycleE2E:
         """P0 → SPEC_REVISE → SPEC_REVIEW → APPROVE"""
         sc = _make_spec_config(
             spec_path="docs/test-spec.md",
-            spec_implementer="kaneko",
+            spec_implementer="implementer1",
             review_requests=_pending_review_requests(),
             auto_continue=True,
         )
         data = _make_pipeline(state="SPEC_REVIEW", spec_mode=True, spec_config=sc)
 
-        # 全員 received: pascal=P0, leibniz=APPROVE
+        # 全員 received: reviewer1=P0, reviewer2=APPROVE
         _set_all_received(sc, {_REVIEWERS[0]: "P0", **{r: "APPROVE" for r in _REVIEWERS[1:]}})
         action = check_transition_spec("SPEC_REVIEW", sc, _now(), data)
         assert action.next_state == "SPEC_REVISE"
@@ -337,7 +337,7 @@ class TestReviewCycleE2E:
         """3ラウンドの REVIEW→REVISE→REVIEW サイクルでカウンタ進行確認"""
         sc = _make_spec_config(
             spec_path="docs/test-spec.md",
-            spec_implementer="kaneko",
+            spec_implementer="implementer1",
             review_requests=_pending_review_requests(),
         )
         data = _make_pipeline(state="SPEC_REVIEW", spec_mode=True, spec_config=sc)
@@ -376,7 +376,7 @@ class TestAbnormalFlowE2E:
         """全員 timeout → SPEC_REVIEW_FAILED → retry"""
         sc = _make_spec_config(
             spec_path="docs/test-spec.md",
-            spec_implementer="kaneko",
+            spec_implementer="implementer1",
             review_requests={
                 r: {"status": "timeout", "sent_at": "2026-03-01T11:30:00+09:00",
                     "timeout_at": "2026-03-01T12:00:00+09:00",
@@ -411,21 +411,21 @@ class TestAbnormalFlowE2E:
         """parse_failed(1) + timeout(1) → 有効<2 → paused"""
         sc = _make_spec_config(
             spec_path="docs/test-spec.md",
-            spec_implementer="kaneko",
+            spec_implementer="implementer1",
             review_requests={
-                "pascal": {"status": "received", "sent_at": "2026-03-01T11:30:00+09:00",
+                "reviewer1": {"status": "received", "sent_at": "2026-03-01T11:30:00+09:00",
                            "timeout_at": "2026-03-01T12:00:00+09:00",
                            "last_nudge_at": None, "response": None},
-                "leibniz": {"status": "timeout", "sent_at": "2026-03-01T11:30:00+09:00",
+                "reviewer2": {"status": "timeout", "sent_at": "2026-03-01T11:30:00+09:00",
                             "timeout_at": "2026-03-01T12:00:00+09:00",
                             "last_nudge_at": None, "response": None},
             },
             current_reviews={
                 "reviewed_rev": "1",
                 "entries": {
-                    "pascal": {"verdict": None, "items": [], "raw_text": "bad",
+                    "reviewer1": {"verdict": None, "items": [], "raw_text": "bad",
                                "parse_success": False, "status": "parse_failed"},
-                    "leibniz": {"verdict": None, "items": [], "raw_text": None,
+                    "reviewer2": {"verdict": None, "items": [], "raw_text": None,
                                 "parse_success": False, "status": "timeout"},
                 },
             },
@@ -444,7 +444,7 @@ class TestAbnormalFlowE2E:
         """SPEC_PAUSED → M resume → SPEC_REVIEW"""
         sc = _make_spec_config(
             spec_path="docs/test-spec.md",
-            spec_implementer="kaneko",
+            spec_implementer="implementer1",
             review_requests=_pending_review_requests(),
             paused_from="SPEC_REVIEW",
         )
@@ -464,7 +464,7 @@ class TestAbnormalFlowE2E:
         """revise_count == max → P1 → stalled"""
         sc = _make_spec_config(
             spec_path="docs/test-spec.md",
-            spec_implementer="kaneko",
+            spec_implementer="implementer1",
             review_requests=_pending_review_requests(),
             rev_index=config.MAX_SPEC_REVISE_CYCLES,
             max_revise_cycles=config.MAX_SPEC_REVISE_CYCLES,
@@ -482,7 +482,7 @@ class TestAbnormalFlowE2E:
         """SPEC_STALLED → force approve → SPEC_APPROVED → auto_continue"""
         sc = _make_spec_config(
             spec_path="docs/test-spec.md",
-            spec_implementer="kaneko",
+            spec_implementer="implementer1",
             review_requests=_pending_review_requests(),
             auto_continue=True,
             force_events=[],
@@ -510,7 +510,7 @@ class TestAbnormalFlowE2E:
         past = (_now() - timedelta(seconds=config.SPEC_BLOCK_TIMERS["SPEC_REVISE"] + 100))
         sc = _make_spec_config(
             spec_path="docs/test-spec.md",
-            spec_implementer="kaneko",
+            spec_implementer="implementer1",
             review_requests=_pending_review_requests(),
             retry_counts={},
         )
@@ -558,14 +558,14 @@ class TestAbnormalFlowE2E:
         ]
         sc = _make_spec_config(
             spec_path="docs/test-spec.md",
-            spec_implementer="kaneko",
+            spec_implementer="implementer1",
             review_requests=_pending_review_requests(),
             current_reviews={
                 "reviewed_rev": "1",
                 "entries": {
-                    "pascal": _received_entry("P0", items=p0_items),
-                    "leibniz": _received_entry("APPROVE"),
-                    "dijkstra": _received_entry("APPROVE"),
+                    "reviewer1": _received_entry("P0", items=p0_items),
+                    "reviewer2": _received_entry("APPROVE"),
+                    "reviewer3": _received_entry("APPROVE"),
                 },
             },
         )
@@ -575,7 +575,7 @@ class TestAbnormalFlowE2E:
         action = _check_spec_revise(sc, _now(), data)
         assert action.next_state is None
         assert action.send_to is not None
-        assert "kaneko" in action.send_to
+        assert "implementer1" in action.send_to
         assert action.pipeline_updates.get("_revise_sent") is not None
 
         # 2回目 tick: _revise_sent がセット済み → send_to は出ない（冪等）
@@ -588,7 +588,7 @@ class TestAbnormalFlowE2E:
         members = ["reviewer1", "reviewer2", "reviewer3"]  # standard mode 相当
         sc = _make_spec_config(
             spec_path="docs/test-spec.md",
-            spec_implementer="kaneko",
+            spec_implementer="implementer1",
             review_requests={
                 r: {"status": "pending", "sent_at": None, "timeout_at": None,
                     "last_nudge_at": None, "response": None}
@@ -611,7 +611,7 @@ class TestAbnormalFlowE2E:
         lite_members = ["reviewer1", "reviewer2"]  # lite mode 相当
         sc = _make_spec_config(
             spec_path="docs/test-spec.md",
-            spec_implementer="kaneko",
+            spec_implementer="implementer1",
             review_requests={
                 r: {"status": "pending", "sent_at": None, "timeout_at": None,
                     "last_nudge_at": None, "response": None}
@@ -634,7 +634,7 @@ class TestAbnormalFlowE2E:
         # full mode has min_valid=4; provide only 1 received + 3 timeout
         sc = _make_spec_config(
             spec_path="docs/test-spec.md",
-            spec_implementer="kaneko",
+            spec_implementer="implementer1",
             review_requests=_pending_review_requests(),
             current_reviews={
                 "reviewed_rev": "1",
@@ -652,7 +652,7 @@ class TestAbnormalFlowE2E:
         """未知 review_mode → ValueError（#65 A5）"""
         sc = _make_spec_config(
             spec_path="docs/test-spec.md",
-            spec_implementer="kaneko",
+            spec_implementer="implementer1",
             review_requests=_pending_review_requests(),
             current_reviews={"reviewed_rev": "1", "entries": {}},
         )
@@ -731,7 +731,7 @@ class TestCLIOptionCombinations:
 
     def _base_args(self, **overrides):
         defaults = dict(
-            project="test-pj", spec="docs/spec.md", implementer="kaneko",
+            project="test-pj", spec="docs/spec.md", implementer="implementer1",
             review_only=False, no_queue=False, skip_review=False,
             max_cycles=None, review_mode=None, model=None, auto_continue=False, auto_qrun=False,
         )
@@ -801,7 +801,7 @@ class TestCurrentReviewsStructure:
         """reviewed_rev がトップレベルに存在"""
         sc = _make_spec_config(
             spec_path="docs/test-spec.md",
-            spec_implementer="kaneko",
+            spec_implementer="implementer1",
             review_requests=_pending_review_requests(),
             current_reviews={
                 "reviewed_rev": "2",
@@ -815,19 +815,19 @@ class TestCurrentReviewsStructure:
         """reviewer エントリが entries 配下"""
         sc = _make_spec_config(
             spec_path="docs/test-spec.md",
-            spec_implementer="kaneko",
+            spec_implementer="implementer1",
             review_requests=_pending_review_requests(),
             current_reviews={
                 "reviewed_rev": "1",
                 "entries": {
-                    "pascal": _received_entry("P0"),
-                    "leibniz": _received_entry("APPROVE"),
+                    "reviewer1": _received_entry("P0"),
+                    "reviewer2": _received_entry("APPROVE"),
                 },
             },
         )
         entries = sc["current_reviews"]["entries"]
-        assert entries["pascal"]["verdict"] == "P0"
-        assert entries["leibniz"]["verdict"] == "APPROVE"
+        assert entries["reviewer1"]["verdict"] == "P0"
+        assert entries["reviewer2"]["verdict"] == "APPROVE"
 
     def test_status_pending_to_received(self):
         """received エントリが validate_received_entry を通過する"""
@@ -842,9 +842,9 @@ class TestCurrentReviewsStructure:
         past = _now() - timedelta(seconds=config.SPEC_BLOCK_TIMERS["SPEC_REVIEW"] + 100)
         sc = _make_spec_config(
             spec_path="docs/test-spec.md",
-            spec_implementer="kaneko",
+            spec_implementer="implementer1",
             review_requests={
-                "pascal": {"status": "pending",
+                "reviewer1": {"status": "pending",
                            "sent_at": past.isoformat(),
                            "timeout_at": (past + timedelta(seconds=config.SPEC_BLOCK_TIMERS["SPEC_REVIEW"])).isoformat(),
                            "last_nudge_at": None, "response": None},
@@ -854,7 +854,7 @@ class TestCurrentReviewsStructure:
         data = {"project": "test-pj", "review_mode": "full"}
         action = _check_spec_review(sc, _now(), data)
         rr_patch = action.pipeline_updates.get("review_requests_patch", {})
-        assert rr_patch.get("pascal", {}).get("status") == "timeout"
+        assert rr_patch.get("reviewer1", {}).get("status") == "timeout"
 
     def test_status_pending_to_parse_failed(self):
         """parse_success=False の received → validate_received_entry が False"""
@@ -883,7 +883,7 @@ class TestLastChangesVerification:
         """SPEC_REVISE 完了後に last_changes が SPEC_REVIEW 遷移の pipeline_updates に含まれる"""
         sc = _make_spec_config(
             spec_path="docs/test-spec.md",
-            spec_implementer="kaneko",
+            spec_implementer="implementer1",
             review_requests=_pending_review_requests(),
             _revise_response=_revise_yaml("2", "abc1234", 50, 10),
         )
@@ -915,7 +915,7 @@ class TestLastChangesVerification:
         """last_changes の情報がレビュー改訂プロンプトに反映される"""
         sc = _make_spec_config(
             spec_path="docs/test-spec.md",
-            spec_implementer="kaneko",
+            spec_implementer="implementer1",
             review_requests=_pending_review_requests(),
             last_commit="abc1234",
             last_changes={"added_lines": 50, "removed_lines": 10,
@@ -945,7 +945,7 @@ class TestApprovedTransitionFix:
         """7c: SPEC_REVIEW→SPEC_APPROVED→ISSUE_SUGGESTION で review_requests リセット・アーカイブ・current_reviews クリアを確認"""
         sc = _make_spec_config(
             spec_path="docs/test-spec.md",
-            spec_implementer="kaneko",
+            spec_implementer="implementer1",
             auto_continue=True,
             review_requests=_pending_review_requests(),
         )
@@ -1013,7 +1013,7 @@ class TestApprovedTransitionFix:
         }
         sc = _make_spec_config(
             spec_path="docs/test-spec.md",
-            spec_implementer="kaneko",
+            spec_implementer="implementer1",
             review_requests=rr,
             current_reviews={},
         )
@@ -1056,7 +1056,7 @@ class TestApprovedTransitionFix:
         }
         sc = _make_spec_config(
             spec_path="docs/test-spec.md",
-            spec_implementer="kaneko",
+            spec_implementer="implementer1",
             current_rev="2",
             review_requests=rr,
             current_reviews={},
@@ -1091,7 +1091,7 @@ class TestSpecDoneAutoTransition:
 
     def test_check_transition_spec_done_returns_idle(self):
         """check_transition_spec("SPEC_DONE") は next_state="IDLE" を返す。"""
-        sc = _make_spec_config(spec_path="docs/test-spec.md", spec_implementer="kaneko")
+        sc = _make_spec_config(spec_path="docs/test-spec.md", spec_implementer="implementer1")
         data = _make_pipeline(state="SPEC_DONE", spec_mode=True, spec_config=sc)
         action = check_transition_spec("SPEC_DONE", sc, _now(), data)
         assert action.next_state == "IDLE"
@@ -1099,7 +1099,7 @@ class TestSpecDoneAutoTransition:
     @pytest.mark.parametrize("state", ["SPEC_STALLED", "SPEC_REVIEW_FAILED", "SPEC_PAUSED"])
     def test_check_transition_terminal_states_return_none(self, state):
         """他の terminal states は next_state=None のまま（M操作待ち）。"""
-        sc = _make_spec_config(spec_path="docs/test-spec.md", spec_implementer="kaneko")
+        sc = _make_spec_config(spec_path="docs/test-spec.md", spec_implementer="implementer1")
         data = _make_pipeline(state=state, spec_mode=True, spec_config=sc)
         action = check_transition_spec(state, sc, _now(), data)
         assert action.next_state is None
@@ -1116,7 +1116,7 @@ class TestSpecDoneAutoTransition:
         """_apply_spec_action 経由で SPEC_DONE → IDLE: state/spec_mode/spec_config がクリアされる。"""
         from pipeline_io import get_path, load_pipeline
 
-        sc = _make_spec_config(spec_path="docs/test-spec.md", spec_implementer="kaneko")
+        sc = _make_spec_config(spec_path="docs/test-spec.md", spec_implementer="implementer1")
         pj_data = _make_pipeline(state="SPEC_DONE", spec_mode=True, spec_config=sc)
         path = get_path("test-pj")
         write_pipeline(path, pj_data)
@@ -1134,7 +1134,7 @@ class TestSpecDoneAutoTransition:
         """SPEC_DONE → IDLE 遷移時、history に actor=watchdog で1回だけ記録される。"""
         from pipeline_io import get_path, load_pipeline
 
-        sc = _make_spec_config(spec_path="docs/test-spec.md", spec_implementer="kaneko")
+        sc = _make_spec_config(spec_path="docs/test-spec.md", spec_implementer="implementer1")
         pj_data = _make_pipeline(state="SPEC_DONE", spec_mode=True, spec_config=sc)
         path = get_path("test-pj")
         write_pipeline(path, pj_data)
@@ -1158,7 +1158,7 @@ class TestSpecDoneAutoTransition:
         """
         from pipeline_io import get_path, load_pipeline
 
-        sc = _make_spec_config(spec_path="docs/test-spec.md", spec_implementer="kaneko")
+        sc = _make_spec_config(spec_path="docs/test-spec.md", spec_implementer="implementer1")
         pj_data = _make_pipeline(state="SPEC_DONE", spec_mode=True, spec_config=sc)
         path = get_path("test-pj")
         write_pipeline(path, pj_data)

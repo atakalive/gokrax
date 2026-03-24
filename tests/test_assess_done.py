@@ -52,10 +52,10 @@ class TestCmdAssessDone:
         path = tmp_pipelines / "test-pj.json"
         _write_pipeline(path, {
             "project": "test-pj",
-            "gitlab": "atakalive/test-pj",
+            "gitlab": "testns/test-pj",
             "state": "ASSESSMENT",
             "enabled": True,
-            "implementer": "kaneko",
+            "implementer": "implementer1",
             "batch": _make_batch(1),
             "history": [],
         })
@@ -71,7 +71,7 @@ class TestCmdAssessDone:
         data = json.loads(path.read_text())
         assert data["batch"][0]["assessment"]["complex_level"] == 3
         assert data["batch"][0]["assessment"]["summary"] == "medium difficulty"
-        assert data["batch"][0]["assessment"]["assessed_by"] == "kaneko"
+        assert data["batch"][0]["assessment"]["assessed_by"] == "implementer1"
         assert "timestamp" in data["batch"][0]["assessment"]
 
     # --- 8-2: ASSESSMENT 以外ではエラー ---
@@ -83,7 +83,7 @@ class TestCmdAssessDone:
             "project": "test-pj",
             "state": "IMPLEMENTATION",
             "enabled": True,
-            "implementer": "kaneko",
+            "implementer": "implementer1",
             "batch": [],
             "history": [],
         })
@@ -105,7 +105,7 @@ class TestCmdAssessDone:
                 "project": "test-pj",
                 "state": "ASSESSMENT",
                 "enabled": True,
-                "implementer": "kaneko",
+                "implementer": "implementer1",
                 "batch": _make_batch(1),
                 "history": [],
             })
@@ -124,7 +124,7 @@ class TestCmdAssessDone:
             "project": "test-pj",
             "state": "ASSESSMENT",
             "enabled": True,
-            "implementer": "kaneko",
+            "implementer": "implementer1",
             "batch": _make_batch(1),
             "history": [],
         })
@@ -163,7 +163,7 @@ class TestUpdateIssueTitleWithComplexLevel:
         update_result = MagicMock(returncode=0)
 
         with patch("subprocess.run", side_effect=[view_result, update_result]) as mock_run:
-            ok = _update_issue_title_with_assessment("atakalive/test-pj", 42, 3, "none")
+            ok = _update_issue_title_with_assessment("testns/test-pj", 42, 3, "none")
 
         assert ok is True
         # update コマンドのタイトル引数を確認
@@ -178,7 +178,7 @@ class TestUpdateIssueTitleWithComplexLevel:
         update_result = MagicMock(returncode=0)
 
         with patch("subprocess.run", side_effect=[view_result, update_result]) as mock_run:
-            ok = _update_issue_title_with_assessment("atakalive/test-pj", 42, 4, "none")
+            ok = _update_issue_title_with_assessment("testns/test-pj", 42, 4, "none")
 
         assert ok is True
         update_call = mock_run.call_args_list[1]
@@ -192,7 +192,7 @@ class TestUpdateIssueTitleWithComplexLevel:
         update_result = MagicMock(returncode=0)
 
         with patch("subprocess.run", side_effect=[view_result, update_result]) as mock_run:
-            ok = _update_issue_title_with_assessment("atakalive/test-pj", 42, 4, "none")
+            ok = _update_issue_title_with_assessment("testns/test-pj", 42, 4, "none")
 
         assert ok is True
         update_call = mock_run.call_args_list[1]
@@ -206,7 +206,7 @@ class TestUpdateIssueTitleWithComplexLevel:
         update_result = MagicMock(returncode=0)
 
         with patch("subprocess.run", side_effect=[view_result, update_result]) as mock_run:
-            ok = _update_issue_title_with_assessment("atakalive/test-pj", 42, 5, "none")
+            ok = _update_issue_title_with_assessment("testns/test-pj", 42, 5, "none")
 
         assert ok is True
         update_call = mock_run.call_args_list[1]
@@ -241,10 +241,10 @@ class TestAssessDoneTitleFailure:
         path = tmp_pipelines / "test-pj.json"
         _write_pipeline(path, {
             "project": "test-pj",
-            "gitlab": "atakalive/test-pj",
+            "gitlab": "testns/test-pj",
             "state": "ASSESSMENT",
             "enabled": True,
-            "implementer": "kaneko",
+            "implementer": "implementer1",
             "batch": _make_batch(2),
             "history": [],
         })
@@ -273,10 +273,10 @@ class TestAssessDoneSummaryTruncation:
         path = tmp_pipelines / "test-pj.json"
         _write_pipeline(path, {
             "project": "test-pj",
-            "gitlab": "atakalive/test-pj",
+            "gitlab": "testns/test-pj",
             "state": "ASSESSMENT",
             "enabled": True,
-            "implementer": "kaneko",
+            "implementer": "implementer1",
             "batch": _make_batch(1),
             "history": [],
         })
@@ -299,9 +299,9 @@ class TestCmdAssessDoneDomainRisk:
 
         path = tmp_pipelines / "test-pj.json"
         _write_pipeline(path, {
-            "project": "test-pj", "gitlab": "atakalive/test-pj",
+            "project": "test-pj", "gitlab": "testns/test-pj",
             "state": "ASSESSMENT", "enabled": True,
-            "implementer": "kaneko", "batch": _make_batch(1), "history": [],
+            "implementer": "implementer1", "batch": _make_batch(1), "history": [],
         })
         args = SimpleNamespace(
             project="test-pj", issue=1, complex_level=3, summary="test",
@@ -320,9 +320,9 @@ class TestCmdAssessDoneDomainRisk:
 
         path = tmp_pipelines / "test-pj.json"
         _write_pipeline(path, {
-            "project": "test-pj", "gitlab": "atakalive/test-pj",
+            "project": "test-pj", "gitlab": "testns/test-pj",
             "state": "ASSESSMENT", "enabled": True,
-            "implementer": "kaneko", "batch": _make_batch(1), "history": [],
+            "implementer": "implementer1", "batch": _make_batch(1), "history": [],
         })
         args = SimpleNamespace(
             project="test-pj", issue=1, complex_level=2, summary="",
@@ -342,7 +342,7 @@ class TestCmdAssessDoneDomainRisk:
         path = tmp_pipelines / "test-pj.json"
         _write_pipeline(path, {
             "project": "test-pj", "state": "ASSESSMENT", "enabled": True,
-            "implementer": "kaneko", "batch": _make_batch(1), "history": [],
+            "implementer": "implementer1", "batch": _make_batch(1), "history": [],
         })
         args = SimpleNamespace(
             project="test-pj", issue=1, complex_level=3, summary="",
@@ -357,9 +357,9 @@ class TestCmdAssessDoneDomainRisk:
 
         path = tmp_pipelines / "test-pj.json"
         _write_pipeline(path, {
-            "project": "test-pj", "gitlab": "atakalive/test-pj",
+            "project": "test-pj", "gitlab": "testns/test-pj",
             "state": "ASSESSMENT", "enabled": True,
-            "implementer": "kaneko", "batch": _make_batch(1), "history": [],
+            "implementer": "implementer1", "batch": _make_batch(1), "history": [],
         })
         args = SimpleNamespace(
             project="test-pj", issue=1, complex_level=2, summary="",
@@ -383,7 +383,7 @@ class TestUpdateIssueTitleWithRisk:
         update_result = MagicMock(returncode=0)
 
         with patch("subprocess.run", side_effect=[view_result, update_result]) as mock_run:
-            ok = _update_issue_title_with_assessment("atakalive/test-pj", 42, 3, "high")
+            ok = _update_issue_title_with_assessment("testns/test-pj", 42, 3, "high")
 
         assert ok is True
         update_call = mock_run.call_args_list[1]
@@ -397,7 +397,7 @@ class TestUpdateIssueTitleWithRisk:
         update_result = MagicMock(returncode=0)
 
         with patch("subprocess.run", side_effect=[view_result, update_result]) as mock_run:
-            ok = _update_issue_title_with_assessment("atakalive/test-pj", 42, 3, "none")
+            ok = _update_issue_title_with_assessment("testns/test-pj", 42, 3, "none")
 
         assert ok is True
         update_call = mock_run.call_args_list[1]
@@ -411,7 +411,7 @@ class TestUpdateIssueTitleWithRisk:
         update_result = MagicMock(returncode=0)
 
         with patch("subprocess.run", side_effect=[view_result, update_result]) as mock_run:
-            ok = _update_issue_title_with_assessment("atakalive/test-pj", 42, 3, "high")
+            ok = _update_issue_title_with_assessment("testns/test-pj", 42, 3, "high")
 
         assert ok is True
         update_call = mock_run.call_args_list[1]
@@ -425,7 +425,7 @@ class TestUpdateIssueTitleWithRisk:
         update_result = MagicMock(returncode=0)
 
         with patch("subprocess.run", side_effect=[view_result, update_result]) as mock_run:
-            ok = _update_issue_title_with_assessment("atakalive/test-pj", 42, 3, "high")
+            ok = _update_issue_title_with_assessment("testns/test-pj", 42, 3, "high")
 
         assert ok is True
         update_call = mock_run.call_args_list[1]
@@ -439,7 +439,7 @@ class TestUpdateIssueTitleWithRisk:
         update_result = MagicMock(returncode=0)
 
         with patch("subprocess.run", side_effect=[view_result, update_result]) as mock_run:
-            ok = _update_issue_title_with_assessment("atakalive/test-pj", 42, 3, "low")
+            ok = _update_issue_title_with_assessment("testns/test-pj", 42, 3, "low")
 
         assert ok is True
         update_call = mock_run.call_args_list[1]
@@ -453,7 +453,7 @@ class TestUpdateIssueTitleWithRisk:
         update_result = MagicMock(returncode=0)
 
         with patch("subprocess.run", side_effect=[view_result, update_result]) as mock_run:
-            ok = _update_issue_title_with_assessment("atakalive/test-pj", 42, 3, "none")
+            ok = _update_issue_title_with_assessment("testns/test-pj", 42, 3, "none")
 
         assert ok is True
         update_call = mock_run.call_args_list[1]

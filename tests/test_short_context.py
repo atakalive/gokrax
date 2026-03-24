@@ -92,7 +92,7 @@ class TestNotifyReviewersShortContext:
              patch("notify.fetch_issue_body", return_value="body"), \
              patch("notify.format_review_request", return_value="msg"):
             notify.notify_reviewers(
-                "proj", "DESIGN_REVIEW", [_make_batch_item(1)], "atakalive/proj",
+                "proj", "DESIGN_REVIEW", [_make_batch_item(1)], "testns/proj",
                 review_mode="sc_mode",
                 already_reset=False,
             )
@@ -113,7 +113,7 @@ class TestNotifyReviewersShortContext:
              patch("notify.fetch_issue_body", return_value="body"), \
              patch("notify.format_review_request", return_value="msg"):
             notify.notify_reviewers(
-                "proj", "DESIGN_REVIEW", [_make_batch_item(1)], "atakalive/proj",
+                "proj", "DESIGN_REVIEW", [_make_batch_item(1)], "testns/proj",
                 review_mode="sc_mode",
                 already_reset=True,
             )
@@ -142,7 +142,7 @@ class TestNotifyReviewersShortContext:
              patch("notify.format_review_request", return_value="msg"), \
              patch("time.sleep") as mock_sleep:
             notify.notify_reviewers(
-                "proj", "DESIGN_REVIEW", [_make_batch_item(1)], "atakalive/proj",
+                "proj", "DESIGN_REVIEW", [_make_batch_item(1)], "testns/proj",
                 review_mode="sc_mode2",
                 already_reset=False,
             )
@@ -161,7 +161,7 @@ class TestNotifyReviewersShortContext:
              patch("notify.fetch_issue_body", return_value="body"), \
              patch("notify.format_review_request", return_value="msg"):
             notify.notify_reviewers(
-                "proj", "DESIGN_REVIEW", [_make_batch_item(1)], "atakalive/proj",
+                "proj", "DESIGN_REVIEW", [_make_batch_item(1)], "testns/proj",
                 review_mode="standard",
                 already_reset=False,
             )
@@ -185,7 +185,7 @@ class TestNotifyReviewersShortContext:
              patch("notify.format_review_request", return_value="msg"), \
              patch("time.sleep") as mock_sleep:
             notify.notify_reviewers(
-                "proj", "DESIGN_REVIEW", [_make_batch_item(1)], "atakalive/proj",
+                "proj", "DESIGN_REVIEW", [_make_batch_item(1)], "testns/proj",
                 review_mode="sc_mode",
                 already_reset=False,
             )
@@ -223,22 +223,22 @@ class TestResetShortContextReviewers:
         import config
         import engine.reviewer
 
-        mode = self._setup(monkeypatch, short_ctx_members=["basho", "hanfei"], other_members=["regular1"])
+        mode = self._setup(monkeypatch, short_ctx_members=["reviewer5", "reviewer4"], other_members=["regular1"])
         monkeypatch.setattr(config, "DRY_RUN", True)
 
         with patch("engine.reviewer.send_to_agent_queued", return_value=True) as mock_queued, \
              patch("engine.reviewer.log"):
             engine.reviewer._reset_short_context_reviewers(mode)
 
-        assert call("basho", "/new") in mock_queued.call_args_list
-        assert call("hanfei", "/new") in mock_queued.call_args_list
+        assert call("reviewer5", "/new") in mock_queued.call_args_list
+        assert call("reviewer4", "/new") in mock_queued.call_args_list
 
     def test_keep_ctx_does_not_send_new_to_regular(self, monkeypatch):
         """short-context 以外の tier のメンバーには /new が送信されないこと。"""
         import config
         import engine.reviewer
 
-        mode = self._setup(monkeypatch, short_ctx_members=["basho"], other_members=["regular1"])
+        mode = self._setup(monkeypatch, short_ctx_members=["reviewer5"], other_members=["regular1"])
         monkeypatch.setattr(config, "DRY_RUN", True)
 
         with patch("engine.reviewer.send_to_agent_queued", return_value=True) as mock_queued, \
@@ -279,7 +279,7 @@ class TestResetShortContextReviewers:
         import config
         import engine.reviewer
 
-        mode = self._setup(monkeypatch, short_ctx_members=["basho"])
+        mode = self._setup(monkeypatch, short_ctx_members=["reviewer5"])
         monkeypatch.setattr(config, "DRY_RUN", True)
 
         with patch("engine.reviewer.send_to_agent_queued", return_value=True), \
@@ -294,7 +294,7 @@ class TestResetShortContextReviewers:
         import config
         import engine.reviewer
 
-        mode = self._setup(monkeypatch, short_ctx_members=["basho"])
+        mode = self._setup(monkeypatch, short_ctx_members=["reviewer5"])
         monkeypatch.setattr(config, "DRY_RUN", False)
 
         with patch("engine.reviewer.send_to_agent_queued", return_value=True), \

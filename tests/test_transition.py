@@ -265,7 +265,7 @@ class TestKeepCtx:
             "state": "IDLE",
             "enabled": True,
             "batch": [],
-            "implementer": "kaneko",
+            "implementer": "implementer1",
             "keep_ctx_batch": True,
             "keep_ctx_intra": False,
             "review_mode": "standard",

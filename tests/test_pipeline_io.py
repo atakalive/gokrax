@@ -203,6 +203,11 @@ class TestDevbarCLIIntegration:
             assert json.load(f)["state"] == "INITIALIZE"
 
     def test_review(self, tmp_pipelines, sample_pipeline):
+        # CLI integration test runs gokrax.py in a subprocess with real config,
+        # so we must use an actual reviewer name from settings.py.
+        import config as _real_config
+        _real_reviewer = _real_config._REAL_ALLOWED_REVIEWERS[0]
+
         sample_pipeline["state"] = "DESIGN_REVIEW"
         sample_pipeline["batch"] = [
             {"issue": 10, "title": "t", "design_reviews": {}, "code_reviews": {},
@@ -212,12 +217,12 @@ class TestDevbarCLIIntegration:
         write_pipeline(path, sample_pipeline)
 
         r = self._run("review", "--project", "test-pj", "--issue", "10",
-                       "--reviewer", "pascal", "--verdict", "APPROVE", "--summary", "LGTM",
+                       "--reviewer", _real_reviewer, "--verdict", "APPROVE", "--summary", "LGTM",
                        pipelines_dir=tmp_pipelines)
         assert r.returncode == 0
         with open(path) as f:
             data = json.load(f)
-        assert "pascal" in data["batch"][0]["design_reviews"]
+        assert _real_reviewer in data["batch"][0]["design_reviews"]
 
     def test_commit(self, tmp_pipelines, sample_pipeline):
         sample_pipeline["batch"] = [

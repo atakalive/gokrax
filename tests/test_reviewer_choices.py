@@ -27,23 +27,23 @@ def _build_review_parser():
 
 class TestReviewerChoices:
 
-    def test_valid_reviewer_pascal_accepted(self):
-        """--reviewer pascal は受け付けられること。"""
+    def test_valid_reviewer_reviewer1_accepted(self):
+        """--reviewer reviewer1 は受け付けられること。"""
         parser = _build_review_parser()
         args = parser.parse_args([
             "review", "--project", "proj", "--issue", "1",
-            "--reviewer", "pascal", "--verdict", "APPROVE",
+            "--reviewer", "reviewer1", "--verdict", "APPROVE",
         ])
-        assert args.reviewer == "pascal"
+        assert args.reviewer == "reviewer1"
 
-    def test_valid_reviewer_kaneko_accepted(self):
-        """--reviewer kaneko（実装者）は受け付けられること。"""
+    def test_valid_reviewer_reviewer3_accepted(self):
+        """--reviewer reviewer3 は受け付けられること。"""
         parser = _build_review_parser()
         args = parser.parse_args([
             "review", "--project", "proj", "--issue", "1",
-            "--reviewer", "kaneko", "--verdict", "APPROVE",
+            "--reviewer", "reviewer3", "--verdict", "APPROVE",
         ])
-        assert args.reviewer == "kaneko"
+        assert args.reviewer == "reviewer3"
 
     def test_invalid_reviewer_rejected(self):
         """--reviewer hoge は SystemExit（argparse エラー）になること。"""

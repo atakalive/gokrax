@@ -54,10 +54,10 @@ def _make_pipeline(tmp_pipelines: Path, state: str = "CODE_REVIEW",
                    reviewer_number_map: dict | None = None) -> Path:
     data = {
         "project": "test-pj",
-        "gitlab": "atakalive/test-pj",
+        "gitlab": "testns/test-pj",
         "state": state,
         "enabled": True,
-        "implementer": "kaneko",
+        "implementer": "implementer1",
         "review_mode": review_mode,
         "batch": [
             {

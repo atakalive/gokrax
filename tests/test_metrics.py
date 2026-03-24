@@ -28,10 +28,10 @@ def _write_pipeline(path: Path, data: dict):
 def _base_pipeline(**overrides):
     data = {
         "project": "test-pj",
-        "gitlab": "atakalive/test-pj",
+        "gitlab": "testns/test-pj",
         "state": "IDLE",
         "enabled": True,
-        "implementer": "kaneko",
+        "implementer": "implementer1",
         "batch": [],
         "history": [],
         "review_mode": "standard",
@@ -136,7 +136,7 @@ class TestReviewRequestMetric:
             with patch("notify.fetch_issue_body", return_value="body"):
                 with patch("pipeline_io.append_metric") as mock_metric:
                     notify.notify_reviewers(
-                        "proj", "DESIGN_REVIEW", batch, "atakalive/proj",
+                        "proj", "DESIGN_REVIEW", batch, "testns/proj",
                         review_mode="standard",
                     )
 
@@ -153,23 +153,23 @@ class TestReviewRequestMetric:
         """APPROVE 済み Issue はメトリクス記録されないこと"""
         import notify
         batch = [
-            _make_batch_item(1, design_reviews={"pascal": {"verdict": "APPROVE", "at": ""}}),
+            _make_batch_item(1, design_reviews={"reviewer1": {"verdict": "APPROVE", "at": ""}}),
             _make_batch_item(2),
         ]
         with patch("notify.send_to_agent", return_value=True):
             with patch("notify.fetch_issue_body", return_value="body"):
                 with patch("pipeline_io.append_metric") as mock_metric:
                     notify.notify_reviewers(
-                        "proj", "DESIGN_REVIEW", batch, "atakalive/proj",
+                        "proj", "DESIGN_REVIEW", batch, "testns/proj",
                         review_mode="standard",
                     )
 
-        # pascal の issue 1 はスキップされる
-        pascal_calls = [c for c in mock_metric.call_args_list
+        # reviewer1 の issue 1 はスキップされる
+        reviewer1_calls = [c for c in mock_metric.call_args_list
                         if c.args[0] == "review_request"
-                        and c.kwargs.get("reviewer") == "pascal"
+                        and c.kwargs.get("reviewer") == "reviewer1"
                         and c.kwargs.get("issue") == 1]
-        assert len(pascal_calls) == 0
+        assert len(reviewer1_calls) == 0
 
     def test_send_failure_no_metric(self):
         """send_to_agent 失敗時はメトリクスが記録されないこと"""
@@ -179,7 +179,7 @@ class TestReviewRequestMetric:
             with patch("notify.fetch_issue_body", return_value="body"):
                 with patch("pipeline_io.append_metric") as mock_metric:
                     notify.notify_reviewers(
-                        "proj", "CODE_REVIEW", batch, "atakalive/proj",
+                        "proj", "CODE_REVIEW", batch, "testns/proj",
                         review_mode="standard",
                     )
 
@@ -196,7 +196,7 @@ class TestReviewResponseMetric:
         defaults = {
             "project": "test-pj",
             "issue": 1,
-            "reviewer": "pascal",
+            "reviewer": "reviewer1",
             "verdict": "APPROVE",
             "summary": "",
             "force": False,
@@ -232,7 +232,7 @@ class TestReviewResponseMetric:
         assert call_kwargs["pj"] == "test-pj"
         assert call_kwargs["issue"] == 1
         assert call_kwargs["phase"] == "code"
-        assert call_kwargs["reviewer"] == "pascal"
+        assert call_kwargs["reviewer"] == "reviewer1"
         assert call_kwargs["verdict"] == "APPROVE"
         assert call_kwargs["revise_cycle"] == 2
         assert isinstance(call_kwargs["latency_sec"], int)
@@ -245,9 +245,9 @@ class TestReviewResponseMetric:
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_pipelines)
 
         path = tmp_pipelines / "test-pj.json"
-        # pascal が既にレビュー済み
+        # reviewer1 が既にレビュー済み
         batch_item = _make_batch_item(1)
-        batch_item["code_reviews"]["pascal"] = {"verdict": "P0", "at": ""}
+        batch_item["code_reviews"]["reviewer1"] = {"verdict": "P0", "at": ""}
         _write_pipeline(path, _base_pipeline(
             state="CODE_REVIEW",
             batch=[batch_item],

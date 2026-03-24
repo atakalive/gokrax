@@ -91,7 +91,7 @@ class TestCheckTransitionSpec:
 class TestCheckSpecReview:
     def _base_config(self, reviewers=None):
         if reviewers is None:
-            reviewers = ["pascal", "leibniz"]
+            reviewers = ["reviewer1", "reviewer2"]
         return {
             "spec_path": "docs/spec.md",
             "current_rev": "1",
@@ -112,36 +112,36 @@ class TestCheckSpecReview:
         data = {"project": "test", "review_mode": "full"}
         action = _check_spec_review(sc, _now(), data)
         assert action.send_to is not None
-        assert "pascal" in action.send_to
-        assert "leibniz" in action.send_to
+        assert "reviewer1" in action.send_to
+        assert "reviewer2" in action.send_to
         # 純粋関数: spec_config は mutate されない
-        assert sc["review_requests"]["pascal"]["sent_at"] is None
+        assert sc["review_requests"]["reviewer1"]["sent_at"] is None
         # 事後条件は pipeline_updates に積まれる
         rr_patch = action.pipeline_updates["review_requests_patch"]
-        assert rr_patch["pascal"]["sent_at"] is not None
-        assert rr_patch["pascal"]["timeout_at"] is not None
-        assert rr_patch["leibniz"]["sent_at"] is not None
+        assert rr_patch["reviewer1"]["sent_at"] is not None
+        assert rr_patch["reviewer1"]["timeout_at"] is not None
+        assert rr_patch["reviewer2"]["sent_at"] is not None
 
     def test_timeout_detection(self):
         """timeout_at 超過 → pipeline_updates に timeout patch。"""
-        sc = self._base_config(["pascal"])
+        sc = self._base_config(["reviewer1"])
         past = (_now() - timedelta(seconds=1900)).isoformat()
-        sc["review_requests"]["pascal"]["sent_at"] = past
-        sc["review_requests"]["pascal"]["timeout_at"] = (_now() - timedelta(seconds=100)).isoformat()
+        sc["review_requests"]["reviewer1"]["sent_at"] = past
+        sc["review_requests"]["reviewer1"]["timeout_at"] = (_now() - timedelta(seconds=100)).isoformat()
         data = {"project": "test", "review_mode": "lite"}
         action = _check_spec_review(sc, _now(), data)
         # 純粋関数: spec_config は mutate されない
-        assert sc["review_requests"]["pascal"]["status"] == "pending"
+        assert sc["review_requests"]["reviewer1"]["status"] == "pending"
         # patch に timeout が積まれる
         rr_patch = action.pipeline_updates["review_requests_patch"]
-        assert rr_patch["pascal"]["status"] == "timeout"
+        assert rr_patch["reviewer1"]["status"] == "timeout"
         cr_patch = action.pipeline_updates["current_reviews_patch"]
-        assert cr_patch["pascal"]["status"] == "timeout"
+        assert cr_patch["reviewer1"]["status"] == "timeout"
 
     def test_all_approve(self):
         """全員 received + APPROVE → SPEC_APPROVED。"""
-        sc = self._base_config(["pascal", "leibniz"])
-        for r in ["pascal", "leibniz"]:
+        sc = self._base_config(["reviewer1", "reviewer2"])
+        for r in ["reviewer1", "reviewer2"]:
             sc["review_requests"][r]["status"] = "received"
             sc["review_requests"][r]["sent_at"] = _now().isoformat()
             sc["review_requests"][r]["timeout_at"] = (_now() + timedelta(seconds=SPEC_BLOCK_TIMERS["SPEC_REVIEW"])).isoformat()
@@ -157,8 +157,8 @@ class TestCheckSpecReview:
 
     def test_all_timeout_failed(self):
         """全員 timeout → SPEC_REVIEW_FAILED。"""
-        sc = self._base_config(["pascal", "leibniz"])
-        for r in ["pascal", "leibniz"]:
+        sc = self._base_config(["reviewer1", "reviewer2"])
+        for r in ["reviewer1", "reviewer2"]:
             sc["review_requests"][r]["status"] = "timeout"
             sc["review_requests"][r]["sent_at"] = _now().isoformat()
             sc["current_reviews"]["entries"][r] = {
@@ -171,16 +171,16 @@ class TestCheckSpecReview:
 
     def test_p0_triggers_revise(self):
         """P0 あり → SPEC_REVISE。"""
-        reviewers = ["pascal", "dijkstra", "euler", "basho"]
+        reviewers = ["reviewer1", "reviewer3", "reviewer6", "reviewer5"]
         sc = self._base_config(reviewers)
         for r in reviewers:
             sc["review_requests"][r]["status"] = "received"
             sc["review_requests"][r]["sent_at"] = _now().isoformat()
-        sc["current_reviews"]["entries"]["pascal"] = {
+        sc["current_reviews"]["entries"]["reviewer1"] = {
             "verdict": "P0", "items": [], "raw_text": "",
             "parse_success": True, "status": "received",
         }
-        for r in ["dijkstra", "euler", "basho"]:
+        for r in ["reviewer3", "reviewer6", "reviewer5"]:
             sc["current_reviews"]["entries"][r] = {
                 "verdict": "APPROVE", "items": [], "raw_text": "",
                 "parse_success": True, "status": "received",
@@ -481,7 +481,7 @@ class TestApplySpecActionCleanup:
 class TestSpecNudge:
     """Issue #76: spec mode レビュアー催促機能のテスト。"""
 
-    def _base_sc(self, reviewer="pascal", sent_at_offset=-(NUDGE_GRACE_SEC + 1)):
+    def _base_sc(self, reviewer="reviewer1", sent_at_offset=-(NUDGE_GRACE_SEC + 1)):
         """sent_at 設定済み（猶予期間超過後）の単一レビュアーを持つ spec_config。"""
         sent_at = (_now() + timedelta(seconds=sent_at_offset)).isoformat()
         return {
@@ -531,39 +531,39 @@ class TestSpecNudge:
 
     def test_spec_review_nudge_after_grace_pending_reviewer(self):
         """猶予期間後（elapsed ≥ 300s）+ 未完了レビュアーあり → nudge_reviewers にそのレビュアーが含まれる。"""
-        sc = self._base_sc("pascal")
+        sc = self._base_sc("reviewer1")
         data = self._data_with_entered_at(-400)
         action = _check_spec_review(sc, _now(), data)
         assert action.nudge_reviewers is not None
-        assert "pascal" in action.nudge_reviewers
+        assert "reviewer1" in action.nudge_reviewers
 
     def test_spec_review_nudge_completed_reviewer_excluded(self):
         """status=received のレビュアー → nudge_reviewers に含まれない。"""
-        sc = self._base_sc("pascal")
-        sc["review_requests"]["pascal"]["status"] = "received"
+        sc = self._base_sc("reviewer1")
+        sc["review_requests"]["reviewer1"]["status"] = "received"
         data = self._data_with_entered_at(-400)
         action = _check_spec_review(sc, _now(), data)
         # received は all_complete 方向なので next_state が返る可能性を考慮
         if action.next_state is None:
-            assert action.nudge_reviewers is None or "pascal" not in (action.nudge_reviewers or [])
+            assert action.nudge_reviewers is None or "reviewer1" not in (action.nudge_reviewers or [])
 
     def test_spec_review_nudge_timeout_reviewer_excluded(self):
         """status=timeout のレビュアー → nudge_reviewers に含まれない。"""
-        sc = self._base_sc("pascal")
-        sc["review_requests"]["pascal"]["status"] = "timeout"
+        sc = self._base_sc("reviewer1")
+        sc["review_requests"]["reviewer1"]["status"] = "timeout"
         data = self._data_with_entered_at(-400)
         action = _check_spec_review(sc, _now(), data)
         # timeout は all_complete 方向なので next_state が返る可能性を考慮
         if action.next_state is None:
-            assert action.nudge_reviewers is None or "pascal" not in (action.nudge_reviewers or [])
+            assert action.nudge_reviewers is None or "reviewer1" not in (action.nudge_reviewers or [])
 
     def test_spec_review_nudge_unsent_reviewer_excluded(self):
         """sent_at=None（未送信）のレビュアー → nudge_reviewers に含まれない（初回送信と催促を区別）。"""
-        sc = self._base_sc("pascal")
-        sc["review_requests"]["pascal"]["sent_at"] = None  # 未送信
+        sc = self._base_sc("reviewer1")
+        sc["review_requests"]["reviewer1"]["sent_at"] = None  # 未送信
         data = self._data_with_entered_at(-400)
         action = _check_spec_review(sc, _now(), data)
-        assert action.nudge_reviewers is None or "pascal" not in (action.nudge_reviewers or [])
+        assert action.nudge_reviewers is None or "reviewer1" not in (action.nudge_reviewers or [])
 
     def test_spec_review_nudge_coexists_with_send_to(self):
         """一部レビュアーに初回送信しつつ、別レビュアー（sent_at済み）を催促。"""
@@ -573,8 +573,8 @@ class TestSpecNudge:
             "current_rev": "1",
             "rev_index": 1,
             "review_requests": {
-                "pascal": {"status": "pending", "sent_at": None, "timeout_at": None},   # 未送信
-                "leibniz": {"status": "pending", "sent_at": sent_at,
+                "reviewer1": {"status": "pending", "sent_at": None, "timeout_at": None},   # 未送信
+                "reviewer2": {"status": "pending", "sent_at": sent_at,
                              "timeout_at": (_now() + timedelta(seconds=SPEC_BLOCK_TIMERS["SPEC_REVIEW"])).isoformat()},  # 送信済み
             },
             "current_reviews": {"entries": {}},
@@ -583,14 +583,14 @@ class TestSpecNudge:
         }
         data = self._data_with_entered_at(-400)
         action = _check_spec_review(sc, _now(), data)
-        # pascal は初回送信 → send_to に含まれる
+        # reviewer1 は初回送信 → send_to に含まれる
         assert action.send_to is not None
-        assert "pascal" in action.send_to
-        # leibniz は催促対象
+        assert "reviewer1" in action.send_to
+        # reviewer2 は催促対象
         assert action.nudge_reviewers is not None
-        assert "leibniz" in action.nudge_reviewers
-        # leibniz は send_to に含まれない（催促と初回送信は分離）
-        assert "leibniz" not in action.send_to
+        assert "reviewer2" in action.nudge_reviewers
+        # reviewer2 は send_to に含まれない（催促と初回送信は分離）
+        assert "reviewer2" not in action.send_to
 
     # --- _check_spec_revise 催促テスト ---
 
@@ -635,7 +635,7 @@ class TestSpecNudge:
                 "current_rev": "1",
                 "spec_path": "docs/spec.md",
                 "review_requests": {
-                    "pascal": {"status": "pending", "sent_at": _now().isoformat(),
+                    "reviewer1": {"status": "pending", "sent_at": _now().isoformat(),
                                "last_nudge_at": recent_nudge},
                 },
             },
@@ -646,10 +646,10 @@ class TestSpecNudge:
         action = SpecTransitionAction(
             next_state=None,
             expected_state="SPEC_REVIEW",
-            nudge_reviewers=["pascal"],
+            nudge_reviewers=["reviewer1"],
         )
         # DCL 再チェックでも nudge_reviewers を返すようにする（applied=True が条件）
-        nudge_action = SpecTransitionAction(next_state=None, nudge_reviewers=["pascal"])
+        nudge_action = SpecTransitionAction(next_state=None, nudge_reviewers=["reviewer1"])
         with patch("engine.fsm_spec.check_transition_spec", return_value=nudge_action), \
              patch("engine.shared._is_agent_inactive", return_value=True), \
              patch("engine.fsm_spec.send_to_agent_queued") as mock_send, \
@@ -673,7 +673,7 @@ class TestSpecNudge:
                 "current_rev": "1",
                 "spec_path": "docs/spec.md",
                 "review_requests": {
-                    "pascal": {"status": "pending", "sent_at": _now().isoformat(),
+                    "reviewer1": {"status": "pending", "sent_at": _now().isoformat(),
                                "last_nudge_at": old_nudge},
                 },
             },
@@ -684,10 +684,10 @@ class TestSpecNudge:
         action = SpecTransitionAction(
             next_state=None,
             expected_state="SPEC_REVIEW",
-            nudge_reviewers=["pascal"],
+            nudge_reviewers=["reviewer1"],
         )
         # DCL 再チェックでも nudge_reviewers を返すようにする（applied=True が条件）
-        nudge_action = SpecTransitionAction(next_state=None, nudge_reviewers=["pascal"])
+        nudge_action = SpecTransitionAction(next_state=None, nudge_reviewers=["reviewer1"])
         with patch("engine.fsm_spec.check_transition_spec", return_value=nudge_action), \
              patch("engine.shared._is_agent_inactive", return_value=True), \
              patch("engine.fsm_spec.send_to_agent_queued", return_value=True) as mock_send, \
@@ -712,7 +712,7 @@ class TestSpecNudge:
 
         nudge_action = SpecTransitionAction(
             next_state=None,
-            nudge_reviewers=["pascal"],
+            nudge_reviewers=["reviewer1"],
         )
         with patch("watchdog.check_transition_spec", return_value=nudge_action), \
              patch("watchdog._apply_spec_action") as mock_apply:
@@ -747,12 +747,12 @@ class TestSpecNudge:
         """spec review nudge メッセージに spec review-submit コマンドが含まれる。"""
         msg = render("spec.review", "nudge",
             project="myproj", current_rev="2", spec_path="docs/spec.md",
-            reviewer="pascal", GOKRAX_CLI=GOKRAX_CLI,
+            reviewer="reviewer1", GOKRAX_CLI=GOKRAX_CLI,
         )
         assert "spec review-submit" in msg
         assert "myproj" in msg
         assert "rev2" in msg
-        assert "pascal" in msg
+        assert "reviewer1" in msg
 
     def test_build_spec_revise_nudge_msg_contains_command(self):
         """spec revise nudge メッセージに spec revise-submit コマンドが含まれる。"""
@@ -777,7 +777,7 @@ class TestSpecNudge:
                 "current_rev": "1",
                 "spec_path": "docs/spec.md",
                 "review_requests": {
-                    "pascal": {"status": "pending", "sent_at": _now().isoformat(),
+                    "reviewer1": {"status": "pending", "sent_at": _now().isoformat(),
                                "last_nudge_at": "INVALID-DATETIME"},
                 },
             },
@@ -788,9 +788,9 @@ class TestSpecNudge:
         action = SpecTransitionAction(
             next_state=None,
             expected_state="SPEC_REVIEW",
-            nudge_reviewers=["pascal"],
+            nudge_reviewers=["reviewer1"],
         )
-        nudge_action = SpecTransitionAction(next_state=None, nudge_reviewers=["pascal"])
+        nudge_action = SpecTransitionAction(next_state=None, nudge_reviewers=["reviewer1"])
         with patch("engine.fsm_spec.check_transition_spec", return_value=nudge_action), \
              patch("engine.shared._is_agent_inactive", return_value=True), \
              patch("engine.fsm_spec.send_to_agent_queued") as mock_send, \
@@ -808,7 +808,7 @@ class TestSpecNudge:
             "spec_mode": True,
             "spec_config": {
                 "current_rev": "1",
-                "spec_implementer": "kaneko",
+                "spec_implementer": "implementer1",
                 "_last_nudge_implementer": "INVALID-DATETIME",
             },
             "history": [],
@@ -830,7 +830,7 @@ class TestSpecNudge:
 
     def test_spec_review_nudge_naive_entered_at_no_nudge(self):
         """entered_at が naive datetime（tzinfo なし）→ TypeError → nudge_reviewers=None。"""
-        sc = self._base_sc("pascal")
+        sc = self._base_sc("reviewer1")
         # naive datetime を history に設定（tzinfo なし）
         naive_entered = "2026-03-06T12:00:00"  # no tz
         data = {

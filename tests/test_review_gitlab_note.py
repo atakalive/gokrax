@@ -16,10 +16,10 @@ def _make_pipeline(tmp_pipelines, state="DESIGN_REVIEW"):
     """DESIGN_REVIEW 状態 + issue #1 入りのパイプラインを作成して返す。"""
     data = {
         "project": "test-pj",
-        "gitlab": "atakalive/test-pj",
+        "gitlab": "testns/test-pj",
         "state": state,
         "enabled": True,
-        "implementer": "kaneko",
+        "implementer": "implementer1",
         "batch": [
             {
                 "issue": 1,
@@ -64,7 +64,7 @@ class TestReviewGitlabNoteRetry:
         args = argparse.Namespace(
             project="test-pj",
             issue=1,
-            reviewer="pascal",
+            reviewer="reviewer1",
             verdict="APPROVE",
             summary="LGTM",
             force=False,
@@ -79,8 +79,8 @@ class TestReviewGitlabNoteRetry:
         path = tmp_pipelines / "test-pj.json"
         data = json.loads(path.read_text())
         reviews = data["batch"][0]["design_reviews"]
-        assert "pascal" in reviews
-        assert reviews["pascal"]["verdict"] == "APPROVE"
+        assert "reviewer1" in reviews
+        assert reviews["reviewer1"]["verdict"] == "APPROVE"
 
     def test_all_fail_pipeline_updated_and_log_warning(self, tmp_pipelines, caplog):
         """3回全失敗: pipeline JSON には review が記録され、logger に警告が出る。"""
@@ -94,7 +94,7 @@ class TestReviewGitlabNoteRetry:
         args = argparse.Namespace(
             project="test-pj",
             issue=1,
-            reviewer="leibniz",
+            reviewer="reviewer2",
             verdict="P1",
             summary="minor issue",
             force=False,
@@ -109,8 +109,8 @@ class TestReviewGitlabNoteRetry:
         path = tmp_pipelines / "test-pj.json"
         data = json.loads(path.read_text())
         reviews = data["batch"][0]["design_reviews"]
-        assert "leibniz" in reviews
-        assert reviews["leibniz"]["verdict"] == "P1"
+        assert "reviewer2" in reviews
+        assert reviews["reviewer2"]["verdict"] == "P1"
 
         # logger に警告が出る（post_gitlab_note は logger.error を使用）
         assert any("3 attempts" in r.message for r in caplog.records)
@@ -128,11 +128,11 @@ class TestReviewForce:
         ok_result.returncode = 0
         ok_result.stderr = ""
 
-        # 1回目: pascal が P0 を投稿
+        # 1回目: reviewer1 が P0 を投稿
         args1 = argparse.Namespace(
             project="test-pj",
             issue=1,
-            reviewer="pascal",
+            reviewer="reviewer1",
             verdict="P0",
             summary="",
             force=False,
@@ -144,14 +144,14 @@ class TestReviewForce:
 
         path = tmp_pipelines / "test-pj.json"
         data = json.loads(path.read_text())
-        assert data["batch"][0]["design_reviews"]["pascal"]["verdict"] == "P0"
-        assert data["batch"][0]["design_reviews"]["pascal"]["at"] == "2026-01-01T00:00:00+09:00"
+        assert data["batch"][0]["design_reviews"]["reviewer1"]["verdict"] == "P0"
+        assert data["batch"][0]["design_reviews"]["reviewer1"]["at"] == "2026-01-01T00:00:00+09:00"
 
-        # 2回目: pascal が APPROVE を --force で上書き
+        # 2回目: reviewer1 が APPROVE を --force で上書き
         args2 = argparse.Namespace(
             project="test-pj",
             issue=1,
-            reviewer="pascal",
+            reviewer="reviewer1",
             verdict="APPROVE",
             summary="",
             force=True,
@@ -162,8 +162,8 @@ class TestReviewForce:
                     gokrax.cmd_review(args2)
 
         data = json.loads(path.read_text())
-        assert data["batch"][0]["design_reviews"]["pascal"]["verdict"] == "APPROVE"
-        assert data["batch"][0]["design_reviews"]["pascal"]["at"] == "2026-01-01T01:00:00+09:00"
+        assert data["batch"][0]["design_reviews"]["reviewer1"]["verdict"] == "APPROVE"
+        assert data["batch"][0]["design_reviews"]["reviewer1"]["at"] == "2026-01-01T01:00:00+09:00"
 
     def test_without_force_skips_existing_review(self, tmp_pipelines):
         """--force なし: 既存レビューはスキップされ、GitLab note も投稿されない。"""
@@ -175,11 +175,11 @@ class TestReviewForce:
         ok_result.returncode = 0
         ok_result.stderr = ""
 
-        # 1回目: pascal が P0 を投稿
+        # 1回目: reviewer1 が P0 を投稿
         args1 = argparse.Namespace(
             project="test-pj",
             issue=1,
-            reviewer="pascal",
+            reviewer="reviewer1",
             verdict="P0",
             summary="",
             force=False,
@@ -188,7 +188,7 @@ class TestReviewForce:
             with patch("notify.time.sleep"):
                 gokrax.cmd_review(args1)
 
-        # 2回目: pascal が APPROVE を --force なしで投稿（スキップされるはず）
+        # 2回目: reviewer1 が APPROVE を --force なしで投稿（スキップされるはず）
         call_count = 0
 
         def mock_run_2nd(*args, **kwargs):
@@ -199,7 +199,7 @@ class TestReviewForce:
         args2 = argparse.Namespace(
             project="test-pj",
             issue=1,
-            reviewer="pascal",
+            reviewer="reviewer1",
             verdict="APPROVE",
             summary="",
             force=False,
@@ -211,7 +211,7 @@ class TestReviewForce:
         # verdict は P0 のまま（上書きされていない）
         path = tmp_pipelines / "test-pj.json"
         data = json.loads(path.read_text())
-        assert data["batch"][0]["design_reviews"]["pascal"]["verdict"] == "P0"
+        assert data["batch"][0]["design_reviews"]["reviewer1"]["verdict"] == "P0"
 
         # スキップ時は GitLab note 投稿（subprocess.run）が呼ばれない
         assert call_count == 0
@@ -229,7 +229,7 @@ class TestReviewForce:
         args = argparse.Namespace(
             project="test-pj",
             issue=1,
-            reviewer="pascal",
+            reviewer="reviewer1",
             verdict="APPROVE",
             summary="LGTM",
             force=True,
@@ -240,4 +240,4 @@ class TestReviewForce:
 
         path = tmp_pipelines / "test-pj.json"
         data = json.loads(path.read_text())
-        assert data["batch"][0]["design_reviews"]["pascal"]["verdict"] == "APPROVE"
+        assert data["batch"][0]["design_reviews"]["reviewer1"]["verdict"] == "APPROVE"

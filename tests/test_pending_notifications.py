@@ -44,10 +44,10 @@ def _read_pipeline(path: Path) -> dict:
 def _base_pipeline(**overrides):
     data = {
         "project": "test-pj",
-        "gitlab": "atakalive/test-pj",
+        "gitlab": "testns/test-pj",
         "state": "IDLE",
         "enabled": True,
-        "implementer": "kaneko",
+        "implementer": "implementer1",
         "batch": [],
         "history": [],
         "review_mode": "standard",
@@ -138,7 +138,7 @@ class TestRecoveryOnRestart:
             batch=_make_batch(1),
             _pending_notifications={
                 "impl": {
-                    "implementer": "kaneko",
+                    "implementer": "implementer1",
                     "msg": "[gokrax] test-pj: test message",
                 },
             },
@@ -152,7 +152,7 @@ class TestRecoveryOnRestart:
              patch("engine.fsm.notify_discord"):
             process(path)
 
-        mock_impl.assert_called_once_with("kaneko", "[gokrax] test-pj: test message")
+        mock_impl.assert_called_once_with("implementer1", "[gokrax] test-pj: test message")
         result = _read_pipeline(path)
         assert "_pending_notifications" not in result
 
@@ -169,7 +169,7 @@ class TestRecoveryOnRestart:
                 "review": {
                     "new_state": "DESIGN_REVIEW",
                     "batch": _make_batch(1),
-                    "gitlab": "atakalive/test-pj",
+                    "gitlab": "testns/test-pj",
                     "repo_path": "",
                     "review_mode": "standard",
                 },
@@ -205,7 +205,7 @@ class TestRecoveryReturnsEarly:
             batch=_make_batch(1, design_ready=True),
             _pending_notifications={
                 "impl": {
-                    "implementer": "kaneko",
+                    "implementer": "implementer1",
                     "msg": "[gokrax] test-pj: old message",
                 },
             },
@@ -416,7 +416,7 @@ class TestPendingOverwriteWarning:
             batch=_make_batch(1, design_ready=True),
             _pending_notifications={
                 "impl": {
-                    "implementer": "kaneko",
+                    "implementer": "implementer1",
                     "msg": "[gokrax] test-pj: old message",
                 },
             },
@@ -442,9 +442,9 @@ class TestPendingOverwriteWarning:
         def force_transition(data):
             data["state"] = "DESIGN_REVIEW"
             # 既存 pending がある
-            data["_pending_notifications"] = {"impl": {"implementer": "kaneko", "msg": "old"}}
+            data["_pending_notifications"] = {"impl": {"implementer": "implementer1", "msg": "old"}}
             # 新しい pending を書き込み（overwrite パス）
-            pending = {"impl": {"implementer": "kaneko", "msg": "new"}}
+            pending = {"impl": {"implementer": "implementer1", "msg": "new"}}
             if "_pending_notifications" in data:
                 capture_log(f"[test-pj] WARNING: overwriting existing _pending_notifications")
             data["_pending_notifications"] = pending
@@ -471,7 +471,7 @@ class TestRecoveryFailurePreservesPending:
             batch=_make_batch(1),
             _pending_notifications={
                 "impl": {
-                    "implementer": "kaneko",
+                    "implementer": "implementer1",
                     "msg": "[gokrax] test-pj: test message",
                 },
             },
@@ -504,7 +504,7 @@ class TestRecoveryFailurePreservesPending:
                 "review": {
                     "new_state": "DESIGN_REVIEW",
                     "batch": _make_batch(1),
-                    "gitlab": "atakalive/test-pj",
+                    "gitlab": "testns/test-pj",
                     "repo_path": "",
                     "review_mode": "standard",
                 },
@@ -542,7 +542,7 @@ class TestBaseCommitInPending:
                 "review": {
                     "new_state": "CODE_REVIEW",
                     "batch": _make_batch(1, commit="def456"),
-                    "gitlab": "atakalive/test-pj",
+                    "gitlab": "testns/test-pj",
                     "repo_path": "/repo",
                     "review_mode": "standard",
                     "base_commit": "abc123",
@@ -575,7 +575,7 @@ class TestBaseCommitInPending:
                 "review": {
                     "new_state": "CODE_REVIEW",
                     "batch": _make_batch(1),
-                    "gitlab": "atakalive/test-pj",
+                    "gitlab": "testns/test-pj",
                     "repo_path": "",
                     "review_mode": "standard",
                 },

@@ -28,10 +28,10 @@ def _make_pipeline(tmp_pipelines: Path, state: str = "CODE_REVIEW",
     """パイプラインJSONを作成。"""
     data = {
         "project": "test-pj",
-        "gitlab": "atakalive/test-pj",
+        "gitlab": "testns/test-pj",
         "state": state,
         "enabled": True,
-        "implementer": "kaneko",
+        "implementer": "implementer1",
         "review_mode": review_mode,
         "batch": [
             {
@@ -438,7 +438,7 @@ class TestForcedExternalization:
              patch("notify._check_squash", return_value=[]), \
              patch("notify.config.MAX_CLI_ARG_BYTES", 999999999):  # 大きい値でサイズ判定を無効化
             notify_reviewers("test-pj", "CODE_REVIEW", [{"issue": 1}],
-                           "atakalive/test-pj", review_mode="standard")
+                           "testns/test-pj", review_mode="standard")
 
         mock_save.assert_called_once()
         assert ("test-pj", "alice") in saved_paths

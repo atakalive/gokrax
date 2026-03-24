@@ -33,10 +33,10 @@ def _make_issue(issue_num: int, assessment: dict | None = None) -> dict:
 def _base_pipeline(batch: list, **overrides) -> dict:
     data = {
         "project": "test-pj",
-        "gitlab": "atakalive/test-pj",
+        "gitlab": "testns/test-pj",
         "state": "ASSESSMENT",
         "enabled": True,
-        "implementer": "kaneko",
+        "implementer": "implementer1",
         "batch": batch,
         "history": [{"from": "DESIGN_APPROVED", "to": "ASSESSMENT",
                       "at": "2025-01-01T00:00:00+09:00", "actor": "watchdog"}],

@@ -77,15 +77,16 @@ class TestBuildSelfReviewPrompt:
 
 class TestGetSelfReviewAgent:
     def test_explicit_agent(self):
-        sc = {"self_review_agent": "leibniz", "review_requests": {"pascal": {}}}
-        assert get_self_review_agent(sc) == "leibniz"
+        sc = {"self_review_agent": "reviewer2", "review_requests": {"reviewer1": {}}}
+        assert get_self_review_agent(sc) == "reviewer2"
 
     def test_first_reviewer(self):
-        sc = {"self_review_agent": None, "review_requests": {"dijkstra": {}, "pascal": {}}}
-        assert get_self_review_agent(sc) == "dijkstra"
+        sc = {"self_review_agent": None, "review_requests": {"reviewer3": {}, "reviewer1": {}}}
+        assert get_self_review_agent(sc) == "reviewer3"
 
     def test_fallback(self):
         sc = {"review_requests": {}}
+        # Production code has hardcoded fallback "kaneko" (should be config-driven, see #202)
         assert get_self_review_agent(sc) == "kaneko"
 
 
@@ -262,13 +263,13 @@ class TestBuildReviseCompletionUpdates:
             "review_history": [],
             "current_reviews": {
                 "entries": {
-                    "pascal": {"status": "received", "verdict": "P0",
+                    "reviewer1": {"status": "received", "verdict": "P0",
                                "items": [{"severity": "critical"}]},
                 },
             },
             "last_commit": "old123",
             "review_requests": {
-                "pascal": {"status": "received", "sent_at": "x", "timeout_at": "x",
+                "reviewer1": {"status": "received", "sent_at": "x", "timeout_at": "x",
                            "last_nudge_at": None, "response": None},
             },
         }
@@ -276,7 +277,7 @@ class TestBuildReviseCompletionUpdates:
             "new_rev": "3",
             "commit": "new456",
             "changes": {"added_lines": 50, "removed_lines": 10,
-                        "reflected_items": ["pascal:C-1"]},
+                        "reflected_items": ["reviewer1:C-1"]},
         }
         updates = build_revise_completion_updates(sc, revise_data, _now())
         assert updates["last_commit"] == "new456"

@@ -16,17 +16,17 @@ from commands.dev import _masked_reviewer
 # ---------------------------------------------------------------------------
 class TestResolveReviewerArg:
     def test_number_resolves_to_name(self) -> None:
-        rnm = {"basho": 3, "euler": 1}
-        assert resolve_reviewer_arg("3", rnm) == "basho"
+        rnm = {"reviewer5": 3, "reviewer6": 1}
+        assert resolve_reviewer_arg("3", rnm) == "reviewer5"
 
     def test_invalid_number_raises(self) -> None:
-        rnm = {"basho": 3, "euler": 1}
+        rnm = {"reviewer5": 3, "reviewer6": 1}
         with pytest.raises(SystemExit, match="Reviewer 99"):
             resolve_reviewer_arg("99", rnm)
 
     def test_name_passthrough(self) -> None:
-        rnm = {"basho": 3}
-        assert resolve_reviewer_arg("basho", rnm) == "basho"
+        rnm = {"reviewer5": 3}
+        assert resolve_reviewer_arg("reviewer5", rnm) == "reviewer5"
 
     def test_number_without_map_raises(self) -> None:
         with pytest.raises(SystemExit, match="batch start"):
@@ -38,11 +38,11 @@ class TestResolveReviewerArg:
 # ---------------------------------------------------------------------------
 class TestMaskedReviewer:
     def test_mask_with_map(self) -> None:
-        assert _masked_reviewer("basho", {"basho": 3}) == "Reviewer 3"
+        assert _masked_reviewer("reviewer5", {"reviewer5": 3}) == "Reviewer 3"
 
     def test_mask_without_map(self) -> None:
         # reviewer_number_map=None → フォールバック動作（mask_agent_name に委譲）
-        result = _masked_reviewer("basho", None)
+        result = _masked_reviewer("reviewer5", None)
         # MASK_AGENT_NAMES=True のデフォルト設定では ALLOWED_REVIEWERS index ベースの
         # フォールバックが使われる。具体的な番号は設定依存なので "Reviewer" を含むことだけ確認。
         assert "Reviewer" in result
@@ -64,15 +64,15 @@ def _load(path: Path) -> dict:
 # ---------------------------------------------------------------------------
 class TestCmdReviewMask:
     def test_print_uses_masked_name(self, tmp_pipelines, capsys, monkeypatch) -> None:
-        monkeypatch.setattr("commands.dev.ALLOWED_REVIEWERS", ["basho", "euler"])
+        monkeypatch.setattr("commands.dev.ALLOWED_REVIEWERS", ["reviewer5", "reviewer6"])
         pipeline = tmp_pipelines / "test-pj.json"
         _write_pipeline(pipeline, {
             "project": "test-pj",
-            "gitlab": "atakalive/test-pj",
+            "gitlab": "testns/test-pj",
             "state": "DESIGN_REVIEW",
             "enabled": True,
-            "implementer": "kaneko",
-            "reviewer_number_map": {"basho": 3, "euler": 1},
+            "implementer": "implementer1",
+            "reviewer_number_map": {"reviewer5": 3, "reviewer6": 1},
             "batch": [
                 {
                     "issue": 1,
@@ -98,7 +98,7 @@ class TestCmdReviewMask:
             cmd_review(args)
 
         out = capsys.readouterr().out
-        assert "basho" not in out
+        assert "reviewer5" not in out
         assert "Reviewer 3" in out
 
 
@@ -107,15 +107,15 @@ class TestCmdReviewMask:
 # ---------------------------------------------------------------------------
 class TestCmdDisputeMask:
     def test_print_uses_masked_name(self, tmp_pipelines, capsys, monkeypatch) -> None:
-        monkeypatch.setattr("commands.dev.ALLOWED_REVIEWERS", ["pascal", "euler"])
+        monkeypatch.setattr("commands.dev.ALLOWED_REVIEWERS", ["reviewer1", "reviewer6"])
         pipeline = tmp_pipelines / "test-pj.json"
         _write_pipeline(pipeline, {
             "project": "test-pj",
-            "gitlab": "atakalive/test-pj",
+            "gitlab": "testns/test-pj",
             "state": "DESIGN_REVISE",
             "enabled": True,
-            "implementer": "kaneko",
-            "reviewer_number_map": {"pascal": 2, "euler": 1},
+            "implementer": "implementer1",
+            "reviewer_number_map": {"reviewer1": 2, "reviewer6": 1},
             "batch": [
                 {
                     "issue": 1,
@@ -123,7 +123,7 @@ class TestCmdDisputeMask:
                     "commit": None,
                     "cc_session_id": None,
                     "design_reviews": {
-                        "pascal": {
+                        "reviewer1": {
                             "verdict": "P0",
                             "at": "2025-01-01T00:00:00+09:00",
                             "summary": "bad",
@@ -147,7 +147,7 @@ class TestCmdDisputeMask:
             cmd_dispute(args)
 
         out = capsys.readouterr().out
-        assert "pascal" not in out
+        assert "reviewer1" not in out
 
 
 # ---------------------------------------------------------------------------
@@ -155,15 +155,15 @@ class TestCmdDisputeMask:
 # ---------------------------------------------------------------------------
 class TestCmdExcludeMask:
     def test_number_resolves_for_add(self, tmp_pipelines, monkeypatch) -> None:
-        monkeypatch.setattr("commands.dev.ALLOWED_REVIEWERS", ["basho"])
+        monkeypatch.setattr("commands.dev.ALLOWED_REVIEWERS", ["reviewer5"])
         pipeline = tmp_pipelines / "test-pj.json"
         _write_pipeline(pipeline, {
             "project": "test-pj",
-            "gitlab": "atakalive/test-pj",
+            "gitlab": "testns/test-pj",
             "state": "IDLE",
             "enabled": True,
             "excluded_reviewers": [],
-            "reviewer_number_map": {"basho": 3},
+            "reviewer_number_map": {"reviewer5": 3},
         })
         args = argparse.Namespace(
             project="test-pj", add=["3"], remove=None, list=False,
@@ -172,4 +172,4 @@ class TestCmdExcludeMask:
         cmd_exclude(args)
 
         data = _load(pipeline)
-        assert "basho" in data["excluded_reviewers"]
+        assert "reviewer5" in data["excluded_reviewers"]

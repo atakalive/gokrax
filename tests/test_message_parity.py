@@ -276,7 +276,7 @@ class TestSpecReviewNudgeParity:
         project = "MyProject"
         current_rev = "2"
         spec_path = "/docs/spec.md"
-        reviewer = "pascal"
+        reviewer = "reviewer1"
         old = _old_build_spec_review_nudge_msg(project, current_rev, spec_path, reviewer)
         new = render("spec.review", "nudge",
             project=project, current_rev=current_rev,
@@ -288,13 +288,13 @@ class TestSpecReviewNudgeParity:
     def test_parity_content(self):
         new = render("spec.review", "nudge",
             project="Proj", current_rev="1",
-            spec_path="/path.md", reviewer="dijkstra",
+            spec_path="/path.md", reviewer="reviewer3",
             GOKRAX_CLI=GOKRAX_CLI,
         )
         assert "Proj" in new
         assert "rev1" in new
         assert "/path.md" in new
-        assert "dijkstra" in new
+        assert "reviewer3" in new
         assert str(GOKRAX_CLI) in new
 
 

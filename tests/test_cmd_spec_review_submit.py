@@ -27,12 +27,12 @@ def _make_spec_config(**overrides):
 def _make_pipeline(state="SPEC_REVIEW", spec_mode=True, spec_config=None, **kwargs):
     data = {
         "project": "test-pj",
-        "gitlab": "atakalive/test-pj",
+        "gitlab": "testns/test-pj",
         "state": state,
         "spec_mode": spec_mode,
         "spec_config": spec_config if spec_config is not None else {},
         "enabled": True,
-        "implementer": "kaneko",
+        "implementer": "implementer1",
         "review_mode": "full",
         "batch": [],
         "history": [],
@@ -55,8 +55,8 @@ def _review_requests(*reviewers):
 def _active_pipeline(**sc_overrides):
     sc = _make_spec_config(
         spec_path="docs/spec.md",
-        spec_implementer="kaneko",
-        review_requests=_review_requests("leibniz", "pascal"),
+        spec_implementer="implementer1",
+        review_requests=_review_requests("reviewer2", "reviewer1"),
         **sc_overrides,
     )
     return _make_pipeline(state="SPEC_REVIEW", spec_mode=True, spec_config=sc)
@@ -106,21 +106,21 @@ class TestReviewSubmitNormal:
         review_file.write_text(FENCED_YAML, encoding="utf-8")
 
         from gokrax import cmd_spec_review_submit
-        args = _args(project="test-pj", reviewer="leibniz", file=str(review_file))
+        args = _args(project="test-pj", reviewer="reviewer2", file=str(review_file))
         cmd_spec_review_submit(args)
 
         data = json.loads(path.read_text())
         sc = data["spec_config"]
-        entry = sc["current_reviews"]["entries"]["leibniz"]
+        entry = sc["current_reviews"]["entries"]["reviewer2"]
         assert entry["status"] == "received"
         assert entry["verdict"] == "P1"
         assert entry["parse_success"] is True
         assert len(entry["items"]) == 1
         assert entry["items"][0]["id"] == "C-1"
         assert entry["items"][0]["severity"] == "critical"
-        assert entry["items"][0]["normalized_id"] == "leibniz:C-1"
+        assert entry["items"][0]["normalized_id"] == "reviewer2:C-1"
         # review_requests も received に更新
-        assert sc["review_requests"]["leibniz"]["status"] == "received"
+        assert sc["review_requests"]["reviewer2"]["status"] == "received"
 
     def test_raw_yaml_fallback(self, tmp_pipelines, tmp_path):
         """素のYAML → フォールバックで正常に書き込まれる"""
@@ -131,11 +131,11 @@ class TestReviewSubmitNormal:
         review_file.write_text(RAW_YAML, encoding="utf-8")
 
         from gokrax import cmd_spec_review_submit
-        args = _args(project="test-pj", reviewer="leibniz", file=str(review_file))
+        args = _args(project="test-pj", reviewer="reviewer2", file=str(review_file))
         cmd_spec_review_submit(args)
 
         data = json.loads(path.read_text())
-        entry = data["spec_config"]["current_reviews"]["entries"]["leibniz"]
+        entry = data["spec_config"]["current_reviews"]["entries"]["reviewer2"]
         assert entry["status"] == "received"
         assert entry["verdict"] == "P1"
         assert len(entry["items"]) == 1
@@ -151,7 +151,7 @@ class TestReviewSubmitIdempotency:
         sc = pipeline["spec_config"]
         sc["current_reviews"] = {
             "entries": {
-                "leibniz": {
+                "reviewer2": {
                     "status": "received",
                     "verdict": "P1",
                     "items": [],
@@ -160,7 +160,7 @@ class TestReviewSubmitIdempotency:
                 },
             },
         }
-        sc["review_requests"]["leibniz"]["status"] = "received"
+        sc["review_requests"]["reviewer2"]["status"] = "received"
 
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, pipeline)
@@ -169,7 +169,7 @@ class TestReviewSubmitIdempotency:
         review_file.write_text(FENCED_YAML, encoding="utf-8")
 
         from gokrax import cmd_spec_review_submit
-        args = _args(project="test-pj", reviewer="leibniz", file=str(review_file))
+        args = _args(project="test-pj", reviewer="reviewer2", file=str(review_file))
         cmd_spec_review_submit(args)
 
         captured = capsys.readouterr()
@@ -185,7 +185,7 @@ class TestReviewSubmitErrors:
         write_pipeline(path, _make_pipeline(
             state="IDLE",
             spec_config=_make_spec_config(
-                review_requests=_review_requests("leibniz"),
+                review_requests=_review_requests("reviewer2"),
             ),
         ))
 
@@ -193,7 +193,7 @@ class TestReviewSubmitErrors:
         review_file.write_text(FENCED_YAML, encoding="utf-8")
 
         from gokrax import cmd_spec_review_submit
-        args = _args(project="test-pj", reviewer="leibniz", file=str(review_file))
+        args = _args(project="test-pj", reviewer="reviewer2", file=str(review_file))
         with pytest.raises(SystemExit, match="Not in SPEC_REVIEW state"):
             cmd_spec_review_submit(args)
 
@@ -219,7 +219,7 @@ class TestReviewSubmitErrors:
         review_file.write_text("this is not valid yaml: [[[", encoding="utf-8")
 
         from gokrax import cmd_spec_review_submit
-        args = _args(project="test-pj", reviewer="leibniz", file=str(review_file))
+        args = _args(project="test-pj", reviewer="reviewer2", file=str(review_file))
         with pytest.raises(SystemExit, match="Failed to parse review YAML"):
             cmd_spec_review_submit(args)
 
@@ -229,7 +229,7 @@ class TestReviewSubmitErrors:
         write_pipeline(path, _active_pipeline())
 
         from gokrax import cmd_spec_review_submit
-        args = _args(project="test-pj", reviewer="leibniz", file="/nonexistent/review.yaml")
+        args = _args(project="test-pj", reviewer="reviewer2", file="/nonexistent/review.yaml")
         with pytest.raises(SystemExit, match="File not found"):
             cmd_spec_review_submit(args)
 
@@ -250,11 +250,11 @@ class TestReviewSubmitArchive:
         review_file.write_text(FENCED_YAML, encoding="utf-8")
 
         from gokrax import cmd_spec_review_submit
-        args = _args(project="test-pj", reviewer="leibniz", file=str(review_file))
+        args = _args(project="test-pj", reviewer="reviewer2", file=str(review_file))
         cmd_spec_review_submit(args)
 
         # アーカイブファイルが存在すること
-        archives = list(archive_dir.glob("*_leibniz_spec_rev1.yaml"))
+        archives = list(archive_dir.glob("*_reviewer2_spec_rev1.yaml"))
         assert len(archives) == 1
         # 内容が元ファイルと一致
         assert archives[0].read_text(encoding="utf-8") == FENCED_YAML
@@ -272,7 +272,7 @@ class TestReviewSubmitArchive:
         review_file.write_text(FENCED_YAML, encoding="utf-8")
 
         from gokrax import cmd_spec_review_submit
-        args = _args(project="test-pj", reviewer="leibniz", file=str(review_file))
+        args = _args(project="test-pj", reviewer="reviewer2", file=str(review_file))
         # SystemExit が発生しないこと（正常終了）
         cmd_spec_review_submit(args)
 
@@ -280,5 +280,5 @@ class TestReviewSubmitArchive:
         assert "warning: archive failed" in captured.out
         # pipeline への書き込みは成功している
         data = json.loads(path.read_text())
-        entry = data["spec_config"]["current_reviews"]["entries"]["leibniz"]
+        entry = data["spec_config"]["current_reviews"]["entries"]["reviewer2"]
         assert entry["status"] == "received"

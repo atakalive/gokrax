@@ -44,7 +44,7 @@ PROMPT_LANG: str = "en"
 LOCAL_TZ = timezone(timedelta(hours=0))  # GMT = 0
 CC_MODEL_PLAN = "sonnet"
 CC_MODEL_IMPL = "sonnet"
-MASK_AGENT_NAMES = True
+MASK_AGENT_NAMES = True  # if False, your agent names are shown in GitLab notes. (Default: True)
 
 DEFAULT_QUEUE_OPTIONS: dict[str, bool | str] = {
     "skip_cc_plan": True,
@@ -115,9 +115,9 @@ REVIEW_MODES = {
 #         "code": ["example-skill"],
 #     },
 # }
-PROJECT_RISK_FILES: dict[str, str] = {
-    # "MyProject": "/home/user/custom/domain_risk.md",
-}
+# PROJECT_RISK_FILES: dict[str, str] = {
+#    "MyProject": "/home/user/custom/domain_risk.md",
+# }
 # MAX_SKILL_CHARS: int = 30_000
 # TEST_CONFIG: dict = {
 #     "myproject": {

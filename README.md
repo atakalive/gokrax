@@ -205,7 +205,9 @@ watchdog が以下を自動で駆動する：
 ```
 IDLE → INITIALIZE → DESIGN_PLAN → DESIGN_REVIEW ⇄ DESIGN_REVISE
                                         ↓
-                                  DESIGN_APPROVED → ASSESSMENT → IMPLEMENTATION → CODE_TEST ⇄ CODE_FIX
+                                  DESIGN_APPROVED → ASSESSMENT → IMPLEMENTATION
+                                                                          ↓
+                                                                     CODE_TEST ⇄ CODE_FIX
                                                                           ↓
                                                                      CODE_REVIEW ⇄ CODE_REVISE
                                                                           ↓

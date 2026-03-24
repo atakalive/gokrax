@@ -564,6 +564,7 @@ def process(path: Path):
             "keep_ctx_intra": data.get("keep_ctx_intra", False),
             "queue_mode": _done_queue_mode if state == "DONE" else (_skip_queue_mode if state == "ASSESSMENT" and action.new_state == "IDLE" else data.get("queue_mode", False)),
             "p2_fix": data.get("p2_fix", False),
+            "reviewer_number_map": data.get("reviewer_number_map"),
         })
         if _npass_timeout_notes:
             notification["_npass_timeout_notes"] = _npass_timeout_notes
@@ -751,11 +752,13 @@ def process(path: Path):
         # NPASS timeout: GitLab note を投稿（ロック外）
         _npass_timeout_notes = notification.get("_npass_timeout_notes", [])
         if _npass_timeout_notes:
-            from notify import post_gitlab_note
+            from notify import post_gitlab_note, mask_agent_name
             gitlab = notification.get("gitlab", "")
+            _rnm = notification.get("reviewer_number_map")
             for note in _npass_timeout_notes:
+                masked = mask_agent_name(note["reviewer"], reviewer_number_map=_rnm)
                 body = (
-                    f"[gokrax] NPASS timeout: {note['reviewer']} のパス "
+                    f"[gokrax] NPASS timeout: {masked} のパス "
                     f"{note['pass']}/{note['target_pass']} が未完了のため、"
                     f"承認にフォールバックしました。"
                 )

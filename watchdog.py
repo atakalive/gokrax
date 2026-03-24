@@ -65,7 +65,7 @@ from spec_review import (
 # BLOCKEDまでの時間 (秒)
 from config import BLOCK_TIMERS, NUDGE_GRACE_SEC, EXTENDABLE_STATES, EXTEND_NOTICE_THRESHOLD
 
-from engine.fsm import check_transition, _nudge_key, _recover_pending_notifications
+from engine.fsm import check_transition, get_min_reviews, _nudge_key, _recover_pending_notifications
 
 
 from engine.fsm_spec import (
@@ -494,7 +494,7 @@ def process(path: Path):
                     # 全員除外 — 理論上ありえないが防御
                     log(f"[{pj}] WARNING: effective==0 at DESIGN_APPROVED, skipping min_reviews_override")
                 else:
-                    data["min_reviews_override"] = max(1, min(mode_config["min_reviews"], effective))
+                    data["min_reviews_override"] = max(1, min(get_min_reviews(mode_config), effective))
                 log(f"[{pj}] 無応答レビュアーを除外: {sorted(no_response)}, excluded={excluded}, effective={effective}")
 
         # CODE_TEST 進入時: テスト起動情報を notification に保存（ロック外でテスト起動）
@@ -975,7 +975,7 @@ def process(path: Path):
 
                 # Calculate effective reviewer count
                 effective_count = len([m for m in mode_config["members"] if m not in excluded])
-                min_reviews = mode_config["min_reviews"]
+                min_reviews = get_min_reviews(mode_config)
 
                 # Clamp min_reviews if deadlock would occur
                 if effective_count < min_reviews:

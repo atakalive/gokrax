@@ -138,6 +138,7 @@ TEST_REVIEW_MODES = {
     "lite": {"members": ["reviewer1", "reviewer3"], "min_reviews": 2, "grace_period_sec": 0},
     "min": {"members": ["reviewer1"], "min_reviews": 1, "grace_period_sec": 0},
     "skip": {"members": [], "min_reviews": 0, "grace_period_sec": 0},
+    "no_minrev": {"members": ["reviewer1", "reviewer3"], "grace_period_sec": 0},
 }
 # AGENTS maps all known agents (reviewers + implementers).
 TEST_AGENTS = {name: f"agent:{name}:main" for name in TEST_REVIEWERS + TEST_IMPLEMENTERS}

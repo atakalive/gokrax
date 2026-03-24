@@ -26,6 +26,14 @@ from notify import notify_discord, notify_implementer, notify_reviewers
 from pipeline_io import clear_pending_notification
 
 
+def get_min_reviews(mode_config: dict) -> int:
+    """mode_config から min_reviews を取得する。未定義または None の場合は len(members) を返す。"""
+    val = mode_config.get("min_reviews")
+    if val is not None:
+        return val
+    return len(mode_config.get("members", []))
+
+
 @dataclass
 class TransitionAction:
     """check_transition() の返り値。new_state が None なら遷移不要。"""
@@ -390,7 +398,7 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
             )
 
         mode_config = REVIEW_MODES.get(review_mode, REVIEW_MODES["standard"])
-        min_rev = data.get("min_reviews_override", mode_config["min_reviews"]) if data else mode_config["min_reviews"]
+        min_rev = data.get("min_reviews_override", get_min_reviews(mode_config)) if data else get_min_reviews(mode_config)
         excluded = data.get("excluded_reviewers", []) if data else []
         effective_count = len(mode_config["members"]) - len(excluded)
         grace_sec = mode_config.get("grace_period_sec", 0)

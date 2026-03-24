@@ -27,10 +27,10 @@ def _load(path: Path) -> dict:
 
 @pytest.fixture
 def patch_allowed(monkeypatch):
-    """config の ALLOWED_REVIEWERS / REVIEW_MODES をテスト用値に差し替える。"""
+    """config の REVIEWERS / REVIEW_MODES をテスト用値に差し替える。"""
     import config
-    monkeypatch.setattr(config, "ALLOWED_REVIEWERS", _TEST_ALLOWED)
-    monkeypatch.setattr("commands.dev.ALLOWED_REVIEWERS", _TEST_ALLOWED)
+    monkeypatch.setattr(config, "REVIEWERS", _TEST_ALLOWED)
+    monkeypatch.setattr("commands.dev.REVIEWERS", _TEST_ALLOWED)
     monkeypatch.setattr(config, "REVIEW_MODES", _TEST_REVIEW_MODES)
     monkeypatch.setattr("commands.dev.REVIEW_MODES", _TEST_REVIEW_MODES)
 

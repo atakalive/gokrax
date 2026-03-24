@@ -18,7 +18,7 @@ from notify import mask_agent_name  # noqa: E402
 
 def test_mask_agent_name_enabled(monkeypatch):
     monkeypatch.setattr("config.MASK_AGENT_NAMES", True)
-    monkeypatch.setattr("config.ALLOWED_REVIEWERS", ["alice", "bob"])
+    monkeypatch.setattr("config.REVIEWERS", ["alice", "bob"])
     assert mask_agent_name("alice") == "Reviewer 1"
     assert mask_agent_name("bob") == "Reviewer 2"
 
@@ -29,7 +29,7 @@ def test_mask_agent_name_enabled(monkeypatch):
 
 def test_mask_agent_name_disabled(monkeypatch):
     monkeypatch.setattr("config.MASK_AGENT_NAMES", False)
-    monkeypatch.setattr("config.ALLOWED_REVIEWERS", ["alice", "bob"])
+    monkeypatch.setattr("config.REVIEWERS", ["alice", "bob"])
     assert mask_agent_name("alice") == "alice"
 
 
@@ -39,7 +39,7 @@ def test_mask_agent_name_disabled(monkeypatch):
 
 def test_mask_agent_name_unknown(monkeypatch):
     monkeypatch.setattr("config.MASK_AGENT_NAMES", True)
-    monkeypatch.setattr("config.ALLOWED_REVIEWERS", ["alice", "bob"])
+    monkeypatch.setattr("config.REVIEWERS", ["alice", "bob"])
     assert mask_agent_name("M") == "M"
 
 
@@ -87,8 +87,8 @@ def test_review_done_note_masked(tmp_pipelines, monkeypatch):
                    reviewer_number_map={"alice": 1})
 
     monkeypatch.setattr("config.MASK_AGENT_NAMES", True)
-    monkeypatch.setattr("config.ALLOWED_REVIEWERS", ["alice"])
-    monkeypatch.setattr("commands.dev.ALLOWED_REVIEWERS", ["alice"])
+    monkeypatch.setattr("config.REVIEWERS", ["alice"])
+    monkeypatch.setattr("commands.dev.REVIEWERS", ["alice"])
     monkeypatch.setattr("config.REVIEW_MODES", {
         "standard": {
             "members": ["alice"],
@@ -129,8 +129,8 @@ def test_dispute_note_masked(tmp_pipelines, monkeypatch):
                    reviewer_number_map={"alice": 1})
 
     monkeypatch.setattr("config.MASK_AGENT_NAMES", True)
-    monkeypatch.setattr("config.ALLOWED_REVIEWERS", ["alice"])
-    monkeypatch.setattr("commands.dev.ALLOWED_REVIEWERS", ["alice"])
+    monkeypatch.setattr("config.REVIEWERS", ["alice"])
+    monkeypatch.setattr("commands.dev.REVIEWERS", ["alice"])
     monkeypatch.setattr("config.REVIEW_MODES", {
         "standard": {
             "members": ["alice"],
@@ -165,7 +165,7 @@ def test_dispute_note_masked(tmp_pipelines, monkeypatch):
 
 def test_format_merge_summary_masked_ja(monkeypatch):
     monkeypatch.setattr("config.MASK_AGENT_NAMES", True)
-    monkeypatch.setattr("config.ALLOWED_REVIEWERS", ["alice"])
+    monkeypatch.setattr("config.REVIEWERS", ["alice"])
 
     from messages.ja.dev.merge_summary_sent import format_merge_summary
 
@@ -189,7 +189,7 @@ def test_format_merge_summary_masked_ja(monkeypatch):
 
 def test_format_merge_summary_masked_en(monkeypatch):
     monkeypatch.setattr("config.MASK_AGENT_NAMES", True)
-    monkeypatch.setattr("config.ALLOWED_REVIEWERS", ["alice"])
+    monkeypatch.setattr("config.REVIEWERS", ["alice"])
 
     from messages.en.dev.merge_summary_sent import format_merge_summary
 
@@ -213,7 +213,7 @@ def test_format_merge_summary_masked_en(monkeypatch):
 
 def test_mask_agent_name_with_reviewer_number_map(monkeypatch):
     monkeypatch.setattr("config.MASK_AGENT_NAMES", True)
-    monkeypatch.setattr("config.ALLOWED_REVIEWERS", ["alice", "bob", "charlie"])
+    monkeypatch.setattr("config.REVIEWERS", ["alice", "bob", "charlie"])
     reviewer_map = {"alice": 3, "bob": 1, "charlie": 2}
     assert mask_agent_name("alice", reviewer_number_map=reviewer_map) == "Reviewer 3"
     assert mask_agent_name("bob", reviewer_number_map=reviewer_map) == "Reviewer 1"
@@ -227,7 +227,7 @@ def test_mask_agent_name_with_reviewer_number_map(monkeypatch):
 def test_mask_agent_name_fallback_warning(monkeypatch, caplog):
     import logging
     monkeypatch.setattr("config.MASK_AGENT_NAMES", True)
-    monkeypatch.setattr("config.ALLOWED_REVIEWERS", ["alice", "bob"])
+    monkeypatch.setattr("config.REVIEWERS", ["alice", "bob"])
     reviewer_map = {"alice": 1}
     with caplog.at_level(logging.WARNING):
         result = mask_agent_name("bob", reviewer_number_map=reviewer_map)

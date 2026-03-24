@@ -43,7 +43,7 @@ class TestMaskedReviewer:
     def test_mask_without_map(self) -> None:
         # reviewer_number_map=None → フォールバック動作（mask_agent_name に委譲）
         result = _masked_reviewer("reviewer5", None)
-        # MASK_AGENT_NAMES=True のデフォルト設定では ALLOWED_REVIEWERS index ベースの
+        # MASK_AGENT_NAMES=True のデフォルト設定では REVIEWERS index ベースの
         # フォールバックが使われる。具体的な番号は設定依存なので "Reviewer" を含むことだけ確認。
         assert "Reviewer" in result
 
@@ -64,7 +64,7 @@ def _load(path: Path) -> dict:
 # ---------------------------------------------------------------------------
 class TestCmdReviewMask:
     def test_print_uses_masked_name(self, tmp_pipelines, capsys, monkeypatch) -> None:
-        monkeypatch.setattr("commands.dev.ALLOWED_REVIEWERS", ["reviewer5", "reviewer6"])
+        monkeypatch.setattr("commands.dev.REVIEWERS", ["reviewer5", "reviewer6"])
         pipeline = tmp_pipelines / "test-pj.json"
         _write_pipeline(pipeline, {
             "project": "test-pj",
@@ -107,7 +107,7 @@ class TestCmdReviewMask:
 # ---------------------------------------------------------------------------
 class TestCmdDisputeMask:
     def test_print_uses_masked_name(self, tmp_pipelines, capsys, monkeypatch) -> None:
-        monkeypatch.setattr("commands.dev.ALLOWED_REVIEWERS", ["reviewer1", "reviewer6"])
+        monkeypatch.setattr("commands.dev.REVIEWERS", ["reviewer1", "reviewer6"])
         pipeline = tmp_pipelines / "test-pj.json"
         _write_pipeline(pipeline, {
             "project": "test-pj",
@@ -155,7 +155,7 @@ class TestCmdDisputeMask:
 # ---------------------------------------------------------------------------
 class TestCmdExcludeMask:
     def test_number_resolves_for_add(self, tmp_pipelines, monkeypatch) -> None:
-        monkeypatch.setattr("commands.dev.ALLOWED_REVIEWERS", ["reviewer5"])
+        monkeypatch.setattr("commands.dev.REVIEWERS", ["reviewer5"])
         pipeline = tmp_pipelines / "test-pj.json"
         _write_pipeline(pipeline, {
             "project": "test-pj",

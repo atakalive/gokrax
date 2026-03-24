@@ -393,8 +393,8 @@ def mask_agent_name(name: str, reviewer_number_map: dict[str, int] | None = None
     """MASK_AGENT_NAMES が True の場合、エージェント名を 'Reviewer N' に変換する。
 
     reviewer_number_map が渡された場合はバッチ固有の番号を使用する。
-    フォールバック: ALLOWED_REVIEWERS リストにおけるインデックス + 1。
-    ALLOWED_REVIEWERS に含まれない名前はそのまま返す（M, dispute 等）。
+    フォールバック: REVIEWERS リストにおけるインデックス + 1。
+    REVIEWERS に含まれない名前はそのまま返す（M, dispute 等）。
     """
     from config import MASK_AGENT_NAMES
     if not MASK_AGENT_NAMES:
@@ -407,11 +407,11 @@ def mask_agent_name(name: str, reviewer_number_map: dict[str, int] | None = None
     import logging
     logging.getLogger(__name__).warning(
         "mask_agent_name: reviewer_number_map missing or incomplete for %s, "
-        "falling back to ALLOWED_REVIEWERS index", name
+        "falling back to REVIEWERS index", name
     )
-    from config import ALLOWED_REVIEWERS
+    from config import REVIEWERS
     try:
-        idx = ALLOWED_REVIEWERS.index(name)
+        idx = REVIEWERS.index(name)
         return f"Reviewer {idx + 1}"
     except ValueError:
         return name

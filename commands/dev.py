@@ -9,7 +9,7 @@ from pathlib import Path
 from config import (
     PIPELINES_DIR, GLAB_BIN, LOG_FILE,
     VALID_STATES, VALID_TRANSITIONS, MAX_BATCH,
-    VALID_VERDICTS, GLAB_TIMEOUT, ALLOWED_REVIEWERS, REVIEW_MODES, LOCAL_TZ,
+    VALID_VERDICTS, GLAB_TIMEOUT, REVIEWERS, REVIEW_MODES, LOCAL_TZ,
     WATCHDOG_LOOP_PIDFILE, WATCHDOG_LOOP_LOCKFILE,
     VALID_FLAG_VERDICTS, STATE_PHASE_MAP,
     GOKRAX_CLI, OWNER_NAME, GITLAB_NAMESPACE,
@@ -857,7 +857,7 @@ def cmd_review(args):
     args.reviewer = resolve_reviewer_arg(
         args.reviewer, _pipeline.get("reviewer_number_map")
     )
-    if args.reviewer not in ALLOWED_REVIEWERS:
+    if args.reviewer not in REVIEWERS:
         raise SystemExit(f"Unknown reviewer: {args.reviewer}")
     _skipped = False
     _dispute_accepted = False
@@ -1080,7 +1080,7 @@ def cmd_dispute(args):
         if not issue:
             raise SystemExit(f"Issue #{args.issue} not in batch")
 
-        if args.reviewer not in ALLOWED_REVIEWERS:
+        if args.reviewer not in REVIEWERS:
             raise SystemExit(f"Unknown reviewer: {args.reviewer}")
 
         review_key = "design_reviews" if "DESIGN" in state else "code_reviews"
@@ -1402,7 +1402,7 @@ def cmd_exclude(args):
 
     # --add / --remove 共通: レビュアー名バリデーション
     names = args.add or args.remove
-    unknown = [n for n in names if n not in ALLOWED_REVIEWERS]
+    unknown = [n for n in names if n not in REVIEWERS]
     if unknown:
         sys.exit(f"Unknown reviewer(s): {unknown}")
 

@@ -19,7 +19,7 @@ def _build_review_parser():
     p = sub.add_parser("review")
     p.add_argument("--project", required=True)
     p.add_argument("--issue", type=int, required=True)
-    p.add_argument("--reviewer", required=True, choices=config.ALLOWED_REVIEWERS)
+    p.add_argument("--reviewer", required=True, choices=config.REVIEWERS)
     p.add_argument("--verdict", required=True, choices=config.VALID_VERDICTS)
     p.add_argument("--summary", default="")
     return parser
@@ -54,15 +54,16 @@ class TestReviewerChoices:
                 "--reviewer", "hoge", "--verdict", "APPROVE",
             ])
 
-    def test_allowed_reviewers_contains_all_agents(self):
-        """ALLOWED_REVIEWERS が AGENTS の全キーを含むこと。"""
+    def test_agents_keys_in_reviewers_and_implementers(self):
+        """AGENTS のキーが REVIEWERS + IMPLEMENTERS に含まれること。"""
         import config
+        all_names = set(config.REVIEWERS + config.IMPLEMENTERS)
         for key in config.AGENTS:
-            assert key in config.ALLOWED_REVIEWERS, \
-                f"AGENTS のキー '{key}' が ALLOWED_REVIEWERS に含まれていない"
+            assert key in all_names, \
+                f"AGENTS のキー '{key}' が REVIEWERS + IMPLEMENTERS に含まれていない"
 
-    def test_allowed_reviewers_in_config(self):
-        """config.ALLOWED_REVIEWERS が存在し空でないこと。"""
+    def test_reviewers_in_config(self):
+        """config.REVIEWERS が存在し空でないこと。"""
         import config
-        assert hasattr(config, "ALLOWED_REVIEWERS")
-        assert len(config.ALLOWED_REVIEWERS) > 0
+        assert hasattr(config, "REVIEWERS")
+        assert len(config.REVIEWERS) > 0

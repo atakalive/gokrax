@@ -326,7 +326,7 @@ gokrax exclude --pj myproject --list
 
 `excluded_reviewers` is stored globally across review modes. When the review mode changes, the list persists. Deadlock clamp is calculated based on the intersection of `excluded_reviewers` and the current mode's `members`.
 
-Reviewer names must be in `ALLOWED_REVIEWERS`. Unknown names cause an error (no partial application).
+Reviewer names must be in `REVIEWERS`. Unknown names cause an error (no partial application).
 
 When adding/removing, deadlock clamp is automatically applied: if effective reviewer count (current mode members not in excluded list) drops below `min_reviews`, `min_reviews_override` is set to `max(effective_count, 0)`. When effective count recovers, `min_reviews_override` is removed.
 

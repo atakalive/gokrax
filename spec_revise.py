@@ -184,7 +184,10 @@ def get_self_review_agent(spec_config: dict) -> str:
     review_requests = spec_config.get("review_requests", {})
     if review_requests:
         return next(iter(review_requests))
-    return "kaneko"  # フォールバック
+    from config import IMPLEMENTERS  # 関数内 import（循環参照回避のため）
+    if IMPLEMENTERS:
+        return IMPLEMENTERS[0]
+    raise RuntimeError("get_self_review_agent: no implementer configured (IMPLEMENTERS is empty)")
 
 
 # ---------------------------------------------------------------------------

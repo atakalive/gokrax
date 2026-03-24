@@ -206,7 +206,7 @@ class TestDevbarCLIIntegration:
         # CLI integration test runs gokrax.py in a subprocess with real config,
         # so we must use an actual reviewer name from settings.py.
         import config as _real_config
-        _real_reviewer = _real_config._REAL_ALLOWED_REVIEWERS[0]
+        _real_reviewer = _real_config._REAL_REVIEWERS[0]
 
         sample_pipeline["state"] = "DESIGN_REVIEW"
         sample_pipeline["batch"] = [

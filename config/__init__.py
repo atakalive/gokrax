@@ -96,8 +96,9 @@ MAX_CLI_ARG_BYTES: int = _get_max_cli_arg_bytes()
 REVIEW_FILE_WRITE_RETRIES: int = 3
 REVIEW_FILE_WRITE_RETRY_DELAY: float = 2.0
 
-AGENTS: dict[str, str] = {}  # Must be set in settings.py
-ALLOWED_REVIEWERS: list[str] = []
+REVIEWERS: list[str] = []
+IMPLEMENTERS: list[str] = []
+AGENTS: dict[str, str] = {}
 MASK_AGENT_NAMES: bool = True
 
 REVIEWER_TIERS: dict[str, list[str]] = {"regular": [], "free": [], "short-context": []}
@@ -161,7 +162,30 @@ else:
         del _spec, _settings_mod, _attr
 
         # --- 派生変数の再計算 ---
-        ALLOWED_REVIEWERS = list(AGENTS.keys())
+
+        # 1. 後方互換バリデーション: REVIEWERS/IMPLEMENTERS が未定義の場合フェイルファスト
+        if not REVIEWERS and not IMPLEMENTERS:
+            raise RuntimeError(
+                "settings.py に REVIEWERS と IMPLEMENTERS が定義されていません。\n"
+                "settings.py を更新してください:\n"
+                '  REVIEWERS = ["reviewer1", "reviewer2"]\n'
+                '  IMPLEMENTERS = ["impl1"]\n'
+                "詳細は settings.example.py を参照。"
+            )
+
+        # 2. REVIEWERS / IMPLEMENTERS 重複チェック
+        _overlap = set(REVIEWERS) & set(IMPLEMENTERS)
+        if _overlap:
+            raise ValueError(
+                f"REVIEWERS と IMPLEMENTERS に重複があります: {_overlap}\n"
+                "同一エージェントを両方のリストに含めることはできません。"
+            )
+        del _overlap
+
+        # 3. AGENTS 自動生成（settings.py に AGENTS 明示定義がない場合のみ）
+        if not AGENTS:
+            AGENTS = {name: f"agent:{name}:main" for name in REVIEWERS + IMPLEMENTERS}
+
         GOKRAX_STATE_PATH = PIPELINES_DIR.parent / "gokrax-state.json"
         METRICS_FILE = PIPELINES_DIR.parent / "gokrax-metrics.jsonl"
 

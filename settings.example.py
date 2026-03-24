@@ -20,10 +20,11 @@ GITLAB_NAMESPACE: str = "YOUR_NAMESPACE"  # i.e., gitlab.com/YOUR_NAMESPACE/Proj
 GOKRAX_CLI = PurePosixPath("/path/to/gokrax")  # may be symbolic link
 PIPELINES_DIR = Path.home() / ".openclaw/shared/pipelines"
 
-AGENTS = {
-    "reviewer1": "agent:reviewer1:main",
-    "reviewer2": "agent:reviewer2:main",
-}
+REVIEWERS = ["reviewer1", "reviewer2"]
+IMPLEMENTERS = ["impl1"]
+# AGENTS は通常 config で REVIEWERS + IMPLEMENTERS から自動生成される。
+# session key を個別にカスタマイズしたい場合のみ明示定義（非推奨）:
+# AGENTS = {"reviewer1": "agent:reviewer1:main", "impl1": "agent:impl1:main"}
 
 # Reviewer tiers means that their infrastructure capability
 # Regular: Stable connection, enough context length

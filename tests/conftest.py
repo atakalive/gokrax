@@ -141,7 +141,6 @@ TEST_REVIEW_MODES = {
 }
 # AGENTS maps all known agents (reviewers + implementers).
 TEST_AGENTS = {name: f"agent:{name}:main" for name in TEST_REVIEWERS + TEST_IMPLEMENTERS}
-TEST_ALLOWED_REVIEWERS_AND_IMPLEMENTERS = TEST_REVIEWERS + TEST_IMPLEMENTERS
 
 
 @pytest.fixture(autouse=True)
@@ -149,10 +148,11 @@ def _override_config_names(monkeypatch):
     """Replace real agent/project names in config with test-only names."""
     import config
     # Preserve original values for CLI integration tests (subprocess doesn't inherit monkeypatch)
-    if not hasattr(config, "_REAL_ALLOWED_REVIEWERS"):
-        config._REAL_ALLOWED_REVIEWERS = config.ALLOWED_REVIEWERS[:]
+    if not hasattr(config, "_REAL_REVIEWERS"):
+        config._REAL_REVIEWERS = config.REVIEWERS[:]
     _config_overrides = {
-        "ALLOWED_REVIEWERS": TEST_ALLOWED_REVIEWERS_AND_IMPLEMENTERS[:],
+        "REVIEWERS": TEST_REVIEWERS[:],
+        "IMPLEMENTERS": TEST_IMPLEMENTERS[:],
         "REVIEWER_TIERS": TEST_REVIEWER_TIERS,
         "REVIEW_MODES": TEST_REVIEW_MODES,
         "GITLAB_NAMESPACE": TEST_GITLAB_NS,

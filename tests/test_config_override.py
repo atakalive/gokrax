@@ -36,7 +36,7 @@ def _patch_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 
 def test_settings_override(_patch_settings) -> None:
-    _patch_settings('OWNER_NAME = "TestUser"\n')
+    _patch_settings('OWNER_NAME = "TestUser"\nREVIEWERS = ["r1"]\nIMPLEMENTERS = ["i1"]\n')
     assert config.OWNER_NAME == "TestUser"
 
 
@@ -60,5 +60,5 @@ def test_no_settings_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> No
 
 
 def test_derived_vars_recalculated(_patch_settings) -> None:
-    _patch_settings('AGENTS = {"test_bot": "agent:test_bot:main"}\n')
-    assert config.ALLOWED_REVIEWERS == ["test_bot"]
+    _patch_settings('REVIEWERS = ["rev_a"]\nIMPLEMENTERS = ["impl_a"]\n')
+    assert config.AGENTS == {"rev_a": "agent:rev_a:main", "impl_a": "agent:impl_a:main"}

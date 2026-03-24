@@ -86,8 +86,8 @@ class TestGetSelfReviewAgent:
 
     def test_fallback(self):
         sc = {"review_requests": {}}
-        # Production code has hardcoded fallback "kaneko" (should be config-driven, see #202)
-        assert get_self_review_agent(sc) == "kaneko"
+        from tests.conftest import TEST_IMPLEMENTERS
+        assert get_self_review_agent(sc) == TEST_IMPLEMENTERS[0]
 
 
 # --- parse_revise_response ---

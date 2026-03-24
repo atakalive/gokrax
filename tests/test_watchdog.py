@@ -394,8 +394,8 @@ class TestDoubleCheckedLocking:
         data = {
             "project": "test-pj", "state": "DESIGN_PLAN",
             "enabled": True,
-            "implementer": "kaneko",
-            "gitlab": "atakalive/test-pj",
+            "implementer": "implementer1",
+            "gitlab": "testns/test-pj",
             "batch": _make_batch(1, design_ready=True),
             "history": [], "created_at": "", "updated_at": "",
         }
@@ -469,7 +469,7 @@ class TestIsAgentInactive:
 
         # /proc/12345 が存在する（プロセス生存）
         with patch.object(Path, "exists", return_value=True):
-            assert not _is_agent_inactive("kaneko", data)
+            assert not _is_agent_inactive("implementer1", data)
 
     def test_inactive_when_cc_pid_exists_but_dead(self):
         """cc_pidが存在するがプロセス消滅時、セッション判定へ"""
@@ -481,7 +481,7 @@ class TestIsAgentInactive:
         with patch.object(Path, "exists", return_value=False):
             # セッションJSONも存在しない
             with patch("pathlib.Path.read_text", side_effect=FileNotFoundError):
-                assert _is_agent_inactive("kaneko", data) is True
+                assert _is_agent_inactive("implementer1", data) is True
 
     def test_inactive_when_no_cc_pid(self):
         """cc_pidがない場合、セッション判定へ"""
@@ -491,7 +491,7 @@ class TestIsAgentInactive:
 
         # セッションJSONが存在しない
         with patch("pathlib.Path.read_text", side_effect=FileNotFoundError):
-            assert _is_agent_inactive("kaneko", data) is True
+            assert _is_agent_inactive("implementer1", data) is True
 
     def test_inactive_when_cc_pid_is_none(self):
         """cc_pidがNoneの場合、セッション判定へ"""
@@ -501,7 +501,7 @@ class TestIsAgentInactive:
 
         # セッションJSONが存在しない
         with patch("pathlib.Path.read_text", side_effect=FileNotFoundError):
-            assert _is_agent_inactive("kaneko", data) is True
+            assert _is_agent_inactive("implementer1", data) is True
 
     def test_active_with_valid_session_when_no_cc_pid(self):
         """cc_pidなし、セッションが最近更新されていればアクティブ"""
@@ -517,13 +517,13 @@ class TestIsAgentInactive:
         recent_ts = now_ts - 10000  # 10秒前
 
         session_data = {
-            "agent:kaneko:main": {
+            "agent:implementer1:main": {
                 "updatedAt": recent_ts
             }
         }
 
         with patch("pathlib.Path.read_text", return_value=json.dumps(session_data)):
-            assert not _is_agent_inactive("kaneko", data)
+            assert not _is_agent_inactive("implementer1", data)
 
     def test_inactive_with_old_session_when_no_cc_pid(self):
         """cc_pidなし、セッションが古ければ非アクティブ"""
@@ -540,13 +540,13 @@ class TestIsAgentInactive:
         old_ts = now_ts - (INACTIVE_THRESHOLD_SEC + 10) * 1000
 
         session_data = {
-            "agent:kaneko:main": {
+            "agent:implementer1:main": {
                 "updatedAt": old_ts
             }
         }
 
         with patch("pathlib.Path.read_text", return_value=json.dumps(session_data)):
-            assert _is_agent_inactive("kaneko", data) is True
+            assert _is_agent_inactive("implementer1", data) is True
 
     def test_pipeline_data_none_uses_session_fallback(self):
         """pipeline_data=None の場合、セッション判定のみ使用"""
@@ -554,7 +554,7 @@ class TestIsAgentInactive:
 
         # セッションJSONが存在しない
         with patch("pathlib.Path.read_text", side_effect=FileNotFoundError):
-            assert _is_agent_inactive("kaneko", None) is True
+            assert _is_agent_inactive("implementer1", None) is True
 
     def test_is_cc_running_helper(self):
         """_is_cc_running() ヘルパー関数のテスト"""
@@ -613,7 +613,7 @@ class TestStartCc:
         from engine.cc import _start_cc
         path = tmp_pipelines / "test-pj.json"
         data = {
-            "project": "test-pj", "gitlab": "atakalive/test-pj",
+            "project": "test-pj", "gitlab": "testns/test-pj",
             "state": "IMPLEMENTATION", "enabled": True,
             "batch": [{"issue": 1, "title": "T", "commit": None,
                        "design_reviews": {}, "code_reviews": {}}],
@@ -635,7 +635,7 @@ class TestStartCc:
              patch("notify.fetch_issue_body", return_value="test body"), \
              patch("subprocess.run", return_value=mock_git), \
              patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
-            _start_cc("test-pj", data["batch"], "atakalive/test-pj", "/tmp", path)
+            _start_cc("test-pj", data["batch"], "testns/test-pj", "/tmp", path)
 
         mock_popen.assert_called_once()
         saved = json.loads(path.read_text())
@@ -649,7 +649,7 @@ class TestStartCc:
         from pathlib import Path as _Path
         path = tmp_pipelines / "test-pj.json"
         data = {
-            "project": "test-pj", "gitlab": "atakalive/test-pj",
+            "project": "test-pj", "gitlab": "testns/test-pj",
             "state": "IMPLEMENTATION", "enabled": True,
             "batch": [{"issue": 1, "title": "T", "commit": None,
                        "design_reviews": {}, "code_reviews": {}}],
@@ -678,7 +678,7 @@ class TestStartCc:
              patch("subprocess.run", return_value=mock_git), \
              patch("tempfile.mkstemp", side_effect=capturing_mkstemp), \
              patch("subprocess.Popen", return_value=mock_proc):
-            _start_cc("test-pj", data["batch"], "atakalive/test-pj", "/tmp", path)
+            _start_cc("test-pj", data["batch"], "testns/test-pj", "/tmp", path)
 
         # gokrax-plan- プレフィックスのファイルを特定
         plan_files = [p for p in created_paths if "gokrax-plan-" in _Path(p).name]
@@ -702,7 +702,7 @@ class TestStartCc:
         from engine.cc import _start_cc
         path = tmp_pipelines / "test-pj.json"
         data = {
-            "project": "test-pj", "gitlab": "atakalive/test-pj",
+            "project": "test-pj", "gitlab": "testns/test-pj",
             "state": "IMPLEMENTATION", "enabled": True,
             "batch": [{"issue": 1, "title": "T", "commit": "abc123",
                        "design_reviews": {}, "code_reviews": {}}],
@@ -719,7 +719,7 @@ class TestStartCc:
 
         with patch("subprocess.run", return_value=mock_git), \
              patch("subprocess.Popen") as mock_popen:
-            _start_cc("test-pj", data["batch"], "atakalive/test-pj", "/tmp", path)
+            _start_cc("test-pj", data["batch"], "testns/test-pj", "/tmp", path)
 
         mock_popen.assert_not_called()
 
@@ -729,7 +729,7 @@ class TestStartCc:
         import os
         path = tmp_pipelines / "test-pj.json"
         data = {
-            "project": "test-pj", "gitlab": "atakalive/test-pj",
+            "project": "test-pj", "gitlab": "testns/test-pj",
             "state": "IMPLEMENTATION", "enabled": True,
             "batch": [{"issue": 1, "title": "T", "commit": None,
                        "design_reviews": {}, "code_reviews": {}}],
@@ -756,7 +756,7 @@ class TestStartCc:
              patch("subprocess.Popen", side_effect=OSError("fail")), \
              patch("tempfile.mkstemp", side_effect=track_mkstemp):
             with pytest.raises(OSError):
-                _start_cc("test-pj", data["batch"], "atakalive/test-pj", "/tmp", path)
+                _start_cc("test-pj", data["batch"], "testns/test-pj", "/tmp", path)
 
         for f in created_files:
             assert not os.path.exists(f), f"一時ファイルが残っている: {f}"
@@ -768,7 +768,7 @@ class TestStartCc:
 
         path = tmp_pipelines / "test-pj.json"
         data = {
-            "project": "test-pj", "gitlab": "atakalive/test-pj",
+            "project": "test-pj", "gitlab": "testns/test-pj",
             "state": "IMPLEMENTATION", "enabled": True,
             "batch": [{"issue": 1, "title": "T", "commit": None,
                        "design_reviews": {}, "code_reviews": {}}],
@@ -790,7 +790,7 @@ class TestStartCc:
              patch("notify.fetch_issue_body", return_value="test body"), \
              patch("subprocess.Popen", return_value=mock_proc), \
              patch("subprocess.run", return_value=mock_git):
-            _start_cc("test-pj", data["batch"], "atakalive/test-pj", "/tmp", path)
+            _start_cc("test-pj", data["batch"], "testns/test-pj", "/tmp", path)
 
         saved = json.loads(path.read_text())
         assert saved.get("base_commit") == "abc1234"
@@ -802,7 +802,7 @@ class TestStartCc:
 
         path = tmp_pipelines / "test-pj.json"
         data = {
-            "project": "test-pj", "gitlab": "atakalive/test-pj",
+            "project": "test-pj", "gitlab": "testns/test-pj",
             "state": "IMPLEMENTATION", "enabled": True,
             "base_commit": "existing123",
             "batch": [{"issue": 1, "title": "T", "commit": None,
@@ -819,7 +819,7 @@ class TestStartCc:
         with patch("watchdog.notify_discord"), \
              patch("notify.fetch_issue_body", return_value="test body"), \
              patch("subprocess.Popen", return_value=mock_proc):
-            _start_cc("test-pj", data["batch"], "atakalive/test-pj", "/tmp", path)
+            _start_cc("test-pj", data["batch"], "testns/test-pj", "/tmp", path)
 
         saved = json.loads(path.read_text())
         assert saved["base_commit"] == "existing123"
@@ -831,7 +831,7 @@ class TestStartCc:
         from pathlib import Path as _Path
         path = tmp_pipelines / "test-pj.json"
         data = {
-            "project": "test-pj", "gitlab": "atakalive/test-pj",
+            "project": "test-pj", "gitlab": "testns/test-pj",
             "state": "IMPLEMENTATION", "enabled": True,
             "skip_cc_plan": True,
             "batch": [{"issue": 1, "title": "Test Issue", "commit": None,
@@ -861,7 +861,7 @@ class TestStartCc:
              patch("subprocess.run", return_value=mock_git), \
              patch("tempfile.mkstemp", side_effect=capturing_mkstemp), \
              patch("subprocess.Popen", return_value=mock_proc):
-            _start_cc("test-pj", data["batch"], "atakalive/test-pj", "/tmp", path)
+            _start_cc("test-pj", data["batch"], "testns/test-pj", "/tmp", path)
 
         # plan ファイルが作られていないこと
         plan_files = [p for p in created_paths if "gokrax-plan-" in _Path(p).name]
@@ -895,7 +895,7 @@ class TestStartCc:
         from pathlib import Path as _Path
         path = tmp_pipelines / "test-pj.json"
         data = {
-            "project": "test-pj", "gitlab": "atakalive/test-pj",
+            "project": "test-pj", "gitlab": "testns/test-pj",
             "state": "IMPLEMENTATION", "enabled": True,
             "batch": [{"issue": 2, "title": "T2", "commit": None,
                        "design_reviews": {}, "code_reviews": {}}],
@@ -924,7 +924,7 @@ class TestStartCc:
              patch("subprocess.run", return_value=mock_git), \
              patch("tempfile.mkstemp", side_effect=capturing_mkstemp), \
              patch("subprocess.Popen", return_value=mock_proc):
-            _start_cc("test-pj", data["batch"], "atakalive/test-pj", "/tmp", path)
+            _start_cc("test-pj", data["batch"], "testns/test-pj", "/tmp", path)
 
         # plan ファイルが作られていること
         plan_files = [p for p in created_paths if "gokrax-plan-" in _Path(p).name]
@@ -952,7 +952,7 @@ class TestStartCc:
         path = tmp_pipelines / "test-pj.json"
         prev_sid = "prev-session-uuid-1234"
         data = {
-            "project": "test-pj", "gitlab": "atakalive/test-pj",
+            "project": "test-pj", "gitlab": "testns/test-pj",
             "state": "IMPLEMENTATION", "enabled": True,
             "skip_cc_plan": True,
             "keep_ctx_batch": True,
@@ -984,7 +984,7 @@ class TestStartCc:
              patch("subprocess.run", return_value=mock_git), \
              patch("tempfile.mkstemp", side_effect=capturing_mkstemp), \
              patch("subprocess.Popen", return_value=mock_proc):
-            _start_cc("test-pj", data["batch"], "atakalive/test-pj", "/tmp", path)
+            _start_cc("test-pj", data["batch"], "testns/test-pj", "/tmp", path)
 
         script_files = [p for p in created_paths if "gokrax-cc-" in _Path(p).name]
         assert script_files
@@ -1012,7 +1012,7 @@ class TestStartCc:
         from pathlib import Path as _Path
         path = tmp_pipelines / "test-pj.json"
         data = {
-            "project": "test-pj", "gitlab": "atakalive/test-pj",
+            "project": "test-pj", "gitlab": "testns/test-pj",
             "state": "IMPLEMENTATION", "enabled": True,
             "skip_cc_plan": True,
             "comment": "テスト用コメントです",
@@ -1043,7 +1043,7 @@ class TestStartCc:
              patch("subprocess.run", return_value=mock_git), \
              patch("tempfile.mkstemp", side_effect=capturing_mkstemp), \
              patch("subprocess.Popen", return_value=mock_proc):
-            _start_cc("test-pj", data["batch"], "atakalive/test-pj", "/tmp", path)
+            _start_cc("test-pj", data["batch"], "testns/test-pj", "/tmp", path)
 
         impl_files = [p for p in created_paths if "gokrax-impl-" in _Path(p).name]
         assert impl_files
@@ -1063,7 +1063,7 @@ class TestStartCc:
         import os
         path = tmp_pipelines / "test-pj.json"
         data = {
-            "project": "test-pj", "gitlab": "atakalive/test-pj",
+            "project": "test-pj", "gitlab": "testns/test-pj",
             "state": "IMPLEMENTATION", "enabled": True,
             "skip_cc_plan": True,
             "batch": [{"issue": 5, "title": "T5", "commit": None,
@@ -1091,7 +1091,7 @@ class TestStartCc:
              patch("subprocess.Popen", side_effect=OSError("fail")), \
              patch("tempfile.mkstemp", side_effect=track_mkstemp):
             with pytest.raises(OSError):
-                _start_cc("test-pj", data["batch"], "atakalive/test-pj", "/tmp", path)
+                _start_cc("test-pj", data["batch"], "testns/test-pj", "/tmp", path)
 
         # 作成された一時ファイル（impl, script）が全て削除されていること
         for f in created_files:
@@ -1119,7 +1119,7 @@ class TestStartCc:
         with patch("watchdog.notify_discord"), \
              patch("notify.fetch_issue_body", return_value="test body"), \
              patch("subprocess.Popen", return_value=mock_proc):
-            _start_cc("test-pj", data["batch"], "atakalive/test-pj", "/tmp", path)
+            _start_cc("test-pj", data["batch"], "testns/test-pj", "/tmp", path)
         saved = _json.loads(path.read_text())
         assert saved["base_commit"] == existing_base  # 上書きされていない
 
@@ -1146,7 +1146,7 @@ class TestStartCc:
              patch("notify.fetch_issue_body", return_value="test body"), \
              patch("subprocess.run", return_value=mock_git), \
              patch("subprocess.Popen", return_value=mock_proc):
-            _start_cc("test-pj", data["batch"], "atakalive/test-pj", "/tmp", path)
+            _start_cc("test-pj", data["batch"], "testns/test-pj", "/tmp", path)
         saved = _json.loads(path.read_text())
         assert saved["base_commit"] == current_head
         assert len(saved["base_commit"]) == 40
@@ -1541,7 +1541,7 @@ class TestReviseP0Summary:
         batch = [{
             "issue": 123, "title": "Issue 123", "commit": None,
             "cc_session_id": None,
-            "design_reviews": {"pascal": {"verdict": "APPROVE"}, "leibniz": {"verdict": "P0"}},
+            "design_reviews": {"reviewer1": {"verdict": "APPROVE"}, "reviewer2": {"verdict": "P0"}},
             "code_reviews": {},
             "added_at": "2025-01-01T00:00:00+09:00",
         }]
@@ -1578,7 +1578,7 @@ class TestReviseP0Summary:
         assert "[test-pj] REVISE対象:" in summary
         assert "#123:" in summary
         assert "1 P0" in summary
-        assert "leibniz" in summary
+        assert "reviewer2" in summary
 
     def test_code_review_to_code_revise_multiple_issues_posts_all(self, tmp_path, monkeypatch):
         """Multiple issues with P0s all appear in summary."""
@@ -1589,19 +1589,19 @@ class TestReviseP0Summary:
             {
                 "issue": 10, "title": "Issue 10", "commit": None, "cc_session_id": None,
                 "design_reviews": {},
-                "code_reviews": {"pascal": {"verdict": "P0"}, "hanfei": {"verdict": "APPROVE"}},
+                "code_reviews": {"reviewer1": {"verdict": "P0"}, "reviewer4": {"verdict": "APPROVE"}},
                 "added_at": "2025-01-01T00:00:00+09:00",
             },
             {
                 "issue": 11, "title": "Issue 11", "commit": None, "cc_session_id": None,
                 "design_reviews": {},
-                "code_reviews": {"pascal": {"verdict": "P0"}, "leibniz": {"verdict": "REJECT"}},
+                "code_reviews": {"reviewer1": {"verdict": "P0"}, "reviewer2": {"verdict": "REJECT"}},
                 "added_at": "2025-01-01T00:00:00+09:00",
             },
             {
                 "issue": 12, "title": "Issue 12", "commit": None, "cc_session_id": None,
                 "design_reviews": {},
-                "code_reviews": {"hanfei": {"verdict": "P0"}, "leibniz": {"verdict": "P0"}},
+                "code_reviews": {"reviewer4": {"verdict": "P0"}, "reviewer2": {"verdict": "P0"}},
                 "added_at": "2025-01-01T00:00:00+09:00",
             },
         ]
@@ -1642,19 +1642,19 @@ class TestReviseP0Summary:
         batch = [
             {
                 "issue": 20, "title": "Issue 20", "commit": None, "cc_session_id": None,
-                "design_reviews": {"pascal": {"verdict": "P0"}, "leibniz": {"verdict": "APPROVE"}},
+                "design_reviews": {"reviewer1": {"verdict": "P0"}, "reviewer2": {"verdict": "APPROVE"}},
                 "code_reviews": {},
                 "added_at": "2025-01-01T00:00:00+09:00",
             },
             {
                 "issue": 21, "title": "Issue 21", "commit": None, "cc_session_id": None,
-                "design_reviews": {"pascal": {"verdict": "APPROVE"}, "leibniz": {"verdict": "APPROVE"}},
+                "design_reviews": {"reviewer1": {"verdict": "APPROVE"}, "reviewer2": {"verdict": "APPROVE"}},
                 "code_reviews": {},
                 "added_at": "2025-01-01T00:00:00+09:00",
             },
             {
                 "issue": 22, "title": "Issue 22", "commit": None, "cc_session_id": None,
-                "design_reviews": {"hanfei": {"verdict": "REJECT"}, "pascal": {"verdict": "APPROVE"}},
+                "design_reviews": {"reviewer4": {"verdict": "REJECT"}, "reviewer1": {"verdict": "APPROVE"}},
                 "code_reviews": {},
                 "added_at": "2025-01-01T00:00:00+09:00",
             },
@@ -1693,7 +1693,7 @@ class TestReviseP0Summary:
         path = tmp_path / "test-pj.json"
         batch = [{
             "issue": 30, "title": "Issue 30", "commit": None, "cc_session_id": None,
-            "design_reviews": {"pascal": {"verdict": "APPROVE"}, "leibniz": {"verdict": "APPROVE"}},
+            "design_reviews": {"reviewer1": {"verdict": "APPROVE"}, "reviewer2": {"verdict": "APPROVE"}},
             "code_reviews": {},
             "added_at": "2025-01-01T00:00:00+09:00",
         }]
@@ -1730,7 +1730,7 @@ class TestReviseP0Summary:
         batch = [{
             "issue": 40, "title": "Issue 40", "commit": None, "cc_session_id": None,
             "design_reviews": {},
-            "code_reviews": {"pascal": {"verdict": "APPROVE"}, "leibniz": {"verdict": "REJECT"}, "hanfei": {"verdict": "P0"}},
+            "code_reviews": {"reviewer1": {"verdict": "APPROVE"}, "reviewer2": {"verdict": "REJECT"}, "reviewer4": {"verdict": "P0"}},
             "added_at": "2025-01-01T00:00:00+09:00",
         }]
         data = {
@@ -1757,7 +1757,7 @@ class TestReviseP0Summary:
         summary = mock_discord.call_args_list[1][0][0]
         assert "#40:" in summary
         assert "2 P0" in summary  # REJECT + P0
-        assert "leibniz" in summary and "hanfei" in summary
+        assert "reviewer2" in summary and "reviewer4" in summary
 
     def test_notify_discord_call_order_transition_then_summary(self, tmp_path, monkeypatch):
         """Verify notify_discord called twice: transition first, summary second."""
@@ -1766,7 +1766,7 @@ class TestReviseP0Summary:
         path = tmp_path / "test-pj.json"
         batch = [{
             "issue": 50, "title": "Issue 50", "commit": None, "cc_session_id": None,
-            "design_reviews": {"pascal": {"verdict": "P0"}, "leibniz": {"verdict": "APPROVE"}},
+            "design_reviews": {"reviewer1": {"verdict": "P0"}, "reviewer2": {"verdict": "APPROVE"}},
             "code_reviews": {},
             "added_at": "2025-01-01T00:00:00+09:00",
         }]
@@ -1810,7 +1810,7 @@ class TestReviseP0Summary:
         path = tmp_path / "test-pj.json"
         batch = [{
             "issue": 60, "title": "Issue 60", "commit": None, "cc_session_id": None,
-            "design_reviews": {"pascal": {"verdict": "P0"}, "leibniz": {"verdict": "REJECT"}, "hanfei": {"verdict": "P0"}},
+            "design_reviews": {"reviewer1": {"verdict": "P0"}, "reviewer2": {"verdict": "REJECT"}, "reviewer4": {"verdict": "P0"}},
             "code_reviews": {},
             "added_at": "2025-01-01T00:00:00+09:00",
         }]
@@ -1844,7 +1844,7 @@ class TestReviseP0Summary:
         match = re.search(r"#60: 3 P0 \(([^)]+)\)", summary)
         assert match
         reviewers = set(r.strip() for r in match.group(1).split(","))
-        assert reviewers == {"pascal", "leibniz", "hanfei"}
+        assert reviewers == {"reviewer1", "reviewer2", "reviewer4"}
 
     def test_revise_notification_includes_p2_when_p2_fix_enabled(self, tmp_path, monkeypatch):
         """p2_fix=True + P2 only → REVISE notification includes P2 reviewer."""
@@ -1854,7 +1854,7 @@ class TestReviseP0Summary:
         batch = [{
             "issue": 70, "title": "Issue 70", "commit": None, "cc_session_id": None,
             "design_reviews": {},
-            "code_reviews": {"euler": {"verdict": "P2"}},
+            "code_reviews": {"reviewer6": {"verdict": "P2"}},
             "added_at": "2025-01-01T00:00:00+09:00",
         }]
         data = {
@@ -1883,7 +1883,7 @@ class TestReviseP0Summary:
         assert mock_discord.call_count == 2
         summary = mock_discord.call_args_list[1][0][0]
         assert "#70:" in summary
-        assert "1 P2 (euler)" in summary
+        assert "1 P2 (reviewer6)" in summary
 
     def test_revise_notification_excludes_p2_when_p2_fix_disabled(self, tmp_path, monkeypatch):
         """p2_fix=False (default) + P1+P2 → notification has P1 but not P2."""
@@ -1893,7 +1893,7 @@ class TestReviseP0Summary:
         batch = [{
             "issue": 71, "title": "Issue 71", "commit": None, "cc_session_id": None,
             "design_reviews": {},
-            "code_reviews": {"euler": {"verdict": "P1"}, "pascal": {"verdict": "P2"}},
+            "code_reviews": {"reviewer6": {"verdict": "P1"}, "reviewer1": {"verdict": "P2"}},
             "added_at": "2025-01-01T00:00:00+09:00",
         }]
         data = {
@@ -1919,7 +1919,7 @@ class TestReviseP0Summary:
 
         assert mock_discord.call_count == 2
         summary = mock_discord.call_args_list[1][0][0]
-        assert "1 P1 (euler)" in summary
+        assert "1 P1 (reviewer6)" in summary
         assert "P2" not in summary
 
     def test_revise_notification_includes_all_severities_when_p2_fix_enabled(self, tmp_path, monkeypatch):
@@ -1931,9 +1931,9 @@ class TestReviseP0Summary:
             "issue": 72, "title": "Issue 72", "commit": None, "cc_session_id": None,
             "design_reviews": {},
             "code_reviews": {
-                "leibniz": {"verdict": "P0"},
-                "euler": {"verdict": "P1"},
-                "pascal": {"verdict": "P2"},
+                "reviewer2": {"verdict": "P0"},
+                "reviewer6": {"verdict": "P1"},
+                "reviewer1": {"verdict": "P2"},
             },
             "added_at": "2025-01-01T00:00:00+09:00",
         }]
@@ -1962,9 +1962,9 @@ class TestReviseP0Summary:
 
         assert mock_discord.call_count == 2
         summary = mock_discord.call_args_list[1][0][0]
-        assert "1 P0 (leibniz)" in summary
-        assert "1 P1 (euler)" in summary
-        assert "1 P2 (pascal)" in summary
+        assert "1 P0 (reviewer2)" in summary
+        assert "1 P1 (reviewer6)" in summary
+        assert "1 P2 (reviewer1)" in summary
         # Verify order: P0 < P1 < P2
         assert summary.index("P0") < summary.index("P1") < summary.index("P2")
 
@@ -2695,7 +2695,7 @@ class TestAutoCloseOnDone:
         path = tmp_path / "test-pj.json"
         _write_pipeline(path, {
             "project": "test-pj", "state": "MERGE_SUMMARY_SENT", "enabled": True,
-            "batch": batch, "gitlab": "atakalive/test-pj",
+            "batch": batch, "gitlab": "testns/test-pj",
             "repo_path": "/tmp/test", "review_mode": "standard",
             "summary_message_id": "123456",
             "history": [{"from": "CODE_APPROVED", "to": "MERGE_SUMMARY_SENT",
@@ -3385,7 +3385,7 @@ class TestCCModelOverride:
         monkeypatch.setattr("subprocess.Popen", mock_popen)
         monkeypatch.setattr("watchdog.update_pipeline", mock_update_pipeline)
 
-        _start_cc("TestProj", batch, "atakalive/TestProj", "/tmp/repo", pipeline_path)
+        _start_cc("TestProj", batch, "testns/TestProj", "/tmp/repo", pipeline_path)
 
         # Popen が呼ばれたスクリプトを確認
         popen_call = mock_popen.call_args
@@ -3420,7 +3420,7 @@ class TestCCModelOverride:
         monkeypatch.setattr("subprocess.Popen", mock_popen)
         monkeypatch.setattr("watchdog.update_pipeline", mock_update_pipeline)
 
-        _start_cc("TestProj", batch, "atakalive/TestProj", "/tmp/repo", pipeline_path)
+        _start_cc("TestProj", batch, "testns/TestProj", "/tmp/repo", pipeline_path)
 
         popen_call = mock_popen.call_args
         script_path = popen_call[0][0][1]
@@ -3626,7 +3626,7 @@ class TestFlag:
 
         batch = [{
             "issue": 1,
-            "design_reviews": {"pascal": {"verdict": "APPROVE"}},
+            "design_reviews": {"reviewer1": {"verdict": "APPROVE"}},
             "code_reviews": {},
             "flags": [{"verdict": "P1", "phase": "design", "by": "M"}]
         }]
@@ -3640,7 +3640,7 @@ class TestFlag:
 
         batch = [{
             "issue": 1,
-            "design_reviews": {"pascal": {"verdict": "APPROVE"}, "leibniz": {"verdict": "APPROVE"}},
+            "design_reviews": {"reviewer1": {"verdict": "APPROVE"}, "reviewer2": {"verdict": "APPROVE"}},
             "code_reviews": {},
             "flags": [{"verdict": "P0", "phase": "design", "by": "M"}]  # No "resolved" key
         }]
@@ -3657,7 +3657,7 @@ class TestFlag:
         batch = [{
             "issue": 1,
             "design_reviews": {},
-            "code_reviews": {"pascal": {"verdict": "APPROVE"}, "leibniz": {"verdict": "APPROVE"}},
+            "code_reviews": {"reviewer1": {"verdict": "APPROVE"}, "reviewer2": {"verdict": "APPROVE"}},
             "flags": [{"verdict": "P0", "phase": "code", "by": "M"}]
         }]
 
@@ -3672,7 +3672,7 @@ class TestFlag:
 
         batch = [{
             "issue": 1,
-            "design_reviews": {"pascal": {"verdict": "APPROVE"}, "leibniz": {"verdict": "APPROVE"}},
+            "design_reviews": {"reviewer1": {"verdict": "APPROVE"}, "reviewer2": {"verdict": "APPROVE"}},
             "code_reviews": {},
             "flags": [{"verdict": "P0", "phase": "code", "by": "M"}]  # Wrong phase
         }]
@@ -3689,7 +3689,7 @@ class TestFlag:
 
         batch = [{
             "issue": 1,
-            "design_reviews": {"pascal": {"verdict": "APPROVE"}, "leibniz": {"verdict": "APPROVE"}},
+            "design_reviews": {"reviewer1": {"verdict": "APPROVE"}, "reviewer2": {"verdict": "APPROVE"}},
             "code_reviews": {},
             "flags": [{"verdict": "P1", "phase": "design", "by": "M"}]
         }]
@@ -3743,7 +3743,7 @@ class TestFlag:
 
         batch = [{
             "issue": 1,
-            "design_reviews": {"pascal": {"verdict": "APPROVE"}, "leibniz": {"verdict": "APPROVE"}},
+            "design_reviews": {"reviewer1": {"verdict": "APPROVE"}, "reviewer2": {"verdict": "APPROVE"}},
             "code_reviews": {},
             "flags": [{"verdict": "P0", "phase": "design", "by": "M", "resolved": True}]
         }]
@@ -4453,7 +4453,7 @@ class TestImplPromptTestBaseline:
     def _make_path_and_data(self, tmp_pipelines, extra=None):
         path = tmp_pipelines / "test-pj.json"
         data = {
-            "project": "test-pj", "gitlab": "atakalive/test-pj",
+            "project": "test-pj", "gitlab": "testns/test-pj",
             "state": "IMPLEMENTATION", "enabled": True,
             "batch": [{"issue": 1, "title": "T", "commit": None,
                        "design_reviews": {}, "code_reviews": {}}],
@@ -4490,7 +4490,7 @@ class TestImplPromptTestBaseline:
              patch("subprocess.run", return_value=mock_git), \
              patch("tempfile.mkstemp", side_effect=capture), \
              patch("subprocess.Popen", return_value=mock_proc):
-            _start_cc("test-pj", data["batch"], "atakalive/test-pj", "/repo", path)
+            _start_cc("test-pj", data["batch"], "testns/test-pj", "/repo", path)
 
         impl_files = [p for p in created if "gokrax-impl-" in _Path(p).name]
         assert impl_files, "gokrax-impl- ファイルが作られていない"
@@ -4542,7 +4542,7 @@ class TestImplPromptTestBaseline:
              patch("subprocess.run", return_value=mock_git), \
              patch("tempfile.mkstemp", side_effect=capture), \
              patch("subprocess.Popen", return_value=mock_proc):
-            _start_cc("test-pj", data["batch"], "atakalive/test-pj", "/repo", path)
+            _start_cc("test-pj", data["batch"], "testns/test-pj", "/repo", path)
 
         impl_files = [p for p in created if "gokrax-impl-" in _Path(p).name]
         content = _Path(impl_files[0]).read_text()
@@ -4582,7 +4582,7 @@ class TestImplPromptTestBaseline:
              patch("subprocess.run", return_value=mock_git), \
              patch("tempfile.mkstemp", side_effect=capture), \
              patch("subprocess.Popen", return_value=mock_proc):
-            _start_cc("test-pj", data["batch"], "atakalive/test-pj", "/repo", path)
+            _start_cc("test-pj", data["batch"], "testns/test-pj", "/repo", path)
 
         impl_files = [p for p in created if "gokrax-impl-" in _Path(p).name]
         content = _Path(impl_files[0]).read_text()
@@ -4623,7 +4623,7 @@ class TestImplPromptTestBaseline:
              patch("subprocess.run", return_value=mock_git), \
              patch("tempfile.mkstemp", side_effect=capture), \
              patch("subprocess.Popen", return_value=mock_proc):
-            _start_cc("test-pj", data["batch"], "atakalive/test-pj", "/repo", path)
+            _start_cc("test-pj", data["batch"], "testns/test-pj", "/repo", path)
 
         impl_files = [p for p in created if "gokrax-impl-" in _Path(p).name]
         content = _Path(impl_files[0]).read_text()
@@ -4645,7 +4645,7 @@ class TestDoneCleanupTestBaseline:
 
         path = tmp_pipelines / "pj.json"
         data = {
-            "project": "pj", "gitlab": "atakalive/pj",
+            "project": "pj", "gitlab": "testns/pj",
             "state": "DONE", "enabled": True,
             "batch": [{"issue": 1, "title": "T", "commit": "abc",
                        "design_reviews": {}, "code_reviews": {}}],
@@ -4681,7 +4681,7 @@ class TestInitializeToDesignPlanPytest:
 
         path = tmp_pipelines / "pj.json"
         data = {
-            "project": "pj", "gitlab": "atakalive/pj",
+            "project": "pj", "gitlab": "testns/pj",
             "state": "INITIALIZE", "enabled": True,
             "batch": [{"issue": 1}],
             "history": [],
@@ -4715,7 +4715,7 @@ class TestInitializeToDesignPlanPytest:
 
         path = tmp_pipelines / "pj.json"
         data = {
-            "project": "pj", "gitlab": "atakalive/pj",
+            "project": "pj", "gitlab": "testns/pj",
             "state": "INITIALIZE", "enabled": True,
             "batch": [{"issue": 1}],
             "history": [],
@@ -4750,7 +4750,7 @@ class TestInitializeToDesignPlanPytest:
 
         path = tmp_pipelines / "pj.json"
         data = {
-            "project": "pj", "gitlab": "atakalive/pj",
+            "project": "pj", "gitlab": "testns/pj",
             "state": "INITIALIZE", "enabled": True,
             "batch": [{"issue": 1}],
             "history": [],
@@ -4800,11 +4800,11 @@ class TestHandleQrun:
         path = pipelines_dir / f"{project}.json"
         path.write_text(json.dumps({
             "project": project,
-            "gitlab": f"atakalive/{project}",
+            "gitlab": f"testns/{project}",
             "repo_path": str(tmp_path / "repo"),
             "state": "IDLE",
             "enabled": False,
-            "implementer": "kaneko",
+            "implementer": "implementer1",
             "batch": [],
             "history": [],
         }))
@@ -5019,7 +5019,7 @@ class TestAssessmentToIdleSkip:
                        "assessment": {"complex_level": 3, "domain_risk": "high"}}],
             "exclude_high_risk": True,
             "queue_mode": True,
-            "implementer": "kaneko",
+            "implementer": "implementer1",
             "history": [{"from": "DESIGN_APPROVED", "to": "ASSESSMENT", "at": "2025-01-01T00:00:00+09:00", "actor": "watchdog"}],
         }
         _write_pipeline(pipeline_path, pipeline_data)
@@ -5071,7 +5071,7 @@ class TestAssessmentToIdleSkip:
                        "added_at": "2025-01-01T00:00:00+09:00",
                        "assessment": {"complex_level": 3, "domain_risk": "high"}}],
             "exclude_high_risk": True,
-            "implementer": "kaneko",
+            "implementer": "implementer1",
             "history": [{"from": "DESIGN_APPROVED", "to": "ASSESSMENT", "at": "2025-01-01T00:00:00+09:00", "actor": "watchdog"}],
         }
         _write_pipeline(pipeline_path, pipeline_data)
@@ -5106,7 +5106,7 @@ class TestAssessmentToIdleSkip:
                        "assessment": {"complex_level": 3, "domain_risk": "low"}}],
             "exclude_any_risk": True,
             "queue_mode": True,
-            "implementer": "kaneko",
+            "implementer": "implementer1",
             "history": [{"from": "DESIGN_APPROVED", "to": "ASSESSMENT", "at": "2025-01-01T00:00:00+09:00", "actor": "watchdog"}],
         }
         _write_pipeline(pipeline_path, pipeline_data)
@@ -5146,7 +5146,7 @@ class TestAssessmentToIdleSkip:
             "skip_test": True,
             "skip_assess": True,
             "comment": "test comment",
-            "implementer": "kaneko",
+            "implementer": "implementer1",
             "history": [{"from": "DESIGN_APPROVED", "to": "ASSESSMENT", "at": "2025-01-01T00:00:00+09:00", "actor": "watchdog"}],
         }
         _write_pipeline(pipeline_path, pipeline_data)
@@ -5202,7 +5202,7 @@ class TestAssessmentPartialExclude:
                  "assessment": {"complex_level": 1, "domain_risk": "none"}},
             ],
             "exclude_high_risk": True,
-            "implementer": "kaneko",
+            "implementer": "implementer1",
             "history": [{"from": "DESIGN_APPROVED", "to": "ASSESSMENT",
                          "at": "2025-01-01T00:00:00+09:00", "actor": "watchdog"}],
         }
@@ -5245,7 +5245,7 @@ class TestAssessmentPartialExclude:
                  "assessment": {"complex_level": 1, "domain_risk": "none"}},
             ],
             "exclude_high_risk": True,
-            "implementer": "kaneko",
+            "implementer": "implementer1",
             "history": [{"from": "DESIGN_APPROVED", "to": "ASSESSMENT",
                          "at": "2025-01-01T00:00:00+09:00", "actor": "watchdog"}],
         }
@@ -5275,3 +5275,43 @@ class TestAssessmentPartialExclude:
             and "Excluded by risk filter" in (c.args[2] if len(c.args) >= 3 else "")
         ]
         assert len(excluded_note_calls) == 1, f"Expected 1 excluded note for #10, got {len(excluded_note_calls)}"
+
+
+class TestSkipDesignInitialization:
+    """Issue #201: INITIALIZE → DESIGN_APPROVED (skip-design) で初期化が走ることのテスト"""
+
+    def test_skip_design_initializes_pipeline(self, tmp_pipelines, monkeypatch):
+        """skip_design=True で INITIALIZE→DESIGN_APPROVED 時に初期化処理が実行されること"""
+        import json as _json
+        from watchdog import process
+        from engine.fsm import TransitionAction
+
+        path = tmp_pipelines / "pj.json"
+        data = {
+            "project": "pj", "gitlab": "testns/pj",
+            "state": "INITIALIZE", "enabled": True,
+            "batch": [{"issue": 1}],
+            "history": [],
+            "repo_path": "/fake/repo",
+            "skip_design": True,
+            "design_revise_count": 3,
+            "code_revise_count": 2,
+        }
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(_json.dumps(data))
+        monkeypatch.setattr("watchdog.PIPELINES_DIR", tmp_pipelines)
+
+        mock_git = MagicMock()
+        mock_git.returncode = 0
+        mock_git.stdout = "abc12345deadbeef\n"
+
+        with patch("watchdog._has_pytest", return_value=False), \
+             patch("subprocess.run", return_value=mock_git), \
+             patch("watchdog._poll_pytest_baseline"):
+            process(path)
+
+        saved = _json.loads(path.read_text())
+        assert saved["state"] == "DESIGN_APPROVED"
+        assert "design_revise_count" not in saved
+        assert "code_revise_count" not in saved
+        assert saved.get("base_commit") == "abc12345deadbeef"

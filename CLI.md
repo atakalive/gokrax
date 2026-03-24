@@ -108,6 +108,8 @@ gokrax start --pj myproject --mode standard
 | `--no-skip-test` | No | explicitly do not skip CODE_TEST phase |
 | `--skip-assess` | No | skip ASSESSMENT phase, go directly to IMPLEMENTATION |
 | `--no-skip-assess` | No | explicitly do not skip ASSESSMENT phase |
+| `--skip-design` | No | DESIGN_PLAN/DESIGN_REVIEW をスキップし DESIGN_APPROVED へ直行 |
+| `--no-skip-design` | No | --skip-design を無効化 |
 | `--exclude-high-risk` | No | skip batch if domain_risk == high |
 | `--no-exclude-high-risk` | No | explicitly do not skip high-risk batches |
 | `--exclude-any-risk` | No | skip batch if domain_risk != none (superset of --exclude-high-risk) |

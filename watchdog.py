@@ -287,6 +287,7 @@ def process(path: Path):
             data.pop("skip_cc_plan", None)
             data.pop("skip_test", None)
             data.pop("skip_assess", None)
+            data.pop("skip_design", None)
             data.pop("exclude_high_risk", None)
             data.pop("exclude_any_risk", None)
             data.pop("assessment", None)
@@ -333,6 +334,7 @@ def process(path: Path):
             data.pop("skip_cc_plan", None)
             data.pop("skip_test", None)
             data.pop("skip_assess", None)
+            data.pop("skip_design", None)
             data.pop("exclude_high_risk", None)
             data.pop("exclude_any_risk", None)
             data.pop("assessment", None)
@@ -347,8 +349,8 @@ def process(path: Path):
         if state == "ASSESSMENT" and action.new_state == "IMPLEMENTATION" and action.remaining_issues is not None:
             data["batch"] = list(action.remaining_issues)
 
-        # INITIALIZE→DESIGN_PLAN: Reset REVISE cycle counters + 初期化処理 (Issue #29, #125)
-        if state == "INITIALIZE" and action.new_state == "DESIGN_PLAN":
+        # INITIALIZE→DESIGN_PLAN/DESIGN_APPROVED: Reset REVISE cycle counters + 初期化処理 (Issue #29, #125, #201)
+        if state == "INITIALIZE" and action.new_state in ("DESIGN_PLAN", "DESIGN_APPROVED"):
             data.pop("design_revise_count", None)
             data.pop("code_revise_count", None)
             _cleanup_review_files(pj)
@@ -364,7 +366,7 @@ def process(path: Path):
                     )
                     if _result.returncode == 0 and _result.stdout.strip():
                         data["base_commit"] = _result.stdout.strip()
-                        log(f"[{pj}] base_commit recorded at DESIGN_PLAN: {data['base_commit'][:7]}")
+                        log(f"[{pj}] base_commit recorded at {action.new_state}: {data['base_commit'][:7]}")
                 except Exception as e:
                     log(f"[{pj}] WARNING: failed to record base_commit: {e}")
 
@@ -1183,6 +1185,7 @@ def _handle_qrun(msg_id: str):
         skip_cc_plan=entry.get("skip_cc_plan", False),
         skip_test=entry.get("skip_test", False),
         skip_assess=entry.get("skip_assess", False),
+        skip_design=entry.get("skip_design", False),
         exclude_high_risk=entry.get("exclude_high_risk", False),
         exclude_any_risk=entry.get("exclude_any_risk", False),
         allow_closed=entry.get("allow_closed", False),
@@ -1226,6 +1229,8 @@ def _handle_qrun(msg_id: str):
             data["skip_test"] = True
         if entry.get("skip_assess"):
             data["skip_assess"] = True
+        if entry.get("skip_design"):
+            data["skip_design"] = True
         if entry.get("exclude_high_risk"):
             data["exclude_high_risk"] = True
         if entry.get("exclude_any_risk"):

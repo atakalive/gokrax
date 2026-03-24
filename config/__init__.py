@@ -41,6 +41,7 @@ NONE_TO_FALSE_KEYS: tuple[str, ...] = (
     "skip_cc_plan",
     "skip_test",
     "skip_assess",
+    "skip_design",
 )
 
 # CC model

@@ -109,6 +109,7 @@ def parse_queue_line(line: str) -> dict:
         "skip_cc_plan": False,
         "skip_test": False,
         "skip_assess": False,
+        "skip_design": False,
         "exclude_high_risk": False,
         "exclude_any_risk": False,
         "allow_closed": False,
@@ -192,6 +193,12 @@ def parse_queue_line(line: str) -> dict:
         elif token == "no-skip-assess":
             result["skip_assess"] = False
             result["_explicit_keys"].add("skip_assess")
+        elif token == "skip-design":
+            result["skip_design"] = True
+            result["_explicit_keys"].add("skip_design")
+        elif token == "no-skip-design":
+            result["skip_design"] = False
+            result["_explicit_keys"].add("skip_design")
         elif token == "exclude-high-risk":
             result["exclude_high_risk"] = True
             result["_explicit_keys"].add("exclude_high_risk")

@@ -164,6 +164,9 @@ def main():
     p.add_argument("--skip-assess", action="store_true", default=None, dest="skip_assess",
                    help="skip ASSESSMENT phase, go directly to IMPLEMENTATION")
     p.add_argument("--no-skip-assess", action="store_true", default=None, dest="no_skip_assess")
+    p.add_argument("--skip-design", action="store_true", default=None, dest="skip_design",
+                   help="DESIGN_PLAN/DESIGN_REVIEW をスキップ")
+    p.add_argument("--no-skip-design", action="store_true", default=None, dest="no_skip_design")
     p.add_argument("--exclude-high-risk", action="store_true", default=None, dest="exclude_high_risk",
                    help="skip batch if domain_risk == high")
     p.add_argument("--no-exclude-high-risk", action="store_true", default=None, dest="no_exclude_high_risk")

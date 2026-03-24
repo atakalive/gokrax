@@ -324,6 +324,11 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
 
     # INITIALIZE → DESIGN_PLAN: 自動遷移（初期化処理は watchdog の do_transition 内で実行）
     if state == "INITIALIZE":
+        skip_design = data.get("skip_design", False) if data else False
+        if skip_design:
+            return TransitionAction(
+                new_state="DESIGN_APPROVED",
+            )
         pj = data.get("project", "") if data else ""
         comment = data.get("comment", "") if data else ""
         notif = get_notification_for_state(

@@ -23,10 +23,10 @@ class TestParseQueueLine:
 
     def test_valid_all_options(self):
         """全オプション指定"""
-        line = "TrajOpt 25 standard automerge plan=opus impl=sonnet"
+        line = "ProjectBeta 25 standard automerge plan=opus impl=sonnet"
         result = parse_queue_line(line)
         assert result is not None
-        assert result["project"] == "TrajOpt"
+        assert result["project"] == "ProjectBeta"
         assert result["issues"] == "25"
         assert result["mode"] == "standard"
         assert result["automerge"] is True
@@ -36,10 +36,10 @@ class TestParseQueueLine:
 
     def test_valid_minimal(self):
         """最小形式 (PROJECT ISSUES のみ)"""
-        line = "BeamShifter all"
+        line = "ProjectGamma all"
         result = parse_queue_line(line)
         assert result is not None
-        assert result["project"] == "BeamShifter"
+        assert result["project"] == "ProjectGamma"
         assert result["issues"] == "all"
         assert result["mode"] is None
         assert result["automerge"] is True
@@ -184,7 +184,7 @@ class TestParseQueueLine:
 
     def test_p2_fix_with_mode(self):
         """p2-fix + MODE + 他オプション"""
-        result = parse_queue_line("BeamShifter 43,44 full p2-fix automerge")
+        result = parse_queue_line("ProjectGamma 43,44 full p2-fix automerge")
         assert result["p2_fix"] is True
         assert result["mode"] == "full"
         assert result["automerge"] is True
@@ -201,7 +201,7 @@ class TestParseQueueLine:
 
     def test_skip_cc_plan_with_other_options(self):
         """skip-cc-plan + automerge + mode の組み合わせ"""
-        result = parse_queue_line("EMCalibrator 64,65 automerge skip-cc-plan")
+        result = parse_queue_line("ProjectAlpha 64,65 automerge skip-cc-plan")
         assert result["skip_cc_plan"] is True
         assert result["automerge"] is True
 
@@ -1042,12 +1042,12 @@ class TestGetRunningInfo:
         p = tmp_pipelines / "proj.json"
         batch = [{"issue": 51, "title": "T"}, {"issue": 53, "title": "T2"}]
         p.write_text(json.dumps({
-            "project": "EMCalibrator", "state": "DESIGN_REVIEW",
+            "project": "ProjectAlpha", "state": "DESIGN_REVIEW",
             "batch": batch, "review_mode": "full",
         }))
         result = _get_running_info()
         assert result is not None
-        assert result["project"] == "EMCalibrator"
+        assert result["project"] == "ProjectAlpha"
         assert result["issues"] == "#51,#53"
         assert result["state"] == "DESIGN_REVIEW"
         assert result["review_mode"] == "full"
@@ -1288,9 +1288,9 @@ class TestCmdStartSkipCcPlan:
         import json as _json
         path = tmp_pipelines / "test-pj.json"
         self._write_pipeline(path, {
-            "project": "test-pj", "gitlab": "atakalive/test-pj",
+            "project": "test-pj", "gitlab": "testns/test-pj",
             "state": "IDLE", "enabled": False,
-            "implementer": "kaneko", "batch": [], "history": [],
+            "implementer": "implementer1", "batch": [], "history": [],
             "created_at": "2025-01-01T00:00:00+09:00",
             "updated_at": "2025-01-01T00:00:00+09:00",
         })
@@ -1321,9 +1321,9 @@ class TestCmdStartSkipCcPlan:
         import json as _json
         path = tmp_pipelines / "test-pj.json"
         self._write_pipeline(path, {
-            "project": "test-pj", "gitlab": "atakalive/test-pj",
+            "project": "test-pj", "gitlab": "testns/test-pj",
             "state": "IDLE", "enabled": False,
-            "implementer": "kaneko", "batch": [], "history": [],
+            "implementer": "implementer1", "batch": [], "history": [],
             "skip_cc_plan": True,  # 残留フラグ
             "created_at": "2025-01-01T00:00:00+09:00",
             "updated_at": "2025-01-01T00:00:00+09:00",
@@ -1448,9 +1448,9 @@ class TestCmdStartDefaultModelOptions:
 
     def _make_pipeline_data(self):
         return {
-            "project": "test-pj", "gitlab": "atakalive/test-pj",
+            "project": "test-pj", "gitlab": "testns/test-pj",
             "state": "IDLE", "enabled": False,
-            "implementer": "kaneko", "batch": [], "history": [],
+            "implementer": "implementer1", "batch": [], "history": [],
             "created_at": "2025-01-01T00:00:00+09:00",
             "updated_at": "2025-01-01T00:00:00+09:00",
         }
@@ -1549,3 +1549,17 @@ class TestExcludeRiskDryRunAndCleanup:
             _reset_to_idle(data)
         assert "exclude_high_risk" not in data
         assert "exclude_any_risk" not in data
+
+
+class TestParseQueueLineSkipDesign:
+    """Issue #201: skip-design / no-skip-design トークンテスト"""
+
+    def test_skip_design_token(self):
+        from task_queue import parse_queue_line
+        result = parse_queue_line("gokrax 1,2 skip-design")
+        assert result["skip_design"] is True
+
+    def test_no_skip_design_token(self):
+        from task_queue import parse_queue_line
+        result = parse_queue_line("gokrax 1,2 no-skip-design")
+        assert result["skip_design"] is False

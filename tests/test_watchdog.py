@@ -5084,10 +5084,10 @@ class TestAssessmentToIdleSkip:
 
         # post_discord が呼ばれること
         assert mock_post_discord.call_count >= 1
-        # 通知に domain_risk と Issue 番号が含まれること
+        # 通知に英語メッセージと Issue 番号が含まれること
         calls = [str(c) for c in mock_post_discord.call_args_list]
         combined = " ".join(calls)
-        assert "domain_risk=high" in combined
+        assert "excluded by risk filter" in combined.lower()
         assert "#42" in combined
 
     def test_skip_notification_queue_prefix(self, tmp_path, monkeypatch):
@@ -5170,3 +5170,97 @@ class TestAssessmentToIdleSkip:
         assert "skip_test" not in saved
         assert "skip_assess" not in saved
         assert "comment" not in saved
+
+
+class TestAssessmentPartialExclude:
+    """ASSESSMENT → IMPLEMENTATION 一部除外のテスト (Issue #200)"""
+
+    def test_partial_exclude_batch_filter(self, tmp_path, monkeypatch):
+        """skipped_issues ありの場合、保存後の batch に skipped issue が含まれないこと"""
+        from watchdog import process
+
+        pipeline_path = tmp_path / "test-pj.json"
+        pipeline_data = {
+            "project": "test-pj",
+            "state": "ASSESSMENT",
+            "enabled": True,
+            "batch": [
+                {"issue": 10, "title": "High risk", "commit": None,
+                 "cc_session_id": None,
+                 "design_reviews": {}, "code_reviews": {},
+                 "added_at": "2025-01-01T00:00:00+09:00",
+                 "assessment": {"complex_level": 3, "domain_risk": "high"}},
+                {"issue": 20, "title": "Low risk", "commit": None,
+                 "cc_session_id": None,
+                 "design_reviews": {}, "code_reviews": {},
+                 "added_at": "2025-01-01T00:00:00+09:00",
+                 "assessment": {"complex_level": 2, "domain_risk": "low"}},
+                {"issue": 30, "title": "No risk", "commit": None,
+                 "cc_session_id": None,
+                 "design_reviews": {}, "code_reviews": {},
+                 "added_at": "2025-01-01T00:00:00+09:00",
+                 "assessment": {"complex_level": 1, "domain_risk": "none"}},
+            ],
+            "exclude_high_risk": True,
+            "implementer": "kaneko",
+            "history": [{"from": "DESIGN_APPROVED", "to": "ASSESSMENT",
+                         "at": "2025-01-01T00:00:00+09:00", "actor": "watchdog"}],
+        }
+        _write_pipeline(pipeline_path, pipeline_data)
+
+        monkeypatch.setattr("watchdog.get_path", lambda pj: pipeline_path)
+        monkeypatch.setattr("pipeline_io.get_path", lambda pj: pipeline_path)
+        monkeypatch.setattr("watchdog.notify_discord", MagicMock())
+        monkeypatch.setattr("notify.post_discord", MagicMock())
+
+        process(pipeline_path)
+
+        saved = json.loads(pipeline_path.read_text())
+        assert saved["state"] == "IMPLEMENTATION"
+        saved_issue_nums = {i["issue"] for i in saved["batch"]}
+        assert 10 not in saved_issue_nums  # high risk は除外
+        assert 20 in saved_issue_nums      # low risk は残留
+        assert 30 in saved_issue_nums      # none は残留
+        assert len(saved["batch"]) == 2
+
+    def test_partial_exclude_notification_batch(self, tmp_path, monkeypatch):
+        """notification["batch"] が remaining のみを含むこと"""
+        from watchdog import process
+
+        pipeline_path = tmp_path / "test-pj.json"
+        pipeline_data = {
+            "project": "test-pj",
+            "state": "ASSESSMENT",
+            "enabled": True,
+            "batch": [
+                {"issue": 10, "title": "High risk", "commit": None,
+                 "cc_session_id": None,
+                 "design_reviews": {}, "code_reviews": {},
+                 "added_at": "2025-01-01T00:00:00+09:00",
+                 "assessment": {"complex_level": 3, "domain_risk": "high"}},
+                {"issue": 20, "title": "No risk", "commit": None,
+                 "cc_session_id": None,
+                 "design_reviews": {}, "code_reviews": {},
+                 "added_at": "2025-01-01T00:00:00+09:00",
+                 "assessment": {"complex_level": 1, "domain_risk": "none"}},
+            ],
+            "exclude_high_risk": True,
+            "implementer": "kaneko",
+            "history": [{"from": "DESIGN_APPROVED", "to": "ASSESSMENT",
+                         "at": "2025-01-01T00:00:00+09:00", "actor": "watchdog"}],
+        }
+        _write_pipeline(pipeline_path, pipeline_data)
+
+        mock_post_discord = MagicMock()
+        monkeypatch.setattr("watchdog.get_path", lambda pj: pipeline_path)
+        monkeypatch.setattr("pipeline_io.get_path", lambda pj: pipeline_path)
+        monkeypatch.setattr("watchdog.notify_discord", MagicMock())
+        monkeypatch.setattr("notify.post_discord", mock_post_discord)
+
+        process(pipeline_path)
+
+        # スキップ通知に除外 Issue 番号が含まれること
+        calls = [str(c) for c in mock_post_discord.call_args_list]
+        combined = " ".join(calls)
+        assert "#10" in combined  # high risk が除外通知に含まれる
+        assert "Excluded by risk filter" in combined

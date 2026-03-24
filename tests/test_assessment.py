@@ -302,7 +302,7 @@ class TestDomainRiskSkip:
         assert "unknown domain_risk" in mock_log.call_args[0][0]
 
     def test_worst_risk_aggregation(self):
-        """バッチ内の最悪リスクが採用される"""
+        """exclude_high_risk + mixed batch → High のみ除外、Low/None は IMPLEMENTATION へ (Issue #200)"""
         from engine.fsm import check_transition
         batch = _make_batch(3)
         batch[0]["assessment"] = {"complex_level": 2, "domain_risk": "none"}
@@ -310,7 +310,13 @@ class TestDomainRiskSkip:
         batch[2]["assessment"] = {"complex_level": 1, "domain_risk": "low"}
         data = {"exclude_high_risk": True}
         action = check_transition("ASSESSMENT", batch, data)
-        assert action.new_state == "IDLE"
+        assert action.new_state == "IMPLEMENTATION"
+        assert action.run_cc is True
+        assert action.skipped_issues is not None
+        assert len(action.skipped_issues) == 1
+        assert action.skipped_issues[0]["issue"] == 2
+        assert action.remaining_issues is not None
+        assert len(action.remaining_issues) == 2
 
 
 class TestDomainRiskNa:
@@ -360,14 +366,21 @@ class TestDomainRiskNa:
         assert action.reset_reviewers is True
 
     def test_exclude_any_risk_na_and_low_mixed(self):
-        """exclude_any_risk=True + "n/a" と "low" 混在 → IDLE（low がスキップ対象）"""
+        """exclude_any_risk=True + "n/a" と "low" 混在 → IMPLEMENTATION（low のみ除外、n/a は残留）(Issue #200)"""
         from engine.fsm import check_transition
         batch = _make_batch(2)
         batch[0]["assessment"] = {"complex_level": 2, "domain_risk": "n/a"}
         batch[1]["assessment"] = {"complex_level": 3, "domain_risk": "low"}
         data = {"exclude_any_risk": True}
         action = check_transition("ASSESSMENT", batch, data)
-        assert action.new_state == "IDLE"
+        assert action.new_state == "IMPLEMENTATION"
+        assert action.run_cc is True
+        assert action.skipped_issues is not None
+        assert len(action.skipped_issues) == 1
+        assert action.skipped_issues[0]["issue"] == 2
+        assert action.remaining_issues is not None
+        assert len(action.remaining_issues) == 1
+        assert action.remaining_issues[0]["issue"] == 1
 
     def test_risk_display_na_is_empty(self):
         """RISK_DISPLAY の "n/a" エントリは空文字"""
@@ -378,3 +391,112 @@ class TestDomainRiskNa:
         """RISK_DISPLAY の "none" エントリは "No Risk"（後方互換）"""
         from commands.dev import RISK_DISPLAY
         assert RISK_DISPLAY["none"] == "No Risk"
+
+
+class TestPerIssueRiskExclusion:
+    """Issue #200: Issue ごとのリスク除外判定テスト"""
+
+    def test_exclude_high_risk_mixed_batch(self):
+        """exclude-high-risk + mixed batch: High:2, Low:1, None:2 → High のみ除外"""
+        from engine.fsm import check_transition
+        batch = _make_batch(5)
+        batch[0]["assessment"] = {"complex_level": 3, "domain_risk": "high"}
+        batch[1]["assessment"] = {"complex_level": 2, "domain_risk": "high"}
+        batch[2]["assessment"] = {"complex_level": 1, "domain_risk": "low"}
+        batch[3]["assessment"] = {"complex_level": 2, "domain_risk": "none"}
+        batch[4]["assessment"] = {"complex_level": 1, "domain_risk": "none"}
+        data = {"exclude_high_risk": True}
+        action = check_transition("ASSESSMENT", batch, data)
+        assert action.new_state == "IMPLEMENTATION"
+        assert action.run_cc is True
+        assert action.skipped_issues is not None
+        assert len(action.skipped_issues) == 2
+        skipped_nums = {i["issue"] for i in action.skipped_issues}
+        assert skipped_nums == {1, 2}
+        assert action.remaining_issues is not None
+        assert len(action.remaining_issues) == 3
+        remaining_nums = {i["issue"] for i in action.remaining_issues}
+        assert remaining_nums == {3, 4, 5}
+
+    def test_exclude_any_risk_mixed_batch(self):
+        """exclude-any-risk + mixed batch: High:1, Low:1, None:2 → High/Low 除外、None のみ残留"""
+        from engine.fsm import check_transition
+        batch = _make_batch(4)
+        batch[0]["assessment"] = {"complex_level": 3, "domain_risk": "high"}
+        batch[1]["assessment"] = {"complex_level": 2, "domain_risk": "low"}
+        batch[2]["assessment"] = {"complex_level": 1, "domain_risk": "none"}
+        batch[3]["assessment"] = {"complex_level": 2, "domain_risk": "none"}
+        data = {"exclude_any_risk": True}
+        action = check_transition("ASSESSMENT", batch, data)
+        assert action.new_state == "IMPLEMENTATION"
+        assert action.run_cc is True
+        assert action.skipped_issues is not None
+        assert len(action.skipped_issues) == 2
+        skipped_nums = {i["issue"] for i in action.skipped_issues}
+        assert skipped_nums == {1, 2}
+        assert action.remaining_issues is not None
+        assert len(action.remaining_issues) == 2
+        remaining_nums = {i["issue"] for i in action.remaining_issues}
+        assert remaining_nums == {3, 4}
+
+    def test_exclude_high_risk_all_high(self):
+        """exclude-high-risk + all high → IDLE（全除外）"""
+        from engine.fsm import check_transition
+        batch = _make_assessed_batch(3, domain_risk="high")
+        data = {"exclude_high_risk": True}
+        action = check_transition("ASSESSMENT", batch, data)
+        assert action.new_state == "IDLE"
+        assert action.skipped_issues is None
+
+    def test_exclude_any_risk_all_none(self):
+        """exclude-any-risk + all none → IMPLEMENTATION（除外なし）"""
+        from engine.fsm import check_transition
+        batch = _make_assessed_batch(3, domain_risk="none")
+        data = {"exclude_any_risk": True}
+        action = check_transition("ASSESSMENT", batch, data)
+        assert action.new_state == "IMPLEMENTATION"
+        assert action.run_cc is True
+        assert action.skipped_issues is None
+
+    def test_no_exclude_flags(self):
+        """exclude なし → IMPLEMENTATION、skipped_issues is None"""
+        from engine.fsm import check_transition
+        batch = _make_assessed_batch(3, domain_risk="high")
+        action = check_transition("ASSESSMENT", batch)
+        assert action.new_state == "IMPLEMENTATION"
+        assert action.run_cc is True
+        assert action.skipped_issues is None
+
+    def test_exclude_high_risk_no_high_issues(self):
+        """exclude-high-risk + no high issues → IMPLEMENTATION、skipped_issues is None"""
+        from engine.fsm import check_transition
+        batch = _make_batch(3)
+        batch[0]["assessment"] = {"complex_level": 1, "domain_risk": "low"}
+        batch[1]["assessment"] = {"complex_level": 2, "domain_risk": "none"}
+        batch[2]["assessment"] = {"complex_level": 1, "domain_risk": "none"}
+        data = {"exclude_high_risk": True}
+        action = check_transition("ASSESSMENT", batch, data)
+        assert action.new_state == "IMPLEMENTATION"
+        assert action.run_cc is True
+        assert action.skipped_issues is None
+
+    def test_unknown_domain_risk_normalized_to_na(self):
+        """unknown domain_risk は n/a に正規化 → exclude_any_risk でも除外されない"""
+        from engine.fsm import check_transition
+        from unittest.mock import patch
+        batch = _make_batch(2)
+        batch[0]["assessment"] = {"complex_level": 3, "domain_risk": "unknown"}
+        batch[1]["assessment"] = {"complex_level": 2, "domain_risk": "low"}
+        data = {"exclude_any_risk": True}
+        with patch("engine.fsm.log"):
+            action = check_transition("ASSESSMENT", batch, data)
+        assert action.new_state == "IMPLEMENTATION"
+        assert action.run_cc is True
+        assert action.skipped_issues is not None
+        assert len(action.skipped_issues) == 1
+        assert action.skipped_issues[0]["issue"] == 2  # low が除外
+        assert action.remaining_issues is not None
+        assert len(action.remaining_issues) == 1
+        assert action.remaining_issues[0]["issue"] == 1  # unknown→n/a が残留
+        # 正規化が実動作に反映されていることを検証
+        assert batch[0]["assessment"]["domain_risk"] == "n/a"

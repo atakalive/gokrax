@@ -343,6 +343,10 @@ def process(path: Path):
             # Issue #190: reviewer_number_map クリーンアップ
             data.pop("reviewer_number_map", None)
 
+        # ASSESSMENT → IMPLEMENTATION (一部除外): batch を remaining に差し替え (Issue #200)
+        if state == "ASSESSMENT" and action.new_state == "IMPLEMENTATION" and action.remaining_issues is not None:
+            data["batch"] = list(action.remaining_issues)
+
         # INITIALIZE→DESIGN_PLAN: Reset REVISE cycle counters + 初期化処理 (Issue #29, #125)
         if state == "INITIALIZE" and action.new_state == "DESIGN_PLAN":
             data.pop("design_revise_count", None)
@@ -559,6 +563,9 @@ def process(path: Path):
             notification["_npass_timeout_notes"] = _npass_timeout_notes
         notification["skip_assessment"] = _skip_assessment
         notification["skip_batch"] = _skip_batch
+        # Issue #200: 一部除外時の skipped_issues を通知に格納
+        if action.skipped_issues:
+            notification["skipped_issues"] = list(action.skipped_issues)
 
         # Issue #59: _pending_notifications — at-least-once guarantee
         pending = {}
@@ -776,6 +783,14 @@ def process(path: Path):
                 if not ok:
                     log(f"[{pj}] WARNING: assessment note failed for issue #{issue['issue']}")
 
+            # Issue #200: 一部除外時のスキップ通知
+            skipped = notification.get("skipped_issues", [])
+            if skipped:
+                from notify import post_discord
+                from config import DISCORD_CHANNEL
+                skipped_nums = ", ".join(f"#{i['issue']}" for i in skipped if isinstance(i, dict) and "issue" in i)
+                post_discord(DISCORD_CHANNEL, f"[{pj}] Excluded by risk filter: {skipped_nums}")
+
         # REVISE遷移時: P0サマリーを投稿
         if action.new_state in ("DESIGN_REVISE", "CODE_REVISE"):
             review_key = "design_reviews" if "DESIGN" in action.new_state else "code_reviews"
@@ -885,8 +900,8 @@ def process(path: Path):
             issue_nums = ", ".join(f"#{i['issue']}" for i in skip_batch if isinstance(i, dict) and "issue" in i)
             skip_q_prefix = "[Queue]" if notification.get("queue_mode") else ""
             skip_msg = (
-                f"{skip_q_prefix}[{pj}] ⏭️ バッチスキップ（domain_risk={domain_risk}、除外条件に合致）\n"
-                f"スキップされた Issues: {issue_nums}"
+                f"{skip_q_prefix}[{pj}] ⏭️ All issues excluded by risk filter\n"
+                f"Excluded issues: {issue_nums}"
             )
             post_discord(DISCORD_CHANNEL, skip_msg)
 

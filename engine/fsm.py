@@ -42,6 +42,8 @@ class TransitionAction:
     extend_notice: str | None = None  # タイムアウト延長案内メッセージ
     save_grace_met_at: str | None = None  # grace met_atをpipelineに保存する必要がある場合のキー名
     npass_target_reviewers: list | None = None  # NPASS遷移時のターゲットレビュアー一覧
+    skipped_issues: list[dict] | None = None   # ASSESSMENT で除外された Issue の dict リスト
+    remaining_issues: list[dict] | None = None  # ASSESSMENT で残留した Issue の dict リスト
 
 
 def _get_state_entered_at(data: dict, state: str) -> _datetime | None:
@@ -637,28 +639,49 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
         # 全 Issue が assessment 済みかチェック
         all_assessed = batch and all(issue.get("assessment") for issue in batch)
         if all_assessed:
-            # リスク除外判定: バッチ内で最も高いリスクレベルを採用
-            worst_risk = _worst_risk(batch)
-
-            # domain_risk の値域チェック（個別 Issue レベルで unknown があれば warning）
+            # domain_risk の値域チェック + 未知値の正規化
             valid_risks = {"n/a", "none", "low", "high"}
             for issue in batch:
-                ir = issue["assessment"].get("domain_risk", "n/a")
+                a = issue.get("assessment", {})
+                ir = a.get("domain_risk", "n/a")
                 if ir not in valid_risks:
-                    log(f"[ASSESSMENT] WARNING: unknown domain_risk={ir!r} in #{issue.get('issue')}, treating as n/a")
+                    log(f"[ASSESSMENT] WARNING: unknown domain_risk={ir!r} in #{issue.get('issue')}, normalizing to n/a")
+                    a["domain_risk"] = "n/a"
 
             exclude_any = data.get("exclude_any_risk", False) if data else False
             exclude_high = data.get("exclude_high_risk", False) if data else False
 
-            skip = False
-            if exclude_any and worst_risk not in ("none", "n/a"):
-                skip = True
-            elif exclude_high and worst_risk == "high":
-                skip = True
+            # Issue ごとに除外判定
+            remaining = []
+            skipped = []
+            for issue in batch:
+                risk = issue.get("assessment", {}).get("domain_risk", "n/a")
+                should_skip = False
+                if exclude_any and risk not in ("none", "n/a"):
+                    should_skip = True
+                elif exclude_high and risk == "high":
+                    should_skip = True
 
-            if skip:
+                if should_skip:
+                    skipped.append(issue)
+                else:
+                    remaining.append(issue)
+
+            if not remaining:
+                # 全 Issue が除外 → IDLE に戻す（既存動作）
                 return TransitionAction(new_state="IDLE")
 
+            if skipped:
+                # 一部除外: remaining と skipped を TransitionAction 経由で watchdog に伝える
+                return TransitionAction(
+                    new_state="IMPLEMENTATION",
+                    run_cc=True,
+                    reset_reviewers=True,
+                    skipped_issues=skipped,
+                    remaining_issues=remaining,
+                )
+
+            # 除外なし: 全 Issue で IMPLEMENTATION へ
             return TransitionAction(
                 new_state="IMPLEMENTATION",
                 run_cc=True,

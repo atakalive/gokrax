@@ -883,9 +883,9 @@ def process(path: Path):
             skip_batch = notification.get("skip_batch", [])
             domain_risk = skip_assessment.get("domain_risk", "none")
             issue_nums = ", ".join(f"#{i['issue']}" for i in skip_batch if isinstance(i, dict) and "issue" in i)
-            skip_q_prefix = "[Queue] " if notification.get("queue_mode") else ""
+            skip_q_prefix = "[Queue]" if notification.get("queue_mode") else ""
             skip_msg = (
-                f"{skip_q_prefix}[gokrax] {pj}: ⏭️ バッチスキップ（domain_risk={domain_risk}、除外条件に合致）\n"
+                f"{skip_q_prefix}[{pj}] ⏭️ バッチスキップ（domain_risk={domain_risk}、除外条件に合致）\n"
                 f"スキップされた Issues: {issue_nums}"
             )
             post_discord(DISCORD_CHANNEL, skip_msg)

@@ -322,7 +322,7 @@ python3 gokrax.py spec start \
 │   ├── MyProject.json       # プロジェクトごとのパイプライン状態
 │   ├── MyProject.lock       # ファイルロック
 │   └── gokrax-state.json    # グローバル状態（PJ間セッション管理）
-└── gokrax-metrics.jsonl     # メトリクス（レビュー時間等の記録）
+└── gokrax-metrics.jsonl     # メトリクス（レビュアー評価に向けたレビュー記録。ローカル記録のみ）
 ```
 
 ```
@@ -339,7 +339,7 @@ python3 gokrax.py spec start \
 
 | コマンド | 説明 |
 |---------|------|
-| `init` | 新規プロジェクト作成（初回必須） |
+| `init` | 新規プロジェクト作成（**初回必須**） |
 | `status` | 全プロジェクトの状態表示 |
 | `start` | バッチ開始（triage + 設計計画遷移 + watchdog 有効化） |
 | `enable` / `disable` | watchdog 有効化・無効化（主にBLOCKEDからの復帰） |
@@ -360,15 +360,12 @@ python3 gokrax.py spec start \
 
 ### エージェント定義
 
-openclaw agentsの設定を使用する。以降は、ここで設定されたエージェント名を使用する。
+openclaw agentsのIDを登録する。以降は、ここで設定されたエージェント名を使用する。
 ```python
-AGENTS = {
-    "implementer": "agent:implementer:main",  # 実装担当
-    "gemini":      "agent:gemini:main",       # レビュアー（例: Gemini）
-    "claude":      "agent:claude:main",       # レビュアー（例: Claude）
-    "chatgpt":     "agent:chatgpt:main",      # レビュアー（例: ChatGPT）
-    "local":       "agent:local:main",        # レビュアー（ローカルモデル）
-}
+# レビュアー名
+REVIEWERS = ["rev1", "rev2", "rev3", "rev4"]
+# 実装者名
+IMPLEMENTERS = ["impl0"]
 ```
 
 ### レビュアーティア
@@ -377,9 +374,9 @@ AGENTS = {
 
 ```python
 REVIEWER_TIERS = {
-    "regular":       ["claude", "chatgpt", "gemini"],  # 安定接続、十分なコンテキスト長
-    "short-context": ["local"],                        # コンテキスト長に制約あり（頻繁に新セッション化して対応）
-    "free":          ["qwen-portal"],                  # 日次トークン上限あり、不安定
+    "regular":       ["rev1", "rev2"],  # 安定接続、十分なコンテキスト長
+    "short-context": ["rev3"],          # コンテキスト長に制約あり（頻繁に新セッション化して対応）
+    "free":          ["rev4"],          # 日次トークン上限あり、不安定
 }
 ```
 
@@ -387,20 +384,21 @@ REVIEWER_TIERS = {
 
 ```python
 REVIEW_MODES = {
-    "full":     {"members": ["gemini", "claude", "chatgpt", "local"], "min_reviews": 4},
-    "standard": {"members": ["gemini", "chatgpt", "claude"],          "min_reviews": 3},
-    "lite":     {"members": ["gemini", "local"],                      "min_reviews": 2},
-    "lite3":    {"members": ["gemini", "local", "chatgpt"],           "min_reviews": 2, "grace_period_sec": 300},
-    "lite_x2":  {"members": ["gemini", "local"],                      "min_reviews": 2,
+    "full":     {"members": ["rev1", "rev2", "rev3", "rev4"],},
+    "standard": {"members": ["rev1", "rev2", "rev3"],},
+    "lite":     {"members": ["rev1", "rev2"],},
+    "lite3":    {"members": ["rev1", "rev2", "rev3"],
+                 "min_reviews": 2, "grace_period_sec": 300},
+    "lite_x2":  {"members": ["rev1", "rev2"],
                  "n_pass":  {"local": 2}, },
-    "min":      {"members": ["gemini"],                               "min_reviews": 1},
-    "skip":     {"members": [],                                       "min_reviews": 0},
+    "min":      {"members": ["rev1"],},
+    "skip":     {"members": [],},
 }
 ```
 
-- `min_reviews` 件の承認が集まった時点で次の状態に遷移する。
+- 
 
-- `min_reviews` の数が `members` より少ない場合（例: `lite3` は3人中2人）、`min_reviews` 到達後に `grace_period_sec` だけ追加レビューを待つ。猶予時間内に残りのレビュアーが応答すればそれも反映され、猶予を過ぎれば集まった分で遷移する。応答の遅いレビュアーや不安定なレビュアーを含めつつ、パイプラインを止めない運用ができる。
+- `min_reviews` 件の承認が集まった時点で次の状態に遷移する（デフォルト: 全員）。`min_reviews` の数が `members` より少ない場合（例: `lite3` は3人中2人）、`min_reviews` 到達後に `grace_period_sec` だけ追加レビューを待つ。猶予時間内に残りのレビュアーが応答すればそれも反映され、猶予を過ぎれば集まった分で遷移する。応答の遅いレビュアーや不安定なレビュアーを含めつつ、パイプラインを止めない運用ができる。
 
 - `n_pass` の設定により、指定レビュアーが N回の見直しを行う。（指定なし = 1）
 

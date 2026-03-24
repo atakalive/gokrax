@@ -12,7 +12,8 @@ sys.path.insert(0, str(ROOT))
 
 import config
 import pipeline_io
-from config import ALLOWED_COMMAND_USER_IDS
+
+_TEST_ALLOWED_CMD_IDS = ("test_user_001", "test_bot_002")
 
 
 
@@ -1993,6 +1994,7 @@ class TestDiscordStatusCommand:
 
         # Setup state path
         state_path = tmp_path / "gokrax-state.json"
+        monkeypatch.setattr("config.ALLOWED_COMMAND_USER_IDS", _TEST_ALLOWED_CMD_IDS)
         monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
@@ -2000,7 +2002,7 @@ class TestDiscordStatusCommand:
         monkeypatch.setattr(commands_dev, "PIPELINES_DIR", tmp_path)
 
         # Mock Discord API
-        messages = [_mock_discord_message("1001", ALLOWED_COMMAND_USER_IDS[0], "status")]
+        messages = [_mock_discord_message("1001", _TEST_ALLOWED_CMD_IDS[0], "status")]
 
         with patch("notify.fetch_discord_latest", return_value=messages) as mock_fetch, \
              patch("notify.post_discord") as mock_post:
@@ -2028,6 +2030,7 @@ class TestDiscordStatusCommand:
 
         # Setup state path
         state_path = tmp_path / "gokrax-state.json"
+        monkeypatch.setattr("config.ALLOWED_COMMAND_USER_IDS", _TEST_ALLOWED_CMD_IDS)
         monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
@@ -2035,7 +2038,7 @@ class TestDiscordStatusCommand:
         monkeypatch.setattr(commands_dev, "PIPELINES_DIR", tmp_path)
 
         # Mock Discord API — use WatcherB bot ID
-        watcherb_id = ALLOWED_COMMAND_USER_IDS[1]
+        watcherb_id = _TEST_ALLOWED_CMD_IDS[1]
         messages = [_mock_discord_message("1001", watcherb_id, "status")]
 
         with patch("notify.fetch_discord_latest", return_value=messages) as mock_fetch, \
@@ -2058,6 +2061,7 @@ class TestDiscordStatusCommand:
         import commands.dev as commands_dev
 
         state_path = tmp_path / "gokrax-state.json"
+        monkeypatch.setattr("config.ALLOWED_COMMAND_USER_IDS", _TEST_ALLOWED_CMD_IDS)
         monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
@@ -2065,8 +2069,8 @@ class TestDiscordStatusCommand:
         monkeypatch.setattr(commands_dev, "PIPELINES_DIR", tmp_path)
 
         messages = [
-            _mock_discord_message("1001", ALLOWED_COMMAND_USER_IDS[0], "Status"),
-            _mock_discord_message("1002", ALLOWED_COMMAND_USER_IDS[0], "STATUS"),
+            _mock_discord_message("1001", _TEST_ALLOWED_CMD_IDS[0], "Status"),
+            _mock_discord_message("1002", _TEST_ALLOWED_CMD_IDS[0], "STATUS"),
         ]
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
@@ -2082,6 +2086,7 @@ class TestDiscordStatusCommand:
         import watchdog
 
         state_path = tmp_path / "gokrax-state.json"
+        monkeypatch.setattr("config.ALLOWED_COMMAND_USER_IDS", _TEST_ALLOWED_CMD_IDS)
         monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
@@ -2101,6 +2106,7 @@ class TestDiscordStatusCommand:
         import watchdog
 
         state_path = tmp_path / "gokrax-state.json"
+        monkeypatch.setattr("config.ALLOWED_COMMAND_USER_IDS", _TEST_ALLOWED_CMD_IDS)
         monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
@@ -2122,11 +2128,12 @@ class TestDiscordStatusCommand:
         state_path = tmp_path / "gokrax-state.json"
         state_path.write_text(json.dumps({"last_command_message_id": "1001"}))
 
+        monkeypatch.setattr("config.ALLOWED_COMMAND_USER_IDS", _TEST_ALLOWED_CMD_IDS)
         monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
 
-        messages = [_mock_discord_message("1001", ALLOWED_COMMAND_USER_IDS[0], "status")]
+        messages = [_mock_discord_message("1001", _TEST_ALLOWED_CMD_IDS[0], "status")]
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
              patch("notify.post_discord") as mock_post:
@@ -2141,13 +2148,14 @@ class TestDiscordStatusCommand:
         import watchdog
 
         state_path = tmp_path / "gokrax-state.json"
+        monkeypatch.setattr("config.ALLOWED_COMMAND_USER_IDS", _TEST_ALLOWED_CMD_IDS)
         monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
 
         messages = [
-            _mock_discord_message("1001", ALLOWED_COMMAND_USER_IDS[0], "statusABC"),
-            _mock_discord_message("1002", ALLOWED_COMMAND_USER_IDS[0], "hogestatus"),
+            _mock_discord_message("1001", _TEST_ALLOWED_CMD_IDS[0], "statusABC"),
+            _mock_discord_message("1002", _TEST_ALLOWED_CMD_IDS[0], "hogestatus"),
         ]
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
@@ -2172,13 +2180,14 @@ class TestDiscordStatusCommand:
         _write_pipeline(disabled_path, {"project": "disabled-pj", "state": "IDLE", "enabled": False, "batch": [], "review_mode": "standard"})
 
         state_path = tmp_path / "gokrax-state.json"
+        monkeypatch.setattr("config.ALLOWED_COMMAND_USER_IDS", _TEST_ALLOWED_CMD_IDS)
         monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(gokrax, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(commands_dev, "PIPELINES_DIR", tmp_path)
 
-        messages = [_mock_discord_message("1001", ALLOWED_COMMAND_USER_IDS[0], "status")]
+        messages = [_mock_discord_message("1001", _TEST_ALLOWED_CMD_IDS[0], "status")]
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
              patch("notify.post_discord") as mock_post:
@@ -2196,13 +2205,14 @@ class TestDiscordStatusCommand:
         import commands.dev as commands_dev
 
         state_path = tmp_path / "gokrax-state.json"
+        monkeypatch.setattr("config.ALLOWED_COMMAND_USER_IDS", _TEST_ALLOWED_CMD_IDS)
         monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(gokrax, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(commands_dev, "PIPELINES_DIR", tmp_path)
 
-        messages = [_mock_discord_message("1001", ALLOWED_COMMAND_USER_IDS[0], "status")]
+        messages = [_mock_discord_message("1001", _TEST_ALLOWED_CMD_IDS[0], "status")]
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
              patch("notify.post_discord") as mock_post:
@@ -2217,15 +2227,16 @@ class TestDiscordStatusCommand:
         import watchdog
 
         state_path = tmp_path / "gokrax-state.json"
+        monkeypatch.setattr("config.ALLOWED_COMMAND_USER_IDS", _TEST_ALLOWED_CMD_IDS)
         monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
 
         # API returns newest first
         messages = [
-            _mock_discord_message("1003", ALLOWED_COMMAND_USER_IDS[0], "status"),
-            _mock_discord_message("1002", ALLOWED_COMMAND_USER_IDS[0], "status"),
-            _mock_discord_message("1001", ALLOWED_COMMAND_USER_IDS[0], "status"),
+            _mock_discord_message("1003", _TEST_ALLOWED_CMD_IDS[0], "status"),
+            _mock_discord_message("1002", _TEST_ALLOWED_CMD_IDS[0], "status"),
+            _mock_discord_message("1001", _TEST_ALLOWED_CMD_IDS[0], "status"),
         ]
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
@@ -2244,6 +2255,7 @@ class TestDiscordStatusCommand:
         import watchdog
 
         state_path = tmp_path / "gokrax-state.json"
+        monkeypatch.setattr("config.ALLOWED_COMMAND_USER_IDS", _TEST_ALLOWED_CMD_IDS)
         monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
@@ -2269,6 +2281,7 @@ class TestDiscordQrunCommand:
 
         # Setup state path
         state_path = tmp_path / "gokrax-state.json"
+        monkeypatch.setattr("config.ALLOWED_COMMAND_USER_IDS", _TEST_ALLOWED_CMD_IDS)
         monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
@@ -2290,7 +2303,7 @@ class TestDiscordQrunCommand:
         })
 
         # Mock Discord API
-        messages = [_mock_discord_message("1001", ALLOWED_COMMAND_USER_IDS[0], "qrun")]
+        messages = [_mock_discord_message("1001", _TEST_ALLOWED_CMD_IDS[0], "qrun")]
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
              patch("notify.post_discord") as mock_post, \
@@ -2322,6 +2335,7 @@ class TestDiscordQrunCommand:
         import watchdog
 
         state_path = tmp_path / "gokrax-state.json"
+        monkeypatch.setattr("config.ALLOWED_COMMAND_USER_IDS", _TEST_ALLOWED_CMD_IDS)
         monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
 
@@ -2330,7 +2344,7 @@ class TestDiscordQrunCommand:
         queue_path.write_text("")
         monkeypatch.setattr(config, "QUEUE_FILE", queue_path)
 
-        messages = [_mock_discord_message("1001", ALLOWED_COMMAND_USER_IDS[0], "qrun")]
+        messages = [_mock_discord_message("1001", _TEST_ALLOWED_CMD_IDS[0], "qrun")]
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
              patch("notify.post_discord") as mock_post:
@@ -2345,6 +2359,7 @@ class TestDiscordQrunCommand:
         import watchdog, gokrax, task_queue
 
         state_path = tmp_path / "gokrax-state.json"
+        monkeypatch.setattr("config.ALLOWED_COMMAND_USER_IDS", _TEST_ALLOWED_CMD_IDS)
         monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(gokrax, "PIPELINES_DIR", tmp_path)
@@ -2375,7 +2390,7 @@ class TestDiscordQrunCommand:
         monkeypatch.setattr("task_queue.get_path", mock_get_path)
         monkeypatch.setattr("task_queue.load_pipeline", mock_load_pipeline)
 
-        messages = [_mock_discord_message("1001", ALLOWED_COMMAND_USER_IDS[0], "qrun")]
+        messages = [_mock_discord_message("1001", _TEST_ALLOWED_CMD_IDS[0], "qrun")]
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
              patch("notify.post_discord") as mock_post, \
@@ -2398,6 +2413,7 @@ class TestDiscordQrunCommand:
         import watchdog, gokrax
 
         state_path = tmp_path / "gokrax-state.json"
+        monkeypatch.setattr("config.ALLOWED_COMMAND_USER_IDS", _TEST_ALLOWED_CMD_IDS)
         monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(gokrax, "PIPELINES_DIR", tmp_path)
@@ -2428,7 +2444,7 @@ class TestDiscordQrunCommand:
         monkeypatch.setattr("task_queue.get_path", mock_get_path)
         monkeypatch.setattr("task_queue.load_pipeline", mock_load_pipeline)
 
-        messages = [_mock_discord_message("1001", ALLOWED_COMMAND_USER_IDS[0], "qrun")]
+        messages = [_mock_discord_message("1001", _TEST_ALLOWED_CMD_IDS[0], "qrun")]
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
              patch("notify.post_discord") as mock_post, \
@@ -2453,6 +2469,7 @@ class TestDiscordQrunCommand:
         monkeypatch.setattr(config, "DRY_RUN", True)
 
         state_path = tmp_path / "gokrax-state.json"
+        monkeypatch.setattr("config.ALLOWED_COMMAND_USER_IDS", _TEST_ALLOWED_CMD_IDS)
         monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
 
@@ -2460,7 +2477,7 @@ class TestDiscordQrunCommand:
         queue_path.write_text("test-pj 1\n")
         monkeypatch.setattr(config, "QUEUE_FILE", queue_path)
 
-        messages = [_mock_discord_message("1001", ALLOWED_COMMAND_USER_IDS[0], "qrun")]
+        messages = [_mock_discord_message("1001", _TEST_ALLOWED_CMD_IDS[0], "qrun")]
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
              patch("notify.post_discord") as mock_post, \
@@ -2488,10 +2505,11 @@ class TestDiscordQrunCommand:
         state_path = tmp_path / "gokrax-state.json"
         state_path.write_text(json.dumps({"last_command_message_id": "1001"}))
 
+        monkeypatch.setattr("config.ALLOWED_COMMAND_USER_IDS", _TEST_ALLOWED_CMD_IDS)
         monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
 
-        messages = [_mock_discord_message("1001", ALLOWED_COMMAND_USER_IDS[0], "qrun")]
+        messages = [_mock_discord_message("1001", _TEST_ALLOWED_CMD_IDS[0], "qrun")]
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
              patch("notify.post_discord") as mock_post:
@@ -2506,6 +2524,7 @@ class TestDiscordQrunCommand:
         import watchdog, gokrax
 
         state_path = tmp_path / "gokrax-state.json"
+        monkeypatch.setattr("config.ALLOWED_COMMAND_USER_IDS", _TEST_ALLOWED_CMD_IDS)
         monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
@@ -2537,7 +2556,7 @@ class TestDiscordQrunCommand:
         monkeypatch.setattr("task_queue.load_pipeline", mock_load_pipeline)
         monkeypatch.setattr("pipeline_io.get_path", mock_get_path)
 
-        messages = [_mock_discord_message("1001", ALLOWED_COMMAND_USER_IDS[0], "qrun")]
+        messages = [_mock_discord_message("1001", _TEST_ALLOWED_CMD_IDS[0], "qrun")]
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
              patch("notify.post_discord") as mock_post, \
@@ -2560,6 +2579,7 @@ class TestDiscordQrunCommand:
         import watchdog
 
         state_path = tmp_path / "gokrax-state.json"
+        monkeypatch.setattr("config.ALLOWED_COMMAND_USER_IDS", _TEST_ALLOWED_CMD_IDS)
         monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
 
@@ -2568,8 +2588,8 @@ class TestDiscordQrunCommand:
         monkeypatch.setattr(config, "QUEUE_FILE", queue_path)
 
         messages = [
-            _mock_discord_message("1001", ALLOWED_COMMAND_USER_IDS[0], "Qrun"),
-            _mock_discord_message("1002", ALLOWED_COMMAND_USER_IDS[0], "QRUN"),
+            _mock_discord_message("1001", _TEST_ALLOWED_CMD_IDS[0], "Qrun"),
+            _mock_discord_message("1002", _TEST_ALLOWED_CMD_IDS[0], "QRUN"),
         ]
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
@@ -2586,6 +2606,7 @@ class TestDiscordQrunCommand:
         import watchdog
 
         state_path = tmp_path / "gokrax-state.json"
+        monkeypatch.setattr("config.ALLOWED_COMMAND_USER_IDS", _TEST_ALLOWED_CMD_IDS)
         monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
 
@@ -2604,6 +2625,7 @@ class TestDiscordQrunCommand:
         import watchdog, gokrax
 
         state_path = tmp_path / "gokrax-state.json"
+        monkeypatch.setattr("config.ALLOWED_COMMAND_USER_IDS", _TEST_ALLOWED_CMD_IDS)
         monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
@@ -2638,8 +2660,8 @@ class TestDiscordQrunCommand:
 
         # API returns newest first
         messages = [
-            _mock_discord_message("1002", ALLOWED_COMMAND_USER_IDS[0], "qrun"),
-            _mock_discord_message("1001", ALLOWED_COMMAND_USER_IDS[0], "status"),
+            _mock_discord_message("1002", _TEST_ALLOWED_CMD_IDS[0], "qrun"),
+            _mock_discord_message("1001", _TEST_ALLOWED_CMD_IDS[0], "status"),
         ]
 
         with patch("notify.fetch_discord_latest", return_value=messages), \
@@ -2766,11 +2788,16 @@ class TestTimeoutAllStates:
         assert action.new_state == "BLOCKED"
         assert "DESIGN_REVIEW" in action.impl_msg
 
-    def test_design_review_completion_priority_over_timeout(self):
+    def test_design_review_completion_priority_over_timeout(self, monkeypatch):
         """DESIGN_REVIEW: min_reviews 到達 + タイムアウト超過 → APPROVED or REVISE (BLOCKEDにならない)"""
         from engine.fsm import check_transition
         from datetime import datetime, timedelta
-        from config import LOCAL_TZ, BLOCK_TIMERS, REVIEW_MODES
+        from config import LOCAL_TZ, BLOCK_TIMERS
+
+        _test_members = ["rev_a", "rev_b", "rev_c"]
+        test_modes = {"standard": {"members": _test_members, "min_reviews": 3, "grace_period_sec": 300}}
+        monkeypatch.setattr("config.REVIEW_MODES", test_modes)
+        monkeypatch.setattr("engine.fsm.REVIEW_MODES", test_modes)
 
         elapsed = BLOCK_TIMERS["DESIGN_REVIEW"] + 100
         entered_at = datetime.now(LOCAL_TZ) - timedelta(seconds=elapsed)
@@ -2778,11 +2805,9 @@ class TestTimeoutAllStates:
         # Set met_at timestamp to past grace period
         met_at = datetime.now(LOCAL_TZ) - timedelta(seconds=400)
 
-        # Use actual standard mode members for correct count
-        members = REVIEW_MODES["standard"]["members"]
         batch = [{
             "issue": 1,
-            "design_reviews": {r: {"verdict": "APPROVE"} for r in members},
+            "design_reviews": {r: {"verdict": "APPROVE"} for r in _test_members},
         }]
         data = {
             "state": "DESIGN_REVIEW",
@@ -2816,11 +2841,16 @@ class TestTimeoutAllStates:
         assert action.new_state == "BLOCKED"
         assert "CODE_REVIEW" in action.impl_msg
 
-    def test_code_review_completion_priority_over_timeout(self):
+    def test_code_review_completion_priority_over_timeout(self, monkeypatch):
         """CODE_REVIEW: min_reviews 到達 + タイムアウト超過 → APPROVED or REVISE (BLOCKEDにならない)"""
         from engine.fsm import check_transition
         from datetime import datetime, timedelta
-        from config import LOCAL_TZ, BLOCK_TIMERS, REVIEW_MODES
+        from config import LOCAL_TZ, BLOCK_TIMERS
+
+        _test_members = ["rev_a", "rev_b", "rev_c"]
+        test_modes = {"standard": {"members": _test_members, "min_reviews": 3, "grace_period_sec": 300}}
+        monkeypatch.setattr("config.REVIEW_MODES", test_modes)
+        monkeypatch.setattr("engine.fsm.REVIEW_MODES", test_modes)
 
         elapsed = BLOCK_TIMERS["CODE_REVIEW"] + 100
         entered_at = datetime.now(LOCAL_TZ) - timedelta(seconds=elapsed)
@@ -2828,12 +2858,10 @@ class TestTimeoutAllStates:
         # Set met_at timestamp to past grace period
         met_at = datetime.now(LOCAL_TZ) - timedelta(seconds=400)
 
-        # Use actual standard mode members for correct count
-        members = REVIEW_MODES["standard"]["members"]
         batch = [{
             "issue": 1,
             "commit": "abc123",
-            "code_reviews": {r: {"verdict": "APPROVE"} for r in members},
+            "code_reviews": {r: {"verdict": "APPROVE"} for r in _test_members},
         }]
         data = {
             "state": "CODE_REVIEW",
@@ -2943,9 +2971,14 @@ class TestDesignApprovedExcludeNoResponse:
         """DESIGN_REVIEW → DESIGN_APPROVED: 無応答レビュアーを excluded に追加"""
         from watchdog import process
         from datetime import datetime, timedelta
+        from tests.conftest import TEST_REVIEWERS
 
-        # Setup: lite mode (basho, pascal) - grace_period_sec=0 for immediate transition
-        # Only basho responded
+        r1, r2 = TEST_REVIEWERS[0], TEST_REVIEWERS[1]
+        test_lite = {"members": [r1, r2], "min_reviews": 2, "grace_period_sec": 0}
+        monkeypatch.setattr("watchdog.REVIEW_MODES", {"lite": test_lite, "standard": test_lite})
+
+        # Setup: lite mode (r1, r2) - grace_period_sec=0 for immediate transition
+        # Only r1 responded
         batch = [
             {
                 "issue": 1,
@@ -2953,7 +2986,7 @@ class TestDesignApprovedExcludeNoResponse:
                 "commit": None,
                 "cc_session_id": None,
                 "design_reviews": {
-                    "basho": {"verdict": "APPROVE", "at": "2025-01-01T10:00:00+09:00"},
+                    r1: {"verdict": "APPROVE", "at": "2025-01-01T10:00:00+09:00"},
                 },
                 "code_reviews": {},
                 "added_at": "2025-01-01T09:00:00+09:00",
@@ -2989,11 +3022,11 @@ class TestDesignApprovedExcludeNoResponse:
         with open(pj_path) as f:
             result = json.load(f)
 
-        # pascal didn't respond - should be excluded
-        assert "pascal" in result.get("excluded_reviewers", []), \
-            "pascal (no response) should be in excluded_reviewers"
-        assert "basho" not in result.get("excluded_reviewers", []), \
-            "basho (responded) should not be excluded"
+        # r2 didn't respond - should be excluded
+        assert r2 in result.get("excluded_reviewers", []), \
+            f"{r2} (no response) should be in excluded_reviewers"
+        assert r1 not in result.get("excluded_reviewers", []), \
+            f"{r1} (responded) should not be excluded"
 
         # State should transition to DESIGN_APPROVED (IMPLEMENTATION happens on next cycle)
         assert result["state"] in ("DESIGN_APPROVED", "IMPLEMENTATION"), \
@@ -3003,10 +3036,15 @@ class TestDesignApprovedExcludeNoResponse:
         """excluded 追加後 min_reviews_override を再計算する"""
         from watchdog import process
         from datetime import datetime, timedelta
+        from tests.conftest import TEST_REVIEWERS
+
+        r1, r2 = TEST_REVIEWERS[0], TEST_REVIEWERS[1]
+        test_lite = {"members": [r1, r2], "min_reviews": 2, "grace_period_sec": 0}
+        monkeypatch.setattr("watchdog.REVIEW_MODES", {"lite": test_lite, "standard": test_lite})
 
         # Setup: lite mode (2 members, min=2, grace=0) for immediate transition
-        # Only basho responded
-        # pascal didn't respond
+        # Only r1 responded
+        # r2 didn't respond
         batch = [
             {
                 "issue": 1,
@@ -3014,7 +3052,7 @@ class TestDesignApprovedExcludeNoResponse:
                 "commit": None,
                 "cc_session_id": None,
                 "design_reviews": {
-                    "basho": {"verdict": "APPROVE", "at": "2025-01-01T10:00:00+09:00"},
+                    r1: {"verdict": "APPROVE", "at": "2025-01-01T10:00:00+09:00"},
                 },
                 "code_reviews": {},
                 "added_at": "2025-01-01T09:00:00+09:00",
@@ -3046,8 +3084,8 @@ class TestDesignApprovedExcludeNoResponse:
         with open(pj_path) as f:
             result = json.load(f)
 
-        # pascal excluded
-        assert "pascal" in result.get("excluded_reviewers", [])
+        # r2 excluded
+        assert r2 in result.get("excluded_reviewers", [])
         # effective = 2 - 1 = 1
         # min_reviews_override = max(1, min(2, 1)) = 1
         assert result.get("min_reviews_override") == 1, \
@@ -3057,6 +3095,11 @@ class TestDesignApprovedExcludeNoResponse:
         """全員レビュー済みの場合は excluded に追加しない"""
         from watchdog import process
         from datetime import datetime, timedelta
+        from tests.conftest import TEST_REVIEWERS
+
+        r1, r2 = TEST_REVIEWERS[0], TEST_REVIEWERS[1]
+        test_lite = {"members": [r1, r2], "min_reviews": 2, "grace_period_sec": 0}
+        monkeypatch.setattr("watchdog.REVIEW_MODES", {"lite": test_lite, "standard": test_lite})
 
         # Setup: All members of lite mode responded
         batch = [
@@ -3066,8 +3109,8 @@ class TestDesignApprovedExcludeNoResponse:
                 "commit": None,
                 "cc_session_id": None,
                 "design_reviews": {
-                    "pascal": {"verdict": "APPROVE", "at": "2025-01-01T10:00:00+09:00"},
-                    "basho": {"verdict": "APPROVE", "at": "2025-01-01T10:01:00+09:00"},
+                    r1: {"verdict": "APPROVE", "at": "2025-01-01T10:00:00+09:00"},
+                    r2: {"verdict": "APPROVE", "at": "2025-01-01T10:01:00+09:00"},
                 },
                 "code_reviews": {},
                 "added_at": "2025-01-01T09:00:00+09:00",
@@ -3106,6 +3149,11 @@ class TestDesignApprovedExcludeNoResponse:
         """effective==0 時に min_reviews_override を更新せず WARNING を出す"""
         from watchdog import process
         from datetime import datetime, timedelta
+        from tests.conftest import TEST_REVIEWERS
+
+        r1, r2, r3 = TEST_REVIEWERS[0], TEST_REVIEWERS[1], TEST_REVIEWERS[2]
+        test_standard = {"members": [r1, r2, r3], "min_reviews": 3, "grace_period_sec": 300}
+        monkeypatch.setattr("watchdog.REVIEW_MODES", {"standard": test_standard})
 
         # Setup: Artificial scenario - all reviewers already excluded before transition
         # This is mathematically impossible but tests defensive guard
@@ -3116,7 +3164,7 @@ class TestDesignApprovedExcludeNoResponse:
                 "commit": None,
                 "cc_session_id": None,
                 "design_reviews": {
-                    "basho": {"verdict": "APPROVE", "at": "2025-01-01T10:00:00+09:00"},
+                    r1: {"verdict": "APPROVE", "at": "2025-01-01T10:00:00+09:00"},
                 },
                 "code_reviews": {},
                 "added_at": "2025-01-01T09:00:00+09:00",
@@ -3131,8 +3179,8 @@ class TestDesignApprovedExcludeNoResponse:
             "batch": batch,
             "project": "test-pj",
             "enabled": True,
-            # Pre-exclude pascal and hanfei (basho responded)
-            "excluded_reviewers": ["pascal", "hanfei"],
+            # Pre-exclude r2 and r3 (r1 responded)
+            "excluded_reviewers": [r2, r3],
             "history": [
                 {"from": "DESIGN_PLAN", "to": "DESIGN_REVIEW", "at": entered_at.isoformat()}
             ],
@@ -3167,11 +3215,16 @@ class TestDesignApprovedExcludeNoResponse:
         """既存 excluded_reviewers がある状態で no_response 追加時の effective 計算"""
         from watchdog import process
         from datetime import datetime, timedelta
+        from tests.conftest import TEST_REVIEWERS
+
+        r1, r2, r3 = TEST_REVIEWERS[0], TEST_REVIEWERS[1], TEST_REVIEWERS[2]
+        test_standard = {"members": [r1, r2, r3], "min_reviews": 3, "grace_period_sec": 300}
+        monkeypatch.setattr("watchdog.REVIEW_MODES", {"standard": test_standard})
 
         # Setup: standard mode (3 members, grace=300s) but use met_at to bypass grace
-        # Pre-existing excluded: hanfei
-        # Only pascal responded
-        # Should add basho to excluded
+        # Pre-existing excluded: r3
+        # Only r1 responded
+        # Should add r2 to excluded
         batch = [
             {
                 "issue": 1,
@@ -3179,7 +3232,7 @@ class TestDesignApprovedExcludeNoResponse:
                 "commit": None,
                 "cc_session_id": None,
                 "design_reviews": {
-                    "pascal": {"verdict": "APPROVE", "at": "2025-01-01T10:00:00+09:00"},
+                    r1: {"verdict": "APPROVE", "at": "2025-01-01T10:00:00+09:00"},
                 },
                 "code_reviews": {},
                 "added_at": "2025-01-01T09:00:00+09:00",
@@ -3195,7 +3248,7 @@ class TestDesignApprovedExcludeNoResponse:
             "batch": batch,
             "project": "test-pj",
             "enabled": True,
-            "excluded_reviewers": ["hanfei"],  # Pre-existing
+            "excluded_reviewers": [r3],  # Pre-existing
             "min_reviews_override": 1,  # Adjusted: 3 members - 1 excluded - 1 required = 1
             "design_min_reviews_met_at": met_at.isoformat(),  # Grace already met and expired
             "history": [
@@ -3214,17 +3267,23 @@ class TestDesignApprovedExcludeNoResponse:
         with open(pj_path) as f:
             result = json.load(f)
 
-        # Should have hanfei (pre) + no-response standard members (euler, dijkstra)
-        members = set(config.REVIEW_MODES["standard"]["members"])
-        responded = {"pascal"}
-        expected_excluded = {"hanfei"} | (members - responded)
+        # Should have r3 (pre) + no-response standard members (r2)
+        members = {r1, r2, r3}
+        responded = {r1}
+        expected_excluded = {r3} | (members - responded)
         excluded = set(result.get("excluded_reviewers", []))
         assert excluded == expected_excluded, \
-            f"Should exclude hanfei (pre) + no-response members, got: {excluded}"
+            f"Should exclude r3 (pre) + no-response members, got: {excluded}"
 
     def test_code_review_skips_excluded_reviewer(self, tmp_path, monkeypatch):
         """CODE_REVIEW で excluded レビュアーに催促が飛ばない"""
         from engine.fsm import check_transition
+        from tests.conftest import TEST_REVIEWERS
+
+        r1, r2, r3 = TEST_REVIEWERS[0], TEST_REVIEWERS[1], TEST_REVIEWERS[2]
+        test_standard = {"members": [r1, r2, r3], "min_reviews": 3, "grace_period_sec": 300}
+        monkeypatch.setattr("config.REVIEW_MODES", {"standard": test_standard})
+        monkeypatch.setattr("engine.fsm.REVIEW_MODES", {"standard": test_standard})
 
         # Setup: CODE_REVIEW state with excluded_reviewers
         batch = [
@@ -3235,7 +3294,7 @@ class TestDesignApprovedExcludeNoResponse:
                 "cc_session_id": None,
                 "design_reviews": {},
                 "code_reviews": {
-                    "pascal": {"verdict": "APPROVE", "at": "2025-01-01T11:00:00+09:00"},
+                    r1: {"verdict": "APPROVE", "at": "2025-01-01T11:00:00+09:00"},
                 },
                 "added_at": "2025-01-01T09:00:00+09:00",
             }
@@ -3244,19 +3303,18 @@ class TestDesignApprovedExcludeNoResponse:
         data = {
             "state": "CODE_REVIEW",
             "review_mode": "standard",
-            "excluded_reviewers": ["hanfei"],  # Excluded from DESIGN_REVIEW
+            "excluded_reviewers": [r3],  # Excluded from DESIGN_REVIEW
             "batch": batch,
         }
 
         action = check_transition("CODE_REVIEW", batch, data)
 
-        # Should nudge standard members who haven't reviewed (euler, dijkstra), not hanfei (excluded)
+        # Should nudge standard members who haven't reviewed (r2), not r3 (excluded)
         if action.nudge_reviewers:
-            assert "hanfei" not in action.nudge_reviewers, \
-                "hanfei (excluded) should not be in nudge list"
-            # euler and dijkstra are standard members who haven't reviewed
-            for r in config.REVIEW_MODES["standard"]["members"]:
-                if r != "pascal":  # pascal already reviewed
+            assert r3 not in action.nudge_reviewers, \
+                f"{r3} (excluded) should not be in nudge list"
+            for r in [r1, r2, r3]:
+                if r != r1 and r != r3:  # r1 already reviewed, r3 excluded
                     assert r in action.nudge_reviewers, \
                         f"{r} should be nudged"
 

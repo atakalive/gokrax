@@ -10,7 +10,7 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 import config
-from config import REVIEW_MODES
+_TEST_STANDARD_MEMBERS = ["rev_a", "rev_b", "rev_c"]
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -239,10 +239,14 @@ class TestNotifyReviewers:
             "cc_session_id": None, "added_at": "",
         }
 
-    def test_each_reviewer_uses_agent_id(self):
+    def test_each_reviewer_uses_agent_id(self, monkeypatch):
         """notify_reviewers → 各レビュアーの agentId で send_to_agent が呼ばれること。"""
         import notify
-        import config
+        test_modes = {"standard": {"members": _TEST_STANDARD_MEMBERS, "min_reviews": 3}}
+        test_agents = {r: r for r in _TEST_STANDARD_MEMBERS}
+        monkeypatch.setattr(notify, "REVIEW_MODES", test_modes)
+        monkeypatch.setattr(notify, "AGENTS", test_agents)
+        monkeypatch.setattr("config.REVIEW_MODES", test_modes)
         batch = [self._make_batch_item(1)]
         with patch("notify.send_to_agent") as mock_send:
             with patch("notify.fetch_issue_body", return_value="body"):
@@ -250,7 +254,7 @@ class TestNotifyReviewers:
 
         # レビュー依頼メッセージのみ（/new はwatchdog側で先行送信）
         called_agents = [c.args[0] for c in mock_send.call_args_list]
-        for r in config.REVIEW_MODES["standard"]["members"]:
+        for r in _TEST_STANDARD_MEMBERS:
             assert called_agents.count(r) == 1, \
                 f"{r} should be called once (review message only)"
 
@@ -481,9 +485,14 @@ class TestFormatReviewRequestEmbedded:
 class TestNotifyReviewersWithMode:
     """notify_reviewers の review_mode 連携テスト（Issue #24）"""
 
-    def test_sends_review_to_all_reviewers(self):
+    def test_sends_review_to_all_reviewers(self, monkeypatch):
         """notify_reviewers はレビュー依頼メッセージのみ送信（/new は watchdog 側）"""
         import notify
+        test_modes = {"standard": {"members": _TEST_STANDARD_MEMBERS, "min_reviews": 3}}
+        test_agents = {r: r for r in _TEST_STANDARD_MEMBERS}
+        monkeypatch.setattr(notify, "REVIEW_MODES", test_modes)
+        monkeypatch.setattr(notify, "AGENTS", test_agents)
+        monkeypatch.setattr("config.REVIEW_MODES", test_modes)
         batch = [{"issue": 1, "title": "t", "commit": None, "design_reviews": {}, "code_reviews": {}}]
         with patch("notify.send_to_agent") as mock_send:
             with patch("notify.fetch_issue_body", return_value="body"):
@@ -494,7 +503,7 @@ class TestNotifyReviewersWithMode:
         new_calls = [c for c in mock_send.call_args_list if c.args[1] == "/new"]
         assert len(new_calls) == 0
         # レビュー依頼のみ
-        assert mock_send.call_count == len(REVIEW_MODES["standard"]["members"])
+        assert mock_send.call_count == len(_TEST_STANDARD_MEMBERS)
 
     def test_skip_mode_sends_no_notifications(self):
         import notify
@@ -504,16 +513,22 @@ class TestNotifyReviewersWithMode:
                                    review_mode="skip")
         mock_send.assert_not_called()
 
-    def test_full_mode_sends_to_four_reviewers(self):
+    def test_full_mode_sends_to_four_reviewers(self, monkeypatch):
         import notify
+        _test_full_members = ["rev_a", "rev_b", "rev_c", "rev_d"]
+        test_modes = {"full": {"members": _test_full_members, "min_reviews": 4}}
+        test_agents = {r: r for r in _test_full_members}
+        monkeypatch.setattr(notify, "REVIEW_MODES", test_modes)
+        monkeypatch.setattr(notify, "AGENTS", test_agents)
+        monkeypatch.setattr("config.REVIEW_MODES", test_modes)
         batch = [{"issue": 1, "title": "t", "commit": None, "design_reviews": {}, "code_reviews": {}}]
         with patch("notify.send_to_agent") as mock_send:
             with patch("notify.fetch_issue_body", return_value="body"):
                 notify.notify_reviewers("proj", "DESIGN_REVIEW", batch, "atakalive/proj",
                                        review_mode="full")
 
-        # full mode has 4 reviewers (pascal, leibniz, dijkstra, euler) × 1 call = 4 calls
-        assert mock_send.call_count == 4
+        # full mode has 4 reviewers × 1 call = 4 calls
+        assert mock_send.call_count == len(_test_full_members)
 
 
 class TestPrevReviews:

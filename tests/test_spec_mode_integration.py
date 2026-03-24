@@ -65,8 +65,7 @@ def _make_spec_config(**overrides):
     return cfg
 
 
-from config import REVIEW_MODES as _REVIEW_MODES
-_REVIEWERS = tuple(_REVIEW_MODES["full"]["members"])
+_REVIEWERS = ("rev_a", "rev_b", "rev_c", "rev_d")  # full mode 相当の4名
 
 
 def _pending_review_requests():
@@ -554,7 +553,7 @@ class TestAbnormalFlowE2E:
             {
                 "id": "p0-1", "severity": "P0", "section": "§2",
                 "title": "致命的な問題", "description": "説明", "suggestion": "提案",
-                "reviewer": "pascal", "normalized_id": "pascal:p0-1",
+                "reviewer": _REVIEWERS[0], "normalized_id": f"{_REVIEWERS[0]}:p0-1",
             }
         ]
         sc = _make_spec_config(
@@ -586,7 +585,7 @@ class TestAbnormalFlowE2E:
 
     def test_full_mode_one_timeout_approved(self):
         """standardモード 3人中1人 timeout → approved（min_valid=3 を3人 received で満たす）"""
-        members = list(_REVIEW_MODES["standard"]["members"])
+        members = ["rev_a", "rev_b", "rev_c"]  # standard mode 相当
         sc = _make_spec_config(
             spec_path="docs/test-spec.md",
             spec_implementer="kaneko",
@@ -609,7 +608,7 @@ class TestAbnormalFlowE2E:
 
     def test_lite_mode_one_timeout_approved(self):
         """liteモード 2人中1人 timeout + extra → approved（min_valid=2, #65 C3）"""
-        lite_members = list(_REVIEW_MODES["lite"]["members"])
+        lite_members = ["rev_a", "rev_b"]  # lite mode 相当
         sc = _make_spec_config(
             spec_path="docs/test-spec.md",
             spec_implementer="kaneko",
@@ -1074,7 +1073,7 @@ class TestApprovedTransitionFix:
             f.write(review_yaml)
             review_file = f.name
 
-        args = _args(project="test-pj", reviewer="pascal", file=review_file)
+        args = _args(project="test-pj", reviewer=_REVIEWERS[0], file=review_file)
         from commands.spec import cmd_spec_review_submit
         cmd_spec_review_submit(args)
 

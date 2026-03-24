@@ -119,9 +119,15 @@ class TestAppendMetric:
 
 class TestReviewRequestMetric:
 
-    def test_metric_recorded(self):
+    def test_metric_recorded(self, monkeypatch):
         """notify_reviewers 呼び出しで append_metric が reviewer×issue 回呼ばれること"""
         import notify
+        _test_members = ["rev_a", "rev_b", "rev_c"]
+        test_modes = {"standard": {"members": _test_members, "min_reviews": 3}}
+        test_agents = {r: r for r in _test_members}
+        monkeypatch.setattr(notify, "REVIEW_MODES", test_modes)
+        monkeypatch.setattr(notify, "AGENTS", test_agents)
+        monkeypatch.setattr("config.REVIEW_MODES", test_modes)
         batch = [
             _make_batch_item(1),
             _make_batch_item(2),
@@ -137,9 +143,7 @@ class TestReviewRequestMetric:
         # 各レビュアー × 各 Issue で呼ばれる
         req_calls = [c for c in mock_metric.call_args_list
                      if c.args[0] == "review_request"]
-        import config
-        reviewers = config.REVIEW_MODES["standard"]["members"]
-        assert len(req_calls) == len(reviewers) * 2  # 2 issues × reviewers
+        assert len(req_calls) == len(_test_members) * 2  # 2 issues × reviewers
 
         # 全呼び出しで phase="design" であること
         for call in req_calls:

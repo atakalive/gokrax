@@ -118,15 +118,24 @@ def tmp_pipelines(tmp_path, monkeypatch):
     return tmp_path
 
 
+# ---------------------------------------------------------------------------
+# Test-only constants — use these instead of real agent/project names
+# ---------------------------------------------------------------------------
+TEST_REVIEWERS = ["reviewer1", "reviewer2", "reviewer3", "reviewer4", "reviewer5"]
+TEST_IMPLEMENTERS = ["implementer1", "implementer2"]
+TEST_PROJECTS = ["project1", "project2", "project3"]
+TEST_GITLAB_NS = "testns"
+
+
 @pytest.fixture
 def sample_pipeline():
     """最小限のパイプラインデータ。"""
     return {
         "project": "test-pj",
-        "gitlab": "atakalive/test-pj",
+        "gitlab": f"{TEST_GITLAB_NS}/test-pj",
         "state": "IDLE",
         "enabled": False,
-        "implementer": "kaneko",
+        "implementer": TEST_IMPLEMENTERS[0],
         "batch": [],
         "history": [],
         "created_at": "2025-01-01T00:00:00+09:00",

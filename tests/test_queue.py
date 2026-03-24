@@ -322,7 +322,8 @@ class TestParseQueueLine:
 
     def test_underscore_review_mode_fallback_to_hyphen(self, monkeypatch):
         """アンダーバーで直接マッチしない場合はフォールバック変換で _ → - になる"""
-        monkeypatch.setitem(task_queue.REVIEW_MODES, "lite3-woOpus", {"members": [], "min_reviews": 1})
+        test_modes = {"lite3-woOpus": {"members": [], "min_reviews": 1}}
+        monkeypatch.setattr(task_queue, "REVIEW_MODES", test_modes)
         result = parse_queue_line("Foo 1 lite3_woOpus")
         assert result["mode"] == "lite3-woOpus"
 

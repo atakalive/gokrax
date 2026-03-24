@@ -27,8 +27,11 @@ def base(tmp_path: Path) -> Path:
 
 
 def test_no_settings_file(base: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    assert main(base) == 1
-    assert "settings.py not found" in capsys.readouterr().err
+    """settings.py がない場合、example からコピーして作成する"""
+    assert main(base) == 0
+    out = capsys.readouterr().out
+    assert "Created settings.py" in out
+    assert (base / "settings.py").exists()
 
 
 def test_up_to_date(base: Path, capsys: pytest.CaptureFixture[str]) -> None:

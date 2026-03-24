@@ -50,6 +50,7 @@ DEFAULT_QUEUE_OPTIONS: dict[str, bool | str] = {
     "skip_cc_plan": True,
     "keep_ctx_intra": True,
     "skip_test": True,
+    "skip_assess": True,
 }
 
 REVIEW_MODES = {

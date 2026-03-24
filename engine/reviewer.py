@@ -279,6 +279,17 @@ def _validate_reviewer_tiers() -> None:
                     "[config] Reviewer '%s' in mode '%s' not found in REVIEWER_TIERS, will be treated as 'free'",
                     reviewer, mode_name
                 )
+        # フェーズ上書き内の members もチェック
+        for phase in ("design", "code"):
+            phase_cfg = cfg.get(phase, {})
+            if "members" in phase_cfg:
+                for reviewer in phase_cfg["members"]:
+                    if reviewer not in all_tier_members:
+                        _logger.warning(
+                            "[config] Reviewer '%s' in mode '%s'.%s not found in REVIEWER_TIERS, "
+                            "will be treated as 'free'",
+                            reviewer, mode_name, phase
+                        )
 
 
 _validate_reviewer_tiers()

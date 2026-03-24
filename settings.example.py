@@ -87,6 +87,20 @@ REVIEW_MODES = {
         # n_pass: per-reviewer multi-pass count (positive int). Reviewers not listed default to 1.
         "n_pass": {"reviewer1": 2, "reviewer3": 2},
     },
+    # --- Phase override example ---
+    # You can override per-phase (design/code) settings within any mode.
+    # Fields not overridden inherit from the mode's top-level defaults.
+    # "full-custom": {
+    #     "members": ["reviewer1", "reviewer2", "reviewer3", "reviewer4"],
+    #     "min_reviews": 4,
+    #     "grace_period_sec": 0,
+    #     # Code review uses fewer reviewers + multi-pass for one reviewer
+    #     "code": {
+    #         "members": ["reviewer1", "reviewer2", "reviewer3"],
+    #         "n_pass": {"reviewer1": 2},
+    #     },
+    #     # Design review uses all members (inherits top-level, no override needed)
+    # },
 }
 
 # ===========================================================================

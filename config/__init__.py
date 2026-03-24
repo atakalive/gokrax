@@ -142,6 +142,35 @@ TEST_CONFIG: dict = {
 # ---------------------------------------------------------------------------
 import importlib.util as _importlib_util  # noqa: E402
 
+
+def _validate_review_modes(review_modes: dict, reviewers: list[str]) -> None:
+    """REVIEW_MODES のフェーズ上書きをバリデーションする。起動時に呼ばれる。"""
+    _VALID_PHASE_KEYS = {"design", "code"}
+    _VALID_OVERRIDE_FIELDS = {"members", "min_reviews", "n_pass", "grace_period_sec"}
+    for mode_name, mode_cfg in review_modes.items():
+        for key in mode_cfg:
+            if key in _VALID_PHASE_KEYS:
+                override = mode_cfg[key]
+                if not isinstance(override, dict):
+                    raise ValueError(
+                        f"REVIEW_MODES['{mode_name}']['{key}'] must be a dict, got {type(override).__name__}"
+                    )
+                unknown = set(override.keys()) - _VALID_OVERRIDE_FIELDS
+                if unknown:
+                    raise ValueError(
+                        f"REVIEW_MODES['{mode_name}']['{key}'] has unknown keys: {unknown}. "
+                        f"Valid keys: {sorted(_VALID_OVERRIDE_FIELDS)}"
+                    )
+                if "members" in override:
+                    unknown_members = set(override["members"]) - set(reviewers)
+                    if unknown_members:
+                        raise ValueError(
+                            f"REVIEW_MODES['{mode_name}']['{key}']['members'] contains "
+                            f"unknown reviewers: {unknown_members}. "
+                            f"All members must be in REVIEWERS."
+                        )
+
+
 if os.environ.get("GOKRAX_SKIP_USER_SETTINGS", "").strip().lower() not in ("", "0", "false"):
     # テスト用: settings.py を読み込まず、config デフォルト値のみで動作
     pass
@@ -185,6 +214,9 @@ else:
         # 3. AGENTS 自動生成（settings.py に AGENTS 明示定義がない場合のみ）
         if not AGENTS:
             AGENTS = {name: f"agent:{name}:main" for name in REVIEWERS + IMPLEMENTERS}
+
+        # 4. REVIEW_MODES フェーズ上書きバリデーション
+        _validate_review_modes(REVIEW_MODES, REVIEWERS)
 
         GOKRAX_STATE_PATH = PIPELINES_DIR.parent / "gokrax-state.json"
         METRICS_FILE = PIPELINES_DIR.parent / "gokrax-metrics.jsonl"

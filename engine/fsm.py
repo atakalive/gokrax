@@ -70,6 +70,11 @@ def _build_phase_config(mode_config: dict, phase: str) -> dict:
     else:
         base["min_reviews"] = len(base["members"])
 
+    # Step 4: min_reviews を members 数でキャップ（デッドロック防止）
+    # 例: ベース min_reviews=3 + override members=[r1] → min_reviews=min(3,1)=1
+    if base["min_reviews"] > len(base["members"]):
+        base["min_reviews"] = len(base["members"])
+
     return base
 
 

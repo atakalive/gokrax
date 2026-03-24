@@ -1,5 +1,8 @@
-"""tests/test_review_config.py — Issue #203: review_config 生成・読み取りテスト"""
+"""tests/test_review_config.py — Issue #203/#204: review_config 生成・読み取り・バリデーションテスト"""
 
+import pytest
+
+from config import _validate_review_modes
 from engine.fsm import _build_phase_config, build_review_config, get_phase_config
 
 
@@ -40,7 +43,7 @@ class TestBuildPhaseConfig:
         assert result["min_reviews"] == 2
 
     def test_override_members_with_base_min_reviews(self):
-        """(b') ベースに min_reviews があり override で members のみ変更 — ベースの min_reviews が使われる。"""
+        """(b') ベースに min_reviews があり override で members のみ変更 — ベースの min_reviews が members 数でキャップされる。"""
         mode_config = {
             "members": ["r1", "r2", "r3"],
             "min_reviews": 2,
@@ -52,8 +55,8 @@ class TestBuildPhaseConfig:
         }
         result = _build_phase_config(mode_config, "design")
         assert result["members"] == ["r1"]
-        # ベースの min_reviews=2 が使われる（override に min_reviews がないため）
-        assert result["min_reviews"] == 2
+        # ベースの min_reviews=2 が Step 4 で members 数(1) にキャップされる
+        assert result["min_reviews"] == 1
 
     def test_override_with_explicit_min_reviews(self):
         """(c) フェーズ上書きで min_reviews も明示指定。"""
@@ -269,3 +272,181 @@ class TestInitializeWritesReviewConfig:
         design = get_phase_config(data, "design")
         assert design["members"] == mode_config["members"]
         assert isinstance(design["min_reviews"], int)
+
+
+# ---------------------------------------------------------------------------
+# Issue #204: min_reviews 自動キャップ
+# ---------------------------------------------------------------------------
+
+class TestMinReviewsAutoCap:
+
+    def test_cap_base_min_reviews_exceeds_override_members(self):
+        """ベース min_reviews=3 + override members=1人 → min_reviews=1 にキャップ。"""
+        mode_config = {
+            "members": ["r1", "r2", "r3"],
+            "min_reviews": 3,
+            "n_pass": {},
+            "grace_period_sec": 0,
+            "code": {
+                "members": ["r1"],
+            },
+        }
+        result = _build_phase_config(mode_config, "code")
+        assert result["members"] == ["r1"]
+        assert result["min_reviews"] == 1
+
+    def test_cap_empty_members(self):
+        """override で members=[] → min_reviews=0 にキャップ（skip 同等）。"""
+        mode_config = {
+            "members": ["r1", "r2"],
+            "min_reviews": 2,
+            "n_pass": {},
+            "grace_period_sec": 0,
+            "design": {
+                "members": [],
+            },
+        }
+        result = _build_phase_config(mode_config, "design")
+        assert result["members"] == []
+        assert result["min_reviews"] == 0
+
+    def test_no_cap_when_min_reviews_within_members(self):
+        """min_reviews <= len(members) の場合はキャップされない。"""
+        mode_config = {
+            "members": ["r1", "r2", "r3"],
+            "min_reviews": 2,
+            "n_pass": {},
+            "grace_period_sec": 0,
+        }
+        result = _build_phase_config(mode_config, "design")
+        assert result["min_reviews"] == 2
+
+    def test_cap_override_explicit_min_reviews_exceeds_members(self):
+        """override に明示 min_reviews があっても members 数を超えたらキャップ。"""
+        mode_config = {
+            "members": ["r1", "r2", "r3"],
+            "min_reviews": 3,
+            "n_pass": {},
+            "grace_period_sec": 0,
+            "code": {
+                "members": ["r1"],
+                "min_reviews": 5,
+            },
+        }
+        result = _build_phase_config(mode_config, "code")
+        assert result["members"] == ["r1"]
+        assert result["min_reviews"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Issue #204: _validate_review_modes
+# ---------------------------------------------------------------------------
+
+class TestValidateReviewModes:
+
+    def test_valid_config_no_error(self):
+        """正常な設定ではエラーが出ない。"""
+        modes = {
+            "standard": {
+                "members": ["r1", "r2"],
+                "min_reviews": 2,
+                "grace_period_sec": 0,
+                "code": {
+                    "members": ["r1"],
+                    "min_reviews": 1,
+                },
+            },
+        }
+        _validate_review_modes(modes, ["r1", "r2"])
+
+    def test_phase_override_not_dict(self):
+        """(a) フェーズ上書きが dict でない場合に ValueError。"""
+        modes = {
+            "bad": {
+                "members": ["r1"],
+                "design": "not_a_dict",
+            },
+        }
+        with pytest.raises(ValueError, match="must be a dict"):
+            _validate_review_modes(modes, ["r1"])
+
+    def test_unknown_keys_in_override(self):
+        """(b) フェーズ上書きに未知のキーがある場合に ValueError。"""
+        modes = {
+            "bad": {
+                "members": ["r1"],
+                "code": {
+                    "members": ["r1"],
+                    "unknown_field": 42,
+                },
+            },
+        }
+        with pytest.raises(ValueError, match="unknown keys"):
+            _validate_review_modes(modes, ["r1"])
+
+    def test_unknown_members_in_override(self):
+        """(c) フェーズ上書き内の members が REVIEWERS にない場合に ValueError。"""
+        modes = {
+            "bad": {
+                "members": ["r1"],
+                "design": {
+                    "members": ["r1", "unknown_reviewer"],
+                },
+            },
+        }
+        with pytest.raises(ValueError, match="unknown reviewers"):
+            _validate_review_modes(modes, ["r1"])
+
+    def test_no_phase_overrides_passes(self):
+        """フェーズ上書きなしの設定は正常。"""
+        modes = {
+            "simple": {
+                "members": ["r1", "r2"],
+                "min_reviews": 2,
+            },
+        }
+        _validate_review_modes(modes, ["r1", "r2"])
+
+    def test_empty_modes_passes(self):
+        """空の REVIEW_MODES でもエラーにならない。"""
+        _validate_review_modes({}, [])
+
+
+# ---------------------------------------------------------------------------
+# Issue #204: _validate_reviewer_tiers — フェーズ上書き warning
+# ---------------------------------------------------------------------------
+
+class TestValidateReviewerTiersPhaseOverride:
+
+    def test_phase_override_unknown_reviewer_warns(self, monkeypatch):
+        """フェーズ上書き内に REVIEWER_TIERS にないレビュアーがいると warning。"""
+        import logging
+        import config
+        from engine.reviewer import _validate_reviewer_tiers
+
+        monkeypatch.setattr(config, "REVIEWER_TIERS", {
+            "regular": ["r1", "r2"],
+            "free": [],
+            "short-context": [],
+        })
+        monkeypatch.setattr(config, "REVIEW_MODES", {
+            "test_mode": {
+                "members": ["r1", "r2"],
+                "design": {
+                    "members": ["r1", "unknown_agent"],
+                },
+            },
+        })
+
+        warnings: list[str] = []
+
+        def capture_warning(self: logging.Logger, msg: object, *args: object, **kwargs: object) -> None:
+            warnings.append(str(msg) % args if args else str(msg))
+
+        monkeypatch.setattr(logging.Logger, "warning", capture_warning)
+        _validate_reviewer_tiers()
+
+        assert any(
+            "unknown_agent" in w and "test_mode" in w and "design" in w
+            for w in warnings
+        )

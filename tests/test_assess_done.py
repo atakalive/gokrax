@@ -163,7 +163,7 @@ class TestUpdateIssueTitleWithComplexLevel:
         update_result = MagicMock(returncode=0)
 
         with patch("subprocess.run", side_effect=[view_result, update_result]) as mock_run:
-            ok = _update_issue_title_with_assessment("atakalive/test-pj", 42, 3)
+            ok = _update_issue_title_with_assessment("atakalive/test-pj", 42, 3, "none")
 
         assert ok is True
         # update コマンドのタイトル引数を確認
@@ -178,21 +178,21 @@ class TestUpdateIssueTitleWithComplexLevel:
         update_result = MagicMock(returncode=0)
 
         with patch("subprocess.run", side_effect=[view_result, update_result]) as mock_run:
-            ok = _update_issue_title_with_assessment("atakalive/test-pj", 42, 4)
+            ok = _update_issue_title_with_assessment("atakalive/test-pj", 42, 4, "none")
 
         assert ok is True
         update_call = mock_run.call_args_list[1]
         assert "feat: do something [Lvl 4 / No Risk]" in update_call[0][0]
 
     def test_update_issue_title_replaces_existing_complex_level_at_end(self):
-        """8-7b: 末尾の既存 [Lvl N / Low Risk] を [Lvl N / No Risk] に置換（domain_risk デフォルト=none）"""
+        """8-7b: 末尾の既存 [Lvl N / Low Risk] を [Lvl N / No Risk] に置換（domain_risk=none 明示指定）"""
         from commands.dev import _update_issue_title_with_assessment
 
         view_result = MagicMock(returncode=0, stdout=json.dumps({"title": "feat: do something [Lvl 2 / Low Risk]"}))
         update_result = MagicMock(returncode=0)
 
         with patch("subprocess.run", side_effect=[view_result, update_result]) as mock_run:
-            ok = _update_issue_title_with_assessment("atakalive/test-pj", 42, 4)
+            ok = _update_issue_title_with_assessment("atakalive/test-pj", 42, 4, "none")
 
         assert ok is True
         update_call = mock_run.call_args_list[1]
@@ -206,7 +206,7 @@ class TestUpdateIssueTitleWithComplexLevel:
         update_result = MagicMock(returncode=0)
 
         with patch("subprocess.run", side_effect=[view_result, update_result]) as mock_run:
-            ok = _update_issue_title_with_assessment("atakalive/test-pj", 42, 5)
+            ok = _update_issue_title_with_assessment("atakalive/test-pj", 42, 5, "none")
 
         assert ok is True
         update_call = mock_run.call_args_list[1]

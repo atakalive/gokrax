@@ -118,13 +118,18 @@ def _get_reviewer_entry(batch: list, key: str, reviewer: str) -> dict | None:
 
 
 def _worst_risk(batch: list) -> str:
-    """バッチ内の全 Issue の domain_risk から最悪リスクを返す。"""
-    _RISK_ORDER = {"none": 0, "low": 1, "high": 2}
-    worst = "none"
+    """バッチ内の全 Issue の domain_risk から最悪リスクを返す。
+
+    順序: n/a(-1) < none(0) < low(1) < high(2)
+    "n/a" は未判定、"none" は判定済みリスクなし。
+    空バッチの場合は "n/a"（未判定）を返す。
+    """
+    _RISK_ORDER = {"n/a": -1, "none": 0, "low": 1, "high": 2}
+    worst = "n/a"
     for issue in batch:
         a = issue.get("assessment", {})
-        ir = a.get("domain_risk", "none")
-        if _RISK_ORDER.get(ir, 0) > _RISK_ORDER.get(worst, 0):
+        ir = a.get("domain_risk", "n/a")
+        if _RISK_ORDER.get(ir, -1) > _RISK_ORDER.get(worst, -1):
             worst = ir
     return worst
 
@@ -636,17 +641,17 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
             worst_risk = _worst_risk(batch)
 
             # domain_risk の値域チェック（個別 Issue レベルで unknown があれば warning）
-            valid_risks = {"none", "low", "high"}
+            valid_risks = {"n/a", "none", "low", "high"}
             for issue in batch:
-                ir = issue["assessment"].get("domain_risk", "none")
+                ir = issue["assessment"].get("domain_risk", "n/a")
                 if ir not in valid_risks:
-                    log(f"[ASSESSMENT] WARNING: unknown domain_risk={ir!r} in #{issue.get('issue')}, treating as none")
+                    log(f"[ASSESSMENT] WARNING: unknown domain_risk={ir!r} in #{issue.get('issue')}, treating as n/a")
 
             exclude_any = data.get("exclude_any_risk", False) if data else False
             exclude_high = data.get("exclude_high_risk", False) if data else False
 
             skip = False
-            if exclude_any and worst_risk != "none":
+            if exclude_any and worst_risk not in ("none", "n/a"):
                 skip = True
             elif exclude_high and worst_risk == "high":
                 skip = True

@@ -23,7 +23,7 @@ def _make_batch(n=1, **kwargs):
     return items
 
 
-def _make_assessed_batch(n=1, complex_level=3, domain_risk="none"):
+def _make_assessed_batch(n=1, complex_level=3, domain_risk="n/a"):
     """全 Issue に assessment 済みのバッチを生成する。"""
     batch = _make_batch(n)
     for issue in batch:
@@ -311,3 +311,70 @@ class TestDomainRiskSkip:
         data = {"exclude_high_risk": True}
         action = check_transition("ASSESSMENT", batch, data)
         assert action.new_state == "IDLE"
+
+
+class TestDomainRiskNa:
+    """domain_risk "n/a" と "none" の区別テスト (Issue #199)"""
+
+    def test_default_risk_is_na(self):
+        """_make_assessed_batch で domain_risk 未指定時に "n/a" がデフォルト"""
+        batch = _make_assessed_batch(1)
+        assert batch[0]["assessment"]["domain_risk"] == "n/a"
+
+    def test_worst_risk_na_only(self):
+        """全 Issue が "n/a" → _worst_risk は "n/a" を返す"""
+        from engine.fsm import _worst_risk
+        batch = _make_assessed_batch(3, domain_risk="n/a")
+        assert _worst_risk(batch) == "n/a"
+
+    def test_worst_risk_none_and_na(self):
+        """\"none\" と \"n/a\" 混在 → _worst_risk は \"none\" を返す"""
+        from engine.fsm import _worst_risk
+        batch = _make_batch(3)
+        batch[0]["assessment"] = {"complex_level": 2, "domain_risk": "none"}
+        batch[1]["assessment"] = {"complex_level": 3, "domain_risk": "n/a"}
+        batch[2]["assessment"] = {"complex_level": 1, "domain_risk": "n/a"}
+        assert _worst_risk(batch) == "none"
+
+    def test_worst_risk_na_and_low(self):
+        """\"n/a\" と \"low\" 混在 → _worst_risk は \"low\" を返す"""
+        from engine.fsm import _worst_risk
+        batch = _make_batch(2)
+        batch[0]["assessment"] = {"complex_level": 2, "domain_risk": "n/a"}
+        batch[1]["assessment"] = {"complex_level": 3, "domain_risk": "low"}
+        assert _worst_risk(batch) == "low"
+
+    def test_worst_risk_empty_batch(self):
+        """空バッチ → _worst_risk は "n/a" を返す"""
+        from engine.fsm import _worst_risk
+        assert _worst_risk([]) == "n/a"
+
+    def test_exclude_any_risk_with_na(self):
+        """exclude_any_risk=True + domain_risk="n/a" → IMPLEMENTATION（スキップされない）"""
+        from engine.fsm import check_transition
+        batch = _make_assessed_batch(1, domain_risk="n/a")
+        data = {"exclude_any_risk": True}
+        action = check_transition("ASSESSMENT", batch, data)
+        assert action.new_state == "IMPLEMENTATION"
+        assert action.run_cc is True
+        assert action.reset_reviewers is True
+
+    def test_exclude_any_risk_na_and_low_mixed(self):
+        """exclude_any_risk=True + "n/a" と "low" 混在 → IDLE（low がスキップ対象）"""
+        from engine.fsm import check_transition
+        batch = _make_batch(2)
+        batch[0]["assessment"] = {"complex_level": 2, "domain_risk": "n/a"}
+        batch[1]["assessment"] = {"complex_level": 3, "domain_risk": "low"}
+        data = {"exclude_any_risk": True}
+        action = check_transition("ASSESSMENT", batch, data)
+        assert action.new_state == "IDLE"
+
+    def test_risk_display_na_is_empty(self):
+        """RISK_DISPLAY の "n/a" エントリは空文字"""
+        from commands.dev import RISK_DISPLAY
+        assert RISK_DISPLAY["n/a"] == ""
+
+    def test_risk_display_none_is_no_risk(self):
+        """RISK_DISPLAY の "none" エントリは "No Risk"（後方互換）"""
+        from commands.dev import RISK_DISPLAY
+        assert RISK_DISPLAY["none"] == "No Risk"

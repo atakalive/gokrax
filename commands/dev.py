@@ -27,7 +27,7 @@ import os
 VERDICT_SEVERITY = {"REJECT": 3, "P0": 3, "P1": 2, "P2": 1, "APPROVE": 0}
 
 # Risk display labels for assessment title tags
-RISK_DISPLAY = {"none": "No Risk", "low": "Low Risk", "high": "High Risk"}
+RISK_DISPLAY = {"n/a": "", "none": "No Risk", "low": "Low Risk", "high": "High Risk"}
 
 
 def get_status_text(enabled_only: bool = False) -> str:
@@ -774,7 +774,7 @@ def _log(msg: str) -> None:
         pass
 
 
-def _update_issue_title_with_assessment(gitlab: str, issue_num: int, complex_level: int, domain_risk: str = "none") -> bool:
+def _update_issue_title_with_assessment(gitlab: str, issue_num: int, complex_level: int, domain_risk: str = "n/a") -> bool:
     """Issue タイトルの末尾に [Lvl N / {Risk}] を付与。既に付いていれば置換。
 
     domain_risk の値に応じて No Risk / Low Risk / High Risk を表示。
@@ -806,8 +806,11 @@ def _update_issue_title_with_assessment(gitlab: str, issue_num: int, complex_lev
     new_title = _re.sub(r'^\s*' + _TAG_RE + r'\s*', '', current_title)
     new_title = _re.sub(r'\s*' + _TAG_RE + r'\s*$', '', new_title)
     # 新規付与は常に末尾
-    risk_label = RISK_DISPLAY.get(domain_risk, "No Risk")
-    new_title = f"{new_title} [Lvl {complex_level} / {risk_label}]"
+    risk_label = RISK_DISPLAY.get(domain_risk, "")
+    if risk_label:
+        new_title = f"{new_title} [Lvl {complex_level} / {risk_label}]"
+    else:
+        new_title = f"{new_title} [Lvl {complex_level}]"
 
     # タイトル更新（リトライ3回）
     for attempt in range(3):
@@ -1265,8 +1268,8 @@ def cmd_plan_done(args):
 def cmd_assess_done(args):
     """ASSESSMENT: Issue 単位で難易度記録 + Issue タイトル更新"""
     summary = args.summary[:500] if args.summary else ""
-    risk_reason = args.risk_reason.strip() if args.risk != "none" else ""
-    if args.risk != "none" and not risk_reason:
+    risk_reason = args.risk_reason.strip() if args.risk not in ("none", "n/a") else ""
+    if args.risk not in ("none", "n/a") and not risk_reason:
         raise SystemExit("--risk-reason is required when --risk is low or high")
 
     path = get_path(args.project)
@@ -1296,8 +1299,11 @@ def cmd_assess_done(args):
     if not _update_issue_title_with_assessment(gitlab, args.issue, args.complex_level, args.risk):
         print(f"  ⚠ title update failed for #{args.issue} (warning only)", file=sys.stderr)
 
-    risk_label = RISK_DISPLAY.get(args.risk, "No Risk")
-    print(f"{args.project}: assessment done for #{args.issue} (Lvl {args.complex_level} / {risk_label})")
+    risk_label = RISK_DISPLAY.get(args.risk, "")
+    if risk_label:
+        print(f"{args.project}: assessment done for #{args.issue} (Lvl {args.complex_level} / {risk_label})")
+    else:
+        print(f"{args.project}: assessment done for #{args.issue} (Lvl {args.complex_level})")
 
 
 def cmd_design_revise(args):

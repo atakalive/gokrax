@@ -2975,7 +2975,9 @@ class TestDesignApprovedExcludeNoResponse:
 
         r1, r2 = TEST_REVIEWERS[0], TEST_REVIEWERS[1]
         test_lite = {"members": [r1, r2], "min_reviews": 2, "grace_period_sec": 0}
-        monkeypatch.setattr("watchdog.REVIEW_MODES", {"lite": test_lite, "standard": test_lite})
+        _modes = {"lite": test_lite, "standard": test_lite}
+        monkeypatch.setattr("watchdog.REVIEW_MODES", _modes)
+        monkeypatch.setattr("engine.fsm.REVIEW_MODES", _modes)
 
         # Setup: lite mode (r1, r2) - grace_period_sec=0 for immediate transition
         # Only r1 responded
@@ -3040,7 +3042,9 @@ class TestDesignApprovedExcludeNoResponse:
 
         r1, r2 = TEST_REVIEWERS[0], TEST_REVIEWERS[1]
         test_lite = {"members": [r1, r2], "min_reviews": 2, "grace_period_sec": 0}
-        monkeypatch.setattr("watchdog.REVIEW_MODES", {"lite": test_lite, "standard": test_lite})
+        _modes = {"lite": test_lite, "standard": test_lite}
+        monkeypatch.setattr("watchdog.REVIEW_MODES", _modes)
+        monkeypatch.setattr("engine.fsm.REVIEW_MODES", _modes)
 
         # Setup: lite mode (2 members, min=2, grace=0) for immediate transition
         # Only r1 responded
@@ -3099,7 +3103,9 @@ class TestDesignApprovedExcludeNoResponse:
 
         r1, r2 = TEST_REVIEWERS[0], TEST_REVIEWERS[1]
         test_lite = {"members": [r1, r2], "min_reviews": 2, "grace_period_sec": 0}
-        monkeypatch.setattr("watchdog.REVIEW_MODES", {"lite": test_lite, "standard": test_lite})
+        _modes = {"lite": test_lite, "standard": test_lite}
+        monkeypatch.setattr("watchdog.REVIEW_MODES", _modes)
+        monkeypatch.setattr("engine.fsm.REVIEW_MODES", _modes)
 
         # Setup: All members of lite mode responded
         batch = [
@@ -3153,7 +3159,9 @@ class TestDesignApprovedExcludeNoResponse:
 
         r1, r2, r3 = TEST_REVIEWERS[0], TEST_REVIEWERS[1], TEST_REVIEWERS[2]
         test_standard = {"members": [r1, r2, r3], "min_reviews": 3, "grace_period_sec": 300}
-        monkeypatch.setattr("watchdog.REVIEW_MODES", {"standard": test_standard})
+        _modes = {"standard": test_standard}
+        monkeypatch.setattr("watchdog.REVIEW_MODES", _modes)
+        monkeypatch.setattr("engine.fsm.REVIEW_MODES", _modes)
 
         # Setup: Artificial scenario - all reviewers already excluded before transition
         # This is mathematically impossible but tests defensive guard
@@ -3219,7 +3227,9 @@ class TestDesignApprovedExcludeNoResponse:
 
         r1, r2, r3 = TEST_REVIEWERS[0], TEST_REVIEWERS[1], TEST_REVIEWERS[2]
         test_standard = {"members": [r1, r2, r3], "min_reviews": 3, "grace_period_sec": 300}
-        monkeypatch.setattr("watchdog.REVIEW_MODES", {"standard": test_standard})
+        _modes = {"standard": test_standard}
+        monkeypatch.setattr("watchdog.REVIEW_MODES", _modes)
+        monkeypatch.setattr("engine.fsm.REVIEW_MODES", _modes)
 
         # Setup: standard mode (3 members, grace=300s) but use met_at to bypass grace
         # Pre-existing excluded: r3

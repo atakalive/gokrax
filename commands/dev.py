@@ -62,14 +62,16 @@ def get_status_text(enabled_only: bool = False) -> str:
         batch = data.get("batch", [])
         review_mode = data.get("review_mode", "standard")
         issues = ", ".join(f"#{i['issue']}" for i in batch) if batch else "none"
-        mode_config = REVIEW_MODES.get(review_mode, REVIEW_MODES["standard"])
-        reviewers_str = ", ".join(f'"{r}"' for r in mode_config["members"])
+        from engine.fsm import get_phase_config
+        phase = "code" if state.startswith("CODE_") else "design"
+        phase_config = get_phase_config(data, phase)
+        reviewers_str = ", ".join(f'"{r}"' for r in phase_config["members"])
         output.write(f"[{enabled}] {pj}: {state}  issues=[{issues}]  ReviewerSize={review_mode}  Reviewers=[{reviewers_str}]\n")
 
         # Show per-issue review progress
         if state in ("DESIGN_REVIEW", "CODE_REVIEW") and batch:
             review_key = "design_reviews" if state == "DESIGN_REVIEW" else "code_reviews"
-            min_rev = mode_config["min_reviews"]
+            min_rev = phase_config["min_reviews"]
             for item in batch:
                 reviews = item.get(review_key, {})
                 done = len(reviews)
@@ -330,6 +332,7 @@ def cmd_triage(args):
             data.pop("min_reviews_override", None)
             data.pop("design_min_reviews_met_at", None)
             data.pop("code_min_reviews_met_at", None)
+            data.pop("review_config", None)
 
         for num, title in zip(filtered_args.issue, filtered_args.title):
             if find_issue(batch, num):
@@ -568,6 +571,8 @@ def _reset_to_idle(data: dict) -> None:
     # レビュアー除外
     data.pop("excluded_reviewers", None)
     data.pop("min_reviews_override", None)
+    # フェーズ別レビュアー構成
+    data.pop("review_config", None)
     # マージサマリー
     data.pop("summary_message_id", None)
     # 未送通知
@@ -973,10 +978,10 @@ def cmd_review(args):
             review_entry["summary"] = args.summary
 
         # pass / target_pass の計算
-        from config import REVIEW_MODES as _REVIEW_MODES
-        review_mode = data.get("review_mode", "standard")
-        mode_config = _REVIEW_MODES.get(review_mode, {})
-        n_pass_config = mode_config.get("n_pass", {})
+        from engine.fsm import get_phase_config as _get_phase_config
+        phase = "design" if "DESIGN" in state else "code"
+        _phase_config = _get_phase_config(data, phase)
+        n_pass_config = _phase_config.get("n_pass", {})
         target_pass = n_pass_config.get(args.reviewer, 1)
         if not isinstance(target_pass, int) or target_pass < 1:
             print(f"WARNING: n_pass[{_masked_reviewer(args.reviewer, _pipeline.get('reviewer_number_map'))}] = {target_pass!r} is invalid, defaulting to 1")
@@ -1421,10 +1426,12 @@ def cmd_exclude(args):
                     added.append(name)
             data["excluded_reviewers"] = excluded
             # deadlock clamp
-            review_mode = data.get("review_mode", "standard")
-            mode_config = REVIEW_MODES.get(review_mode, REVIEW_MODES["standard"])
-            effective_count = len([m for m in mode_config["members"] if m not in excluded])
-            min_reviews = mode_config["min_reviews"]
+            from engine.fsm import get_phase_config as _get_phase_config_ex
+            state = data.get("state", "IDLE")
+            phase = "code" if state.startswith("CODE_") else "design"
+            _phase_cfg = _get_phase_config_ex(data, phase)
+            effective_count = len([m for m in _phase_cfg["members"] if m not in excluded])
+            min_reviews = _phase_cfg["min_reviews"]
             if effective_count < min_reviews:
                 clamped = max(effective_count, 0)
                 data["min_reviews_override"] = clamped
@@ -1460,10 +1467,12 @@ def cmd_exclude(args):
                     removed.append(name)
             data["excluded_reviewers"] = excluded
             # deadlock clamp
-            review_mode = data.get("review_mode", "standard")
-            mode_config = REVIEW_MODES.get(review_mode, REVIEW_MODES["standard"])
-            effective_count = len([m for m in mode_config["members"] if m not in excluded])
-            min_reviews = mode_config["min_reviews"]
+            from engine.fsm import get_phase_config as _get_phase_config_ex
+            state = data.get("state", "IDLE")
+            phase = "code" if state.startswith("CODE_") else "design"
+            _phase_cfg = _get_phase_config_ex(data, phase)
+            effective_count = len([m for m in _phase_cfg["members"] if m not in excluded])
+            min_reviews = _phase_cfg["min_reviews"]
             if effective_count < min_reviews:
                 clamped = max(effective_count, 0)
                 data["min_reviews_override"] = clamped

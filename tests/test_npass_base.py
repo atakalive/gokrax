@@ -133,7 +133,7 @@ class TestNpassReviewEntry:
         _make_pipeline(tmp_pipelines, state="CODE_REVIEW", review_mode="npass-test")
 
         # n_pass 付きモードを設定
-        monkeypatch.setattr("config.REVIEW_MODES", {
+        _modes = {
             "npass-test": {
                 "members": ["reviewer1"],
                 "min_reviews": 1,
@@ -145,7 +145,9 @@ class TestNpassReviewEntry:
                 "min_reviews": 1,
                 "grace_period_sec": 0,
             },
-        })
+        }
+        monkeypatch.setattr("config.REVIEW_MODES", _modes)
+        monkeypatch.setattr("engine.fsm.REVIEW_MODES", _modes)
 
         import gokrax
         args = argparse.Namespace(
@@ -236,7 +238,7 @@ class TestNpassGitlabNoteSkip:
         # 既存レビューなし → cmd_review で pass=1, target_pass=2 が書き込まれる
         _make_pipeline(tmp_pipelines, state="CODE_REVIEW", review_mode="npass-test")
 
-        monkeypatch.setattr("config.REVIEW_MODES", {
+        _modes = {
             "npass-test": {
                 "members": ["reviewer1"],
                 "min_reviews": 1,
@@ -248,7 +250,9 @@ class TestNpassGitlabNoteSkip:
                 "min_reviews": 1,
                 "grace_period_sec": 0,
             },
-        })
+        }
+        monkeypatch.setattr("config.REVIEW_MODES", _modes)
+        monkeypatch.setattr("engine.fsm.REVIEW_MODES", _modes)
 
         import gokrax
         args = argparse.Namespace(
@@ -407,7 +411,7 @@ class TestNpassValidation:
         """n_pass に不正値 → target_pass が 1 にフォールバック。"""
         _make_pipeline(tmp_pipelines, state="CODE_REVIEW", review_mode="bad-mode")
 
-        monkeypatch.setattr("config.REVIEW_MODES", {
+        _modes = {
             "bad-mode": {
                 "members": ["reviewer1"],
                 "min_reviews": 1,
@@ -419,7 +423,9 @@ class TestNpassValidation:
                 "min_reviews": 1,
                 "grace_period_sec": 0,
             },
-        })
+        }
+        monkeypatch.setattr("config.REVIEW_MODES", _modes)
+        monkeypatch.setattr("engine.fsm.REVIEW_MODES", _modes)
 
         import gokrax
         args = argparse.Namespace(

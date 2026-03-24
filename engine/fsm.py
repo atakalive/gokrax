@@ -34,6 +34,86 @@ def get_min_reviews(mode_config: dict) -> int:
     return len(mode_config.get("members", []))
 
 
+def _build_phase_config(mode_config: dict, phase: str) -> dict:
+    """mode_config から指定フェーズの review_config エントリを生成する。
+
+    min_reviews の計算順序:
+    1. フェーズ override に明示的な min_reviews がある → それを使う
+    2. ベース mode_config に明示的な min_reviews がある → それを使う
+    3. どちらにもない → override 適用後の最終的な members の len を使う
+
+    この順序により、override で members だけ変更した場合に
+    ベースの min_reviews が残ってデッドロックになる問題を防ぐ。
+    """
+    # Step 1: ベース構成を組み立てる（min_reviews 以外）
+    base: dict = {
+        "members": list(mode_config.get("members", [])),
+        "n_pass": dict(mode_config.get("n_pass", {})),
+        "grace_period_sec": mode_config.get("grace_period_sec", 0),
+    }
+
+    # Step 2: フェーズ override を適用（min_reviews 以外）
+    override = mode_config.get(phase, {})
+    if override:
+        if "members" in override:
+            base["members"] = list(override["members"])
+        if "n_pass" in override:
+            base["n_pass"] = dict(override["n_pass"])
+        if "grace_period_sec" in override:
+            base["grace_period_sec"] = override["grace_period_sec"]
+
+    # Step 3: min_reviews を解決（override 適用後の members を考慮）
+    if override and "min_reviews" in override:
+        base["min_reviews"] = override["min_reviews"]
+    elif mode_config.get("min_reviews") is not None:
+        base["min_reviews"] = mode_config["min_reviews"]
+    else:
+        base["min_reviews"] = len(base["members"])
+
+    return base
+
+
+def build_review_config(mode_config: dict) -> dict:
+    """mode_config から design/code 両フェーズの review_config を生成する。
+
+    公開 API。watchdog.py の INITIALIZE 処理から呼ぶ。
+
+    Args:
+        mode_config: REVIEW_MODES[review_mode] の値
+
+    Returns:
+        {"design": {...}, "code": {...}}
+    """
+    return {
+        "design": _build_phase_config(mode_config, "design"),
+        "code": _build_phase_config(mode_config, "code"),
+    }
+
+
+def get_phase_config(data: dict | None, phase: str) -> dict:
+    """pipeline data から指定フェーズ（"design" or "code"）の review config を取得する。
+
+    review_config が存在すれば使い、なければ review_mode から REVIEW_MODES を引いてフォールバックする。
+    フォールバック時も _build_phase_config を経由するため、返り値の構造は常に同一
+    （members, min_reviews, n_pass, grace_period_sec の4キーが保証される）。
+
+    Args:
+        data: pipeline.json の data dict。None の場合は REVIEW_MODES["standard"] にフォールバック。
+        phase: "design" or "code"
+
+    Returns:
+        {"members": list[str], "min_reviews": int, "n_pass": dict, "grace_period_sec": int}
+    """
+    if data is not None:
+        rc = data.get("review_config", {}).get(phase)
+        if rc is not None:
+            return rc
+    # フォールバック: review_config が存在しない旧パイプライン、または data=None
+    review_mode = data.get("review_mode", "standard") if data else "standard"
+    mode_config = REVIEW_MODES.get(review_mode, REVIEW_MODES["standard"])
+    return _build_phase_config(mode_config, phase)
+
+
 @dataclass
 class TransitionAction:
     """check_transition() の返り値。new_state が None なら遷移不要。"""
@@ -397,11 +477,12 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
                 impl_msg=f"[review_mode=skip] 自動承認: {appr}",
             )
 
-        mode_config = REVIEW_MODES.get(review_mode, REVIEW_MODES["standard"])
-        min_rev = data.get("min_reviews_override", get_min_reviews(mode_config)) if data else get_min_reviews(mode_config)
+        phase = "design" if "DESIGN" in state else "code"
+        phase_config = get_phase_config(data, phase)
+        min_rev = data.get("min_reviews_override", phase_config["min_reviews"]) if data else phase_config["min_reviews"]
         excluded = data.get("excluded_reviewers", []) if data else []
-        effective_count = len(mode_config["members"]) - len(excluded)
-        grace_sec = mode_config.get("grace_period_sec", 0)
+        effective_count = len(phase_config["members"]) - len(excluded)
+        grace_sec = phase_config["grace_period_sec"]
 
         count, has_p0, has_p1, has_p2 = count_reviews(batch, key)
 
@@ -505,7 +586,7 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
                 return TransitionAction()
         # 3. レビュアー催促（最低優先）
         excluded = data.get("excluded_reviewers", []) if data else []
-        pending = _get_pending_reviewers(batch, key, mode_config["members"], excluded=excluded)
+        pending = _get_pending_reviewers(batch, key, phase_config["members"], excluded=excluded)
         dispute_awaiting = _awaiting_dispute_re_review(batch, key, excluded=excluded)
         if pending or dispute_awaiting:
             return TransitionAction(

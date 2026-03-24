@@ -65,7 +65,7 @@ from spec_review import (
 # BLOCKEDまでの時間 (秒)
 from config import BLOCK_TIMERS, NUDGE_GRACE_SEC, EXTENDABLE_STATES, EXTEND_NOTICE_THRESHOLD
 
-from engine.fsm import check_transition, get_min_reviews, _nudge_key, _recover_pending_notifications
+from engine.fsm import check_transition, get_min_reviews, _nudge_key, _recover_pending_notifications, build_review_config, get_phase_config
 
 
 from engine.fsm_spec import (
@@ -379,6 +379,11 @@ def process(path: Path):
             data.pop("test_output", None)
             data.pop("test_retry_count", None)
 
+            # Issue #203: フェーズ別レビュアー構成を review_config に展開
+            review_mode = data.get("review_mode", "standard")
+            mode_config = REVIEW_MODES.get(review_mode, REVIEW_MODES["standard"])
+            data["review_config"] = build_review_config(mode_config)
+
             # Issue #92: pytest ベースライン取得（バックグラウンド）
             repo = data.get("repo_path", "")
             if repo and _has_pytest(repo):
@@ -475,9 +480,8 @@ def process(path: Path):
 
         # DESIGN_REVIEW → DESIGN_APPROVED: 無応答レビュアーを excluded に追加 (Issue #44)
         if state == "DESIGN_REVIEW" and action.new_state == "DESIGN_APPROVED":
-            review_mode = data.get("review_mode", "standard")
-            mode_config = REVIEW_MODES.get(review_mode, REVIEW_MODES["standard"])
-            all_reviewers = set(mode_config["members"])
+            phase_config = get_phase_config(data, "design")
+            all_reviewers = set(phase_config["members"])
             responded = set()
             for item in batch:
                 responded.update(item.get("design_reviews", {}).keys())
@@ -494,7 +498,7 @@ def process(path: Path):
                     # 全員除外 — 理論上ありえないが防御
                     log(f"[{pj}] WARNING: effective==0 at DESIGN_APPROVED, skipping min_reviews_override")
                 else:
-                    data["min_reviews_override"] = max(1, min(get_min_reviews(mode_config), effective))
+                    data["min_reviews_override"] = max(1, min(phase_config["min_reviews"], effective))
                 log(f"[{pj}] 無応答レビュアーを除外: {sorted(no_response)}, excluded={excluded}, effective={effective}")
 
         # CODE_TEST 進入時: テスト起動情報を notification に保存（ロック外でテスト起動）

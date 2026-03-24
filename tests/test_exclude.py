@@ -33,6 +33,7 @@ def patch_allowed(monkeypatch):
     monkeypatch.setattr("commands.dev.REVIEWERS", _TEST_ALLOWED)
     monkeypatch.setattr(config, "REVIEW_MODES", _TEST_REVIEW_MODES)
     monkeypatch.setattr("commands.dev.REVIEW_MODES", _TEST_REVIEW_MODES)
+    monkeypatch.setattr("engine.fsm.REVIEW_MODES", _TEST_REVIEW_MODES)
 
 
 class TestExcludeAdd:

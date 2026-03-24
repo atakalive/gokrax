@@ -122,7 +122,7 @@ class TestReviewRequestMetric:
     def test_metric_recorded(self, monkeypatch):
         """notify_reviewers 呼び出しで append_metric が reviewer×issue 回呼ばれること"""
         import notify
-        _test_members = ["rev_a", "rev_b", "rev_c"]
+        _test_members = ["reviewer1", "reviewer2", "reviewer3"]
         test_modes = {"standard": {"members": _test_members, "min_reviews": 3}}
         test_agents = {r: r for r in _test_members}
         monkeypatch.setattr(notify, "REVIEW_MODES", test_modes)

@@ -8,9 +8,9 @@ import pytest
 
 from commands.dev import cmd_exclude
 
-_TEST_LITE_MEMBERS = ["rev_a", "rev_b"]
-_TEST_STANDARD_MEMBERS = ["rev_a", "rev_b", "rev_c"]
-_TEST_ALLOWED = ["rev_a", "rev_b", "rev_c", "rev_d"]
+_TEST_LITE_MEMBERS = ["reviewer1", "reviewer2"]
+_TEST_STANDARD_MEMBERS = ["reviewer1", "reviewer2", "reviewer3"]
+_TEST_ALLOWED = ["reviewer1", "reviewer2", "reviewer3", "reviewer4"]
 _TEST_REVIEW_MODES = {
     "lite": {"members": _TEST_LITE_MEMBERS, "min_reviews": 2},
     "standard": {"members": _TEST_STANDARD_MEMBERS, "min_reviews": 3},
@@ -25,17 +25,20 @@ def _load(path: Path) -> dict:
     return json.loads(path.read_text())
 
 
-class TestExcludeAdd:
-    def _patch_allowed(self, monkeypatch):
-        import config
-        monkeypatch.setattr(config, "ALLOWED_REVIEWERS", _TEST_ALLOWED)
-        monkeypatch.setattr("commands.dev.ALLOWED_REVIEWERS", _TEST_ALLOWED)
-        monkeypatch.setattr(config, "REVIEW_MODES", _TEST_REVIEW_MODES)
-        monkeypatch.setattr("commands.dev.REVIEW_MODES", _TEST_REVIEW_MODES)
+@pytest.fixture
+def patch_allowed(monkeypatch):
+    """config の ALLOWED_REVIEWERS / REVIEW_MODES をテスト用値に差し替える。"""
+    import config
+    monkeypatch.setattr(config, "ALLOWED_REVIEWERS", _TEST_ALLOWED)
+    monkeypatch.setattr("commands.dev.ALLOWED_REVIEWERS", _TEST_ALLOWED)
+    monkeypatch.setattr(config, "REVIEW_MODES", _TEST_REVIEW_MODES)
+    monkeypatch.setattr("commands.dev.REVIEW_MODES", _TEST_REVIEW_MODES)
 
-    def test_add_reviewer(self, tmp_path, monkeypatch):
+
+class TestExcludeAdd:
+
+    def test_add_reviewer(self, tmp_path, monkeypatch, patch_allowed):
         """--add で reviewer が追加されること"""
-        self._patch_allowed(monkeypatch)
         pipeline = tmp_path / "myproject.json"
         _write_pipeline(pipeline, {
             "project": "myproject",
@@ -43,33 +46,31 @@ class TestExcludeAdd:
             "excluded_reviewers": [],
         })
         args = argparse.Namespace(
-            project="myproject", add=["rev_a"], remove=None, list=False,
+            project="myproject", add=["reviewer1"], remove=None, list=False,
         )
         with patch("commands.dev.get_path", return_value=pipeline):
             cmd_exclude(args)
         data = _load(pipeline)
-        assert data["excluded_reviewers"] == ["rev_a"]
+        assert data["excluded_reviewers"] == ["reviewer1"]
 
-    def test_add_idempotent(self, tmp_path, monkeypatch):
+    def test_add_idempotent(self, tmp_path, monkeypatch, patch_allowed):
         """--add の冪等性: 既に excluded なら変化なし"""
-        self._patch_allowed(monkeypatch)
         pipeline = tmp_path / "myproject.json"
         _write_pipeline(pipeline, {
             "project": "myproject",
             "state": "IDLE",
-            "excluded_reviewers": ["rev_a"],
+            "excluded_reviewers": ["reviewer1"],
         })
         args = argparse.Namespace(
-            project="myproject", add=["rev_a"], remove=None, list=False,
+            project="myproject", add=["reviewer1"], remove=None, list=False,
         )
         with patch("commands.dev.get_path", return_value=pipeline):
             cmd_exclude(args)
         data = _load(pipeline)
-        assert data["excluded_reviewers"] == ["rev_a"]
+        assert data["excluded_reviewers"] == ["reviewer1"]
 
-    def test_add_unknown_reviewer(self, tmp_path, monkeypatch):
+    def test_add_unknown_reviewer(self, tmp_path, monkeypatch, patch_allowed):
         """不明なレビュアー名でエラー"""
-        self._patch_allowed(monkeypatch)
         pipeline = tmp_path / "myproject.json"
         _write_pipeline(pipeline, {
             "project": "myproject",
@@ -83,9 +84,8 @@ class TestExcludeAdd:
             with pytest.raises(SystemExit):
                 cmd_exclude(args)
 
-    def test_remove_unknown_reviewer(self, tmp_path, monkeypatch):
+    def test_remove_unknown_reviewer(self, tmp_path, monkeypatch, patch_allowed):
         """--remove で不明なレビュアー名はエラー"""
-        self._patch_allowed(monkeypatch)
         pipeline = tmp_path / "myproject.json"
         _write_pipeline(pipeline, {
             "project": "myproject",
@@ -101,33 +101,25 @@ class TestExcludeAdd:
 
 
 class TestExcludeRemove:
-    def _patch_allowed(self, monkeypatch):
-        import config
-        monkeypatch.setattr(config, "ALLOWED_REVIEWERS", _TEST_ALLOWED)
-        monkeypatch.setattr("commands.dev.ALLOWED_REVIEWERS", _TEST_ALLOWED)
-        monkeypatch.setattr(config, "REVIEW_MODES", _TEST_REVIEW_MODES)
-        monkeypatch.setattr("commands.dev.REVIEW_MODES", _TEST_REVIEW_MODES)
 
-    def test_remove_reviewer(self, tmp_path, monkeypatch):
+    def test_remove_reviewer(self, tmp_path, monkeypatch, patch_allowed):
         """--remove で reviewer が削除されること"""
-        self._patch_allowed(monkeypatch)
         pipeline = tmp_path / "myproject.json"
         _write_pipeline(pipeline, {
             "project": "myproject",
             "state": "IDLE",
-            "excluded_reviewers": ["rev_a"],
+            "excluded_reviewers": ["reviewer1"],
         })
         args = argparse.Namespace(
-            project="myproject", add=None, remove=["rev_a"], list=False,
+            project="myproject", add=None, remove=["reviewer1"], list=False,
         )
         with patch("commands.dev.get_path", return_value=pipeline):
             cmd_exclude(args)
         data = _load(pipeline)
         assert data["excluded_reviewers"] == []
 
-    def test_remove_idempotent(self, tmp_path, monkeypatch):
+    def test_remove_idempotent(self, tmp_path, monkeypatch, patch_allowed):
         """--remove の冪等性: excluded にいなければ変化なし"""
-        self._patch_allowed(monkeypatch)
         pipeline = tmp_path / "myproject.json"
         _write_pipeline(pipeline, {
             "project": "myproject",
@@ -135,7 +127,7 @@ class TestExcludeRemove:
             "excluded_reviewers": [],
         })
         args = argparse.Namespace(
-            project="myproject", add=None, remove=["rev_a"], list=False,
+            project="myproject", add=None, remove=["reviewer1"], list=False,
         )
         with patch("commands.dev.get_path", return_value=pipeline):
             cmd_exclude(args)
@@ -144,16 +136,9 @@ class TestExcludeRemove:
 
 
 class TestDeadlockClamp:
-    def _patch_allowed(self, monkeypatch):
-        import config
-        monkeypatch.setattr(config, "ALLOWED_REVIEWERS", _TEST_ALLOWED)
-        monkeypatch.setattr("commands.dev.ALLOWED_REVIEWERS", _TEST_ALLOWED)
-        monkeypatch.setattr(config, "REVIEW_MODES", _TEST_REVIEW_MODES)
-        monkeypatch.setattr("commands.dev.REVIEW_MODES", _TEST_REVIEW_MODES)
 
-    def test_clamp_on_add(self, tmp_path, monkeypatch):
+    def test_clamp_on_add(self, tmp_path, monkeypatch, patch_allowed):
         """deadlock clamp: 全 members を除外すると min_reviews_override == 0"""
-        self._patch_allowed(monkeypatch)
         pipeline = tmp_path / "myproject.json"
         _write_pipeline(pipeline, {
             "project": "myproject",
@@ -169,9 +154,8 @@ class TestDeadlockClamp:
         data = _load(pipeline)
         assert data["min_reviews_override"] == 0
 
-    def test_clamp_removed_on_remove(self, tmp_path, monkeypatch):
+    def test_clamp_removed_on_remove(self, tmp_path, monkeypatch, patch_allowed):
         """deadlock clamp 解除: --remove で復旧すると min_reviews_override が消える"""
-        self._patch_allowed(monkeypatch)
         pipeline = tmp_path / "myproject.json"
         _write_pipeline(pipeline, {
             "project": "myproject",
@@ -188,13 +172,12 @@ class TestDeadlockClamp:
         data = _load(pipeline)
         assert "min_reviews_override" not in data
 
-    def test_cross_mode_reviewer_no_clamp(self, tmp_path, monkeypatch):
+    def test_cross_mode_reviewer_no_clamp(self, tmp_path, monkeypatch, patch_allowed):
         """モード外レビュアーの追加が clamp に影響しないこと"""
-        self._patch_allowed(monkeypatch)
         pipeline = tmp_path / "myproject.json"
         # rev_c は _TEST_ALLOWED にいるが lite の members にはいない
-        assert "rev_c" in _TEST_ALLOWED
-        assert "rev_c" not in _TEST_LITE_MEMBERS
+        assert "reviewer3" in _TEST_ALLOWED
+        assert "reviewer3" not in _TEST_LITE_MEMBERS
         _write_pipeline(pipeline, {
             "project": "myproject",
             "state": "IDLE",
@@ -202,12 +185,12 @@ class TestDeadlockClamp:
             "excluded_reviewers": [],
         })
         args = argparse.Namespace(
-            project="myproject", add=["rev_c"], remove=None, list=False,
+            project="myproject", add=["reviewer3"], remove=None, list=False,
         )
         with patch("commands.dev.get_path", return_value=pipeline):
             cmd_exclude(args)
         data = _load(pipeline)
-        assert data["excluded_reviewers"] == ["rev_c"]
+        assert data["excluded_reviewers"] == ["reviewer3"]
         assert "min_reviews_override" not in data
 
 
@@ -224,7 +207,7 @@ class TestIntersectionClampLogic:
         from pipeline_io import update_pipeline as _up
 
         pipeline = tmp_path / "testpj.json"
-        # lite mode: members=["rev_a", "rev_b"], min_reviews=2
+        # lite mode: members=["reviewer1", "reviewer2"], min_reviews=2
         # rev_c はモード外 → excluded に入れても effective_count は 2 のまま
         _write_pipeline(pipeline, {
             "project": "testpj",
@@ -234,7 +217,7 @@ class TestIntersectionClampLogic:
         })
 
         lite_config = _TEST_REVIEW_MODES["lite"]
-        excluded = ["rev_c"]  # モード外レビュアー
+        excluded = ["reviewer3"]  # モード外レビュアー
 
         def _save_excluded_replica(data):
             """watchdog.py L933-951 の _save_excluded と同一のロジック"""
@@ -252,7 +235,7 @@ class TestIntersectionClampLogic:
 
         # モード外 excluded なので effective_count == 2 (rev_a, rev_b 健在)
         # min_reviews == 2 なので clamp は不要
-        assert data["excluded_reviewers"] == ["rev_c"]
+        assert data["excluded_reviewers"] == ["reviewer3"]
         assert "min_reviews_override" not in data, (
             "Cross-mode excluded reviewer should not trigger spurious deadlock clamp"
         )
@@ -282,7 +265,7 @@ class TestExcludeList:
         _write_pipeline(pipeline, {
             "project": "myproject",
             "state": "IDLE",
-            "excluded_reviewers": ["rev_a"],
+            "excluded_reviewers": ["reviewer1"],
         })
         args = argparse.Namespace(
             project="myproject", add=None, remove=None, list=True,
@@ -290,4 +273,4 @@ class TestExcludeList:
         with patch("commands.dev.get_path", return_value=pipeline):
             cmd_exclude(args)
         out = capsys.readouterr().out
-        assert "excluded_reviewers = ['rev_a']" in out
+        assert "excluded_reviewers = ['reviewer1']" in out

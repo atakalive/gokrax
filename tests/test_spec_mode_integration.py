@@ -65,7 +65,7 @@ def _make_spec_config(**overrides):
     return cfg
 
 
-_REVIEWERS = ("rev_a", "rev_b", "rev_c", "rev_d")  # full mode 相当の4名
+_REVIEWERS = ("reviewer1", "reviewer2", "reviewer3", "reviewer4")  # full mode 相当の4名
 
 
 def _pending_review_requests():
@@ -585,7 +585,7 @@ class TestAbnormalFlowE2E:
 
     def test_full_mode_one_timeout_approved(self):
         """standardモード 3人中1人 timeout → approved（min_valid=3 を3人 received で満たす）"""
-        members = ["rev_a", "rev_b", "rev_c"]  # standard mode 相当
+        members = ["reviewer1", "reviewer2", "reviewer3"]  # standard mode 相当
         sc = _make_spec_config(
             spec_path="docs/test-spec.md",
             spec_implementer="kaneko",
@@ -608,7 +608,7 @@ class TestAbnormalFlowE2E:
 
     def test_lite_mode_one_timeout_approved(self):
         """liteモード 2人中1人 timeout + extra → approved（min_valid=2, #65 C3）"""
-        lite_members = ["rev_a", "rev_b"]  # lite mode 相当
+        lite_members = ["reviewer1", "reviewer2"]  # lite mode 相当
         sc = _make_spec_config(
             spec_path="docs/test-spec.md",
             spec_implementer="kaneko",

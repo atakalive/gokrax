@@ -10,7 +10,7 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 import config
-_TEST_STANDARD_MEMBERS = ["rev_a", "rev_b", "rev_c"]
+_TEST_STANDARD_MEMBERS = ["reviewer1", "reviewer2", "reviewer3"]
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -515,7 +515,7 @@ class TestNotifyReviewersWithMode:
 
     def test_full_mode_sends_to_four_reviewers(self, monkeypatch):
         import notify
-        _test_full_members = ["rev_a", "rev_b", "rev_c", "rev_d"]
+        _test_full_members = ["reviewer1", "reviewer2", "reviewer3", "reviewer4"]
         test_modes = {"full": {"members": _test_full_members, "min_reviews": 4}}
         test_agents = {r: r for r in _test_full_members}
         monkeypatch.setattr(notify, "REVIEW_MODES", test_modes)

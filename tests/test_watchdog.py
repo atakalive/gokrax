@@ -2794,7 +2794,7 @@ class TestTimeoutAllStates:
         from datetime import datetime, timedelta
         from config import LOCAL_TZ, BLOCK_TIMERS
 
-        _test_members = ["rev_a", "rev_b", "rev_c"]
+        _test_members = ["reviewer1", "reviewer2", "reviewer3"]
         test_modes = {"standard": {"members": _test_members, "min_reviews": 3, "grace_period_sec": 300}}
         monkeypatch.setattr("config.REVIEW_MODES", test_modes)
         monkeypatch.setattr("engine.fsm.REVIEW_MODES", test_modes)
@@ -2847,7 +2847,7 @@ class TestTimeoutAllStates:
         from datetime import datetime, timedelta
         from config import LOCAL_TZ, BLOCK_TIMERS
 
-        _test_members = ["rev_a", "rev_b", "rev_c"]
+        _test_members = ["reviewer1", "reviewer2", "reviewer3"]
         test_modes = {"standard": {"members": _test_members, "min_reviews": 3, "grace_period_sec": 300}}
         monkeypatch.setattr("config.REVIEW_MODES", test_modes)
         monkeypatch.setattr("engine.fsm.REVIEW_MODES", test_modes)

@@ -34,6 +34,7 @@ else:
         fcntl.flock(f, fcntl.LOCK_UN)
 
 from config import PIPELINES_DIR, LOCAL_TZ, MAX_HISTORY
+from engine.shared import log
 
 
 def now_iso() -> str:
@@ -130,6 +131,32 @@ def get_path(project: str) -> Path:
     if not str(path).startswith(str(PIPELINES_DIR.resolve())):
         raise SystemExit(f"Path traversal detected: {project}")
     return path
+
+
+def merge_pending_notifications(data: dict, pending: dict, pj: str) -> None:
+    """_pending_notifications に pending をマージする。
+
+    既存キーは保持し、同一キーは最新値で上書き（latest wins）。
+    既存 pending がない場合は新規作成。pending が空なら何もしない。
+
+    **呼び出し制約**: この関数は ``update_pipeline()`` のコールバック内
+    （ファイルロック保持中の read-modify-write 臨界区間）でのみ呼ぶこと。
+    ロック外で呼ぶと ``clear_pending_notification()`` / recovery 側の
+    原子的削除と競合し、lost update を再導入する。
+
+    Args:
+        data: pipeline の data dict（in-place で変更される）。dict 型前提。
+        pending: 新しい pending 通知の dict。dict 型前提。
+        pj: プロジェクト名（ログ用）
+    """
+    if not pending:
+        return
+    existing = data.get("_pending_notifications")
+    if existing:
+        log(f"[{pj}] WARNING: merging into existing _pending_notifications: {list(existing.keys())}")
+        existing.update(pending)
+    else:
+        data["_pending_notifications"] = dict(pending)
 
 
 def clear_pending_notification(project: str, key: str) -> None:

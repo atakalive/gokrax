@@ -17,7 +17,7 @@ from config import (
 from pipeline_io import (
     load_pipeline, save_pipeline, update_pipeline,
     add_history, now_iso, get_path, find_issue,
-    clear_pending_notification,
+    clear_pending_notification, merge_pending_notifications,
 )
 from engine.fsm import get_notification_for_state
 from notify import notify_implementer, notify_reviewers, notify_discord, send_to_agent, send_to_agent_queued, post_gitlab_note as _post_gitlab_note, mask_agent_name, resolve_reviewer_arg
@@ -666,9 +666,7 @@ def cmd_transition(args):
                 "review_mode": review_mode,
             }
         if pending:
-            if "_pending_notifications" in data:
-                _log(f"[{pj}] WARNING: overwriting existing _pending_notifications")
-            data["_pending_notifications"] = pending
+            merge_pending_notifications(data, pending, pj)
 
         ctx.update({
             "pj": pj, "notif": notif, "prefix": prefix,

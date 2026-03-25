@@ -401,23 +401,145 @@ class TestNudgeNotPending:
         # (pending dict 構築ロジックは action.impl_msg / action.send_review のみ)
 
 
-# ── Test 10: pending overwrite warning ────────────────────────────────────
+# ── Test A: merge preserves existing keys ─────────────────────────────────
 
-class TestPendingOverwriteWarning:
+class TestMergePendingPreservesExistingKeys:
 
-    def test_pending_overwrite_logs_warning(self, tmp_path, monkeypatch):
-        """既存 pending がある状態で新たな遷移が起きた場合、WARNING ログが出て上書き"""
+    def test_merge_preserves_existing(self):
+        """既存キーが新キー追加時に保持される"""
+        from pipeline_io import merge_pending_notifications
+        data = {"_pending_notifications": {"impl": {"implementer": "x", "msg": "old"}}}
+        with patch("pipeline_io.log"):
+            merge_pending_notifications(data, {"review": {"new_state": "CODE_REVIEW"}}, "test-pj")
+        pn = data["_pending_notifications"]
+        assert "impl" in pn
+        assert "review" in pn
+        assert pn["impl"]["msg"] == "old"
+
+
+# ── Test B: same key latest wins ──────────────────────────────────────────
+
+class TestMergePendingSameKeyLatestWins:
+
+    def test_same_key_latest_wins(self):
+        """同一キーは最新値で上書き"""
+        from pipeline_io import merge_pending_notifications
+        data = {"_pending_notifications": {"impl": {"implementer": "x", "msg": "old"}}}
+        with patch("pipeline_io.log"):
+            merge_pending_notifications(data, {"impl": {"implementer": "x", "msg": "new"}}, "test-pj")
+        assert data["_pending_notifications"]["impl"]["msg"] == "new"
+
+
+# ── Test C: creates new when empty ────────────────────────────────────────
+
+class TestMergePendingCreatesNewWhenEmpty:
+
+    def test_creates_new_when_no_existing(self):
+        """既存 pending がない場合は新規作成"""
+        from pipeline_io import merge_pending_notifications
+        with patch("pipeline_io.log"):
+            data = {}
+            merge_pending_notifications(data, {"run_cc": True}, "test-pj")
+        assert data["_pending_notifications"] == {"run_cc": True}
+
+
+# ── Test D: noop when empty ───────────────────────────────────────────────
+
+class TestMergePendingNoopWhenEmpty:
+
+    def test_noop_when_pending_empty(self):
+        """pending が空 dict なら何もしない"""
+        from pipeline_io import merge_pending_notifications
+        data = {}
+        merge_pending_notifications(data, {}, "test-pj")
+        assert "_pending_notifications" not in data
+
+
+# ── Test E: CLI transition merges pending ─────────────────────────────────
+
+class TestCliTransitionMergesPending:
+
+    def test_cli_transition_merges_existing_pending(self, tmp_path, monkeypatch):
+        """CLI cmd_transition で既存 review pending + 新規 impl pending が merge される"""
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        path = tmp_path / "test-pj.json"
+        # 既存の review pending が残っている状態
+        data = _base_pipeline(
+            state="IDLE",
+            batch=_make_batch(1),
+            _pending_notifications={
+                "review": {
+                    "new_state": "DESIGN_REVIEW",
+                    "batch": _make_batch(1),
+                    "gitlab": "testns/test-pj",
+                    "repo_path": "",
+                    "review_mode": "standard",
+                },
+            },
+        )
+        _write_pipeline(path, data)
+
+        from gokrax import cmd_transition
+
+        # update_pipeline を wrap して callback 直後の data を検査
+        callback_snapshot = {}
+        orig_update = pipeline_io.update_pipeline
+
+        def capturing_update(p, cb):
+            def wrapped_cb(d):
+                cb(d)
+                # callback 直後の _pending_notifications を snapshot
+                pn = d.get("_pending_notifications")
+                if pn is not None:
+                    callback_snapshot.update(pn)
+            return orig_update(p, wrapped_cb)
+
+        args = MagicMock()
+        args.project = "test-pj"
+        args.to = "DESIGN_PLAN"
+        args.force = True
+        args.actor = "cli"
+        args.dry_run = False
+        args.resume = False
+
+        with patch("commands.dev.update_pipeline", side_effect=capturing_update), \
+             patch("commands.dev.notify_implementer"), \
+             patch("commands.dev.notify_reviewers"), \
+             patch("commands.dev.notify_discord"), \
+             patch("engine.reviewer._reset_reviewers", return_value=[]):
+            cmd_transition(args)
+
+        # merge 発生直後: 既存 review + 新規 impl の両方が共存
+        assert "review" in callback_snapshot, "既存 review pending が消えている（merge 失敗）"
+        assert "impl" in callback_snapshot, "新規 impl pending が書かれていない"
+
+
+# ── Test F: multi-key recovery ────────────────────────────────────────────
+
+class TestMultiKeyRecovery:
+
+    def test_recovery_sends_both_impl_and_review(self, tmp_path, monkeypatch):
+        """multi-key pending（impl + review）を recovery で両方送信"""
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
 
         path = tmp_path / "test-pj.json"
         data = _base_pipeline(
-            state="DESIGN_PLAN",
-            batch=_make_batch(1, design_ready=True),
+            state="DESIGN_REVIEW",
+            batch=_make_batch(1),
             _pending_notifications={
                 "impl": {
                     "implementer": "implementer1",
-                    "msg": "[gokrax] test-pj: old message",
+                    "msg": "[gokrax] test-pj: impl message",
+                },
+                "review": {
+                    "new_state": "DESIGN_REVIEW",
+                    "batch": _make_batch(1),
+                    "gitlab": "testns/test-pj",
+                    "repo_path": "",
+                    "review_mode": "standard",
                 },
             },
         )
@@ -425,35 +547,18 @@ class TestPendingOverwriteWarning:
 
         from watchdog import process
 
-        # process() は recovery パスに入るため、overwrite は watchdog 経由では
-        # 通常発生しない。CLI のテストで確認する。
-        # ここでは直接 do_transition の動作を検証する。
-        import watchdog
+        mock_impl = MagicMock()
+        mock_review = MagicMock()
+        with patch("engine.fsm.notify_implementer", mock_impl), \
+             patch("engine.fsm.notify_reviewers", mock_review), \
+             patch("engine.fsm.notify_discord"):
+            process(path)
 
-        log_messages = []
-        orig_log = watchdog.log
+        mock_impl.assert_called_once()
+        mock_review.assert_called_once()
 
-        def capture_log(msg):
-            log_messages.append(msg)
-            orig_log(msg)
-
-        # recovery をスキップして直接 do_transition テストするため、
-        # update_pipeline callback 内で pending がある状態で遷移させる
-        def force_transition(data):
-            data["state"] = "DESIGN_REVIEW"
-            # 既存 pending がある
-            data["_pending_notifications"] = {"impl": {"implementer": "implementer1", "msg": "old"}}
-            # 新しい pending を書き込み（overwrite パス）
-            pending = {"impl": {"implementer": "implementer1", "msg": "new"}}
-            if "_pending_notifications" in data:
-                capture_log(f"[test-pj] WARNING: overwriting existing _pending_notifications")
-            data["_pending_notifications"] = pending
-
-        pipeline_io.update_pipeline(path, force_transition)
-
-        assert any("WARNING: overwriting" in m for m in log_messages)
         result = _read_pipeline(path)
-        assert result["_pending_notifications"]["impl"]["msg"] == "new"
+        assert "_pending_notifications" not in result
 
 
 # ── Test 11: recovery failure preserves pending ───────────────────────────

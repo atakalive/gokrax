@@ -33,7 +33,7 @@ from datetime import datetime as _datetime
 from pipeline_io import (
     load_pipeline, update_pipeline, get_path,
     add_history, now_iso, find_issue,
-    clear_pending_notification,
+    clear_pending_notification, merge_pending_notifications,
     ensure_spec_reviews_dir,
 )
 from notify import (
@@ -250,9 +250,7 @@ def process(path: Path):
             })
             # Issue #59: pending notification for run_cc
             pending = {"run_cc": True}
-            if "_pending_notifications" in data:
-                log(f"[{pj}] WARNING: overwriting existing _pending_notifications")
-            data["_pending_notifications"] = pending
+            merge_pending_notifications(data, pending, pj)
             return
 
         pj = data.get("project", path.stem)
@@ -609,9 +607,7 @@ def process(path: Path):
         if action.run_cc:
             pending["run_cc"] = True
         if pending:
-            if "_pending_notifications" in data:
-                log(f"[{pj}] WARNING: overwriting existing _pending_notifications")
-            data["_pending_notifications"] = pending
+            merge_pending_notifications(data, pending, pj)
 
     update_pipeline(path, do_transition)
 

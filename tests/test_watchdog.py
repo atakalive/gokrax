@@ -1359,28 +1359,40 @@ class TestTimeoutExtension:
         assert action.new_state == "BLOCKED"
 
     def test_npass_timeout_extension_clamped(self):
-        """NPASS タイムアウトで timeout_extension がクランプされること"""
+        """NPASS タイムアウトで timeout_extension がクランプされること。
+
+        クランプなしなら閾値 = base + (MAX_TIMEOUT_EXTENSION + 1000) = base + 4600 で
+        elapsed = base + MAX_TIMEOUT_EXTENSION + 100 = base + 3700 < 閾値 → タイムアウトしない。
+        クランプありなら閾値 = base + MAX_TIMEOUT_EXTENSION = base + 3600 で
+        elapsed = base + 3700 > 閾値 → タイムアウト発火 → verdict に基づき遷移。
+        """
         from engine.fsm import check_transition
         from datetime import datetime, timedelta
         from config import LOCAL_TZ, BLOCK_TIMERS, MAX_TIMEOUT_EXTENSION
 
         base_state = "DESIGN_REVIEW"
         base = BLOCK_TIMERS.get(base_state, 3600)
-        # base + MAX_TIMEOUT_EXTENSION + 100 秒経過 → タイムアウト
         elapsed = base + MAX_TIMEOUT_EXTENSION + 100
         entered_at = datetime.now(LOCAL_TZ) - timedelta(seconds=elapsed)
+        npass_entered_at = entered_at  # NPASS 進入時刻 = elapsed 秒前
 
-        reviews = _make_reviews(["APPROVE"])
+        # レビュアー reviewer0 が NPASS ターゲットで、まだ未提出（at が NPASS 進入前）
+        reviews = {
+            "reviewer0": {
+                "verdict": "APPROVE",
+                "at": (entered_at - timedelta(seconds=10)).isoformat(),  # NPASS 進入前
+            }
+        }
         data = {
             "project": "test-pj",
             "state": "DESIGN_REVIEW_NPASS",
             "enabled": True,
             "review_mode": "lite",
             "timeout_extension": MAX_TIMEOUT_EXTENSION + 1000,
-            "n_pass": 2,
+            "_npass_target_reviewers": ["reviewer0"],
             "batch": [{"issue": 1, "design_reviews": reviews, "code_reviews": {}}],
             "history": [
-                {"from": "DESIGN_REVIEW", "to": "DESIGN_REVIEW_NPASS", "at": entered_at.isoformat()},
+                {"from": "DESIGN_REVIEW", "to": "DESIGN_REVIEW_NPASS", "at": npass_entered_at.isoformat()},
             ],
         }
 
@@ -1389,9 +1401,9 @@ class TestTimeoutExtension:
              patch("engine.fsm.notify_discord"):
             action = check_transition("DESIGN_REVIEW_NPASS", data["batch"], data)
 
-        # タイムアウトが発火すること（クランプが効いている）
-        # NPASS タイムアウト時は verdict に基づいて遷移が決まる
+        # タイムアウトが発火し、verdict (APPROVE) に基づいて DESIGN_APPROVED に遷移
         assert action is not None
+        assert action.new_state == "DESIGN_APPROVED"
 
     def test_code_test_timeout_extension_clamped(self):
         """CODE_TEST タイムアウトで timeout_extension がクランプされること"""

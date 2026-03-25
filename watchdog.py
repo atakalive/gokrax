@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config import (
     PIPELINES_DIR, LOCAL_TZ, LOG_FILE, REVIEW_MODES, CC_MODEL_PLAN, CC_MODEL_IMPL,
     GOKRAX_CLI, INACTIVE_THRESHOLD_SEC, SESSIONS_BASE,
-    STATE_PHASE_MAP, GITLAB_NAMESPACE,
+    STATE_PHASE_MAP, GITLAB_NAMESPACE, IMPLEMENTERS,
     # WATCHDOG_LOOP_PIDFILE, WATCHDOG_LOOP_CRON_MARKER は gokrax.py の enable/disable 専用
 )
 from config import (
@@ -202,7 +202,7 @@ def process(path: Path):
 
         # 実装担当催促（遷移なし、カウンタ書き込みのみ）
         if action.nudge:
-            implementer = data.get("implementer", "kaneko")
+            implementer = data.get("implementer", IMPLEMENTERS[0])
             if not _is_agent_inactive(implementer, data):
                 # アクティブなら催促しない（カウンタも上げない）
                 return
@@ -223,7 +223,7 @@ def process(path: Path):
             notification.update({
                 "pj": pj,
                 "action": action,
-                "implementer": data.get("implementer", "kaneko"),
+                "implementer": data.get("implementer", IMPLEMENTERS[0]),
                 "batch": list(batch),
                 "gitlab": data.get("gitlab", f"{GITLAB_NAMESPACE}/{pj}"),
                 "nudge_count": data[key],
@@ -558,7 +558,7 @@ def process(path: Path):
             "old_state": state,
             "action": action,
             "gitlab": data.get("gitlab", f"{GITLAB_NAMESPACE}/{pj}"),
-            "implementer": data.get("implementer", "kaneko"),
+            "implementer": data.get("implementer", IMPLEMENTERS[0]),
             "batch": saved_batch,
             "repo_path": data.get("repo_path", ""),
             "review_mode": data.get("review_mode", "standard"),
@@ -590,7 +590,7 @@ def process(path: Path):
         pending = {}
         if action.impl_msg:
             pending["impl"] = {
-                "implementer": data.get("implementer", "kaneko"),
+                "implementer": data.get("implementer", IMPLEMENTERS[0]),
                 "msg": f"[gokrax] {pj}: {action.impl_msg}",
             }
         if action.send_review:
@@ -903,7 +903,7 @@ def process(path: Path):
 
                 # 実装者セッションに通知 (Issue #48)
                 pipeline_data_fresh = load_pipeline(path)
-                implementer = pipeline_data_fresh.get("implementer") or "kaneko"
+                implementer = pipeline_data_fresh.get("implementer") or IMPLEMENTERS[0]
                 prompt = render("dev.done", "batch_done",
                     project=pj, content=content,
                 )

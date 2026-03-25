@@ -203,6 +203,15 @@ else:
                 "詳細は settings.example.py を参照。"
             )
 
+        # IMPLEMENTERS 単独の空チェック
+        if not IMPLEMENTERS:
+            raise RuntimeError(
+                "IMPLEMENTERS is empty. At least one implementer must be configured.\n"
+                "Update settings.py:\n"
+                '  IMPLEMENTERS = ["impl1"]\n'
+                "See settings.example.py for details."
+            )
+
         # 2. REVIEWERS / IMPLEMENTERS 重複チェック
         _overlap = set(REVIEWERS) & set(IMPLEMENTERS)
         if _overlap:

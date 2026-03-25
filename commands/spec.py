@@ -7,7 +7,7 @@ from config import (
     PIPELINES_DIR, LOCAL_TZ, REVIEW_MODES, OWNER_NAME,
     MAX_SPEC_REVISE_CYCLES, MIN_VALID_REVIEWS_BY_MODE,
     SPEC_BLOCK_TIMERS,
-    MAX_SPEC_RETRIES, GITLAB_NAMESPACE,
+    MAX_SPEC_RETRIES, GITLAB_NAMESPACE, IMPLEMENTERS,
 )
 from pipeline_io import (
     load_pipeline, update_pipeline, save_pipeline,
@@ -83,7 +83,7 @@ def cmd_spec_start(args):
             "repo_path": repo_path,
             "state": "IDLE",
             "enabled": False,
-            "implementer": args.implementer or "kaneko",
+            "implementer": args.implementer or IMPLEMENTERS[0],
             "batch": [],
             "history": [],
             "created_at": now_iso(),

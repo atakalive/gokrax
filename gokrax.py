@@ -16,7 +16,7 @@ from config import (
     VALID_VERDICTS, VALID_FLAG_VERDICTS,
     WATCHDOG_LOOP_SCRIPT, WATCHDOG_LOOP_PIDFILE,
     WATCHDOG_LOOP_CRON_MARKER, WATCHDOG_LOOP_CRON_ENTRY,
-    GITLAB_NAMESPACE,
+    GITLAB_NAMESPACE, IMPLEMENTERS,
 )
 from pipeline_io import load_pipeline
 import os
@@ -127,7 +127,7 @@ def main():
     p.add_argument("--pj", "--project", dest="project", required=True, help="project name")
     p.add_argument("--gitlab", help="GitLab path (default: GITLAB_NAMESPACE/<project>)")
     p.add_argument("--repo-path", dest="repo_path", help="local repository path")
-    p.add_argument("--implementer", default="kaneko", help="implementer agent (default: kaneko)")
+    p.add_argument("--implementer", default=IMPLEMENTERS[0], help="implementer agent (default: %(default)s)")
 
     # enable / disable
     p = sub.add_parser("enable", help="enable watchdog (automatic transitions and nudges)")

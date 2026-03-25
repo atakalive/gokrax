@@ -12,7 +12,7 @@ from config import (
     VALID_VERDICTS, GLAB_TIMEOUT, REVIEWERS, REVIEW_MODES, LOCAL_TZ,
     WATCHDOG_LOOP_PIDFILE, WATCHDOG_LOOP_LOCKFILE,
     VALID_FLAG_VERDICTS, STATE_PHASE_MAP,
-    GOKRAX_CLI, OWNER_NAME, GITLAB_NAMESPACE,
+    GOKRAX_CLI, OWNER_NAME, GITLAB_NAMESPACE, IMPLEMENTERS,
 )
 from pipeline_io import (
     load_pipeline, save_pipeline, update_pipeline,
@@ -105,7 +105,7 @@ def cmd_init(args):
         "repo_path": args.repo_path or "",
         "state": "IDLE",
         "enabled": False,
-        "implementer": args.implementer or "kaneko",
+        "implementer": args.implementer or IMPLEMENTERS[0],
         "batch": [],
         "history": [],
         "created_at": now_iso(),
@@ -173,7 +173,7 @@ def cmd_extend(args):
         data["timeout_extension"] = data.get("timeout_extension", 0) + args.by
         data["extend_count"] = extend_count + 1
         result["state"] = state
-        result["implementer"] = data.get("implementer", "kaneko")
+        result["implementer"] = data.get("implementer", IMPLEMENTERS[0])
         result["total"] = data["timeout_extension"]
         result["count"] = data["extend_count"]
 
@@ -637,7 +637,7 @@ def cmd_transition(args):
         pj = data.get("project", args.project)
         batch = data.get("batch", [])
         gitlab = data.get("gitlab", f"{GITLAB_NAMESPACE}/{pj}")
-        implementer = data.get("implementer", "kaneko")
+        implementer = data.get("implementer", IMPLEMENTERS[0])
         repo_path = data.get("repo_path", "")
         review_mode = data.get("review_mode", "standard")
 
@@ -1306,7 +1306,7 @@ def cmd_assess_done(args):
             "domain_risk": args.risk,
             "risk_reason": risk_reason,
             "summary": summary,
-            "assessed_by": data.get("implementer", "kaneko"),
+            "assessed_by": data.get("implementer", IMPLEMENTERS[0]),
             "timestamp": now_iso(),
         }
 
@@ -1538,7 +1538,7 @@ def cmd_merge_summary(args):
     update_pipeline(path, do_update)
 
     # Notify implementer of batch completion (Issue #48)
-    implementer = data.get("implementer") or "kaneko"
+    implementer = data.get("implementer") or IMPLEMENTERS[0]
     notification_msg = (
         f"[gokrax] {project}: バッチ完了\n"
         f"{content}\n\n"

@@ -18,11 +18,7 @@ class TestKillpgGraceful:
 
     def test_killpg_graceful_sigterm_success(self) -> None:
         """SIGTERM 後、1回目のポーリングでグループが消えたケース。"""
-        call_count = 0
-
         def killpg_side_effect(pid: int, sig: int) -> None:
-            nonlocal call_count
-            call_count += 1
             if sig == signal.SIGTERM:
                 return  # 正常
             if sig == 0:
@@ -104,16 +100,23 @@ class TestStartCcKillOnPipelineFailure:
     """_start_cc で update_pipeline 失敗時に子プロセスが kill される。"""
 
     def test_start_cc_kills_proc_on_pipeline_save_failure(self) -> None:
+        """Popen 成功後の _save_cc_info 用 update_pipeline 失敗で子プロセスが kill される。
+
+        load_pipeline に base_commit を含めることで _set_base の update_pipeline は
+        呼ばれない。よって side_effect の RuntimeError は _save_cc_info 用の呼び出しで
+        発火し、BA-017 の本丸の経路を検証する。
+        """
         mock_proc = MagicMock()
         mock_proc.pid = 99999
 
         with (
             patch("subprocess.Popen", return_value=mock_proc),
+            # base_commit ありのため _set_base は呼ばれない → この1回が _save_cc_info 用
             patch("engine.cc.update_pipeline", side_effect=RuntimeError("disk full")),
             patch("engine.cc.load_pipeline", return_value={
                 "batch": [{"issue": 1}],
                 "repo_path": "/tmp",
-                "base_commit": "abc123",
+                "base_commit": "abc123",  # base_commit あり → _set_base スキップ
             }),
             patch("os.killpg") as mock_killpg,
             patch("tempfile.mkstemp", side_effect=[

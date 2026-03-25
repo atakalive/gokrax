@@ -108,10 +108,10 @@ gokrax start --pj myproject --mode standard
 | `--no-skip-test` | No | explicitly do not skip CODE_TEST phase |
 | `--skip-assess` | No | skip ASSESSMENT phase, go directly to IMPLEMENTATION |
 | `--no-skip-assess` | No | explicitly do not skip ASSESSMENT phase |
-| `--skip-design` | No | DESIGN_PLAN/DESIGN_REVIEW をスキップし DESIGN_APPROVED へ直行 |
-| `--no-skip-design` | No | --skip-design を無効化 |
-| `--no-cc` | No | IMPLEMENTATION で CC を使用せず手動実装モードにする |
-| `--no-no-cc` | No | CC 使用を強制（--no-cc を打ち消す） |
+| `--skip-design` | No | skip DESIGN_PLAN/DESIGN_REVIEW, go directly to DESIGN_APPROVED |
+| `--no-skip-design` | No | explicitly do not skip design phase |
+| `--no-cc` | No | manual implementation mode (do not launch CC) |
+| `--no-no-cc` | No | force CC usage (negate --no-cc) |
 | `--exclude-high-risk` | No | skip batch if domain_risk == high |
 | `--no-exclude-high-risk` | No | explicitly do not skip high-risk batches |
 | `--exclude-any-risk` | No | skip batch if domain_risk != none (superset of --exclude-high-risk) |
@@ -181,9 +181,9 @@ Idempotent: duplicate submissions from the same reviewer are skipped.
 GitLab integration: verdict + summary are posted as an issue note.
 
 N-pass review notes:
-- NPASS states (`DESIGN_REVIEW_NPASS`, `CODE_REVIEW_NPASS`) でもそのまま使用可能
-- `pass` / `target_pass` は自動管理（ユーザー指定不要）
-- 中間パス（pass < target_pass）の APPROVE は GitLab note をスキップ
+- Also works in NPASS states (`DESIGN_REVIEW_NPASS`, `CODE_REVIEW_NPASS`)
+- `pass` / `target_pass` are managed automatically (no user input needed)
+- Intermediate-pass APPROVE (pass < target_pass) skips GitLab note posting
 
 ### `flag` -- Human verdict injection
 
@@ -246,7 +246,7 @@ Only valid in DESIGN_PLAN state. Run after the implementer has reviewed and edit
 ### `assess-done` -- Record assessment result (per issue)
 
 ```bash
-gokrax assess-done --pj myproject --issue 42 --complex-level 3 --risk high --risk-reason "Changes to channel control logic" --summary "複数モジュールにまたがる変更"
+gokrax assess-done --pj myproject --issue 42 --complex-level 3 --risk high --risk-reason "Changes to channel control logic" --summary "Cross-module changes required"
 ```
 
 | Option | Required | Description |

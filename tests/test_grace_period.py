@@ -268,8 +268,8 @@ def test_do_transition_clears_grace_met_at_before_state_change(tmp_path, monkeyp
     assert data["state"] == "DESIGN_APPROVED"
 
 
-def test_save_grace_met_at_warns_on_unexpected_flags(tmp_path, monkeypatch):
-    """save_grace_met_at と副作用フラグが同居した場合、warning ログが出ること。"""
+def test_save_grace_met_at_rejects_unexpected_flags(tmp_path, monkeypatch):
+    """save_grace_met_at と副作用フラグが同居した場合、ValueError で拒否されること。"""
     import config
     import pipeline_io
     monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
@@ -292,13 +292,7 @@ def test_save_grace_met_at_warns_on_unexpected_flags(tmp_path, monkeypatch):
         cb(data)
         return data
 
-    with patch("watchdog.check_transition", return_value=mock_action), \
-         patch("watchdog.update_pipeline", side_effect=fake_update), \
-         patch("watchdog.log") as mock_log:
-        process(path)
-
-    # warning ログが出ていること
-    log_calls = [str(c) for c in mock_log.call_args_list]
-    assert any("unexpected flags" in s for s in log_calls), f"Expected warning log, got: {log_calls}"
-    # 保存自体は行われること（early return で握りつぶすが、met_at は保存する）
-    assert "design_min_reviews_met_at" in data
+    with pytest.raises(ValueError, match="save_grace_met_at conflicts with side-effect flags"):
+        with patch("watchdog.check_transition", return_value=mock_action), \
+             patch("watchdog.update_pipeline", side_effect=fake_update):
+            process(path)

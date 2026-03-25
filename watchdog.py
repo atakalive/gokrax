@@ -199,8 +199,9 @@ def process(path: Path):
                 if getattr(action, f, False)
             ]
             if _unexpected:
-                pj = data.get("project", path.stem)
-                log(f"[{pj}] WARNING: save_grace_met_at with unexpected flags: {_unexpected}")
+                raise ValueError(
+                    f"save_grace_met_at conflicts with side-effect flags: {_unexpected}"
+                )
             key = action.save_grace_met_at
             if not data.get(key):
                 data[key] = _datetime.now(LOCAL_TZ).isoformat()

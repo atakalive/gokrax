@@ -1,5 +1,6 @@
 """tests/test_config.py — config定数の反映テスト"""
 
+import importlib
 import logging
 import sys
 from pathlib import Path
@@ -198,6 +199,40 @@ class TestLoadSkills:
 
         result = notify.load_skills("test-agent", phase="code")
         assert result == ""
+
+
+class TestLogFileEnvVar:
+    """BA-034: GOKRAX_LOG_FILE 環境変数で LOG_FILE をオーバーライドできる。"""
+
+    def test_default_when_unset(self, monkeypatch):
+        """環境変数未設定時はデフォルトの /tmp/gokrax-watchdog.log。"""
+        import config.paths
+        monkeypatch.delenv("GOKRAX_LOG_FILE", raising=False)
+        importlib.reload(config.paths)
+        try:
+            assert config.paths.LOG_FILE == Path("/tmp/gokrax-watchdog.log")
+        finally:
+            importlib.reload(config.paths)
+
+    def test_override_with_env(self, monkeypatch):
+        """環境変数設定時はその値のパスになる。"""
+        import config.paths
+        monkeypatch.setenv("GOKRAX_LOG_FILE", "/var/log/gokrax.log")
+        importlib.reload(config.paths)
+        try:
+            assert config.paths.LOG_FILE == Path("/var/log/gokrax.log")
+        finally:
+            importlib.reload(config.paths)
+
+    def test_empty_string_falls_back_to_default(self, monkeypatch):
+        """空文字列は未設定扱い。デフォルトにフォールバック。"""
+        import config.paths
+        monkeypatch.setenv("GOKRAX_LOG_FILE", "")
+        importlib.reload(config.paths)
+        try:
+            assert config.paths.LOG_FILE == Path("/tmp/gokrax-watchdog.log")
+        finally:
+            importlib.reload(config.paths)
 
 
 class TestMaxCliArgBytes:

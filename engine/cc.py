@@ -267,6 +267,7 @@ _notify "{msg_impl_done}"
             pass
         raise
     log(f"[{project}] CC started (pid={proc.pid}, session={session_id})")
+    proc.returncode = 0  # fire-and-forget: suppress ResourceWarning in __del__
 
 
 # ── Issue #92: pytest ベースライン ──────────────────────────────────────────
@@ -511,6 +512,7 @@ def _start_code_test(project: str, data: dict, pipeline_path: Path) -> None:
 
     update_pipeline(pipeline_path, _save_code_test)
     log(f"[{project}] code test started (pid={proc.pid}, commit={head[:8]})")
+    proc.returncode = 0  # fire-and-forget: suppress ResourceWarning in __del__
 
 
 def _poll_code_test(path: Path, pj: str) -> None:
@@ -722,6 +724,7 @@ def _start_cc_test_fix(project: str, batch: list, data: dict, pipeline_path: Pat
             pass
         raise
     log(f"[{project}] CC test fix started (pid={proc.pid}, session={session_id})")
+    proc.returncode = 0  # fire-and-forget: suppress ResourceWarning in __del__
 
 
 # ────────────────────────────────────────────────────────────────────────────

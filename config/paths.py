@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 __all__ = [
@@ -28,7 +29,7 @@ WATCHDOG_LOOP_CRON_ENTRY = (
     f" > /dev/null 2>&1 &"
 )
 
-LOG_FILE = Path("/tmp/gokrax-watchdog.log")
+LOG_FILE = Path(os.environ.get("GOKRAX_LOG_FILE") or "/tmp/gokrax-watchdog.log")
 
 # レビューデータ外部化のディレクトリ
 REVIEW_FILE_DIR: Path = Path("/tmp/gokrax-review")

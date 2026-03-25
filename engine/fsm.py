@@ -24,7 +24,7 @@ from engine.reviewer import (
 from engine.shared import _is_cc_running, _is_ok_reply, log
 from messages import render
 from notify import notify_discord, notify_implementer, notify_reviewers
-from pipeline_io import clear_pending_notification
+from pipeline_io import clear_pending_notification, get_path, load_pipeline
 
 
 def get_min_reviews(mode_config: dict) -> int:
@@ -953,7 +953,7 @@ def _format_nudge_message(state: str, project: str, batch: list) -> str:
     return notif.impl_msg or f"[gokrax] {project}: {state} — 対応してください。"
 
 
-def _recover_pending_notifications(pj: str, pending: dict, data: dict) -> None:
+def _recover_pending_notifications(pj: str, pending: dict) -> None:
     """未完了通知のリカバリ(Issue #59)。impl/review は再送、merge_summary/run_cc は Discord警告。
 
     At-least-once 保証: 通知成功時のみ pending をクリアする。
@@ -970,14 +970,16 @@ def _recover_pending_notifications(pj: str, pending: dict, data: dict) -> None:
     if "review" in pending:
         info = pending["review"]
         try:
-            excluded = data.get("excluded_reviewers", [])
+            fresh_data = load_pipeline(get_path(pj))
+            excluded = fresh_data.get("excluded_reviewers", [])
+            comment = fresh_data.get("comment", "")
             notify_reviewers(
                 pj, info["new_state"], info["batch"], info["gitlab"],
                 repo_path=info.get("repo_path", ""),
                 review_mode=info.get("review_mode", "standard"),
                 excluded=excluded,
                 base_commit=info.get("base_commit"),
-                comment=data.get("comment", ""),
+                comment=comment,
             )
             clear_pending_notification(pj, "review")
         except Exception as e:

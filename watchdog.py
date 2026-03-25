@@ -133,7 +133,7 @@ def process(path: Path):
     pending = data.get("_pending_notifications")
     if pending:
         log(f"[{pj_recover}] recovering pending notifications: {list(pending.keys())}")
-        _recover_pending_notifications(pj_recover, pending, data)
+        _recover_pending_notifications(pj_recover, pending)
         return
 
     state = data.get("state", "IDLE")

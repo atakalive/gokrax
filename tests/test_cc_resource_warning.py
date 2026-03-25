@@ -88,7 +88,7 @@ class TestStartCcReturncode:
                     pipeline_path=Path("/tmp/test.json"),
                 )
 
-        assert mock_proc.returncode != 0
+        assert mock_proc.returncode is None
         mock_killpg.assert_any_call(12345, signal.SIGKILL)
 
 

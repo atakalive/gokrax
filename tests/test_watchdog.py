@@ -2491,6 +2491,7 @@ class TestDiscordQrunCommand:
         monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(gokrax, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
 
         queue_path = tmp_path / "gokrax-queue.txt"
         queue_path.write_text("test-pj all\n")
@@ -2545,6 +2546,7 @@ class TestDiscordQrunCommand:
         monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(gokrax, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
 
         queue_path = tmp_path / "gokrax-queue.txt"
         queue_path.write_text("test-pj 1\n")
@@ -5177,6 +5179,90 @@ class TestHandleQrun:
         saved = json.loads(path.read_text())
         assert saved.get("skip_test") is True, \
             f"pipeline skip_test should be True, got {saved.get('skip_test')}"
+
+
+# ── TestHandleQrunEarlyQueueMode (Issue #225): queue_mode 早期設定テスト ───────
+
+
+class TestHandleQrunEarlyQueueMode:
+    """_handle_qrun() の queue_mode 早期設定 / ロールバックテスト。"""
+
+    def _make_pipeline(self, tmp_path, project="TestPJ"):
+        pipelines_dir = tmp_path / "pipelines"
+        pipelines_dir.mkdir(exist_ok=True)
+        path = pipelines_dir / f"{project}.json"
+        path.write_text(json.dumps({
+            "project": project,
+            "gitlab": f"testns/{project}",
+            "repo_path": str(tmp_path / "repo"),
+            "state": "IDLE",
+            "enabled": False,
+            "implementer": "implementer1",
+            "batch": [],
+            "history": [],
+        }))
+        return path, pipelines_dir
+
+    def _make_queue(self, tmp_path, line):
+        queue_file = tmp_path / "gokrax-queue.txt"
+        queue_file.write_text(line + "\n")
+        return queue_file
+
+    def _patch_config(self, monkeypatch, pipelines_dir, queue_file):
+        import config as _config
+        import pipeline_io as _pio
+        monkeypatch.setattr(_config, "DISCORD_CHANNEL", "test-ch")
+        monkeypatch.setattr(_config, "QUEUE_FILE", queue_file)
+        monkeypatch.setattr(_config, "PIPELINES_DIR", pipelines_dir)
+        monkeypatch.setattr(_config, "DRY_RUN", False)
+        monkeypatch.setattr(_pio, "PIPELINES_DIR", pipelines_dir)
+
+    def test_queue_mode_set_before_cmd_start(self, tmp_path, monkeypatch):
+        """Test G: cmd_start 成功 → 最初の update_pipeline で queue_mode=True が設定される。"""
+        project = "TestPJ"
+        path, pipelines_dir = self._make_pipeline(tmp_path, project)
+        queue_file = self._make_queue(tmp_path, f"{project} 1 lite")
+        self._patch_config(monkeypatch, pipelines_dir, queue_file)
+
+        call_order: list[str] = []
+
+        def track_update_pipeline(p, fn):
+            data = json.loads(path.read_text())
+            fn(data)
+            path.write_text(json.dumps(data))
+            if data.get("queue_mode"):
+                call_order.append("queue_mode_set")
+
+        def mock_cmd_start(args):
+            call_order.append("cmd_start")
+
+        with patch("gokrax.cmd_start", side_effect=mock_cmd_start), \
+             patch("pipeline_io.update_pipeline", side_effect=track_update_pipeline), \
+             patch("notify.post_discord"):
+            from watchdog import _handle_qrun
+            _handle_qrun("test-msg-g")
+
+        assert "queue_mode_set" in call_order
+        assert "cmd_start" in call_order
+        assert call_order.index("queue_mode_set") < call_order.index("cmd_start")
+
+    def test_exception_triggers_rollback(self, tmp_path, monkeypatch):
+        """Test H: cmd_start が例外 → restore_queue_entry + rollback_queue_mode 呼び出し。"""
+        project = "TestPJ"
+        path, pipelines_dir = self._make_pipeline(tmp_path, project)
+        queue_file = self._make_queue(tmp_path, f"{project} 1 lite")
+        self._patch_config(monkeypatch, pipelines_dir, queue_file)
+
+        with patch("gokrax.cmd_start", side_effect=RuntimeError("boom")), \
+             patch("pipeline_io.update_pipeline"), \
+             patch("task_queue.restore_queue_entry") as mock_restore, \
+             patch("task_queue.rollback_queue_mode") as mock_rollback, \
+             patch("notify.post_discord"):
+            from watchdog import _handle_qrun
+            _handle_qrun("test-msg-h")
+
+        mock_restore.assert_called_once()
+        mock_rollback.assert_called_once()
 
 
 # ── TestHandleQedit (Issue #107) ─────────────────────────────────────────────

@@ -1495,7 +1495,7 @@ def cmd_merge_summary(args):
 
 def cmd_qrun(args):
     """キューから次のバッチを実行: pop → cmd_start → オプション保存"""
-    from task_queue import pop_next_queue_entry, restore_queue_entry, peek_queue
+    from task_queue import pop_next_queue_entry, restore_queue_entry, peek_queue, save_queue_options_to_pipeline, rollback_queue_mode
     from config import QUEUE_FILE
 
     queue_path = Path(args.queue) if args.queue else QUEUE_FILE
@@ -1581,41 +1581,18 @@ def cmd_qrun(args):
         data["queue_mode"] = True
     update_pipeline(path, _set_queue_mode_early)
 
-    # cmd_start 実行 (エラー時は復元)
+    # cmd_start 実行 (エラー時は復元 + queue_mode ロールバック)
     try:
         cmd_start(start_args)
     except (SystemExit, Exception) as e:
         restore_queue_entry(queue_path, entry["original_line"])
+        rollback_queue_mode(path)
         print(f"[qrun] Failed to start {project}: {e}", file=sys.stderr)
         raise
 
     # 成功: automerge/cc_model/comment をパイプラインに保存
     def _save_queue_options(data):
-        data["automerge"] = entry.get("automerge", True)
-        if entry.get("p2_fix"):
-            data["p2_fix"] = True
-        if entry.get("cc_plan_model"):
-            data["cc_plan_model"] = entry["cc_plan_model"]
-        if entry.get("cc_impl_model"):
-            data["cc_impl_model"] = entry["cc_impl_model"]
-        if entry.get("comment"):
-            data["comment"] = entry["comment"]
-        if entry.get("skip_cc_plan"):
-            data["skip_cc_plan"] = True
-        if entry.get("skip_test"):
-            data["skip_test"] = True
-        if entry.get("skip_assess"):
-            data["skip_assess"] = True
-        if entry.get("skip_design"):
-            data["skip_design"] = True
-        if entry.get("no_cc"):
-            data["no_cc"] = True
-        if entry.get("exclude_high_risk"):
-            data["exclude_high_risk"] = True
-        if entry.get("exclude_any_risk"):
-            data["exclude_any_risk"] = True
-        if entry.get("allow_closed"):
-            data["allow_closed"] = True
+        save_queue_options_to_pipeline(data, entry)
 
     update_pipeline(path, _save_queue_options)
 

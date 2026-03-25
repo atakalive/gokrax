@@ -15,6 +15,7 @@ import task_queue
 from task_queue import (
     parse_queue_line, pop_next_queue_entry, restore_queue_entry, peek_queue,
     get_active_entries, append_entry, delete_entry, replace_entry, sanitize_comment,
+    save_queue_options_to_pipeline, rollback_queue_mode,
 )
 
 
@@ -1577,3 +1578,173 @@ class TestParseQueueLineNoCc:
         from task_queue import parse_queue_line
         result = parse_queue_line("gokrax 1,2 no-no-cc")
         assert result["no_cc"] is False
+
+
+# ── Issue #225: save_queue_options_to_pipeline / rollback_queue_mode テスト ──
+
+
+class TestSaveQueueOptionsToPipeline:
+    """save_queue_options_to_pipeline() の単体テスト。"""
+
+    def test_all_truthy_options(self):
+        """Test A: 全オプションが truthy な entry → 全フィールドが data に書き込まれる。"""
+        data: dict = {}
+        entry = {
+            "automerge": False,
+            "p2_fix": True,
+            "cc_plan_model": "opus",
+            "cc_impl_model": "sonnet",
+            "comment": "テストコメント",
+            "skip_cc_plan": True,
+            "skip_test": True,
+            "skip_assess": True,
+            "skip_design": True,
+            "no_cc": True,
+            "exclude_high_risk": True,
+            "exclude_any_risk": True,
+            "allow_closed": True,
+        }
+        save_queue_options_to_pipeline(data, entry)
+        assert data["automerge"] is False
+        assert data["p2_fix"] is True
+        assert data["cc_plan_model"] == "opus"
+        assert data["cc_impl_model"] == "sonnet"
+        assert data["comment"] == "テストコメント"
+        assert data["skip_cc_plan"] is True
+        assert data["skip_test"] is True
+        assert data["skip_assess"] is True
+        assert data["skip_design"] is True
+        assert data["no_cc"] is True
+        assert data["exclude_high_risk"] is True
+        assert data["exclude_any_risk"] is True
+        assert data["allow_closed"] is True
+
+    def test_empty_entry_only_automerge(self):
+        """Test B: 空 entry → automerge のみ設定、他は未設定。"""
+        data: dict = {}
+        entry = {"automerge": True}
+        save_queue_options_to_pipeline(data, entry)
+        assert data["automerge"] is True
+        assert "p2_fix" not in data
+        assert "cc_plan_model" not in data
+        assert "skip_cc_plan" not in data
+        assert "no_cc" not in data
+
+    def test_queue_mode_not_set(self):
+        """Test C: queue_mode が関数内で設定されないことを assert。"""
+        data: dict = {}
+        entry = {"automerge": True, "p2_fix": True}
+        save_queue_options_to_pipeline(data, entry)
+        assert "queue_mode" not in data
+
+    def test_automerge_default_true(self):
+        """Test D: entry に automerge キーなし → data['automerge'] が True になる。"""
+        data: dict = {}
+        entry: dict = {}
+        save_queue_options_to_pipeline(data, entry)
+        assert data["automerge"] is True
+
+
+class TestRollbackQueueMode:
+    """rollback_queue_mode() の単体テスト。"""
+
+    def test_rollback_removes_queue_mode(self, tmp_path):
+        """rollback_queue_mode が pipeline から queue_mode を除去すること。"""
+        pipeline_path = tmp_path / "pipelines" / "TestPJ.json"
+        pipeline_path.parent.mkdir(parents=True)
+        pipeline_path.write_text(json.dumps({
+            "project": "TestPJ",
+            "state": "IDLE",
+            "queue_mode": True,
+        }))
+
+        with patch("pipeline_io.update_pipeline") as mock_up:
+            def apply_fn(path, fn):
+                data = json.loads(pipeline_path.read_text())
+                fn(data)
+                pipeline_path.write_text(json.dumps(data))
+            mock_up.side_effect = apply_fn
+            rollback_queue_mode(pipeline_path)
+
+        saved = json.loads(pipeline_path.read_text())
+        assert "queue_mode" not in saved
+
+
+class TestCmdQrunRollback:
+    """cmd_qrun の失敗時ロールバックテスト。"""
+
+    def test_systemExit_rollback(self, tmp_path, monkeypatch):
+        """Test E: cmd_start が SystemExit → restore_queue_entry + rollback_queue_mode 呼び出し。"""
+        import argparse
+        import config as _config
+        import pipeline_io as _pio
+
+        pipelines_dir = tmp_path / "pipelines"
+        pipelines_dir.mkdir()
+        path = pipelines_dir / "gokrax.json"
+        path.write_text(json.dumps({
+            "project": "gokrax", "state": "IDLE",
+            "enabled": False, "batch": [], "history": [],
+            "gitlab": "testns/gokrax", "repo_path": str(tmp_path / "repo"),
+            "implementer": "impl1",
+        }))
+
+        queue_file = tmp_path / "queue.txt"
+        queue_file.write_text("gokrax 1 lite\n")
+
+        monkeypatch.setattr(_config, "PIPELINES_DIR", pipelines_dir)
+        monkeypatch.setattr(_config, "QUEUE_FILE", queue_file)
+        monkeypatch.setattr(_pio, "PIPELINES_DIR", pipelines_dir)
+
+        with patch("commands.dev.cmd_start", side_effect=SystemExit(1)), \
+             patch("commands.dev.update_pipeline"), \
+             patch("task_queue.restore_queue_entry") as mock_restore, \
+             patch("task_queue.rollback_queue_mode") as mock_rollback:
+            from commands.dev import cmd_qrun
+            args = argparse.Namespace(queue=str(queue_file), dry_run=False)
+            with pytest.raises(SystemExit):
+                cmd_qrun(args)
+            mock_restore.assert_called_once()
+            mock_rollback.assert_called_once()
+
+    def test_success_calls_save_queue_options(self, tmp_path, monkeypatch):
+        """Test F: cmd_start が成功 → save_queue_options_to_pipeline が呼ばれる。"""
+        import argparse
+        import config as _config
+        import pipeline_io as _pio
+
+        pipelines_dir = tmp_path / "pipelines"
+        pipelines_dir.mkdir()
+        path = pipelines_dir / "gokrax.json"
+        path.write_text(json.dumps({
+            "project": "gokrax", "state": "IDLE",
+            "enabled": False, "batch": [], "history": [],
+            "gitlab": "testns/gokrax", "repo_path": str(tmp_path / "repo"),
+            "implementer": "impl1",
+        }))
+
+        queue_file = tmp_path / "queue.txt"
+        queue_file.write_text("gokrax 1 lite\n")
+
+        monkeypatch.setattr(_config, "PIPELINES_DIR", pipelines_dir)
+        monkeypatch.setattr(_config, "QUEUE_FILE", queue_file)
+        monkeypatch.setattr(_pio, "PIPELINES_DIR", pipelines_dir)
+
+        captured_data: list[dict] = []
+
+        def mock_update_pipeline(p, fn):
+            data: dict = {}
+            fn(data)
+            captured_data.append(data)
+
+        with patch("commands.dev.cmd_start"), \
+             patch("commands.dev.update_pipeline", side_effect=mock_update_pipeline):
+            from commands.dev import cmd_qrun
+            args = argparse.Namespace(queue=str(queue_file), dry_run=False)
+            cmd_qrun(args)
+
+        # 最初の update_pipeline は queue_mode=True の早期設定
+        assert captured_data[0] == {"queue_mode": True}
+        # 2番目の update_pipeline は save_queue_options_to_pipeline 経由
+        assert captured_data[1]["automerge"] is True
+        assert "queue_mode" not in captured_data[1]

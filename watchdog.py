@@ -1152,7 +1152,7 @@ def _handle_qrun(msg_id: str):
     """
     from config import DISCORD_CHANNEL, QUEUE_FILE
     from notify import post_discord
-    from task_queue import pop_next_queue_entry, restore_queue_entry
+    from task_queue import pop_next_queue_entry, restore_queue_entry, save_queue_options_to_pipeline, rollback_queue_mode
     from gokrax import cmd_start
     from pipeline_io import update_pipeline, get_path
     import config
@@ -1208,12 +1208,19 @@ def _handle_qrun(msg_id: str):
         allow_closed=entry.get("allow_closed", False),
     )
 
+    # queue_mode を先に設定（cmd_start 内の遷移通知で [Queue] prefix を使うため）
+    path = get_path(project)
+    def _set_queue_mode_early(data):
+        data["queue_mode"] = True
+    update_pipeline(path, _set_queue_mode_early)
+
     # Call cmd_start with try-catch
     try:
         cmd_start(start_args)
     except SystemExit as e:
         # cmd_start raises SystemExit on validation errors
         restore_queue_entry(QUEUE_FILE, entry["original_line"])
+        rollback_queue_mode(path)
         error_msg = f"qrun: failed to start {project}: {str(e)}"
         post_discord(DISCORD_CHANNEL, error_msg)
         log(f"[qrun] {error_msg} (msg_id={msg_id})")
@@ -1221,41 +1228,15 @@ def _handle_qrun(msg_id: str):
     except Exception as e:
         # Unexpected exception
         restore_queue_entry(QUEUE_FILE, entry["original_line"])
+        rollback_queue_mode(path)
         error_msg = f"qrun: failed to start {project}: {type(e).__name__}: {str(e)}"
         post_discord(DISCORD_CHANNEL, error_msg)
         log(f"[qrun] {error_msg} (msg_id={msg_id})")
         return
 
-    # Success: update_pipeline with queue options (same as cmd_qrun)
-    path = get_path(project)
-
+    # Success: update_pipeline with queue options
     def _save_queue_options(data):
-        data["queue_mode"] = True
-        data["automerge"] = entry.get("automerge", True)
-        if entry.get("p2_fix"):
-            data["p2_fix"] = True
-        if entry.get("cc_plan_model"):
-            data["cc_plan_model"] = entry["cc_plan_model"]
-        if entry.get("cc_impl_model"):
-            data["cc_impl_model"] = entry["cc_impl_model"]
-        if entry.get("comment"):
-            data["comment"] = entry["comment"]
-        if entry.get("skip_cc_plan"):
-            data["skip_cc_plan"] = True
-        if entry.get("skip_test"):
-            data["skip_test"] = True
-        if entry.get("skip_assess"):
-            data["skip_assess"] = True
-        if entry.get("skip_design"):
-            data["skip_design"] = True
-        if entry.get("no_cc"):
-            data["no_cc"] = True
-        if entry.get("exclude_high_risk"):
-            data["exclude_high_risk"] = True
-        if entry.get("exclude_any_risk"):
-            data["exclude_any_risk"] = True
-        if entry.get("allow_closed"):
-            data["allow_closed"] = True
+        save_queue_options_to_pipeline(data, entry)
 
     update_pipeline(path, _save_queue_options)
 

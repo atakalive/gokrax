@@ -403,6 +403,57 @@ def restore_queue_entry(queue_path: Path, original_line: str) -> bool:
             fcntl.flock(f, fcntl.LOCK_UN)
 
 
+def save_queue_options_to_pipeline(data: dict, entry: dict) -> None:
+    """キューエントリのオプションを pipeline dict に書き込む。
+
+    - queue_mode は呼び出し元が事前に設定済みであること（本関数では設定しない）。
+    - 非真値のフィールドは書き込みも削除もしない（truthy な項目のみ上書き）。
+      cleanup 時に engine/cleanup.py の _cleanup_batch_state() が全フィールドを削除する。
+    - automerge のみデフォルト True: entry に "automerge" キーがない場合は True を書き込む。
+      これはキュー未経由の start でも automerge=True がデフォルト動作であるため。
+    """
+    data["automerge"] = entry.get("automerge", True)
+    if entry.get("p2_fix"):
+        data["p2_fix"] = True
+    if entry.get("cc_plan_model"):
+        data["cc_plan_model"] = entry["cc_plan_model"]
+    if entry.get("cc_impl_model"):
+        data["cc_impl_model"] = entry["cc_impl_model"]
+    if entry.get("comment"):
+        data["comment"] = entry["comment"]
+    if entry.get("skip_cc_plan"):
+        data["skip_cc_plan"] = True
+    if entry.get("skip_test"):
+        data["skip_test"] = True
+    if entry.get("skip_assess"):
+        data["skip_assess"] = True
+    if entry.get("skip_design"):
+        data["skip_design"] = True
+    if entry.get("no_cc"):
+        data["no_cc"] = True
+    if entry.get("exclude_high_risk"):
+        data["exclude_high_risk"] = True
+    if entry.get("exclude_any_risk"):
+        data["exclude_any_risk"] = True
+    if entry.get("allow_closed"):
+        data["allow_closed"] = True
+
+
+def rollback_queue_mode(path: Path) -> None:
+    """cmd_start() 失敗時に queue_mode を pipeline から除去する。
+
+    qrun の CLI / Discord 両経路の except ブロックから呼ばれる共通ヘルパー。
+    キューファイル操作ではなく pipeline JSON の更新を行う。
+    task_queue.py に配置するのは cmd_qrun / _handle_qrun の共通ロジックを
+    集約する目的であり、save_queue_options_to_pipeline と対になる関数である。
+    """
+    from pipeline_io import update_pipeline
+
+    def _rollback(data: dict) -> None:
+        data.pop("queue_mode", None)
+    update_pipeline(path, _rollback)
+
+
 def peek_queue(queue_path: Path) -> list[dict]:
     """キューファイルの全エントリをパースして返す (dry-run 用)。
 

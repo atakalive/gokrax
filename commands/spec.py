@@ -158,6 +158,16 @@ def cmd_spec_start(args):
 
     pipelines_dir = str(Path(PIPELINES_DIR) / args.project / "spec-reviews")
 
+    # ロック外: _reset_reviewers（ネットワーク I/O）
+    if not skip_review:
+        from engine.reviewer import _reset_reviewers
+        excluded = _reset_reviewers(review_mode, implementer=args.implementer or "")
+        mode_config = REVIEW_MODES.get(review_mode, REVIEW_MODES["full"])
+        excluded_reviewers_only = [r for r in excluded if r in mode_config["members"]]
+    else:
+        excluded = []
+        excluded_reviewers_only = []
+
     def do_start(data):
         # flock内で再チェック（TOCTOU回避）
         if data.get("state", "IDLE") != "IDLE":
@@ -188,28 +198,21 @@ def cmd_spec_start(args):
         if args.review_mode:
             data["review_mode"] = review_mode
         data["spec_config"] = sc
+        # 前回 run の残留値をクリア
+        data.pop("excluded_reviewers", None)
+        data.pop("min_reviews_override", None)
+        # _save_excluded のロジックを統合
+        if excluded_reviewers_only:
+            data["excluded_reviewers"] = excluded
+            rr = sc.get("review_requests", {})
+            for r in excluded_reviewers_only:
+                rr.pop(r, None)
+            effective_count = len(mode_config["members"]) - len(excluded_reviewers_only)
+            min_reviews = mode_config["min_reviews"]
+            if effective_count < min_reviews:
+                data["min_reviews_override"] = max(1, effective_count)
 
     update_pipeline(path, do_start)
-    if not skip_review:
-        from engine.reviewer import _reset_reviewers
-        excluded = _reset_reviewers(review_mode, implementer=args.implementer or "")
-        # excluded から純粋なレビュアーのみ抽出（implementer を除外計算に含めない）
-        mode_config = REVIEW_MODES.get(review_mode, REVIEW_MODES["standard"])
-        excluded_reviewers_only = [r for r in excluded if r in mode_config["members"]]
-        if excluded_reviewers_only:
-            def _save_excluded(data):
-                data["excluded_reviewers"] = excluded
-                # spec_config.review_requests から除外レビュアーを削除
-                sc = data.get("spec_config", {})
-                rr = sc.get("review_requests", {})
-                for r in excluded_reviewers_only:
-                    rr.pop(r, None)
-                # min_reviews_override を計算（レビュアーのみで計算）
-                effective_count = len(mode_config["members"]) - len(excluded_reviewers_only)
-                min_reviews = mode_config["min_reviews"]
-                if effective_count < min_reviews:
-                    data["min_reviews_override"] = max(1, effective_count)
-            update_pipeline(path, _save_excluded)
     from gokrax import _start_loop
     _start_loop()
 
@@ -352,11 +355,12 @@ def cmd_spec_stop(args):
     old_state = data.get("state", "IDLE")
 
     def do_stop(data):
+        old = data.get("state", "IDLE")  # ロック内で取得
         data["state"] = "IDLE"
         data["spec_mode"] = False
         data["spec_config"] = {}
         data["enabled"] = False
-        add_history(data, old_state, "IDLE", actor="cli:spec-stop")
+        add_history(data, old, "IDLE", actor="cli:spec-stop")
 
     update_pipeline(path, do_stop)
     from gokrax import _any_pj_enabled, _stop_loop

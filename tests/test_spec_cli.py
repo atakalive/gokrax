@@ -603,3 +603,180 @@ class TestCmdSpecStatus:
 
         captured = capsys.readouterr()
         assert "not active" in captured.out
+
+
+# ── TestCmdSpecStartTOCTOU (BA-025) ──────────────────────────────────────────
+
+
+class TestCmdSpecStartTOCTOU:
+    """BA-025: cmd_spec_start の update_pipeline 統合テスト"""
+
+    @pytest.fixture(autouse=True)
+    def _spec_file(self, tmp_pipelines, monkeypatch):
+        (tmp_pipelines / "docs").mkdir(exist_ok=True)
+        (tmp_pipelines / "docs" / "spec.md").write_text("# test spec")
+        monkeypatch.chdir(tmp_pipelines)
+
+    def _base_args(self, **overrides):
+        defaults = dict(
+            project="test-pj", spec="docs/spec.md", implementer="implementer1",
+            review_only=False, no_queue=False, skip_review=False,
+            max_cycles=None, review_mode=None, model=None,
+            auto_continue=False, auto_qrun=False,
+        )
+        defaults.update(overrides)
+        return _args(**defaults)
+
+    def test_single_update_with_excluded(self, tmp_pipelines):
+        """Test A: excluded ありで update_pipeline が1回、excluded_reviewers と spec_config が含まれる"""
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, _make_pipeline(state="IDLE"))
+
+        from commands.spec import cmd_spec_start
+
+        call_count = 0
+        orig_update = __import__("pipeline_io").update_pipeline
+
+        def counting_update(p, cb):
+            nonlocal call_count
+            call_count += 1
+            return orig_update(p, cb)
+
+        # reviewer1 を excluded として返す
+        with patch("gokrax._start_loop"), \
+             patch("engine.reviewer._reset_reviewers", return_value=["reviewer1"]), \
+             patch("commands.spec.update_pipeline", side_effect=counting_update):
+            cmd_spec_start(self._base_args())
+
+        assert call_count == 1
+        data = json.loads(path.read_text())
+        assert data["excluded_reviewers"] == ["reviewer1"]
+        assert "spec_config" in data
+        assert "reviewer1" not in data["spec_config"]["review_requests"]
+
+    def test_single_update_no_excluded(self, tmp_pipelines):
+        """Test B: excluded なしで update_pipeline が1回、excluded_reviewers キーなし"""
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, _make_pipeline(state="IDLE"))
+
+        from commands.spec import cmd_spec_start
+
+        call_count = 0
+        orig_update = __import__("pipeline_io").update_pipeline
+
+        def counting_update(p, cb):
+            nonlocal call_count
+            call_count += 1
+            return orig_update(p, cb)
+
+        with patch("gokrax._start_loop"), \
+             patch("engine.reviewer._reset_reviewers", return_value=[]), \
+             patch("commands.spec.update_pipeline", side_effect=counting_update):
+            cmd_spec_start(self._base_args())
+
+        assert call_count == 1
+        data = json.loads(path.read_text())
+        assert "excluded_reviewers" not in data
+
+    def test_clears_stale_excluded_and_min_reviews_override(self, tmp_pipelines):
+        """Test C: 前回 run の excluded_reviewers と min_reviews_override がクリアされる"""
+        path = tmp_pipelines / "test-pj.json"
+        stale = _make_pipeline(state="IDLE")
+        stale["excluded_reviewers"] = ["old_reviewer"]
+        stale["min_reviews_override"] = 2
+        write_pipeline(path, stale)
+
+        from commands.spec import cmd_spec_start
+
+        with patch("gokrax._start_loop"), \
+             patch("engine.reviewer._reset_reviewers", return_value=[]):
+            cmd_spec_start(self._base_args())
+
+        data = json.loads(path.read_text())
+        assert "excluded_reviewers" not in data
+        assert "min_reviews_override" not in data
+
+    def test_min_reviews_override_boundary(self, tmp_pipelines):
+        """Test D: effective_count < min_reviews で min_reviews_override が設定される"""
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, _make_pipeline(state="IDLE"))
+
+        from commands.spec import cmd_spec_start
+
+        # full mode: members=["reviewer1","reviewer3","reviewer5","reviewer6"], min_reviews=4
+        # reviewer1, reviewer3 を excluded → effective_count=2 < 4
+        with patch("gokrax._start_loop"), \
+             patch("engine.reviewer._reset_reviewers", return_value=["reviewer1", "reviewer3"]):
+            cmd_spec_start(self._base_args())
+
+        data = json.loads(path.read_text())
+        assert data["min_reviews_override"] == 2  # max(1, 4-2=2)
+
+    def test_skip_review_no_reset_reviewers_call(self, tmp_pipelines):
+        """skip_review=True で _reset_reviewers が呼ばれないことを検証"""
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, _make_pipeline(state="IDLE"))
+
+        from commands.spec import cmd_spec_start
+
+        with patch("gokrax._start_loop"), \
+             patch("engine.reviewer._reset_reviewers") as mock_reset:
+            cmd_spec_start(self._base_args(skip_review=True))
+
+        mock_reset.assert_not_called()
+        data = json.loads(path.read_text())
+        assert "excluded_reviewers" not in data
+        assert data["state"] == "SPEC_APPROVED"
+
+    def test_min_reviews_override_not_set_when_sufficient(self, tmp_pipelines):
+        """Test D(後半): effective_count >= min_reviews で min_reviews_override なし"""
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, _make_pipeline(state="IDLE", review_mode="lite"))
+
+        from commands.spec import cmd_spec_start
+
+        # lite mode: members=["reviewer1","reviewer3"], min_reviews=2
+        # implementer のみ excluded（mode members 外）→ excluded_reviewers_only は空
+        with patch("gokrax._start_loop"), \
+             patch("engine.reviewer._reset_reviewers", return_value=["implementer1"]):
+            cmd_spec_start(self._base_args(review_mode="lite"))
+
+        data = json.loads(path.read_text())
+        assert "min_reviews_override" not in data
+
+
+# ── TestCmdSpecStopTOCTOU (BA-037) ───────────────────────────────────────────
+
+
+class TestCmdSpecStopTOCTOU:
+    """BA-037: cmd_spec_stop の old_state がロック内で取得されるテスト"""
+
+    def test_old_state_from_lock_inner_data(self, tmp_pipelines):
+        """Test E: add_history にはロック内の state が使われる"""
+        path = tmp_pipelines / "test-pj.json"
+        # ロック外の load_pipeline では SPEC_REVIEW を返す
+        write_pipeline(path, _make_active_pipeline(state="SPEC_REVIEW"))
+
+        from commands.spec import cmd_spec_stop
+
+        orig_update = __import__("pipeline_io").update_pipeline
+
+        def intercept_update(p, cb):
+            def wrapper(data):
+                # ロック内で state を SPEC_REVISE に差し替え（watchdog が遷移した想定）
+                data["state"] = "SPEC_REVISE"
+                cb(data)
+            return orig_update(p, wrapper)
+
+        with patch("commands.spec.update_pipeline", side_effect=intercept_update), \
+             patch("gokrax._any_pj_enabled", return_value=False), \
+             patch("gokrax._stop_loop"):
+            cmd_spec_stop(_args(project="test-pj"))
+
+        data = json.loads(path.read_text())
+        # add_history に記録された old_state はロック内の SPEC_REVISE であるべき
+        hist = data["history"]
+        stop_entry = [h for h in hist if h.get("actor") == "cli:spec-stop"]
+        assert len(stop_entry) == 1
+        assert stop_entry[0]["from"] == "SPEC_REVISE"
+        assert stop_entry[0]["to"] == "IDLE"

@@ -1405,6 +1405,23 @@ class TestNotifyReviewersFailedTracking:
         assert result == sorted(set(result))
         assert len(result) == 3
 
+    def test_empty_effective_set_no_blocked(self, monkeypatch):
+        """effective_set が空集合のとき BLOCKED にならないこと"""
+        import notify
+        # 全メンバーを excluded に入れて effective_set を空にする
+        test_modes = {"test_empty": {"members": ["reviewer1", "reviewer3"],
+                                     "min_reviews": 2, "grace_period_sec": 0}}
+        monkeypatch.setattr(notify, "REVIEW_MODES", {**notify.REVIEW_MODES, **test_modes})
+        monkeypatch.setattr(config, "MAX_CLI_ARG_BYTES", 999_999)
+
+        with patch("notify._trigger_blocked") as mock_blocked:
+            result = notify.notify_reviewers(
+                "proj", "DESIGN_REVIEW", self._make_batch(),
+                "testns/proj", review_mode="test_empty",
+                excluded=["reviewer1", "reviewer3"])
+        assert result == []
+        mock_blocked.assert_not_called()
+
     def test_skip_mode_returns_empty_list(self):
         """review_mode=skip → 空リスト返却"""
         import notify

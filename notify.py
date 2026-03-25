@@ -954,7 +954,7 @@ def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
 
     # 全員失敗時のみ BLOCKED
     effective_set = {r for r in reviewers if r not in excluded and r in AGENTS}
-    if failed_set and failed_set >= effective_set:
+    if effective_set and failed_set >= effective_set:
         _trigger_blocked(project, f"全レビュアーへの送信失敗: {sorted(failed_set)}")
 
     return sorted(failed_set)

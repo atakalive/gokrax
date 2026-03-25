@@ -339,12 +339,24 @@ python3 gokrax.py spec start \
 
 | コマンド | 説明 |
 |---------|------|
-| `init` | 新規プロジェクト作成（**初回必須**） |
+| `init` | 新規プロジェクト作成（**初回必須**、下記例を参照） |
 | `status` | 全プロジェクトの状態表示 |
 | `start` | バッチ開始（triage + 設計計画遷移 + watchdog 有効化） |
 | `enable` / `disable` | watchdog 有効化・無効化（主にBLOCKEDからの復帰） |
 | `transition` | 手動状態遷移（`--force` で強制） |
 | `review-mode` | レビューモード変更（full, lite, etc.） |
+
+### プロジェクトの初期化
+
+```bash
+# 基本（GitLabパスとローカルリポジトリを指定）
+gokrax init --pj myproject --gitlab user/myproject --repo-path /path/to/repo
+
+# 実装担当エージェントを指定
+gokrax init --pj myproject --gitlab user/myproject --repo-path /path/to/repo --implementer my_agent
+```
+
+`init` はプロジェクトごとに1回だけ実行する。パイプライン管理ファイル（`pipeline.json`）が生成され、以降の全コマンドはこのファイルを参照する。
 
 | Queueコマンド（動作確認後はこちらがおすすめ） | 説明 |
 |---------|------|
@@ -390,7 +402,7 @@ REVIEW_MODES = {
     "lite3":    {"members": ["rev1", "rev2", "rev3"],
                  "min_reviews": 2, "grace_period_sec": 300},
     "lite_x2":  {"members": ["rev1", "rev2"],
-                 "n_pass":  {"local": 2}, },
+                 "n_pass":  {"rev1": 2, "rev2": 2}, },
     "min":      {"members": ["rev1"],},
     "skip":     {"members": [],},
 }
@@ -407,8 +419,8 @@ REVIEW_MODES = {
     "members": ["rev1", "rev2", "rev3", "rev4"],
     "n_pass": {"rev1": 2, "rev2": 2, "rev3": 2, "rev4": 2},
     "code": {
-        "members": ["rev1", "rev2", "rev3", "rev4"],
-        "n_pass": {"rev2": 2, "rev4": 2},
+        "members": ["rev1", "rev2", "rev3"],  # excluded rev4 in CODE_REVIEW
+        "n_pass": {"rev1": 2, "rev2": 2},     # rev3: 1 (default value)
     },
 },
 ```

@@ -38,6 +38,10 @@ PROJECT_QUEUE_OPTIONS: dict[str, dict[str, bool | str]] = {}
 def resolve_queue_options(project: str) -> dict[str, bool | str]:
     """PJ固有オプションをグローバルデフォルトにマージして返す。
 
+    Args:
+        project: プロジェクト名。空文字列や None の場合、PROJECT_QUEUE_OPTIONS に
+                 該当エントリがないため DEFAULT_QUEUE_OPTIONS がそのまま返される。
+
     解決の優先順位（マージ後）:
     - PROJECT_QUEUE_OPTIONS[project] に存在するキー → PJ 固有値
     - 上記に存在しないキー → DEFAULT_QUEUE_OPTIONS の値

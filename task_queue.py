@@ -13,9 +13,9 @@ from pathlib import Path
 from typing import Optional
 
 from pipeline_io import load_pipeline, get_path
-from config import REVIEW_MODES, DEFAULT_QUEUE_OPTIONS, resolve_queue_options
+from config import REVIEW_MODES, resolve_queue_options
 
-# DEFAULT_QUEUE_OPTIONS のキーを内部キーにマッピングする。
+# resolve_queue_options() が返す dict のキーを内部キーにマッピングする。
 # "key=value" 形式: キー名を内部キーに変換し、value（= の右辺）を値として使う。
 # "key" 形式（value が str）: キー名を内部キーに変換し、dict の value を値として使う。
 # 同一エイリアスの重複（パターン A/B 混在）は dict 挿入順で後勝ち。

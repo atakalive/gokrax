@@ -718,7 +718,7 @@ def process(path: Path):
                         data[f"_last_nudge_{r}"] = _datetime.now(LOCAL_TZ).isoformat()
                     for r in ng:
                         data[f"_nudge_failed_{r}"] = _datetime.now(LOCAL_TZ).isoformat()
-                update_pipeline(path, _set_nudge_ts)
+                update_pipeline(notify_path, _set_nudge_ts)
 
             if woken:
                 ts = _datetime.now(LOCAL_TZ).strftime("%m/%d %H:%M")

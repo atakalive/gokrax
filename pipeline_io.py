@@ -36,6 +36,8 @@ else:
 from config import PIPELINES_DIR, LOCAL_TZ, MAX_HISTORY
 from engine.shared import log
 
+_DEFAULT_GOKRAX_STATE: dict = {"last_command_message_id": "0"}
+
 
 def now_iso() -> str:
     return datetime.now(LOCAL_TZ).isoformat()
@@ -60,9 +62,14 @@ def _replace_with_retry(src: str, dst: str, retries: int = 20, delay: float = 0.
             time.sleep(delay)
 
 
-def _atomic_write(path: Path, data: dict) -> None:
-    """tmpfile + rename で atomic write。"""
-    data["updated_at"] = now_iso()
+def _atomic_write(path: Path, data: dict, *, add_updated_at: bool = True) -> None:
+    """tmpfile + rename で atomic write。
+
+    add_updated_at=True (デフォルト): pipeline JSON 用。data["updated_at"] を付与する。
+    add_updated_at=False: gokrax-state.json 用。スキーマにないキーを付与しない。
+    """
+    if add_updated_at:
+        data["updated_at"] = now_iso()
     fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
     try:
         with os.fdopen(fd, "w") as f:
@@ -101,6 +108,65 @@ def update_pipeline(path: Path, callback) -> dict:
             return data
         finally:
             _unlock(lock_f)
+
+
+def update_gokrax_state(callback) -> dict:
+    """read-modify-write を排他ロック内で一貫実行。
+
+    callback(state: dict) -> None で state を直接変更する。
+    ロックファイル: GOKRAX_STATE_PATH.with_suffix('.lock')
+
+    ファイルが存在しない場合は _DEFAULT_GOKRAX_STATE のコピーをデフォルトとして使用。
+    JSON デコードエラー/OS エラーの場合もデフォルトにフォールバックし、WARNING をログに出力する。
+
+    例外契約:
+    - callback が例外を送出した場合、ファイルは変更されない（ロックは解放される）。
+      例外はそのまま呼び出し元に伝播する。
+    - これは update_pipeline と同じ挙動: try/finally でロック解放、
+      _atomic_write は callback 正常完了後にのみ呼ばれる。
+
+    単調性に関する注意:
+    - last_command_message_id は high-water mark として使用されており、
+      呼び出し元は値を巻き戻さない責務を持つ。本関数はキーの意味論に関与しない。
+    """
+    from config import GOKRAX_STATE_PATH
+
+    path = GOKRAX_STATE_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = path.with_suffix(".lock")
+    try:
+        fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.write(fd, b"\0")
+        os.close(fd)
+    except FileExistsError:
+        pass
+    with open(lock_path, "r+b") as lock_f:
+        _lock(lock_f)
+        try:
+            data = load_gokrax_state()
+            callback(data)
+            _atomic_write(path, data, add_updated_at=False)
+            return data
+        finally:
+            _unlock(lock_f)
+
+
+def load_gokrax_state() -> dict:
+    """gokrax-state.json を読み取り専用で取得（ロックなし、atomic write 前提）。
+
+    書き込みが不要な箇所で使用する。
+    ファイル不在・JSON 破損時は _DEFAULT_GOKRAX_STATE のコピーを返す。
+    """
+    from config import GOKRAX_STATE_PATH
+
+    if not GOKRAX_STATE_PATH.exists():
+        return _DEFAULT_GOKRAX_STATE.copy()
+    try:
+        with open(GOKRAX_STATE_PATH) as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        log("WARNING: gokrax-state.json corrupt, using default")
+        return _DEFAULT_GOKRAX_STATE.copy()
 
 
 def save_pipeline(path: Path, data: dict) -> None:

@@ -1101,37 +1101,6 @@ def process(path: Path):
 # enabledチェックは process() 内の早期returnで行う。
 
 
-def _load_gokrax_state() -> dict:
-    """Load gokrax-state.json or return default state."""
-    from config import GOKRAX_STATE_PATH
-    if not GOKRAX_STATE_PATH.exists():
-        return {"last_command_message_id": "0"}
-    try:
-        with open(GOKRAX_STATE_PATH) as f:
-            return json.load(f)
-    except (json.JSONDecodeError, OSError):
-        log("WARNING: gokrax-state.json corrupt, using default")
-        return {"last_command_message_id": "0"}
-
-
-def _save_gokrax_state(state: dict):
-    """Atomically save gokrax-state.json."""
-    import tempfile
-    from config import GOKRAX_STATE_PATH
-    GOKRAX_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=GOKRAX_STATE_PATH.parent, suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w") as f:
-            json.dump(state, f, ensure_ascii=False, indent=2)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp, str(GOKRAX_STATE_PATH))
-    except BaseException:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
 
 
 def _handle_qrun(msg_id: str):
@@ -1430,7 +1399,8 @@ def check_discord_commands():
     import config
 
     # 1. Load state
-    state = _load_gokrax_state()
+    from pipeline_io import load_gokrax_state, update_gokrax_state
+    state = load_gokrax_state()
     last_id_raw = state.get("last_command_message_id", "0")
     try:
         last_id = int(last_id_raw)
@@ -1449,8 +1419,9 @@ def check_discord_commands():
                     int(heal_id)  # 数値として妥当か検証
                 except (ValueError, TypeError):
                     continue
-                state["last_command_message_id"] = heal_id
-                _save_gokrax_state(state)
+                def _heal(s, _hid=heal_id):
+                    s["last_command_message_id"] = _hid
+                update_gokrax_state(_heal)
                 log(f"[discord-commands] Self-healed last_command_message_id to {heal_id}")
                 healed = True
                 break
@@ -1522,8 +1493,9 @@ def check_discord_commands():
             _handle_qedit(msg_id, content)
 
         # 6. Update state (even in dry-run to test deduplication)
-        state["last_command_message_id"] = msg_id
-        _save_gokrax_state(state)
+        def _update_last_id(s, _mid=msg_id):
+            s["last_command_message_id"] = _mid
+        update_gokrax_state(_update_last_id)
         log(f"Processed Discord {cmd_word} command (msg_id={msg_id})")
 
 

@@ -631,25 +631,16 @@ def cmd_transition(args):
             from engine.reviewer import _reset_reviewers
             impl = ""
             if args.to == "DESIGN_PLAN":
-                from config import GOKRAX_STATE_PATH
+                from pipeline_io import load_gokrax_state, update_gokrax_state
                 # グローバル状態から前回PJを取得（PJ単位JSONではなく共有ファイル）
-                try:
-                    with open(GOKRAX_STATE_PATH) as _sf:
-                        _gstate = json.load(_sf)
-                    last_pj = _gstate.get("last_impl_project", "")
-                except (FileNotFoundError, json.JSONDecodeError):
-                    last_pj = ""
+                gstate = load_gokrax_state()
+                last_pj = gstate.get("last_impl_project", "")
                 if not last_pj or last_pj != pj:
                     impl = ctx["implementer"]
                 # グローバル状態に記録
-                try:
-                    with open(GOKRAX_STATE_PATH) as _sf:
-                        _gstate = json.load(_sf)
-                except (FileNotFoundError, json.JSONDecodeError):
-                    _gstate = {}
-                _gstate["last_impl_project"] = pj
-                with open(GOKRAX_STATE_PATH, "w") as _sf:
-                    json.dump(_gstate, _sf, indent=2)
+                def _set_last_impl(s):
+                    s["last_impl_project"] = pj
+                update_gokrax_state(_set_last_impl)
             _reset_reviewers(ctx["review_mode"], implementer=impl)
     if notif.impl_msg:
         phase = STATE_PHASE_MAP.get(args.to, "")

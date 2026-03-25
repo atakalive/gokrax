@@ -26,6 +26,7 @@ _PLACEHOLDER_VARS = frozenset({
     "PIPELINES_DIR",
     "LOCAL_TZ",
     "DEFAULT_QUEUE_OPTIONS",
+    "PROJECT_QUEUE_OPTIONS",
 })
 
 

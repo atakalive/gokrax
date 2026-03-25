@@ -96,10 +96,11 @@ def block_dangerous_subprocess(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _clear_default_queue_options(monkeypatch):
-    """全テストで DEFAULT_QUEUE_OPTIONS を空にし、デフォルト注入を無効化する。
-    新規テストだけが明示的にデフォルトを設定してテストする。
+    """全テストで DEFAULT_QUEUE_OPTIONS / PROJECT_QUEUE_OPTIONS を空にし、デフォルト注入を無効化する。
+    resolve_queue_options は config.* を直接参照するため、config モジュールの定義元をパッチする。
     """
-    monkeypatch.setattr("task_queue.DEFAULT_QUEUE_OPTIONS", {})
+    monkeypatch.setattr("config.DEFAULT_QUEUE_OPTIONS", {})
+    monkeypatch.setattr("config.PROJECT_QUEUE_OPTIONS", {})
 
 
 @pytest.fixture

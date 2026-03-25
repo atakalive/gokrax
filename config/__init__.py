@@ -32,6 +32,20 @@ DISCORD_BOT_TOKEN: str = ""
 
 DEFAULT_QUEUE_OPTIONS: dict[str, bool | str] = {}
 
+PROJECT_QUEUE_OPTIONS: dict[str, dict[str, bool | str]] = {}
+
+
+def resolve_queue_options(project: str) -> dict[str, bool | str]:
+    """PJ固有オプションをグローバルデフォルトにマージして返す。
+
+    解決の優先順位（マージ後）:
+    - PROJECT_QUEUE_OPTIONS[project] に存在するキー → PJ 固有値
+    - 上記に存在しないキー → DEFAULT_QUEUE_OPTIONS の値
+    - いずれにも存在しないキー → 含まれない（呼び出し側の既存デフォルトに委ねる）
+    """
+    return {**DEFAULT_QUEUE_OPTIONS, **PROJECT_QUEUE_OPTIONS.get(project, {})}
+
+
 # cmd_start で DEFAULT_QUEUE_OPTIONS 適用後に None→False 正規化する bool オプションキーの一覧。
 # DEFAULT_QUEUE_OPTIONS に含まれないキーでも、後続コードが bool を期待するものはここに含める。
 NONE_TO_FALSE_KEYS: tuple[str, ...] = (

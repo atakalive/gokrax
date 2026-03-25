@@ -54,6 +54,18 @@ DEFAULT_QUEUE_OPTIONS: dict[str, bool | str] = {
     "skip_assess": True,
 }
 
+# Per-project overrides for DEFAULT_QUEUE_OPTIONS.
+# Keys present here override DEFAULT_QUEUE_OPTIONS for the specified project.
+# Keys not present fall through to DEFAULT_QUEUE_OPTIONS.
+# If a project is not listed, DEFAULT_QUEUE_OPTIONS is used as-is.
+# Supports the same key space as DEFAULT_QUEUE_OPTIONS:
+#   bool keys (e.g. "skip_test": False), alias keys (e.g. "impl": "opus"),
+#   and alias=value keys (e.g. "impl=opus": True).
+PROJECT_QUEUE_OPTIONS: dict[str, dict[str, bool | str]] = {
+    # "MyProject": {"skip_test": False},     # override skip_test for this project
+    # "SimpleProject": {"skip_test": True},   # explicitly keep default
+}
+
 REVIEW_MODES = {
     "full": {
         "members": ["reviewer1", "reviewer2", "reviewer3", "reviewer4"],

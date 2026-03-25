@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Optional
 
 from pipeline_io import load_pipeline, get_path
-from config import REVIEW_MODES, DEFAULT_QUEUE_OPTIONS
+from config import REVIEW_MODES, DEFAULT_QUEUE_OPTIONS, resolve_queue_options
 
 # DEFAULT_QUEUE_OPTIONS のキーを内部キーにマッピングする。
 # "key=value" 形式: キー名を内部キーに変換し、value（= の右辺）を値として使う。
@@ -232,7 +232,8 @@ def parse_queue_line(line: str) -> dict:
     result.pop("_seen_automerge", None)
     result.pop("_seen_no_automerge", None)
     explicit = result.pop("_explicit_keys")
-    for key, default_val in DEFAULT_QUEUE_OPTIONS.items():
+    resolved = resolve_queue_options(result["project"])
+    for key, default_val in resolved.items():
         if "=" in key:
             # パターン A: "impl=opus": True → lhs="impl", rhs="opus"
             if not default_val:

@@ -229,48 +229,48 @@ class TestParseQueueLine:
 
     def test_parse_queue_line_default_options_applied(self, monkeypatch):
         """DEFAULT_QUEUE_OPTIONS の値がオプション未指定行に注入される"""
-        monkeypatch.setattr("task_queue.DEFAULT_QUEUE_OPTIONS", {"skip_cc_plan": True, "keep_ctx_intra": True})
+        monkeypatch.setattr("config.DEFAULT_QUEUE_OPTIONS", {"skip_cc_plan": True, "keep_ctx_intra": True})
         result = parse_queue_line("Foo 1")
         assert result["skip_cc_plan"] is True
         assert result["keep_ctx_intra"] is True
 
     def test_parse_queue_line_explicit_overrides_default(self, monkeypatch):
         """明示指定されたキーはデフォルトで上書きされない"""
-        monkeypatch.setattr("task_queue.DEFAULT_QUEUE_OPTIONS", {"skip_cc_plan": True, "keep_ctx_intra": True})
+        monkeypatch.setattr("config.DEFAULT_QUEUE_OPTIONS", {"skip_cc_plan": True, "keep_ctx_intra": True})
         result = parse_queue_line("Foo 1 keep-ctx-batch")
         assert result["keep_ctx_batch"] is True       # 明示指定
         assert result["keep_ctx_intra"] is True       # デフォルト注入
 
     def test_parse_queue_line_keep_ctx_none_overrides_default(self, monkeypatch):
         """keep-ctx-none 指定時はデフォルトが適用されない"""
-        monkeypatch.setattr("task_queue.DEFAULT_QUEUE_OPTIONS", {"skip_cc_plan": True, "keep_ctx_intra": True})
+        monkeypatch.setattr("config.DEFAULT_QUEUE_OPTIONS", {"skip_cc_plan": True, "keep_ctx_intra": True})
         result = parse_queue_line("Foo 1 keep-ctx-none")
         assert result["keep_ctx_batch"] is False
         assert result["keep_ctx_intra"] is False      # デフォルト True が適用されない
 
     def test_parse_queue_line_no_skip_cc_plan_overrides_default(self, monkeypatch):
         """no-skip-cc-plan 指定時はデフォルトの skip_cc_plan=True が適用されない"""
-        monkeypatch.setattr("task_queue.DEFAULT_QUEUE_OPTIONS", {"skip_cc_plan": True})
+        monkeypatch.setattr("config.DEFAULT_QUEUE_OPTIONS", {"skip_cc_plan": True})
         result = parse_queue_line("Foo 1 no-skip-cc-plan")
         assert result["skip_cc_plan"] is False
 
     def test_parse_queue_line_empty_defaults(self, monkeypatch):
         """DEFAULT_QUEUE_OPTIONS が空のときは従来通りの結果"""
-        monkeypatch.setattr("task_queue.DEFAULT_QUEUE_OPTIONS", {})
+        monkeypatch.setattr("config.DEFAULT_QUEUE_OPTIONS", {})
         result = parse_queue_line("Foo 1")
         assert result["skip_cc_plan"] is False
         assert result["keep_ctx_intra"] is False
 
     def test_parse_queue_line_keep_ctx_none_token_valid(self, monkeypatch):
         """keep-ctx-none トークンが ValueError を投げない"""
-        monkeypatch.setattr("task_queue.DEFAULT_QUEUE_OPTIONS", {})
+        monkeypatch.setattr("config.DEFAULT_QUEUE_OPTIONS", {})
         result = parse_queue_line("Foo 1 keep-ctx-none")
         assert result["keep_ctx_batch"] is False
         assert result["keep_ctx_intra"] is False
 
     def test_parse_queue_line_no_skip_cc_plan_token_valid(self, monkeypatch):
         """no-skip-cc-plan トークンが ValueError を投げない"""
-        monkeypatch.setattr("task_queue.DEFAULT_QUEUE_OPTIONS", {})
+        monkeypatch.setattr("config.DEFAULT_QUEUE_OPTIONS", {})
         result = parse_queue_line("Foo 1 no-skip-cc-plan")
         assert result["skip_cc_plan"] is False
 
@@ -1371,43 +1371,43 @@ class TestParseQueueLineDefaultModelOptions:
 
     def test_default_impl_equals_format(self, monkeypatch):
         """パターン A: "impl=opus": True が cc_impl_model に反映される"""
-        monkeypatch.setattr("task_queue.DEFAULT_QUEUE_OPTIONS", {"impl=opus": True})
+        monkeypatch.setattr("config.DEFAULT_QUEUE_OPTIONS", {"impl=opus": True})
         result = parse_queue_line("Foo 1")
         assert result["cc_impl_model"] == "opus"
 
     def test_default_impl_str_format(self, monkeypatch):
         """パターン B: "impl": "opus" が cc_impl_model に反映される"""
-        monkeypatch.setattr("task_queue.DEFAULT_QUEUE_OPTIONS", {"impl": "opus"})
+        monkeypatch.setattr("config.DEFAULT_QUEUE_OPTIONS", {"impl": "opus"})
         result = parse_queue_line("Foo 1")
         assert result["cc_impl_model"] == "opus"
 
     def test_default_plan_equals_format(self, monkeypatch):
         """パターン A: "plan=sonnet": True が cc_plan_model に反映される"""
-        monkeypatch.setattr("task_queue.DEFAULT_QUEUE_OPTIONS", {"plan=sonnet": True})
+        monkeypatch.setattr("config.DEFAULT_QUEUE_OPTIONS", {"plan=sonnet": True})
         result = parse_queue_line("Foo 1")
         assert result["cc_plan_model"] == "sonnet"
 
     def test_default_plan_str_format(self, monkeypatch):
         """パターン B: "plan": "sonnet" が cc_plan_model に反映される"""
-        monkeypatch.setattr("task_queue.DEFAULT_QUEUE_OPTIONS", {"plan": "sonnet"})
+        monkeypatch.setattr("config.DEFAULT_QUEUE_OPTIONS", {"plan": "sonnet"})
         result = parse_queue_line("Foo 1")
         assert result["cc_plan_model"] == "sonnet"
 
     def test_explicit_impl_overrides_default(self, monkeypatch):
         """キュー行で明示指定した impl= はデフォルトより優先される"""
-        monkeypatch.setattr("task_queue.DEFAULT_QUEUE_OPTIONS", {"impl": "opus"})
+        monkeypatch.setattr("config.DEFAULT_QUEUE_OPTIONS", {"impl": "opus"})
         result = parse_queue_line("Foo 1 impl=haiku")
         assert result["cc_impl_model"] == "haiku"
 
     def test_explicit_plan_overrides_default(self, monkeypatch):
         """キュー行で明示指定した plan= はデフォルトより優先される"""
-        monkeypatch.setattr("task_queue.DEFAULT_QUEUE_OPTIONS", {"plan=sonnet": True})
+        monkeypatch.setattr("config.DEFAULT_QUEUE_OPTIONS", {"plan=sonnet": True})
         result = parse_queue_line("Foo 1 plan=opus")
         assert result["cc_plan_model"] == "opus"
 
     def test_both_model_and_bool_defaults(self, monkeypatch):
         """モデル指定と bool 指定が混在する DEFAULT_QUEUE_OPTIONS"""
-        monkeypatch.setattr("task_queue.DEFAULT_QUEUE_OPTIONS", {
+        monkeypatch.setattr("config.DEFAULT_QUEUE_OPTIONS", {
             "impl": "opus",
             "skip_cc_plan": True,
             "keep_ctx_intra": True,
@@ -1419,20 +1419,20 @@ class TestParseQueueLineDefaultModelOptions:
 
     def test_unknown_alias_ignored(self, monkeypatch):
         """_QUEUE_OPT_ALIASES に存在しない "key=value" 形式は無視される（エラーにならない）"""
-        monkeypatch.setattr("task_queue.DEFAULT_QUEUE_OPTIONS", {"unknown=value": True})
+        monkeypatch.setattr("config.DEFAULT_QUEUE_OPTIONS", {"unknown=value": True})
         result = parse_queue_line("Foo 1")
         assert result["cc_impl_model"] is None
         assert result["cc_plan_model"] is None
 
     def test_pattern_a_false_disables(self, monkeypatch):
         """パターン A: "impl=opus": False は適用しない（無効化の意図）"""
-        monkeypatch.setattr("task_queue.DEFAULT_QUEUE_OPTIONS", {"impl=opus": False})
+        monkeypatch.setattr("config.DEFAULT_QUEUE_OPTIONS", {"impl=opus": False})
         result = parse_queue_line("Foo 1")
         assert result["cc_impl_model"] is None
 
     def test_pattern_a_empty_value_skipped(self, monkeypatch):
         """パターン A: "impl=": True は空値のためスキップされる"""
-        monkeypatch.setattr("task_queue.DEFAULT_QUEUE_OPTIONS", {"impl=": True})
+        monkeypatch.setattr("config.DEFAULT_QUEUE_OPTIONS", {"impl=": True})
         result = parse_queue_line("Foo 1")
         assert result["cc_impl_model"] is None
 

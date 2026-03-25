@@ -360,7 +360,7 @@ def cmd_start(args):
     --issue省略時はGitLab APIでopen issue全件取得。
     """
     from gokrax import _start_loop
-    from config import DEFAULT_QUEUE_OPTIONS, NONE_TO_FALSE_KEYS
+    from config import DEFAULT_QUEUE_OPTIONS, NONE_TO_FALSE_KEYS, resolve_queue_options
 
     # 明示的な否定フラグを先に処理
     if getattr(args, "keep_ctx_none", None):
@@ -383,7 +383,8 @@ def cmd_start(args):
 
     # デフォルトオプション適用: CLI 引数で明示指定されていない（None のまま）オプションにデフォルト値を注入
     from task_queue import _QUEUE_OPT_ALIASES
-    for key, default_val in DEFAULT_QUEUE_OPTIONS.items():
+    resolved = resolve_queue_options(args.project)
+    for key, default_val in resolved.items():
         if "=" in key:
             # パターン A: "impl=opus": True → lhs="impl", rhs="opus"
             if not default_val:

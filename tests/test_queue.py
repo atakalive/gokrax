@@ -1351,6 +1351,44 @@ class TestCmdStartSkipCcPlan:
         data = _json.loads(path.read_text())
         assert "skip_cc_plan" not in data
 
+    def test_clear_stale_and_mode_in_single_update(self, tmp_pipelines):
+        """_clear_stale_skip と do_mode が do_setup として1回の update_pipeline で処理されること"""
+        import json as _json
+        path = tmp_pipelines / "test-pj.json"
+        self._write_pipeline(path, {
+            "project": "test-pj", "gitlab": "testns/test-pj",
+            "state": "IDLE", "enabled": False,
+            "implementer": "implementer1", "batch": [], "history": [],
+            "skip_cc_plan": True,  # 残留フラグ
+            "created_at": "2025-01-01T00:00:00+09:00",
+            "updated_at": "2025-01-01T00:00:00+09:00",
+        })
+        import argparse
+        from gokrax import cmd_start
+        args = argparse.Namespace(
+            project="test-pj",
+            issue=[1],
+            mode=None,
+            keep_context=False,
+            keep_ctx_batch=False,
+            keep_ctx_intra=False,
+            keep_ctx_all=False,
+            p2_fix=False,
+            comment=None,
+            skip_cc_plan=False,
+            skip_test=True,
+        )
+        with patch("commands.dev.cmd_triage"), \
+             patch("commands.dev.cmd_transition"), \
+             patch("gokrax._start_loop"):
+            cmd_start(args)
+
+        data = _json.loads(path.read_text())
+        # 残留フラグがクリアされている
+        assert "skip_cc_plan" not in data
+        # 新しいフラグが設定されている
+        assert data.get("skip_test") is True
+
     def test_qrun_dry_run_shows_skip_cc_plan(self, tmp_path, monkeypatch, capsys):
         """cmd_qrun --dry-run で skip-cc-plan が opts に表示されること"""
         import config
@@ -1748,3 +1786,78 @@ class TestCmdQrunRollback:
         # 2番目の update_pipeline は save_queue_options_to_pipeline 経由
         assert captured_data[1]["automerge"] is True
         assert "queue_mode" not in captured_data[1]
+
+
+class TestCmdTransitionSetEnabled:
+    """cmd_transition の set_enabled オプションのテスト"""
+
+    @staticmethod
+    def _write_pipeline(path, data):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        import json as _json
+        path.write_text(_json.dumps(data))
+
+    def test_set_enabled_applied_with_transition(self, tmp_pipelines):
+        """set_enabled=True が遷移と同一ロック内で適用されること"""
+        import json as _json
+        import argparse
+        from commands.dev import cmd_transition
+        from engine.fsm import TransitionAction
+
+        path = tmp_pipelines / "test-pj.json"
+        self._write_pipeline(path, {
+            "project": "test-pj", "gitlab": "testns/test-pj",
+            "state": "IDLE", "enabled": False,
+            "implementer": "implementer1",
+            "batch": [{"issue": 1, "title": "t"}],
+            "history": [],
+        })
+
+        empty_notif = TransitionAction()
+        with patch("commands.dev.get_notification_for_state", return_value=empty_notif), \
+             patch("commands.dev.merge_pending_notifications"):
+            args = argparse.Namespace(
+                project="test-pj",
+                to="INITIALIZE",
+                actor="cli",
+                force=False,
+                resume=False,
+                set_enabled=True,
+            )
+            cmd_transition(args)
+
+        data = _json.loads(path.read_text())
+        assert data["state"] == "INITIALIZE"
+        assert data["enabled"] is True
+
+    def test_set_enabled_not_set_when_omitted(self, tmp_pipelines):
+        """set_enabled 未指定時に enabled が変更されないこと（後方互換）"""
+        import json as _json
+        import argparse
+        from commands.dev import cmd_transition
+        from engine.fsm import TransitionAction
+
+        path = tmp_pipelines / "test-pj.json"
+        self._write_pipeline(path, {
+            "project": "test-pj", "gitlab": "testns/test-pj",
+            "state": "IDLE", "enabled": False,
+            "implementer": "implementer1",
+            "batch": [{"issue": 1, "title": "t"}],
+            "history": [],
+        })
+
+        empty_notif = TransitionAction()
+        with patch("commands.dev.get_notification_for_state", return_value=empty_notif), \
+             patch("commands.dev.merge_pending_notifications"):
+            args = argparse.Namespace(
+                project="test-pj",
+                to="INITIALIZE",
+                actor="cli",
+                force=False,
+                resume=False,
+            )
+            cmd_transition(args)
+
+        data = _json.loads(path.read_text())
+        assert data["state"] == "INITIALIZE"
+        assert data["enabled"] is False

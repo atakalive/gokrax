@@ -414,7 +414,7 @@ def cmd_start(args):
             f"Cannot start: current state is {data['state']} (expected IDLE)"
         )
 
-    # 前回失敗時の残留フラグをクリア（do_mode で再設定する前に）
+    # 前回失敗時の残留フラグをクリア（do_setup で再設定する前に）
     def _clear_stale_skip(d):
         d.pop("skip_cc_plan", None)
         d.pop("skip_test", None)
@@ -423,7 +423,6 @@ def cmd_start(args):
         d.pop("no_cc", None)
         d.pop("exclude_high_risk", None)
         d.pop("exclude_any_risk", None)
-    update_pipeline(path, _clear_stale_skip)
 
     # 2. Issue番号取得（--issue指定 or GitLab API）
     if args.issue:
@@ -454,71 +453,60 @@ def cmd_start(args):
         args.keep_ctx_intra = True
 
     # 5. review_mode / keep_ctx / p2_fix / comment 設定（遷移前に設定して/newの宛先に反映させる）
-    has_keep_ctx = getattr(args, "keep_ctx_batch", False) or getattr(args, "keep_ctx_intra", False)
-    has_p2_fix = getattr(args, "p2_fix", False)
-    has_comment = bool(getattr(args, "comment", None))
-    has_skip_cc_plan = getattr(args, "skip_cc_plan", False)
-    has_skip_test = getattr(args, "skip_test", False)
-    has_skip_assess = getattr(args, "skip_assess", False)
-    has_skip_design = getattr(args, "skip_design", False)
-    has_no_cc = getattr(args, "no_cc", False)
-    has_exclude_high_risk = getattr(args, "exclude_high_risk", False)
-    has_exclude_any_risk = getattr(args, "exclude_any_risk", False)
-    has_cc_plan_model = bool(getattr(args, "cc_plan_model", None))
-    has_cc_impl_model = bool(getattr(args, "cc_impl_model", None))
-    if getattr(args, "mode", None) or has_keep_ctx or has_p2_fix or has_comment or has_skip_cc_plan or has_skip_test or has_skip_assess or has_skip_design or has_no_cc or has_exclude_high_risk or has_exclude_any_risk or has_cc_plan_model or has_cc_impl_model:
-        from config import REVIEW_MODES
-        if getattr(args, "mode", None) and args.mode not in REVIEW_MODES:
-            raise SystemExit(f"Invalid mode: {args.mode} (valid: {list(REVIEW_MODES)})")
-        def do_mode(data):
-            if getattr(args, "mode", None):
-                data["review_mode"] = args.mode
-            if getattr(args, "keep_ctx_batch", False):
-                data["keep_ctx_batch"] = True
-            if getattr(args, "keep_ctx_intra", False):
-                data["keep_ctx_intra"] = True
-            if getattr(args, "p2_fix", False):
-                data["p2_fix"] = True
-            if getattr(args, "comment", None):
-                from task_queue import sanitize_comment
-                sanitized = sanitize_comment(args.comment)
-                if sanitized:
-                    data["comment"] = sanitized
-            if getattr(args, "skip_cc_plan", False):
-                data["skip_cc_plan"] = True
-            if getattr(args, "skip_test", False):
-                data["skip_test"] = True
-            if getattr(args, "skip_assess", False):
-                data["skip_assess"] = True
-            if getattr(args, "skip_design", False):
-                data["skip_design"] = True
-            if getattr(args, "no_cc", False):
-                data["no_cc"] = True
-            if getattr(args, "exclude_high_risk", False):
-                data["exclude_high_risk"] = True
-            if getattr(args, "exclude_any_risk", False):
-                data["exclude_any_risk"] = True
-            if getattr(args, "cc_plan_model", None):
-                data["cc_plan_model"] = args.cc_plan_model
-            if getattr(args, "cc_impl_model", None):
-                data["cc_impl_model"] = args.cc_impl_model
-        update_pipeline(path, do_mode)
+    from config import REVIEW_MODES
+    if getattr(args, "mode", None) and args.mode not in REVIEW_MODES:
+        raise SystemExit(f"Invalid mode: {args.mode} (valid: {list(REVIEW_MODES)})")
+
+    def do_setup(data):
+        # 残留フラグクリア（常に実行）
+        _clear_stale_skip(data)
+        # モード設定（各項目は条件付き）
+        if getattr(args, "mode", None):
+            data["review_mode"] = args.mode
+        if getattr(args, "keep_ctx_batch", False):
+            data["keep_ctx_batch"] = True
+        if getattr(args, "keep_ctx_intra", False):
+            data["keep_ctx_intra"] = True
+        if getattr(args, "p2_fix", False):
+            data["p2_fix"] = True
+        if getattr(args, "comment", None):
+            from task_queue import sanitize_comment
+            sanitized = sanitize_comment(args.comment)
+            if sanitized:
+                data["comment"] = sanitized
+        if getattr(args, "skip_cc_plan", False):
+            data["skip_cc_plan"] = True
+        if getattr(args, "skip_test", False):
+            data["skip_test"] = True
+        if getattr(args, "skip_assess", False):
+            data["skip_assess"] = True
+        if getattr(args, "skip_design", False):
+            data["skip_design"] = True
+        if getattr(args, "no_cc", False):
+            data["no_cc"] = True
+        if getattr(args, "exclude_high_risk", False):
+            data["exclude_high_risk"] = True
+        if getattr(args, "exclude_any_risk", False):
+            data["exclude_any_risk"] = True
+        if getattr(args, "cc_plan_model", None):
+            data["cc_plan_model"] = args.cc_plan_model
+        if getattr(args, "cc_impl_model", None):
+            data["cc_impl_model"] = args.cc_impl_model
+    update_pipeline(path, do_setup)
 
 
-    # 7. INITIALIZEに遷移
+    # 7. INITIALIZEに遷移 + watchdog有効化（set_enabled で同一ロック内で設定）
     transition_args = argparse.Namespace(
         project=args.project,
         to="INITIALIZE",
         actor="cli",
         force=False,
         resume=False,
+        set_enabled=True,
     )
     cmd_transition(transition_args)
 
-    # 8. watchdog有効化 + loop起動
-    def do_enable(data):
-        data["enabled"] = True
-    update_pipeline(path, do_enable)
+    # 8. loop起動
     _start_loop()
 
     # 9. 完了メッセージ
@@ -561,6 +549,9 @@ def cmd_transition(args):
                 )
         add_history(data, current, target, args.actor or "cli")
         data["state"] = target
+        _set_enabled = getattr(args, "set_enabled", None)
+        if isinstance(_set_enabled, bool) and target != "IDLE":
+            data["enabled"] = _set_enabled
         if target == "IDLE":
             _reset_to_idle(data)
         elif args.force and target in ("DESIGN_REVIEW", "CODE_REVIEW"):

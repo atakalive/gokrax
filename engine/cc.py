@@ -17,6 +17,7 @@ from messages import render
 PYTEST_BASELINE_TIMEOUT_SEC = 300   # 5分
 MAX_BASELINE_OUTPUT_CHARS   = 50_000
 MAX_BASELINE_EMBED_CHARS    = 30_000
+KILL_GRACE_SEC: float       = 2.0
 
 
 def _start_cc(project: str, batch: list, gitlab: str, repo_path: str, pipeline_path: Path) -> None:
@@ -254,7 +255,17 @@ _notify "{msg_impl_done}"
     def _save_cc_info(data):
         data["cc_pid"] = proc.pid
         data["cc_session_id"] = session_id
-    update_pipeline(pipeline_path, _save_cc_info)
+    try:
+        update_pipeline(pipeline_path, _save_cc_info)
+    except Exception:
+        # PID が記録できないと watchdog が kill できなくなるので、
+        # 子プロセスを即座に殺して例外を再送出する。
+        # 即 SIGKILL の理由: 起動直後で CC は作業未開始、graceful shutdown 不要。
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            pass
+        raise
     log(f"[{project}] CC started (pid={proc.pid}, session={session_id})")
 
 
@@ -279,6 +290,37 @@ def _has_pytest(repo_path: str) -> bool:
     return False
 
 
+def _killpg_graceful(pid: int, grace_sec: float = KILL_GRACE_SEC) -> bool:
+    """SIGTERM → ポーリング待機 → SIGKILL のグレースフルキルを行う。
+
+    os.killpg(pid, 0) でプロセスグループ単位の生存を判定する。
+    /proc/{pid} はグループリーダしか見ないため使用しない。
+
+    Returns:
+        True: SIGKILL まで必要だった
+        False: SIGTERM で終了した or 既に死んでいた
+
+    Note: 戻り値はログ用途のみ。この値で処理分岐を行わないこと。
+    """
+    try:
+        os.killpg(pid, signal.SIGTERM)
+    except OSError:
+        return False
+    import time
+    deadline = time.monotonic() + grace_sec
+    while time.monotonic() < deadline:
+        try:
+            os.killpg(pid, 0)
+        except OSError:
+            return False
+        time.sleep(0.1)
+    try:
+        os.killpg(pid, signal.SIGKILL)
+    except OSError:
+        return False
+    return True
+
+
 def _kill_pytest_baseline(data: dict, pj: str) -> None:
     """既存の pytest baseline プロセスを停止し、残留ファイルを掃除する。
 
@@ -289,16 +331,9 @@ def _kill_pytest_baseline(data: dict, pj: str) -> None:
     if not info:
         return
     pid = info.get("pid")
-    if pid and Path(f"/proc/{pid}").exists():
-        try:
-            os.killpg(pid, signal.SIGTERM)
-            import time
-            time.sleep(0.5)
-            if Path(f"/proc/{pid}").exists():
-                os.killpg(pid, signal.SIGKILL)
-            log(f"[{pj}] killed stale pytest baseline (pgid={pid})")
-        except OSError:
-            pass
+    if pid:
+        escalated = _killpg_graceful(pid)
+        log(f"[{pj}] killed stale pytest baseline (pgid={pid}, escalated={escalated})")
     for key in ("output_path", "exit_code_path"):
         p = info.get(key, "")
         if p:
@@ -605,16 +640,9 @@ def _kill_code_test(data: dict, pj: str) -> None:
     if not info:
         return
     pid = info.get("pid")
-    if pid and Path(f"/proc/{pid}").exists():
-        try:
-            os.killpg(pid, signal.SIGTERM)
-            import time
-            time.sleep(0.5)
-            if Path(f"/proc/{pid}").exists():
-                os.killpg(pid, signal.SIGKILL)
-            log(f"[{pj}] killed stale code test (pgid={pid})")
-        except OSError:
-            pass
+    if pid:
+        escalated = _killpg_graceful(pid)
+        log(f"[{pj}] killed stale code test (pgid={pid}, escalated={escalated})")
     for key in ("output_path", "exit_code_path", "script_path"):
         p = info.get(key, "")
         if p:
@@ -684,7 +712,15 @@ def _start_cc_test_fix(project: str, batch: list, data: dict, pipeline_path: Pat
         d["cc_pid"] = proc.pid
         d["cc_session_id"] = session_id
 
-    update_pipeline(pipeline_path, _save_cc_info)
+    try:
+        update_pipeline(pipeline_path, _save_cc_info)
+    except Exception:
+        # 即 SIGKILL: 起動直後で CC は作業未開始、graceful shutdown 不要。
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            pass
+        raise
     log(f"[{project}] CC test fix started (pid={proc.pid}, session={session_id})")
 
 

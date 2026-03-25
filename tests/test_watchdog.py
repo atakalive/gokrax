@@ -4451,9 +4451,8 @@ class TestKillPytestBaseline:
         assert "_pytest_baseline" not in data
 
     def test_kills_alive_pid(self, tmp_path):
-        """pid が生きている → killpg(SIGTERM) + killpg(SIGKILL) + ファイル削除"""
+        """pid が生きている → _killpg_graceful で SIGTERM → SIGKILL + ファイル削除"""
         import signal as _signal
-        import os
         from engine.cc import _kill_pytest_baseline
 
         out_path = str(tmp_path / "out.txt")
@@ -4473,20 +4472,9 @@ class TestKillPytestBaseline:
         def fake_killpg(pgid, sig):
             kill_calls.append((pgid, sig))
 
-        # pid は最初alive、SIGTERMの後もalive、SIGKILLで死ぬ想定
-        # Path(f"/proc/{pid}").exists() を3回分: initial check, after SIGTERM, never alive (SIGKILL)
-        exists_results = [True, True]
-        exists_iter = iter(exists_results)
-
-        def fake_path_exists(self_):
-            try:
-                return next(exists_iter)
-            except StopIteration:
-                return False
-
-        with patch.object(Path, "exists", fake_path_exists), \
-             patch("watchdog.os.killpg", side_effect=fake_killpg), \
-             patch("watchdog.os.unlink") as mock_unlink, \
+        with patch("os.killpg", side_effect=fake_killpg), \
+             patch("os.unlink") as mock_unlink, \
+             patch("time.monotonic", side_effect=[0.0, 0.0, 3.0]), \
              patch("time.sleep"):
             _kill_pytest_baseline(data, "pj")
 
@@ -4495,7 +4483,9 @@ class TestKillPytestBaseline:
         assert "_pytest_baseline" not in data
 
     def test_dead_pid_only_cleans_files(self, tmp_path):
-        """pid が既に死んでいる → ファイル削除のみ"""
+        """pid が既に死んでいる → _killpg_graceful で SIGTERM が OSError → ファイル削除のみ"""
+        import errno as _errno
+        import signal as _signal
         from engine.cc import _kill_pytest_baseline
 
         out_path = str(tmp_path / "out.txt")
@@ -4509,12 +4499,12 @@ class TestKillPytestBaseline:
             }
         }
 
-        with patch.object(Path, "exists", return_value=False), \
-             patch("watchdog.os.killpg") as mock_kill, \
-             patch("watchdog.os.unlink") as mock_unlink:
+        with patch("os.killpg", side_effect=OSError(_errno.ESRCH, "No such process")) as mock_kill, \
+             patch("os.unlink") as mock_unlink:
             _kill_pytest_baseline(data, "pj")
 
-        mock_kill.assert_not_called()
+        # SIGTERM は試みるが OSError で即終了（SIGKILL は呼ばれない）
+        mock_kill.assert_called_once_with(99999, _signal.SIGTERM)
         # output_path は unlink されるはず
         mock_unlink.assert_called_once_with(out_path)
         assert "_pytest_baseline" not in data

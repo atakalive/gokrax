@@ -135,6 +135,7 @@ class TransitionAction:
     dispute_nudge_reviewers: list | None = None  # dispute pending で催促が必要なレビュアー
     extend_notice: str | None = None  # タイムアウト延長案内メッセージ
     save_grace_met_at: str | None = None  # grace met_atをpipelineに保存する必要がある場合のキー名
+    clear_grace_met_at: str | None = None  # 遷移確定時にクリアする grace met_at のキー名
     npass_target_reviewers: list | None = None  # NPASS遷移時のターゲットレビュアー一覧
     skipped_issues: list[dict] | None = None   # ASSESSMENT で除外された Issue の dict リスト
     remaining_issues: list[dict] | None = None  # ASSESSMENT で残留した Issue の dict リスト
@@ -374,7 +375,7 @@ def _resolve_review_outcome(
 
     義務レベル:
     - P0: 常に義務。max cycles → BLOCKED。
-    - P1: 常に義務。max cycles → APPROVE フォールバック（免除）。
+    - P1: 常に義務。max cycles → BLOCKED。
     - P2: p2_fix 有効時のみ義務。max cycles → APPROVE フォールバック（免除）。
     """
     appr = "DESIGN_APPROVED" if "DESIGN" in state else "CODE_APPROVED"
@@ -430,7 +431,12 @@ def _resolve_review_outcome(
 
 
 def check_transition(state: str, batch: list, data: dict | None = None) -> TransitionAction:
-    """現在の状態とバッチから次の遷移アクションを決定する純粋関数。副作用なし。"""
+    """現在の状態とバッチから次の遷移アクションを決定する。
+
+    data を読み取るが直接変更しない。data への書き込みが必要な場合は
+    TransitionAction のフィールド（save_grace_met_at, clear_grace_met_at 等）
+    で呼び出し側に委譲する。
+    """
     if state in ("IDLE", "BLOCKED"):
         return TransitionAction()
 
@@ -531,10 +537,10 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
         # Check if min_reviews reached
         if count >= min_rev:
             met_key = f"{'design' if 'DESIGN' in state else 'code'}_min_reviews_met_at"
-            if data and not data.get(met_key):
-                data[met_key] = datetime.now(LOCAL_TZ).isoformat()
+            met_at_exists = bool(data and data.get(met_key))
+            if not met_at_exists:
                 log(
-                    f"[GRACE] min_reviews={min_rev} met at {data[met_key]}, effective={effective_count}, grace={grace_sec} sec"
+                    f"[GRACE] min_reviews={min_rev} met (first detection), effective={effective_count}, grace={grace_sec} sec"
                 )
 
             # Determine if we should transition now
@@ -546,8 +552,7 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
                 should_transition = True
 
             # Case 2: Grace period check
-            elif min_rev < effective_count and grace_sec > 0 and data and data.get(met_key):
-                from datetime import timedelta  # noqa: F401
+            elif min_rev < effective_count and grace_sec > 0 and met_at_exists:
                 met_at = datetime.fromisoformat(data[met_key])
                 elapsed = (datetime.now(LOCAL_TZ) - met_at).total_seconds()
                 if elapsed >= grace_sec:
@@ -559,6 +564,9 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
 
             # Case 3: No grace (min == effective or grace_sec == 0) → immediate
             else:
+                if not met_at_exists and min_rev < effective_count and grace_sec > 0:
+                    log("[GRACE] grace period started, save met_at and wait")
+                    return TransitionAction(save_grace_met_at=met_key)
                 log("[GRACE] no grace period, transitioning")
                 should_transition = True
 
@@ -569,8 +577,6 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
                     should_transition = False
 
             if should_transition:
-                if data:
-                    data.pop(met_key, None)
                 comment = data.get("comment", "") if data else ""
                 outcome = _resolve_review_outcome(state, data, batch, has_p0, has_p1, has_p2, comment=comment)
 
@@ -593,8 +599,12 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
                             new_state=npass_state,
                             send_review=True,
                             npass_target_reviewers=npass_targets,
+                            clear_grace_met_at=met_key if met_at_exists else None,
                         )
 
+                # Grace met_at のクリアを呼び出し側に委譲（実際に met_at が存在する場合のみ）
+                if met_at_exists:
+                    outcome.clear_grace_met_at = met_key
                 return outcome
 
         # Not enough reviews yet

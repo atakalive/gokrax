@@ -189,6 +189,15 @@ def process(path: Path):
         batch = data.get("batch", [])
         action = check_transition(state, batch, data)
 
+        # Grace period met_at の永続化（check_transition は data を変更しない）
+        if action.save_grace_met_at and not action.new_state:
+            key = action.save_grace_met_at
+            if not data.get(key):
+                data[key] = _datetime.now(LOCAL_TZ).isoformat()
+                pj = data.get("project", path.stem)
+                log(f"[{pj}] {key} saved: {data[key]}")
+            return
+
         # レビュアー催促（書き込み不要、情報保存のみ）
         if action.nudge_reviewers or action.dispute_nudge_reviewers:
             pj = data.get("project", path.stem)
@@ -465,6 +474,8 @@ def process(path: Path):
 
         log(f"[{pj}] {state} → {action.new_state}")
         add_history(data, state, action.new_state, actor="watchdog")
+        if action.clear_grace_met_at:
+            data.pop(action.clear_grace_met_at, None)
         data["state"] = action.new_state
 
         # NPASS: ターゲットレビュアー保存/更新

@@ -318,7 +318,7 @@ def cmd_spec_continue(args):
 
 
 def cmd_spec_done(args):
-    """SPEC_DONE → IDLE"""
+    """SPEC_DONE → IDLE (normal completion of spec mode)"""
     path = get_path(args.project)
     data = load_pipeline(path)
     if data.get("state") != "SPEC_DONE":
@@ -329,9 +329,15 @@ def cmd_spec_done(args):
         data["state"] = "IDLE"
         data["spec_mode"] = False
         data["spec_config"] = {}
+        data["enabled"] = False
 
     update_pipeline(path, do_done)
-    print(f"{args.project}: SPEC_DONE → IDLE (spec mode ended)")
+    from gokrax import _any_pj_enabled, _stop_loop
+    if not _any_pj_enabled():
+        _stop_loop()
+        print(f"{args.project}: SPEC_DONE → IDLE (spec mode ended, watchdog disabled, loop stopped)")
+    else:
+        print(f"{args.project}: SPEC_DONE → IDLE (spec mode ended, watchdog disabled)")
 
 
 

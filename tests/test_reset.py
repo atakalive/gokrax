@@ -179,7 +179,9 @@ class TestCmdReset:
         with patch("engine.cc._kill_pytest_baseline",
                     side_effect=lambda data, pj: data.pop("_pytest_baseline", None)), \
              patch("engine.cc._kill_code_test",
-                    side_effect=lambda data, pj: data.pop("_code_test", None)) as mock_kill_ct:
+                    side_effect=lambda data, pj: data.pop("_code_test", None)) as mock_kill_ct, \
+             patch("engine.reviewer._cleanup_review_files"), \
+             patch("notify.cleanup_npass_files"):
             _reset_to_idle(data)
             mock_kill_ct.assert_called_once()
 

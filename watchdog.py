@@ -53,6 +53,7 @@ from engine.reviewer import (
     _revise_target_issues, clear_reviews,
     _get_pending_reviewers, _cleanup_review_files,
 )
+from engine.cleanup import _cleanup_batch_state
 from spec_review import (
     should_continue_review, _reset_review_requests,
     parse_review_yaml, validate_received_entry,
@@ -262,46 +263,11 @@ def process(path: Path):
                 data["keep_ctx_batch"] = True
                 data["keep_ctx_intra"] = True
 
-        # DONE状態: バッチを退避してからクリア + watchdog無効化 + タイムアウト延長リセット + REVISE counters reset
+        # DONE状態: バッチを退避してからクリア + watchdog無効化
         if state == "DONE":
             _done_batch = list(data.get("batch", []))  # close用に退避
             _done_queue_mode = data.get("queue_mode", False)  # _check_queue判定用に退避
-            data["batch"] = []
-            _cleanup_review_files(pj)
-            data["enabled"] = False
-            data.pop("timeout_extension", None)
-            data.pop("extend_count", None)
-            # Reset REVISE cycle counters (Issue #29)
-            data.pop("design_revise_count", None)
-            data.pop("code_revise_count", None)
-            # Clear queue options (Issue #45, #71)
-            data.pop("automerge", None)
-            data.pop("p2_fix", None)
-            data.pop("cc_plan_model", None)
-            data.pop("cc_impl_model", None)
-            data.pop("keep_context", None)      # 旧フラグ（後方互換クリーンアップ）
-            data.pop("keep_ctx_batch", None)
-            data.pop("keep_ctx_intra", None)
-            data.pop("queue_mode", None)
-            data.pop("comment", None)
-            data.pop("skip_cc_plan", None)
-            data.pop("skip_test", None)
-            data.pop("skip_assess", None)
-            data.pop("skip_design", None)
-            data.pop("no_cc", None)
-            data.pop("exclude_high_risk", None)
-            data.pop("exclude_any_risk", None)
-            data.pop("assessment", None)
-            # Issue #92: pytest baseline クリーンアップ
-            _kill_pytest_baseline(data, pj)
-            data.pop("test_baseline", None)
-            # Issue #87: code test クリーンアップ
-            _kill_code_test(data, pj)
-            data.pop("test_result", None)
-            data.pop("test_output", None)
-            data.pop("test_retry_count", None)
-            # Issue #190: reviewer_number_map クリーンアップ
-            data.pop("reviewer_number_map", None)
+            _cleanup_batch_state(data, pj)
 
         # ASSESSMENT → IDLE (リスクスキップ): クリーンアップ前に通知用データを退避 (Issue #181)
         _skip_assessment = {}
@@ -316,36 +282,7 @@ def process(path: Path):
 
         # ASSESSMENT → IDLE (リスクスキップ): DONE と同等のクリーンアップ (Issue #181)
         if state == "ASSESSMENT" and action.new_state == "IDLE":
-            _cleanup_review_files(pj)
-            data["batch"] = []
-            data["enabled"] = False
-            data.pop("timeout_extension", None)
-            data.pop("extend_count", None)
-            data.pop("design_revise_count", None)
-            data.pop("code_revise_count", None)
-            data.pop("automerge", None)
-            data.pop("p2_fix", None)
-            data.pop("cc_plan_model", None)
-            data.pop("cc_impl_model", None)
-            data.pop("keep_context", None)
-            data.pop("keep_ctx_batch", None)
-            data.pop("keep_ctx_intra", None)
-            data.pop("queue_mode", None)
-            data.pop("comment", None)
-            data.pop("skip_cc_plan", None)
-            data.pop("skip_test", None)
-            data.pop("skip_assess", None)
-            data.pop("skip_design", None)
-            data.pop("no_cc", None)
-            data.pop("exclude_high_risk", None)
-            data.pop("exclude_any_risk", None)
-            data.pop("assessment", None)
-            data.pop("test_baseline", None)
-            data.pop("test_result", None)
-            data.pop("test_output", None)
-            data.pop("test_retry_count", None)
-            # Issue #190: reviewer_number_map クリーンアップ
-            data.pop("reviewer_number_map", None)
+            _cleanup_batch_state(data, pj)
 
         # ASSESSMENT → IMPLEMENTATION (一部除外): batch を remaining に差し替え (Issue #200)
         if state == "ASSESSMENT" and action.new_state == "IMPLEMENTATION" and action.remaining_issues is not None:

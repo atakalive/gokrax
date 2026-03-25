@@ -531,78 +531,11 @@ def _reset_to_idle(data: dict) -> None:
 
     state と history の更新は呼び出し側で行う。
     spec_mode のクリーンアップは行わない（それは cmd_spec_stop の責務）。
+    クリーンアップの実体は _cleanup_batch_state() に委譲。
     """
-    # --- リソース解放（pop より先に実行）---
-    from engine.cc import _kill_pytest_baseline, _kill_code_test
-    from engine.reviewer import _cleanup_review_files
-    from notify import cleanup_npass_files
+    from engine.cleanup import _cleanup_batch_state
     pj = data.get("project", "")
-    _kill_pytest_baseline(data, pj)
-    _kill_code_test(data, pj)
-    _cleanup_review_files(pj)
-    cleanup_npass_files(pj)
-
-    # --- 状態クリア ---
-    data["batch"] = []
-    data["enabled"] = False
-    # 既存フィールド
-    data.pop("design_revise_count", None)
-    data.pop("code_revise_count", None)
-    data.pop("automerge", None)
-    data.pop("p2_fix", None)
-    data.pop("cc_plan_model", None)
-    data.pop("cc_impl_model", None)
-    data.pop("keep_context", None)
-    data.pop("keep_ctx_batch", None)
-    data.pop("keep_ctx_intra", None)
-    data.pop("comment", None)
-    data.pop("skip_cc_plan", None)
-    data.pop("skip_test", None)
-    data.pop("skip_assess", None)
-    data.pop("skip_design", None)
-    data.pop("no_cc", None)
-    data.pop("exclude_high_risk", None)
-    data.pop("exclude_any_risk", None)
-    data.pop("assessment", None)
-    # タイムアウト延長
-    data.pop("timeout_extension", None)
-    data.pop("extend_count", None)
-    # キューモード
-    data.pop("queue_mode", None)
-    # pytest ベースライン（_kill_pytest_baseline で PID 使用済み）
-    data.pop("test_baseline", None)
-    data.pop("_pytest_baseline", None)
-    # CODE_TEST 関連
-    data.pop("test_result", None)
-    data.pop("test_output", None)
-    data.pop("test_retry_count", None)
-    # CC 実行追跡
-    data.pop("cc_pid", None)
-    data.pop("cc_session_id", None)
-    # バッチ開始時 HEAD
-    data.pop("base_commit", None)
-    # レビュアー除外
-    data.pop("excluded_reviewers", None)
-    data.pop("min_reviews_override", None)
-    # フェーズ別レビュアー構成
-    data.pop("review_config", None)
-    # マージサマリー
-    data.pop("summary_message_id", None)
-    # 未送通知
-    data.pop("_pending_notifications", None)
-    # 状態タイマー
-    data.pop("_state_entered_at", None)
-    # 前回レビュー退避
-    data.pop("_prev_design_reviews", None)
-    data.pop("_prev_code_reviews", None)
-    # NPASS
-    data.pop("_npass_target_reviewers", None)
-    # 催促系（動的キー含む）
-    data.pop("_last_nudge_at", None)
-    for k in [k for k in data if k.startswith(("_nudge_failed_", "_last_nudge_"))]:
-        del data[k]
-    for k in [k for k in data if k.endswith("_notify_count")]:
-        del data[k]
+    _cleanup_batch_state(data, pj)
 
 
 def cmd_transition(args):

@@ -348,6 +348,7 @@ def _build_npass_review_message(
     todo_header = (
         f"【タスク: {len(pending_issues)}件 — 全て完了するまで止めるな】\n"
         + "\n".join(todo_lines)
+        + "\n\n⚠️ 匿名レビュー: --summary に自分の名前やエージェント名を含めないこと。"
     )
 
     cmds_block = "\n".join(review_cmds)
@@ -1112,6 +1113,7 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
     todo_header = (
         f"【タスク: {len(pending_issues)}件 — 全て完了するまで止めるな】\n"
         + "\n".join(pending_issues)
+        + "\n\n⚠️ 匿名レビュー: --summary に自分の名前やエージェント名を含めないこと。"
     )
 
     body = "\n\n".join(sections)

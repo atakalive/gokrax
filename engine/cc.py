@@ -687,24 +687,73 @@ def _start_cc_test_fix(project: str, batch: list, data: dict, pipeline_path: Pat
 
 # ────────────────────────────────────────────────────────────────────────────
 
-def _auto_push_and_close(repo_path: str, gitlab: str, batch: list, project: str) -> None:
-    """DONE遷移時に git push + issue close を自動実行。"""
+
+def _mark_push_failed(gitlab: str, batch: list[dict], project: str) -> None:
+    """push 全リトライ失敗時に各 Issue タイトルに [PUSH FAILED] を付与（best effort）。"""
+    import json as _json
     import subprocess as _sp
     from config import GLAB_BIN
 
+    for item in batch:
+        issue_num = item.get("issue")
+        if not issue_num:
+            continue
+        try:
+            view_result = _sp.run(
+                [GLAB_BIN, "issue", "view", str(issue_num), "-R", gitlab,
+                 "--output", "json"],
+                capture_output=True, text=True, timeout=30,
+            )
+            if view_result.returncode != 0:
+                log(f"[{project}] Issue #{issue_num} タイトル取得失敗: {view_result.stderr.strip()}")
+                continue
+            title = _json.loads(view_result.stdout).get("title", "")
+            if title.startswith("[PUSH FAILED]"):
+                continue
+            upd_result = _sp.run(
+                [GLAB_BIN, "issue", "update", str(issue_num), "-R", gitlab,
+                 "--title", f"[PUSH FAILED] {title}"],
+                capture_output=True, text=True, timeout=30,
+            )
+            if upd_result.returncode != 0:
+                log(f"[{project}] Issue #{issue_num} タイトル更新失敗: {upd_result.stderr.strip()}")
+        except Exception as e:
+            log(f"[{project}] Issue #{issue_num} タイトル更新エラー: {e}")
+
+
+def _auto_push_and_close(repo_path: str, gitlab: str, batch: list, project: str) -> None:
+    """DONE遷移時に git push + issue close を自動実行。"""
+    import subprocess as _sp
+    import time
+    from config import GLAB_BIN
+
+    MAX_PUSH_RETRIES = 3
+    PUSH_RETRY_DELAY = 3
+
     # git push
     if repo_path:
-        try:
-            result = _sp.run(
-                ["git", "-C", repo_path, "push"],
-                capture_output=True, text=True, timeout=60,
-            )
-            if result.returncode == 0:
-                log(f"[{project}] git push 成功")
-            else:
-                log(f"[{project}] git push 失敗: {result.stderr.strip()}")
-        except Exception as e:
-            log(f"[{project}] git push エラー: {e}")
+        push_ok = False
+        for attempt in range(1, MAX_PUSH_RETRIES + 1):
+            try:
+                result = _sp.run(
+                    ["git", "-C", repo_path, "push"],
+                    capture_output=True, text=True, timeout=60,
+                )
+                if result.returncode == 0:
+                    log(f"[{project}] git push 成功")
+                    push_ok = True
+                    break
+                else:
+                    log(f"[{project}] git push 失敗: {result.stderr.strip()}")
+            except Exception as e:
+                log(f"[{project}] git push エラー: {e}")
+            if attempt < MAX_PUSH_RETRIES:
+                log(f"[{project}] git push リトライ {attempt}/{MAX_PUSH_RETRIES}")
+                time.sleep(PUSH_RETRY_DELAY)
+        if not push_ok:
+            log(f"[{project}] git push 全リトライ失敗 — issue close をスキップ")
+            _mark_push_failed(gitlab, batch, project)
+            return
 
     # issue close
     for item in batch:

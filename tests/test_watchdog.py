@@ -1303,6 +1303,122 @@ class TestTimeoutExtension:
         assert data["batch"] == []
         assert data["enabled"] is False
 
+    def test_get_timeout_extension_normal(self):
+        """正常値がそのまま返ること"""
+        from engine.fsm import _get_timeout_extension
+        assert _get_timeout_extension({"timeout_extension": 600}) == 600
+
+    def test_get_timeout_extension_clamped_upper(self):
+        """MAX_TIMEOUT_EXTENSION を超える値がクランプされること"""
+        from engine.fsm import _get_timeout_extension
+        from config import MAX_TIMEOUT_EXTENSION
+        assert _get_timeout_extension({"timeout_extension": MAX_TIMEOUT_EXTENSION + 1000}) == MAX_TIMEOUT_EXTENSION
+
+    def test_get_timeout_extension_clamped_negative(self):
+        """負値が 0 にクランプされること"""
+        from engine.fsm import _get_timeout_extension
+        assert _get_timeout_extension({"timeout_extension": -500}) == 0
+
+    def test_get_timeout_extension_non_numeric(self):
+        """非数値型が 0 を返すこと"""
+        from engine.fsm import _get_timeout_extension
+        assert _get_timeout_extension({"timeout_extension": "abc"}) == 0
+
+    def test_get_timeout_extension_nan(self):
+        """nan が 0 を返すこと"""
+        from engine.fsm import _get_timeout_extension
+        assert _get_timeout_extension({"timeout_extension": float("nan")}) == 0
+
+    def test_get_timeout_extension_inf(self):
+        """inf が 0 を返すこと"""
+        from engine.fsm import _get_timeout_extension
+        assert _get_timeout_extension({"timeout_extension": float("inf")}) == 0
+
+    def test_get_timeout_extension_missing(self):
+        """キーなしが 0 を返すこと"""
+        from engine.fsm import _get_timeout_extension
+        assert _get_timeout_extension({}) == 0
+
+    def test_check_nudge_timeout_extension_clamped(self):
+        """_check_nudge で timeout_extension が MAX_TIMEOUT_EXTENSION にクランプされること"""
+        from engine.fsm import _check_nudge
+        from datetime import datetime, timedelta
+        from config import LOCAL_TZ, BLOCK_TIMERS, MAX_TIMEOUT_EXTENSION
+
+        base = BLOCK_TIMERS["DESIGN_PLAN"]
+        # base + MAX_TIMEOUT_EXTENSION + 100 秒経過 → BLOCKED（クランプが効く）
+        elapsed = base + MAX_TIMEOUT_EXTENSION + 100
+        entered_at = datetime.now(LOCAL_TZ) - timedelta(seconds=elapsed)
+        data = {
+            "state": "DESIGN_PLAN",
+            "timeout_extension": MAX_TIMEOUT_EXTENSION + 1000,
+            "history": [{"from": "IDLE", "to": "DESIGN_PLAN", "at": entered_at.isoformat()}],
+        }
+        action = _check_nudge("DESIGN_PLAN", data)
+        assert action is not None
+        assert action.new_state == "BLOCKED"
+
+    def test_npass_timeout_extension_clamped(self):
+        """NPASS タイムアウトで timeout_extension がクランプされること"""
+        from engine.fsm import check_transition
+        from datetime import datetime, timedelta
+        from config import LOCAL_TZ, BLOCK_TIMERS, MAX_TIMEOUT_EXTENSION
+
+        base_state = "DESIGN_REVIEW"
+        base = BLOCK_TIMERS.get(base_state, 3600)
+        # base + MAX_TIMEOUT_EXTENSION + 100 秒経過 → タイムアウト
+        elapsed = base + MAX_TIMEOUT_EXTENSION + 100
+        entered_at = datetime.now(LOCAL_TZ) - timedelta(seconds=elapsed)
+
+        reviews = _make_reviews(["APPROVE"])
+        data = {
+            "project": "test-pj",
+            "state": "DESIGN_REVIEW_NPASS",
+            "enabled": True,
+            "review_mode": "lite",
+            "timeout_extension": MAX_TIMEOUT_EXTENSION + 1000,
+            "n_pass": 2,
+            "batch": [{"issue": 1, "design_reviews": reviews, "code_reviews": {}}],
+            "history": [
+                {"from": "DESIGN_REVIEW", "to": "DESIGN_REVIEW_NPASS", "at": entered_at.isoformat()},
+            ],
+        }
+
+        with patch("engine.fsm.notify_reviewers"), \
+             patch("engine.fsm.notify_implementer"), \
+             patch("engine.fsm.notify_discord"):
+            action = check_transition("DESIGN_REVIEW_NPASS", data["batch"], data)
+
+        # タイムアウトが発火すること（クランプが効いている）
+        # NPASS タイムアウト時は verdict に基づいて遷移が決まる
+        assert action is not None
+
+    def test_code_test_timeout_extension_clamped(self):
+        """CODE_TEST タイムアウトで timeout_extension がクランプされること"""
+        from engine.fsm import check_transition
+        from datetime import datetime, timedelta
+        from config import LOCAL_TZ, BLOCK_TIMERS, MAX_TIMEOUT_EXTENSION
+
+        base = BLOCK_TIMERS.get("CODE_TEST", 600)
+        # base + MAX_TIMEOUT_EXTENSION + 100 秒経過 → BLOCKED
+        elapsed = base + MAX_TIMEOUT_EXTENSION + 100
+        entered_at = datetime.now(LOCAL_TZ) - timedelta(seconds=elapsed)
+
+        data = {
+            "project": "test-pj",
+            "state": "CODE_TEST",
+            "enabled": True,
+            "timeout_extension": MAX_TIMEOUT_EXTENSION + 1000,
+            "batch": _make_batch(1),
+            "history": [
+                {"from": "IMPLEMENTATION", "to": "CODE_TEST", "at": entered_at.isoformat()},
+            ],
+        }
+
+        action = check_transition("CODE_TEST", data["batch"], data)
+        assert action is not None
+        assert action.new_state == "BLOCKED"
+
 
 class TestReviseLoopLimit:
     """REVISE→REVIEW loop limit tests (Issue #29)"""
@@ -2679,6 +2795,121 @@ class TestDiscordQrunCommand:
         # Second call should be qrun success
         second_call = mock_post.call_args_list[1][0][1]
         assert "qrun:" in second_call and "started" in second_call
+
+
+class TestDiscordCommands:
+    """Tests for check_discord_commands error handling (Issue #213)"""
+
+    def test_check_discord_commands_non_numeric_msg_id_skipped(self, tmp_path, monkeypatch):
+        """msg_id が非数値のとき、ValueError でクラッシュせずスキップされること"""
+        import watchdog
+
+        state_path = tmp_path / "gokrax-state.json"
+        state_path.write_text(json.dumps({"last_command_message_id": "1000"}))
+        monkeypatch.setattr("config.ALLOWED_COMMAND_USER_IDS", _TEST_ALLOWED_CMD_IDS)
+        monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
+
+        # msg_id が非数値
+        messages = [_mock_discord_message("abc", _TEST_ALLOWED_CMD_IDS[0], "status")]
+
+        log_calls = []
+        with patch("notify.fetch_discord_latest", return_value=messages), \
+             patch("notify.post_discord"), \
+             patch("watchdog.log", side_effect=lambda msg: log_calls.append(msg)):
+            watchdog.check_discord_commands()
+
+        # last_command_message_id は更新されない
+        state = json.loads(state_path.read_text())
+        assert state["last_command_message_id"] == "1000"
+        assert any("Skipping message with invalid id" in m for m in log_calls)
+
+    def test_check_discord_commands_corrupt_last_id_self_heals(self, tmp_path, monkeypatch):
+        """last_id 破損時に self-heal してコマンド処理をスキップすること"""
+        import watchdog
+
+        state_path = tmp_path / "gokrax-state.json"
+        state_path.write_text(json.dumps({"last_command_message_id": "corrupt"}))
+        monkeypatch.setattr("config.ALLOWED_COMMAND_USER_IDS", _TEST_ALLOWED_CMD_IDS)
+        monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
+
+        messages = [_mock_discord_message("100", _TEST_ALLOWED_CMD_IDS[0], "status")]
+
+        log_calls = []
+        with patch("notify.fetch_discord_latest", return_value=messages), \
+             patch("notify.post_discord") as mock_post, \
+             patch("watchdog.log", side_effect=lambda msg: log_calls.append(msg)):
+            watchdog.check_discord_commands()
+
+        # コマンドは処理されない
+        mock_post.assert_not_called()
+
+        # self-heal: state が修復される
+        state = json.loads(state_path.read_text())
+        assert state["last_command_message_id"] == "100"
+
+        assert any("Invalid last_command_message_id" in m for m in log_calls)
+        assert any("Self-healed" in m for m in log_calls)
+
+    def test_check_discord_commands_corrupt_last_id_no_messages(self, tmp_path, monkeypatch, caplog):
+        """last_id 破損時にメッセージが空なら state を触らないこと"""
+        import watchdog
+
+        state_path = tmp_path / "gokrax-state.json"
+        state_path.write_text(json.dumps({"last_command_message_id": "corrupt"}))
+        monkeypatch.setattr("config.ALLOWED_COMMAND_USER_IDS", _TEST_ALLOWED_CMD_IDS)
+        monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
+
+        with patch("notify.fetch_discord_latest", return_value=[]):
+            watchdog.check_discord_commands()
+
+        # state は変更されない
+        state = json.loads(state_path.read_text())
+        assert state["last_command_message_id"] == "corrupt"
+
+    def test_check_discord_commands_corrupt_last_id_all_invalid_ids(self, tmp_path, monkeypatch):
+        """last_id 破損時に全メッセージIDが非数値なら state 未更新で警告ログを出すこと"""
+        import watchdog
+
+        state_path = tmp_path / "gokrax-state.json"
+        state_path.write_text(json.dumps({"last_command_message_id": "corrupt"}))
+        monkeypatch.setattr("config.ALLOWED_COMMAND_USER_IDS", _TEST_ALLOWED_CMD_IDS)
+        monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
+
+        messages = [{"id": "bad1", "author": {"id": "x"}, "content": ""},
+                    {"id": None, "author": {"id": "x"}, "content": ""}]
+
+        log_calls = []
+        with patch("notify.fetch_discord_latest", return_value=messages), \
+             patch("watchdog.log", side_effect=lambda msg: log_calls.append(msg)):
+            watchdog.check_discord_commands()
+
+        # state は変更されない
+        state = json.loads(state_path.read_text())
+        assert state["last_command_message_id"] == "corrupt"
+        assert any("Self-heal failed: no valid message id found" in m for m in log_calls)
+
+    def test_check_discord_commands_none_msg_id_filtered_by_truthiness(self, tmp_path, monkeypatch):
+        """msg_id が None のとき truthiness チェックで弾かれること"""
+        import watchdog
+
+        state_path = tmp_path / "gokrax-state.json"
+        state_path.write_text(json.dumps({"last_command_message_id": "1000"}))
+        monkeypatch.setattr("config.ALLOWED_COMMAND_USER_IDS", _TEST_ALLOWED_CMD_IDS)
+        monkeypatch.setattr(config, "GOKRAX_STATE_PATH", state_path)
+
+        # msg_id が None
+        messages = [{"id": None, "author": {"id": _TEST_ALLOWED_CMD_IDS[0]}, "content": "status"}]
+
+        with patch("notify.fetch_discord_latest", return_value=messages), \
+             patch("notify.post_discord") as mock_post:
+            watchdog.check_discord_commands()
+
+        # None msg_id のメッセージは処理されない
+        mock_post.assert_not_called()
+
+        # last_command_message_id は更新されない
+        state = json.loads(state_path.read_text())
+        assert state["last_command_message_id"] == "1000"
 
 
 class TestAutoCloseOnDone:

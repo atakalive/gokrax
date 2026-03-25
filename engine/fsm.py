@@ -10,6 +10,7 @@ from config import (
     EXTENDABLE_STATES,
     EXTEND_NOTICE_THRESHOLD,
     LOCAL_TZ,
+    MAX_TIMEOUT_EXTENSION,
     NUDGE_GRACE_SEC,
     REVIEW_MODES,
     STATE_PHASE_MAP,
@@ -155,6 +156,24 @@ def _nudge_key(state: str) -> str:
     return f"{state.lower()}_notify_count"
 
 
+def _get_timeout_extension(data: dict) -> int:
+    """pipeline data から timeout_extension を取得し、[0, MAX_TIMEOUT_EXTENSION] にクランプする。
+
+    - 非数値型（str 等）: 0 を返す
+    - nan / inf: 0 を返す
+    - 負値: 0 にクランプ
+    - MAX_TIMEOUT_EXTENSION 超: MAX_TIMEOUT_EXTENSION にクランプ
+    """
+    import math
+
+    raw = data.get("timeout_extension", 0)
+    if not isinstance(raw, (int, float)):
+        return 0
+    if not math.isfinite(raw):
+        return 0
+    return max(0, min(int(raw), MAX_TIMEOUT_EXTENSION))
+
+
 def _check_nudge(state: str, data: dict) -> TransitionAction | None:
     """催促/BLOCKED判定。該当しなければNone。"""
     block_sec = BLOCK_TIMERS.get(state)
@@ -162,7 +181,7 @@ def _check_nudge(state: str, data: dict) -> TransitionAction | None:
         return None
 
     # 延長分を加算
-    block_sec += data.get("timeout_extension", 0)
+    block_sec += _get_timeout_extension(data)
 
     entered_at = _get_state_entered_at(data, state)
     elapsed = 0.0
@@ -697,7 +716,7 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
         base_state = state.replace("_NPASS", "")
         block_sec = BLOCK_TIMERS.get(base_state, 3600)
         if data:
-            block_sec += data.get("timeout_extension", 0)
+            block_sec += _get_timeout_extension(data)
 
         elapsed = (_datetime.now(LOCAL_TZ) - entered_at).total_seconds()
         if elapsed >= block_sec:
@@ -884,7 +903,7 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
         test_result = data.get("test_result")
         if test_result is None:
             block_sec = BLOCK_TIMERS.get("CODE_TEST", 600)
-            block_sec += data.get("timeout_extension", 0)
+            block_sec += _get_timeout_extension(data)
             entered_at = _get_state_entered_at(data, "CODE_TEST")
             if entered_at is not None:
                 elapsed = (_datetime.now(LOCAL_TZ) - entered_at).total_seconds()

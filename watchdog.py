@@ -1474,7 +1474,32 @@ def check_discord_commands():
 
     # 1. Load state
     state = _load_gokrax_state()
-    last_id = state.get("last_command_message_id", "0")
+    last_id_raw = state.get("last_command_message_id", "0")
+    try:
+        last_id = int(last_id_raw)
+    except (ValueError, TypeError):
+        log(f"[discord-commands] Invalid last_command_message_id={last_id_raw!r}, self-healing")
+        # Self-heal: メッセージを fetch して数値として妥当な最新IDで state を修復
+        messages = fetch_discord_latest(DISCORD_CHANNEL, 10)
+        if messages:
+            # 最新メッセージから順に、数値として妥当なIDを探す
+            healed = False
+            for heal_msg in messages:
+                heal_id = heal_msg.get("id")
+                if heal_id is None:
+                    continue
+                try:
+                    int(heal_id)  # 数値として妥当か検証
+                except (ValueError, TypeError):
+                    continue
+                state["last_command_message_id"] = heal_id
+                _save_gokrax_state(state)
+                log(f"[discord-commands] Self-healed last_command_message_id to {heal_id}")
+                healed = True
+                break
+            if not healed:
+                log("[discord-commands] Self-heal failed: no valid message id found in fetched messages")
+        return
 
     # 2. Fetch latest messages
     messages = fetch_discord_latest(DISCORD_CHANNEL, 10)
@@ -1494,8 +1519,14 @@ def check_discord_commands():
         if (author_id in ALLOWED_COMMAND_USER_IDS and
             author_id != ANNOUNCE_BOT_USER_ID and
             cmd_word in DISCORD_COMMANDS and
-            msg_id and int(msg_id) > int(last_id)):
-            candidates.append(msg)
+            msg_id):
+            try:
+                msg_id_int = int(msg_id)
+            except (ValueError, TypeError):
+                log(f"[discord-commands] Skipping message with invalid id: msg_id={msg_id!r}")
+                continue
+            if msg_id_int > last_id:
+                candidates.append(msg)
 
     # 4. Process in chronological order (reversed, API returns newest first)
     for msg in reversed(candidates):

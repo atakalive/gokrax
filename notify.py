@@ -841,7 +841,7 @@ def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
                      base_commit: str | None = None,
                      comment: str = "",
                      round_num: int | None = None,
-                     already_reset: bool = False):
+                     already_reset: bool = False) -> list[str]:
     """各レビュアーに個別のメッセージを送信。
 
     review_mode が "skip" の場合は通知をスキップ（自動承認用）。
@@ -849,11 +849,15 @@ def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
     excluded に含まれるレビュアーには通知しない。
 
     already_reset: True の場合、_reset_reviewers() が既に実行済み（/new 送信 + 待機完了）。
+
+    Returns: 送信失敗したレビュアーのリスト（重複なし、空なら全員成功）。
     """
     if prev_reviews is None:
         prev_reviews = {}
     if excluded is None:
         excluded = []
+
+    failed_set: set[str] = set()
 
     # review_mode 検証
     if review_mode not in REVIEW_MODES:
@@ -866,7 +870,7 @@ def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
     # "skip" モード: 通知なし（watchdog が自動承認を処理）
     if review_mode == "skip":
         logger.info("[review_mode=skip] Skipping reviewer notifications for %s", project)
-        return
+        return []
 
     # コードレビュー時: squash 検証
     if "CODE" in state:
@@ -916,10 +920,9 @@ def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
                         r, params_json_size, " (forced for n_pass)" if force_externalize else "")
             file_path = _write_review_file(project, r, msg)
             if file_path is None:
-                # ファイル書き出し失敗 → BLOCKED遷移
-                logger.error("Failed to write review file for %s, triggering BLOCKED", r)
-                _trigger_blocked(project, f"レビューデータファイル書き出し失敗 (reviewer={r})")
-                return
+                logger.error("Failed to write review file for %s, skipping", r)
+                failed_set.add(r)
+                continue
             # NPASS 用にファイルパスを保存
             if force_externalize:
                 _save_npass_review_file_path(project, r, file_path)
@@ -927,11 +930,13 @@ def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
             is_npass = state in ("DESIGN_REVIEW_NPASS", "CODE_REVIEW_NPASS")
             short_msg = _build_file_review_message(project, is_code, r, file_path, batch, round_num, skip_skills=is_npass)
             if not send_to_agent(r, short_msg):
-                logger.warning("Failed to send short review request to %s", r)
+                logger.warning("Failed to send review request to %s", r)
+                failed_set.add(r)
                 continue
         else:
             if not send_to_agent(r, msg):
                 logger.warning("Failed to send review request to %s", r)
+                failed_set.add(r)
                 continue
 
         # メトリクス記録（Issue #81）
@@ -946,6 +951,13 @@ def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
                     continue
             append_metric("review_request", pj=project, issue=i["issue"],
                           phase=phase_key, reviewer=r)
+
+    # 全員失敗時のみ BLOCKED
+    effective_set = {r for r in reviewers if r not in excluded and r in AGENTS}
+    if failed_set and failed_set >= effective_set:
+        _trigger_blocked(project, f"全レビュアーへの送信失敗: {sorted(failed_set)}")
+
+    return sorted(failed_set)
 
 
 def notify_discord(message: str):

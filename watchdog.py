@@ -1035,7 +1035,7 @@ def process(path: Path):
             base_commit = pipeline_data.get("base_commit")
             from pipeline_io import get_current_round
             round_num = get_current_round(pipeline_data)
-            notify_reviewers(
+            failed = notify_reviewers(
                 pj, action.new_state, notification["batch"], notification["gitlab"],
                 repo_path=notification.get("repo_path", ""),
                 review_mode=review_mode,
@@ -1046,6 +1046,27 @@ def process(path: Path):
                 round_num=round_num if round_num > 0 else None,
                 already_reset=not skip_reset,  # _reset_reviewers() 実行済みなら True
             )
+
+            # 送信失敗レビュアーを excluded_reviewers に追加（2回目の update_pipeline）
+            if isinstance(failed, list) and failed:
+                _failed_mode_config = REVIEW_MODES.get(review_mode, REVIEW_MODES["standard"])
+                def _add_failed_to_excluded(data: dict) -> None:
+                    ex = data.get("excluded_reviewers", [])
+                    for r in failed:
+                        if r not in ex:
+                            ex.append(r)
+                    data["excluded_reviewers"] = ex
+                    # DEADLOCK クランプ再計算
+                    effective_count = len([m for m in _failed_mode_config["members"] if m not in data["excluded_reviewers"]])
+                    _min_reviews = get_min_reviews(_failed_mode_config)
+                    if effective_count < _min_reviews:
+                        clamped = max(effective_count, 0)
+                        log(f"[{pj}] [DEADLOCK] effective reviewers ({effective_count}) < min_reviews ({_min_reviews}), clamping to {clamped}")
+                        data["min_reviews_override"] = clamped
+                    else:
+                        data.pop("min_reviews_override", None)
+                update_pipeline(get_path(pj), _add_failed_to_excluded)
+
             clear_pending_notification(pj, "review")
         if action.run_cc:
             try:

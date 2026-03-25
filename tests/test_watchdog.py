@@ -5692,3 +5692,52 @@ class TestReviewerNumberMapPhaseOverride:
         rmap = saved.get("reviewer_number_map", {})
         assert set(rmap.keys()) == {r1, r2}
         assert sorted(rmap.values()) == [1, 2]
+
+
+class TestNotifyReviewersFailedExcluded:
+    """Issue #219: notify_reviewers の失敗レビュアーが excluded_reviewers に追加されること"""
+
+    def test_failed_added_to_excluded_with_deadlock_clamp(self, tmp_path, monkeypatch):
+        """failed レビュアーが excluded_reviewers に追加され、effective_count が正しく減算されること"""
+        import pipeline_io
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        from tests.conftest import TEST_REVIEWERS
+        r1, r2, r3 = TEST_REVIEWERS[0], TEST_REVIEWERS[1], TEST_REVIEWERS[2]
+        test_standard = {"members": [r1, r2, r3], "min_reviews": 3, "grace_period_sec": 0}
+        _modes = {"standard": test_standard}
+        monkeypatch.setattr("watchdog.REVIEW_MODES", _modes)
+        monkeypatch.setattr("engine.fsm.REVIEW_MODES", _modes)
+
+        batch = _make_batch(1, design_ready=True)
+        path = tmp_path / "test-pj.json"
+        pipeline_data = {
+            "project": "test-pj", "state": "DESIGN_PLAN",
+            "enabled": True, "batch": batch,
+            "implementer": "implementer1",
+            "gitlab": "testns/test-pj",
+            "history": [], "created_at": "", "updated_at": "",
+            "review_mode": "standard",
+            "excluded_reviewers": [],
+        }
+        _write_pipeline(path, pipeline_data)
+
+        from watchdog import process
+
+        # notify_reviewers が r2 を失敗レビュアーとして返す
+        monkeypatch.setattr("watchdog.notify_reviewers", lambda *a, **k: [r2])
+        monkeypatch.setattr("watchdog.notify_discord", lambda msg: None)
+        monkeypatch.setattr("watchdog._start_cc", lambda *a, **k: None)
+
+        process(path)
+
+        with open(path) as f:
+            result = json.load(f)
+
+        assert r2 in result.get("excluded_reviewers", []), \
+            f"Failed reviewer {r2} should be in excluded_reviewers"
+        # effective_count = 3 members - 1 excluded = 2, min_reviews = 3 → clamp
+        assert result.get("min_reviews_override") is not None, \
+            "DEADLOCK clamp should be applied when effective < min_reviews"
+        assert result["min_reviews_override"] == 2

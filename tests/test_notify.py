@@ -1264,17 +1264,153 @@ class TestNotifyReviewersExternalization:
         assert mock_send.call_args[0][1] == "short"
 
     def test_file_write_failure_triggers_blocked(self, monkeypatch):
-        """ファイル書き出し失敗時にBLOCKED遷移が呼ばれること"""
+        """ファイル書き出し失敗時（全員失敗）にBLOCKED遷移が呼ばれること"""
         import notify
         monkeypatch.setattr(config, "MAX_CLI_ARG_BYTES", 10)
         with patch("notify.send_to_agent") as mock_send:
             with patch("notify.fetch_issue_body", return_value="body"):
                 with patch("notify._write_review_file", return_value=None):
                     with patch("notify._trigger_blocked") as mock_blocked:
-                        notify.notify_reviewers("proj", "DESIGN_REVIEW", self._make_batch(),
-                                               "testns/proj", review_mode="min")
+                        result = notify.notify_reviewers("proj", "DESIGN_REVIEW", self._make_batch(),
+                                                         "testns/proj", review_mode="min")
         mock_blocked.assert_called_once()
         mock_send.assert_not_called()
+        assert result == ["reviewer1"]
+
+
+class TestNotifyReviewersFailedTracking:
+    """Issue #219: 送信失敗レビュアーの追跡テスト"""
+
+    _MEMBERS = ["reviewer1", "reviewer3", "reviewer5"]
+
+    def _make_batch(self):
+        return [{"issue": 5, "title": "t", "commit": None,
+                 "design_reviews": {}, "code_reviews": {}}]
+
+    def _setup_mode(self, monkeypatch):
+        """3人全員が AGENTS に含まれるカスタム review_mode を設定"""
+        import notify
+        test_modes = {"test3": {"members": self._MEMBERS, "min_reviews": 3, "grace_period_sec": 0}}
+        monkeypatch.setattr(notify, "REVIEW_MODES", {**notify.REVIEW_MODES, **test_modes})
+
+    def test_write_review_file_partial_failure(self, monkeypatch):
+        """レビュアー3人中1人だけ _write_review_file 失敗 → 失敗者が返り値に含まれ、残り2人は正常送信、BLOCKED にならない"""
+        import notify
+        self._setup_mode(monkeypatch)
+        monkeypatch.setattr(config, "MAX_CLI_ARG_BYTES", 10)
+
+        def fake_write(project, reviewer, msg):
+            if reviewer == "reviewer3":
+                return None
+            return f"/tmp/fake-{reviewer}.md"
+
+        with patch("notify.send_to_agent", return_value=True) as mock_send:
+            with patch("notify.fetch_issue_body", return_value="body"):
+                with patch("notify._write_review_file", side_effect=fake_write):
+                    with patch("notify._build_file_review_message", return_value="short"):
+                        with patch("notify._trigger_blocked") as mock_blocked:
+                            result = notify.notify_reviewers(
+                                "proj", "DESIGN_REVIEW", self._make_batch(),
+                                "testns/proj", review_mode="test3")
+        assert result == ["reviewer3"]
+        mock_blocked.assert_not_called()
+        sent_agents = [c.args[0] for c in mock_send.call_args_list]
+        assert "reviewer1" in sent_agents
+        assert "reviewer5" in sent_agents
+        assert "reviewer3" not in sent_agents
+
+    def test_send_to_agent_inline_partial_failure(self, monkeypatch):
+        """レビュアー3人中1人だけ send_to_agent 失敗（インラインパス）→ 失敗者のみ返る"""
+        import notify
+        self._setup_mode(monkeypatch)
+        monkeypatch.setattr(config, "MAX_CLI_ARG_BYTES", 999_999)
+
+        def fake_send(agent, msg):
+            return agent != "reviewer5"
+
+        with patch("notify.send_to_agent", side_effect=fake_send):
+            with patch("notify.fetch_issue_body", return_value="body"):
+                with patch("notify._trigger_blocked") as mock_blocked:
+                    result = notify.notify_reviewers(
+                        "proj", "DESIGN_REVIEW", self._make_batch(),
+                        "testns/proj", review_mode="test3")
+        assert result == ["reviewer5"]
+        mock_blocked.assert_not_called()
+
+    def test_send_to_agent_externalized_partial_failure(self, monkeypatch):
+        """レビュアー3人中1人だけ send_to_agent 失敗（外部化パス）→ 失敗者のみ返る"""
+        import notify
+        self._setup_mode(monkeypatch)
+        monkeypatch.setattr(config, "MAX_CLI_ARG_BYTES", 10)
+
+        def fake_send(agent, msg):
+            return agent != "reviewer1"
+
+        with patch("notify.send_to_agent", side_effect=fake_send):
+            with patch("notify.fetch_issue_body", return_value="body"):
+                with patch("notify._write_review_file", return_value="/tmp/fake.md"):
+                    with patch("notify._build_file_review_message", return_value="short"):
+                        with patch("notify._trigger_blocked") as mock_blocked:
+                            result = notify.notify_reviewers(
+                                "proj", "DESIGN_REVIEW", self._make_batch(),
+                                "testns/proj", review_mode="test3")
+        assert result == ["reviewer1"]
+        mock_blocked.assert_not_called()
+
+    def test_all_send_to_agent_failure_triggers_blocked(self, monkeypatch):
+        """全員 send_to_agent 失敗 → BLOCKED 遷移"""
+        import notify
+        self._setup_mode(monkeypatch)
+        monkeypatch.setattr(config, "MAX_CLI_ARG_BYTES", 999_999)
+
+        with patch("notify.send_to_agent", return_value=False):
+            with patch("notify.fetch_issue_body", return_value="body"):
+                with patch("notify._trigger_blocked") as mock_blocked:
+                    result = notify.notify_reviewers(
+                        "proj", "DESIGN_REVIEW", self._make_batch(),
+                        "testns/proj", review_mode="test3")
+        assert sorted(result) == ["reviewer1", "reviewer3", "reviewer5"]
+        mock_blocked.assert_called_once()
+
+    def test_all_success_returns_empty(self, monkeypatch):
+        """全員成功 → 空リスト返却、BLOCKED なし"""
+        import notify
+        self._setup_mode(monkeypatch)
+        monkeypatch.setattr(config, "MAX_CLI_ARG_BYTES", 999_999)
+
+        with patch("notify.send_to_agent", return_value=True):
+            with patch("notify.fetch_issue_body", return_value="body"):
+                with patch("notify._trigger_blocked") as mock_blocked:
+                    result = notify.notify_reviewers(
+                        "proj", "DESIGN_REVIEW", self._make_batch(),
+                        "testns/proj", review_mode="test3")
+        assert result == []
+        mock_blocked.assert_not_called()
+
+    def test_failed_set_no_duplicates(self, monkeypatch):
+        """同一レビュアーが複数 failure point を通っても failed が重複しない（set 管理）"""
+        import notify
+        self._setup_mode(monkeypatch)
+        monkeypatch.setattr(config, "MAX_CLI_ARG_BYTES", 10)
+
+        with patch("notify.send_to_agent", return_value=False):
+            with patch("notify.fetch_issue_body", return_value="body"):
+                with patch("notify._write_review_file", return_value="/tmp/fake.md"):
+                    with patch("notify._build_file_review_message", return_value="short"):
+                        with patch("notify._trigger_blocked"):
+                            result = notify.notify_reviewers(
+                                "proj", "DESIGN_REVIEW", self._make_batch(),
+                                "testns/proj", review_mode="test3")
+        # Each reviewer should appear exactly once despite externalization + send failure
+        assert result == sorted(set(result))
+        assert len(result) == 3
+
+    def test_skip_mode_returns_empty_list(self):
+        """review_mode=skip → 空リスト返却"""
+        import notify
+        result = notify.notify_reviewers("proj", "DESIGN_REVIEW", [], "testns/proj",
+                                         review_mode="skip")
+        assert result == []
 
 
 class TestCleanupReviewFiles:

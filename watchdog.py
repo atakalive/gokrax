@@ -191,6 +191,16 @@ def process(path: Path):
 
         # Grace period met_at の永続化（check_transition は data を変更しない）
         if action.save_grace_met_at and not action.new_state:
+            # save_grace_met_at は遷移なしの grace 待ち専用。他の副作用フラグが
+            # 同居していると、この early return で握りつぶされる。
+            _unexpected = [
+                f for f in ("run_cc", "run_test", "send_review", "send_merge_summary",
+                            "reset_reviewers")
+                if getattr(action, f, False)
+            ]
+            if _unexpected:
+                pj = data.get("project", path.stem)
+                log(f"[{pj}] WARNING: save_grace_met_at with unexpected flags: {_unexpected}")
             key = action.save_grace_met_at
             if not data.get(key):
                 data[key] = _datetime.now(LOCAL_TZ).isoformat()

@@ -218,7 +218,11 @@ def test_do_transition_saves_grace_met_at(tmp_path, monkeypatch):
         process(path)
 
     assert "design_min_reviews_met_at" in data
-    assert isinstance(data["design_min_reviews_met_at"], str)
+    val = data["design_min_reviews_met_at"]
+    assert isinstance(val, str)
+    # ISO 8601 形式であることを検証
+    from datetime import datetime as _dt
+    _dt.fromisoformat(val)  # パース失敗なら ValueError
     assert data["state"] == "DESIGN_REVIEW"
 
 
@@ -262,3 +266,39 @@ def test_do_transition_clears_grace_met_at_before_state_change(tmp_path, monkeyp
 
     assert "design_min_reviews_met_at" not in data
     assert data["state"] == "DESIGN_APPROVED"
+
+
+def test_save_grace_met_at_warns_on_unexpected_flags(tmp_path, monkeypatch):
+    """save_grace_met_at と副作用フラグが同居した場合、warning ログが出ること。"""
+    import config
+    import pipeline_io
+    monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+    monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+    path = tmp_path / "test-pj.json"
+    data = {
+        "project": "test-pj", "state": "DESIGN_REVIEW",
+        "enabled": True, "batch": [{"issue": 1, "design_reviews": {}}],
+        "history": [], "created_at": "", "updated_at": "",
+    }
+    _write_pipeline(path, data)
+
+    # save_grace_met_at と run_cc が同居する異常な TransitionAction
+    mock_action = TransitionAction(save_grace_met_at="design_min_reviews_met_at", run_cc=True)
+
+    from watchdog import process
+
+    def fake_update(p, cb):
+        cb(data)
+        return data
+
+    with patch("watchdog.check_transition", return_value=mock_action), \
+         patch("watchdog.update_pipeline", side_effect=fake_update), \
+         patch("watchdog.log") as mock_log:
+        process(path)
+
+    # warning ログが出ていること
+    log_calls = [str(c) for c in mock_log.call_args_list]
+    assert any("unexpected flags" in s for s in log_calls), f"Expected warning log, got: {log_calls}"
+    # 保存自体は行われること（early return で握りつぶすが、met_at は保存する）
+    assert "design_min_reviews_met_at" in data

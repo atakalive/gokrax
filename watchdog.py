@@ -107,7 +107,7 @@ def _check_queue():
         elif "Queue empty" not in result.stdout:
             log(f"[queue] qrun failed: {result.stderr.strip()}")
     except _sp.TimeoutExpired:
-        log("[queue] qrun timeout (>60s)")
+        log("[queue] qrun timeout (>180s)")
     except Exception as e:
         log(f"[queue] qrun error: {e}")
 
@@ -178,6 +178,8 @@ def process(path: Path):
     state0 = state  # 第1チェック時点のstate（DCL用）
 
     def do_transition(data):
+        _done_batch = []
+        _done_queue_mode = False
         # ロック待ち中に他プロセスが状態を変えた場合は何もしない（通知も含めてスキップ）
         if data.get("state", "IDLE") != state0:
             return
@@ -620,8 +622,8 @@ def process(path: Path):
 
         if action.nudge_reviewers or action.dispute_nudge_reviewers:
             # 非アクティブなレビュアーにのみ「continue」送信（送信失敗時は次回スキップ）
-            path = get_path(pj)
-            pipeline_data = load_pipeline(path)
+            notify_path = get_path(pj)
+            pipeline_data = load_pipeline(notify_path)
             state = notification.get("old_state", "")
             batch = notification.get("batch", [])
             woken = []
@@ -881,8 +883,8 @@ def process(path: Path):
             from notify import post_discord
             batch = notification["batch"]
             # automerge フラグを最新のパイプラインから読み取る (Issue #45)
-            path = get_path(pj)
-            pipeline_data = load_pipeline(path)
+            notify_path = get_path(pj)
+            pipeline_data = load_pipeline(notify_path)
             automerge = pipeline_data.get("automerge", False)
             from config import MERGE_SUMMARY_FOOTER
             content = render("dev.merge_summary_sent", "format_merge_summary",
@@ -894,15 +896,15 @@ def process(path: Path):
             message_id = post_discord(DISCORD_CHANNEL, content)
             if message_id:
                 # summary_message_id をパイプラインに保存
-                path = get_path(pj)
+                notify_path = get_path(pj)
                 def _save_summary_id(data):
                     data["summary_message_id"] = message_id
-                update_pipeline(path, _save_summary_id)
+                update_pipeline(notify_path, _save_summary_id)
                 log(f"[{pj}] merge summary posted (message_id={message_id})")
                 clear_pending_notification(pj, "merge_summary")
 
                 # 実装者セッションに通知 (Issue #48)
-                pipeline_data_fresh = load_pipeline(path)
+                pipeline_data_fresh = load_pipeline(notify_path)
                 implementer = pipeline_data_fresh.get("implementer") or IMPLEMENTERS[0]
                 prompt = render("dev.done", "batch_done",
                     project=pj, content=content,
@@ -915,11 +917,11 @@ def process(path: Path):
             else:
                 # 全リトライ失敗: 遷移をロールバックして次サイクルで再試行
                 log(f"[{pj}] WARNING: merge summary post failed after 3 attempts, rolling back state")
-                path = get_path(pj)
+                notify_path = get_path(pj)
                 old_state = notification["old_state"]
                 def _rollback(data, restore=old_state):
                     data["state"] = restore
-                update_pipeline(path, _rollback)
+                update_pipeline(notify_path, _rollback)
                 clear_pending_notification(pj, "merge_summary")
 
         # DONE遷移時: git push + issue close を自動実行
@@ -976,7 +978,7 @@ def process(path: Path):
 
             # Save excluded_reviewers and min_reviews_override inside update_pipeline lock
             mode_config = REVIEW_MODES.get(review_mode, REVIEW_MODES["standard"])
-            path = get_path(pj)
+            notify_path = get_path(pj)
 
             import random
 
@@ -1016,7 +1018,7 @@ def process(path: Path):
                 else:
                     data.pop("min_reviews_override", None)
 
-            update_pipeline(path, _save_excluded)
+            update_pipeline(notify_path, _save_excluded)
 
         if action.impl_msg:
             phase = STATE_PHASE_MAP.get(action.new_state or "", "")

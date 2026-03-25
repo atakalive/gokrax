@@ -47,7 +47,7 @@ No options (other than `-h`).
 ### `init` -- Initialize a new project
 
 ```bash
-gokrax init --pj myproject --gitlab user/myproject --repo-path /path/to/repo
+gokrax init --pj myproject --gitlab user/myproject --repo-path /path/to/repo --implementer my_agent
 ```
 
 | Option | Required | Description |
@@ -312,8 +312,8 @@ Reviewer membership for each mode is configured in `config`, not hardcoded in CL
 ### `exclude` -- Manage excluded reviewers
 
 ```bash
-gokrax exclude --pj myproject --add pascal
-gokrax exclude --pj myproject --remove pascal
+gokrax exclude --pj myproject --add reviewer1
+gokrax exclude --pj myproject --remove reviewer1
 gokrax exclude --pj myproject --list
 ```
 

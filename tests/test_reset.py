@@ -171,14 +171,25 @@ class TestCmdReset:
             "comment": "test",
             "skip_cc_plan": True,
             "skip_test": True,
+            "_code_test": {"pid": 99999, "output_path": "/tmp/x", "exit_code_path": "/tmp/x.exit", "script_path": "/tmp/x.sh"},
+            "test_result": "fail",
+            "test_output": "some output",
+            "test_retry_count": 2,
         }
-        _reset_to_idle(data)
+        with patch("engine.cc._kill_pytest_baseline",
+                    side_effect=lambda data, pj: data.pop("_pytest_baseline", None)), \
+             patch("engine.cc._kill_code_test",
+                    side_effect=lambda data, pj: data.pop("_code_test", None)) as mock_kill_ct:
+            _reset_to_idle(data)
+            mock_kill_ct.assert_called_once()
 
         assert data["batch"] == []
         assert data["enabled"] is False
         for key in ("design_revise_count", "code_revise_count", "automerge", "p2_fix",
                     "cc_plan_model", "cc_impl_model", "keep_context",
                     "keep_ctx_batch", "keep_ctx_intra", "comment", "skip_cc_plan", "skip_test"):
+            assert key not in data, f"key {key!r} should be removed"
+        for key in ("_code_test", "test_result", "test_output", "test_retry_count"):
             assert key not in data, f"key {key!r} should be removed"
         # state は変更しない（呼び出し側の責務）
         assert data["state"] == "IMPLEMENTATION"

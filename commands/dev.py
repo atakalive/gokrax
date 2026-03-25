@@ -532,11 +532,12 @@ def _reset_to_idle(data: dict) -> None:
     spec_mode のクリーンアップは行わない（それは cmd_spec_stop の責務）。
     """
     # --- リソース解放（pop より先に実行）---
-    from engine.cc import _kill_pytest_baseline
+    from engine.cc import _kill_pytest_baseline, _kill_code_test
     from engine.reviewer import _cleanup_review_files
     from notify import cleanup_npass_files
     pj = data.get("project", "")
     _kill_pytest_baseline(data, pj)
+    _kill_code_test(data, pj)
     _cleanup_review_files(pj)
     cleanup_npass_files(pj)
 
@@ -570,6 +571,10 @@ def _reset_to_idle(data: dict) -> None:
     # pytest ベースライン（_kill_pytest_baseline で PID 使用済み）
     data.pop("test_baseline", None)
     data.pop("_pytest_baseline", None)
+    # CODE_TEST 関連
+    data.pop("test_result", None)
+    data.pop("test_output", None)
+    data.pop("test_retry_count", None)
     # CC 実行追跡
     data.pop("cc_pid", None)
     data.pop("cc_session_id", None)

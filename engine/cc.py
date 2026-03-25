@@ -413,7 +413,9 @@ def _start_code_test(project: str, data: dict, pipeline_path: Path) -> None:
 
     from config import TEST_CONFIG
 
-    cfg = TEST_CONFIG[project]
+    cfg = TEST_CONFIG.get(project)
+    if cfg is None:
+        raise RuntimeError(f"TEST_CONFIG has no entry for project '{project}'")
     test_command = cfg["test_command"]
 
     # 残留 baseline pytest を停止
@@ -436,6 +438,7 @@ def _start_code_test(project: str, data: dict, pipeline_path: Path) -> None:
 
     script_content = (
         f"#!/bin/bash\n"
+        f'cd "{repo_path_str}"\n'
         f"{test_command} > {output_path} 2>&1\n"
         f"echo $? > {exit_code_path}\n"
         f"rm -f {script_path}\n"

@@ -437,28 +437,29 @@ def process(path: Path):
                 data.pop("code_min_reviews_met_at", None)
                 log(f"[{pj}] cleared code_min_reviews_met_at")
 
-        # DESIGN_REVIEW → DESIGN_APPROVED: 無応答レビュアーを excluded に追加 (Issue #44)
-        if state == "DESIGN_REVIEW" and action.new_state == "DESIGN_APPROVED":
-            phase_config = get_phase_config(data, "design")
+        # REVIEW → APPROVED: exclude unresponsive reviewers (Issue #44, #237)
+        if (state == "DESIGN_REVIEW" and action.new_state == "DESIGN_APPROVED") or \
+           (state == "CODE_REVIEW" and action.new_state == "CODE_APPROVED"):
+            phase = "design" if "DESIGN" in state else "code"
+            review_key = f"{phase}_reviews"
+            phase_config = get_phase_config(data, phase)
             all_reviewers = set(phase_config["members"])
             responded = set()
             for item in batch:
-                responded.update(item.get("design_reviews", {}).keys())
-            no_response = all_reviewers - responded
+                responded.update(item.get(review_key, {}).keys())
+            no_response = all_reviewers - responded - set(data.get("excluded_reviewers", []))
             if no_response:
                 excluded = data.get("excluded_reviewers", [])
                 for r in no_response:
                     if r not in excluded:
                         excluded.append(r)
                 data["excluded_reviewers"] = excluded
-                # effective は excluded 全体（既存 + 今回追加分）を差し引いた実員数
                 effective = len(all_reviewers - set(excluded))
                 if effective == 0:
-                    # 全員除外 — 理論上ありえないが防御
-                    log(f"[{pj}] WARNING: effective==0 at DESIGN_APPROVED, skipping min_reviews_override")
+                    log(f"[{pj}] WARNING: effective==0 at {action.new_state}, skipping min_reviews_override")
                 else:
                     data["min_reviews_override"] = max(1, min(phase_config["min_reviews"], effective))
-                log(f"[{pj}] excluding unresponsive reviewers: {sorted(no_response)}, excluded={excluded}, effective={effective}")
+                log(f"[{pj}] ({phase}) excluding unresponsive reviewers: {sorted(no_response)}, excluded={excluded}, effective={effective}")
 
         # CODE_TEST 進入時: テスト起動情報を notification に保存（ロック外でテスト起動）
         if action.new_state == "CODE_TEST" and action.run_test:

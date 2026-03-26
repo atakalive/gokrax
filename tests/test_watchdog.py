@@ -3574,6 +3574,188 @@ class TestDesignApprovedExcludeNoResponse:
                         f"{r} should be nudged"
 
 
+# ── Issue #237: CODE_REVIEW → CODE_APPROVED exclude unresponsive reviewers ──
+
+class TestCodeApprovedExcludeNoResponse:
+    """Issue #237: REVIEW → APPROVED 遷移時の無応答レビュアー除外テスト（CODE_REVIEW パス + 再 REVIEW）"""
+
+    def test_code_approved_excludes_no_response_reviewers(self, tmp_path, monkeypatch):
+        """CODE_REVIEW → CODE_APPROVED: 無応答レビュアーを excluded に追加"""
+        from watchdog import process
+        from datetime import datetime, timedelta
+        from tests.conftest import TEST_REVIEWERS
+
+        r1, r2, r3 = TEST_REVIEWERS[0], TEST_REVIEWERS[1], TEST_REVIEWERS[2]
+        test_lite = {"members": [r1, r2, r3], "min_reviews": 2, "grace_period_sec": 0}
+        _modes = {"lite": test_lite, "standard": test_lite}
+        monkeypatch.setattr("watchdog.REVIEW_MODES", _modes)
+        monkeypatch.setattr("engine.fsm.REVIEW_MODES", _modes)
+
+        batch = [
+            {
+                "issue": 1,
+                "title": "Test Issue",
+                "commit": "abc123",
+                "cc_session_id": None,
+                "design_reviews": {},
+                "code_reviews": {
+                    r1: {"verdict": "APPROVE", "at": "2025-01-01T10:00:00+09:00"},
+                    r2: {"verdict": "APPROVE", "at": "2025-01-01T10:01:00+09:00"},
+                },
+                "added_at": "2025-01-01T09:00:00+09:00",
+            }
+        ]
+
+        pj_path = tmp_path / "pipelines" / "test-pj.json"
+        entered_at = datetime.now(config.LOCAL_TZ) - timedelta(seconds=10)
+        pipeline_data = {
+            "state": "CODE_REVIEW",
+            "review_mode": "lite",
+            "batch": batch,
+            "project": "test-pj",
+            "enabled": True,
+            "min_reviews_override": 2,
+            "history": [
+                {"from": "IMPLEMENTATION", "to": "CODE_REVIEW", "at": entered_at.isoformat()}
+            ],
+        }
+        _write_pipeline(pj_path, pipeline_data)
+
+        monkeypatch.setattr("watchdog.notify_discord", lambda msg: None)
+        monkeypatch.setattr("watchdog.notify_reviewers", lambda *a, **k: None)
+        monkeypatch.setattr("watchdog._start_cc", lambda *a, **k: None)
+        monkeypatch.setattr("watchdog.PIPELINES_DIR", tmp_path / "pipelines")
+
+        process(pj_path)
+
+        with open(pj_path) as f:
+            result = json.load(f)
+
+        # r3 didn't respond - should be excluded
+        assert r3 in result.get("excluded_reviewers", []), \
+            f"{r3} (no response) should be in excluded_reviewers"
+        # min_reviews_override = max(1, min(2, 2)) = 2
+        assert result.get("min_reviews_override") == 2, \
+            "min_reviews_override should be 2 (max(1, min(2, 2)))"
+
+    def test_re_design_review_excludes_newly_unresponsive(self, tmp_path, monkeypatch):
+        """REVISE 後の再 DESIGN_REVIEW → DESIGN_APPROVED で新規無応答が excluded される"""
+        from watchdog import process
+        from datetime import datetime, timedelta
+        from tests.conftest import TEST_REVIEWERS
+
+        r1, r2, r3, r4 = TEST_REVIEWERS[0], TEST_REVIEWERS[1], TEST_REVIEWERS[2], TEST_REVIEWERS[3]
+        test_lite = {"members": [r1, r2, r3, r4], "min_reviews": 3, "grace_period_sec": 0}
+        _modes = {"lite": test_lite, "standard": test_lite}
+        monkeypatch.setattr("watchdog.REVIEW_MODES", _modes)
+        monkeypatch.setattr("engine.fsm.REVIEW_MODES", _modes)
+
+        # r4 already excluded from first round, r3 newly unresponsive
+        batch = [
+            {
+                "issue": 1,
+                "title": "Test Issue",
+                "commit": None,
+                "cc_session_id": None,
+                "design_reviews": {
+                    r1: {"verdict": "APPROVE", "at": "2025-01-01T10:00:00+09:00"},
+                    r2: {"verdict": "APPROVE", "at": "2025-01-01T10:01:00+09:00"},
+                },
+                "code_reviews": {},
+                "added_at": "2025-01-01T09:00:00+09:00",
+            }
+        ]
+
+        pj_path = tmp_path / "pipelines" / "test-pj.json"
+        entered_at = datetime.now(config.LOCAL_TZ) - timedelta(seconds=10)
+        pipeline_data = {
+            "state": "DESIGN_REVIEW",
+            "review_mode": "lite",
+            "batch": batch,
+            "project": "test-pj",
+            "enabled": True,
+            "excluded_reviewers": [r4],
+            "min_reviews_override": 2,
+            "history": [
+                {"from": "DESIGN_PLAN", "to": "DESIGN_REVIEW", "at": entered_at.isoformat()}
+            ],
+        }
+        _write_pipeline(pj_path, pipeline_data)
+
+        monkeypatch.setattr("watchdog.notify_discord", lambda msg: None)
+        monkeypatch.setattr("watchdog.notify_reviewers", lambda *a, **k: None)
+        monkeypatch.setattr("watchdog._start_cc", lambda *a, **k: None)
+        monkeypatch.setattr("watchdog.PIPELINES_DIR", tmp_path / "pipelines")
+
+        process(pj_path)
+
+        with open(pj_path) as f:
+            result = json.load(f)
+
+        # r4 (pre-existing) + r3 (newly unresponsive) should be excluded
+        excluded = result.get("excluded_reviewers", [])
+        assert excluded == [r4, r3], \
+            f"excluded should be [{r4}, {r3}] (existing + new), got: {excluded}"
+        # effective = 4 - 2 = 2, min_reviews_override = max(1, min(3, 2)) = 2
+        assert result.get("min_reviews_override") == 2, \
+            "min_reviews_override should be 2 (max(1, min(3, 2)))"
+
+    def test_code_approved_no_exclude_when_all_responded(self, tmp_path, monkeypatch):
+        """CODE_APPROVED 遷移時に全員応答済みなら excluded 変更なし"""
+        from watchdog import process
+        from datetime import datetime, timedelta
+        from tests.conftest import TEST_REVIEWERS
+
+        r1, r2, r3 = TEST_REVIEWERS[0], TEST_REVIEWERS[1], TEST_REVIEWERS[2]
+        test_lite = {"members": [r1, r2, r3], "min_reviews": 2, "grace_period_sec": 0}
+        _modes = {"lite": test_lite, "standard": test_lite}
+        monkeypatch.setattr("watchdog.REVIEW_MODES", _modes)
+        monkeypatch.setattr("engine.fsm.REVIEW_MODES", _modes)
+
+        batch = [
+            {
+                "issue": 1,
+                "title": "Test Issue",
+                "commit": "abc123",
+                "cc_session_id": None,
+                "design_reviews": {},
+                "code_reviews": {
+                    r1: {"verdict": "APPROVE", "at": "2025-01-01T10:00:00+09:00"},
+                    r2: {"verdict": "APPROVE", "at": "2025-01-01T10:01:00+09:00"},
+                    r3: {"verdict": "P2", "at": "2025-01-01T10:02:00+09:00"},
+                },
+                "added_at": "2025-01-01T09:00:00+09:00",
+            }
+        ]
+
+        pj_path = tmp_path / "pipelines" / "test-pj.json"
+        entered_at = datetime.now(config.LOCAL_TZ) - timedelta(seconds=10)
+        pipeline_data = {
+            "state": "CODE_REVIEW",
+            "review_mode": "lite",
+            "batch": batch,
+            "project": "test-pj",
+            "enabled": True,
+            "history": [
+                {"from": "IMPLEMENTATION", "to": "CODE_REVIEW", "at": entered_at.isoformat()}
+            ],
+        }
+        _write_pipeline(pj_path, pipeline_data)
+
+        monkeypatch.setattr("watchdog.notify_discord", lambda msg: None)
+        monkeypatch.setattr("watchdog.notify_reviewers", lambda *a, **k: None)
+        monkeypatch.setattr("watchdog._start_cc", lambda *a, **k: None)
+        monkeypatch.setattr("watchdog.PIPELINES_DIR", tmp_path / "pipelines")
+
+        process(pj_path)
+
+        with open(pj_path) as f:
+            result = json.load(f)
+
+        excluded = result.get("excluded_reviewers", [])
+        assert len(excluded) == 0, f"No reviewers should be excluded, but got: {excluded}"
+
+
 # ── Issue #45: Automerge / CC Model / Queue Tests ────────────────────────────
 
 class TestAutomerge:

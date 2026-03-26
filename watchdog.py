@@ -1121,7 +1121,7 @@ def _handle_qrun(msg_id: str):
     """
     from config import DISCORD_CHANNEL, QUEUE_FILE
     from notify import post_discord
-    from task_queue import pop_next_queue_entry, restore_queue_entry, save_queue_options_to_pipeline, rollback_queue_mode
+    from task_queue import pop_next_queue_entry, restore_queue_entry, save_queue_options_to_pipeline, rollback_queue_mode, QueueSkipError
     from gokrax import cmd_start
     from pipeline_io import update_pipeline, get_path
     import config
@@ -1186,8 +1186,17 @@ def _handle_qrun(msg_id: str):
     # Call cmd_start with try-catch
     try:
         cmd_start(start_args)
+    except QueueSkipError as e:
+        # 永続的エラー: エントリを復元せずスキップ。
+        # pop_next_queue_entry が付与した "# done: " prefix がそのまま残る。
+        rollback_queue_mode(path)
+        skip_msg = f"qrun: skipped {project}: {str(e)}"
+        post_discord(DISCORD_CHANNEL, skip_msg)
+        log(f"[qrun] {skip_msg} (msg_id={msg_id})")
+        return
     except SystemExit as e:
-        # cmd_start raises SystemExit on validation errors
+        # NOTE: SystemExit は BaseException のサブクラスであり Exception ではない。
+        # 一時的エラー（状態不整合等）を想定してキャッチし、エントリを復元する。
         restore_queue_entry(QUEUE_FILE, entry["original_line"])
         rollback_queue_mode(path)
         error_msg = f"qrun: failed to start {project}: {str(e)}"
@@ -1195,7 +1204,6 @@ def _handle_qrun(msg_id: str):
         log(f"[qrun] {error_msg} (msg_id={msg_id})")
         return
     except Exception as e:
-        # Unexpected exception
         restore_queue_entry(QUEUE_FILE, entry["original_line"])
         rollback_queue_mode(path)
         error_msg = f"qrun: failed to start {project}: {type(e).__name__}: {str(e)}"

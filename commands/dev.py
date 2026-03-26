@@ -306,7 +306,8 @@ def cmd_triage(args):
 
     # --- Phase 4: all-closed チェック ---
     if not survivors:
-        raise SystemExit("All issues are closed. Nothing to add to batch.")
+        from task_queue import QueueSkipError
+        raise QueueSkipError("All issues are closed. Nothing to add to batch.")
 
     # --- Phase 5: do_triage に filtered リストを渡してバッチ追加 ---
     filtered_args = argparse.Namespace(
@@ -1477,7 +1478,7 @@ def cmd_merge_summary(args):
 
 def cmd_qrun(args):
     """キューから次のバッチを実行: pop → cmd_start → オプション保存"""
-    from task_queue import pop_next_queue_entry, restore_queue_entry, peek_queue, save_queue_options_to_pipeline, rollback_queue_mode
+    from task_queue import pop_next_queue_entry, restore_queue_entry, peek_queue, save_queue_options_to_pipeline, rollback_queue_mode, QueueSkipError
     from config import QUEUE_FILE
 
     queue_path = Path(args.queue) if args.queue else QUEUE_FILE
@@ -1566,7 +1567,18 @@ def cmd_qrun(args):
     # cmd_start 実行 (エラー時は復元 + queue_mode ロールバック)
     try:
         cmd_start(start_args)
+    except QueueSkipError as e:
+        # 永続的エラー: エントリを復元せずスキップ。
+        # pop_next_queue_entry が付与した "# done: " prefix がそのまま残り、
+        # 次回の qrun では次のエントリが処理される。
+        rollback_queue_mode(path)
+        print(f"[qrun] Skipped {project}: {e}", file=sys.stderr)
+        return
     except (SystemExit, Exception) as e:
+        # 一時的エラー: エントリを復元。
+        # NOTE: SystemExit は BaseException のサブクラスであり Exception ではない。
+        # ここでは一時的エラー（状態不整合、ネットワーク障害等）を想定して
+        # 両方を明示的にキャッチし、エントリを復元して再試行可能にしている。
         restore_queue_entry(queue_path, entry["original_line"])
         rollback_queue_mode(path)
         print(f"[qrun] Failed to start {project}: {e}", file=sys.stderr)

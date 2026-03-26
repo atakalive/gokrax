@@ -424,7 +424,11 @@ def main():
         "qedit": cmd_qedit,
         "spec": cmd_spec,
     }
-    cmds[args.command](args)
+    from task_queue import QueueSkipError
+    try:
+        cmds[args.command](args)
+    except QueueSkipError as e:
+        sys.exit(str(e))
 
 
 if __name__ == "__main__":

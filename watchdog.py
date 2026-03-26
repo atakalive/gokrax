@@ -176,7 +176,7 @@ def process(path: Path):
     # === ロック内で第2チェック + 遷移 (Double-Checked Locking) ===
     notification: dict = {}
 
-    state0 = state  # 第1チェック時点のstate（DCL用）
+    state0 = state  # state at first check (for DCL)
 
     def do_transition(data):
         _done_batch = []
@@ -242,7 +242,7 @@ def process(path: Path):
             data[key] = data.get(key, 0) + 1
             data["_last_nudge_at"] = _datetime.now(LOCAL_TZ).isoformat()
             pj = data.get("project", path.stem)
-            log(f"[{pj}] {action.nudge}: 催促通知送信 (count={data[key]})")
+            log(f"[{pj}] {action.nudge}: nudge notification sent (count={data[key]})")
             notification.update({
                 "pj": pj,
                 "action": action,
@@ -285,8 +285,8 @@ def process(path: Path):
 
         # DONE状態: バッチを退避してからクリア + watchdog無効化
         if state == "DONE":
-            _done_batch = list(data.get("batch", []))  # close用に退避
-            _done_queue_mode = data.get("queue_mode", False)  # _check_queue判定用に退避
+            _done_batch = list(data.get("batch", []))  # save for close
+            _done_queue_mode = data.get("queue_mode", False)  # save for _check_queue
             _cleanup_batch_state(data, pj)
 
         # ASSESSMENT → IDLE (リスクスキップ): クリーンアップ前に通知用データを退避 (Issue #181)
@@ -458,7 +458,7 @@ def process(path: Path):
                     log(f"[{pj}] WARNING: effective==0 at DESIGN_APPROVED, skipping min_reviews_override")
                 else:
                     data["min_reviews_override"] = max(1, min(phase_config["min_reviews"], effective))
-                log(f"[{pj}] 無応答レビュアーを除外: {sorted(no_response)}, excluded={excluded}, effective={effective}")
+                log(f"[{pj}] excluding unresponsive reviewers: {sorted(no_response)}, excluded={excluded}, effective={effective}")
 
         # CODE_TEST 進入時: テスト起動情報を notification に保存（ロック外でテスト起動）
         if action.new_state == "CODE_TEST" and action.run_test:
@@ -539,10 +539,10 @@ def process(path: Path):
         if action.new_state == "IMPLEMENTATION" and data.get("no_cc", False):
             issues_str = ", ".join(f"#{i['issue']}" for i in data.get("batch", []) if not i.get("commit"))
             notification["no_cc_msg"] = (
-                f"手動実装モード（--no-cc）。\n"
-                f"対象: {issues_str}\n"
-                f"完了後: gokrax commit --pj {pj} --issue N --hash HASH\n"
-                f"※ タイムアウトは無効化されています。"
+                f"Manual implementation mode (--no-cc).\n"
+                f"Target: {issues_str}\n"
+                f"When done: gokrax commit --pj {pj} --issue N --hash HASH\n"
+                f"Note: Timeout is disabled."
             )
 
         # Issue #59: _pending_notifications — at-least-once guarantee
@@ -615,13 +615,13 @@ def process(path: Path):
                     ]
 
                 # このレビュアーの pending dispute を収集
-                dispute_items: list[tuple[int, str]] = []  # (issue番号, reason)
+                dispute_items: list[tuple[int, str]] = []  # (issue number, reason)
                 if reviewer in notification.get("dispute_nudge_reviewers", []):
                     for item in batch:
                         for d in item.get("disputes", []):
                             if (d.get("reviewer") == reviewer
                                     and d.get("status") == "pending"):
-                                dispute_items.append((item["issue"], d.get("reason", "(不明)")))
+                                dispute_items.append((item["issue"], d.get("reason", "(unknown)")))
 
                 # どちらもなければスキップ
                 if not normal_pending_issues and not dispute_items:
@@ -664,7 +664,7 @@ def process(path: Path):
                     woken.append(reviewer)
                 else:
                     failed.append(reviewer)
-                    log(f"[{pj}] {reviewer}: 催促送信失敗、次回スキップ")
+                    log(f"[{pj}] {reviewer}: nudge send failed, skipping next time")
             # 催促タイムスタンプを一括更新
             nudged = woken + failed
             if nudged:
@@ -704,14 +704,14 @@ def process(path: Path):
             elif nudge_state == "ASSESSMENT":
                 nudge_msg = render("dev.assessment", "nudge", batch=data.get("batch", []))
             else:
-                nudge_msg = "[Remind] 作業を進め、完了してください。"
+                nudge_msg = "[Remind] Please proceed and complete your work."
 
             if action.extend_notice:
                 nudge_msg += action.extend_notice
             send_to_agent_queued(notification["implementer"], nudge_msg)
             ts = _datetime.now(LOCAL_TZ).strftime("%m/%d %H:%M")
             q_prefix = "[Queue]" if notification.get("queue_mode") else ""
-            notify_discord(f"{q_prefix}[{pj}] {action.nudge}: 担当者 {notification['implementer']} を催促 ({ts})")
+            notify_discord(f"{q_prefix}[{pj}] {action.nudge}: nudging implementer {notification['implementer']} ({ts})")
             return
 
         ts = _datetime.now(LOCAL_TZ).strftime("%m/%d %H:%M")
@@ -741,9 +741,9 @@ def process(path: Path):
             for note in _npass_timeout_notes:
                 masked = mask_agent_name(note["reviewer"], reviewer_number_map=_rnm)
                 body = (
-                    f"[gokrax] NPASS timeout: {masked} のパス "
-                    f"{note['pass']}/{note['target_pass']} が未完了のため、"
-                    f"承認にフォールバックしました。"
+                    f"[gokrax] NPASS timeout: {masked} pass "
+                    f"{note['pass']}/{note['target_pass']} incomplete, "
+                    f"falling back to approval."
                 )
                 post_gitlab_note(gitlab, note["issue_num"], body)
 
@@ -764,7 +764,7 @@ def process(path: Path):
                 summary = assessment.get("summary", "") or ""
                 header = f"[gokrax] Assessment: Lvl {complex_level} / {risk_label}"
                 if action.new_state == "IDLE":
-                    header += " — 実装スキップ（除外条件に合致）"
+                    header += " — implementation skipped (matched exclusion criteria)"
                 lines = [header]
                 if domain_risk != "none" and risk_reason:
                     lines.append(f"Risk reason: {risk_reason}")
@@ -923,12 +923,12 @@ def process(path: Path):
                 and notification.get("queue_mode")):
             _check_queue()
 
-        skip_reset = True  # reset_reviewers=False なら reset 未実行 → already_reset=False
+        skip_reset = True  # reset not executed if reset_reviewers=False -> already_reset=False
         if action.reset_reviewers:
             review_mode = notification.get("review_mode", "standard")
             # keep_ctx 分岐: 遷移先に応じて参照フラグを切り替え
             if action.new_state in ("DESIGN_REVISE", "CODE_REVISE"):
-                skip_reset = True  # REVISE遷移は常にスキップ
+                skip_reset = True  # always skip for REVISE transition
             elif action.new_state == "DESIGN_PLAN":
                 skip_reset = notification.get("keep_ctx_batch", False)
             elif action.new_state == "IMPLEMENTATION":
@@ -1017,7 +1017,7 @@ def process(path: Path):
                 base_commit=base_commit,
                 comment=pipeline_data.get("comment", ""),
                 round_num=round_num if round_num > 0 else None,
-                already_reset=not skip_reset,  # _reset_reviewers() 実行済みなら True
+                already_reset=not skip_reset,  # True if _reset_reviewers() was executed
             )
 
             # 送信失敗レビュアーを excluded_reviewers に追加（2回目の update_pipeline）
@@ -1048,7 +1048,7 @@ def process(path: Path):
             except Exception as e:
                 log(f"[{pj}] _start_cc failed: {e}")
                 ts = _datetime.now(LOCAL_TZ).strftime("%m/%d %H:%M")
-                notify_discord(f"[{pj}] ⚠️ CC起動失敗: {e} ({ts})")
+                notify_discord(f"[{pj}] ⚠️ CC launch failed: {e} ({ts})")
             clear_pending_notification(pj, "run_cc")
 
         # Issue #206: no_cc モード通知
@@ -1073,7 +1073,7 @@ def process(path: Path):
                     add_history(data, "CODE_TEST", "BLOCKED", actor="watchdog")
                     _kill_code_test(data, pj)
                 update_pipeline(path, _block_test_fail)
-                notify_discord(f"[{pj}] ⚠️ テスト起動失敗: {e}")
+                notify_discord(f"[{pj}] ⚠️ test launch failed: {e}")
 
         # Issue #87: CODE_TEST_FIX CC 起動
         if notification.get("run_cc_test_fix"):
@@ -1087,7 +1087,7 @@ def process(path: Path):
                     data["enabled"] = False
                     add_history(data, "CODE_TEST_FIX", "BLOCKED", actor="watchdog")
                 update_pipeline(path, _block_cc_fail)
-                notify_discord(f"[{pj}] ⚠️ CC テスト修正起動失敗: {e}")
+                notify_discord(f"[{pj}] ⚠️ CC test-fix launch failed: {e}")
 
         # Issue #87: CODE_TEST_FIX 実装者通知（CC起動成功時のみ）
         if action.new_state == "CODE_TEST_FIX":
@@ -1275,14 +1275,14 @@ def _handle_qadd(msg_id: str, content: str):
     raw_lines = content.strip().split("\n")
     first_line_parts = raw_lines[0].strip().split(None, 1)
     if len(first_line_parts) < 2:
-        post_discord(DISCORD_CHANNEL, "qadd: 引数が必要です (例: qadd BeamShifter 33,34 lite no-automerge)")
+        post_discord(DISCORD_CHANNEL, "qadd: argument required (e.g.: qadd BeamShifter 33,34 lite no-automerge)")
         return
 
-    lines = [first_line_parts[1]]  # 1行目の "qadd" を除去した残り
+    lines = [first_line_parts[1]]  # remainder of first line after "qadd"
     lines.extend(l.strip() for l in raw_lines[1:] if l.strip() and not l.strip().startswith("#"))
 
     if not lines:
-        post_discord(DISCORD_CHANNEL, "qadd: 引数が必要です")
+        post_discord(DISCORD_CHANNEL, "qadd: argument required")
         return
 
     # 全行バリデーション
@@ -1290,7 +1290,7 @@ def _handle_qadd(msg_id: str, content: str):
         try:
             parse_queue_line(line)
         except ValueError as e:
-            post_discord(DISCORD_CHANNEL, f"qadd: 行{i} エラー: {e}")
+            post_discord(DISCORD_CHANNEL, f"qadd: line {i} error: {e}")
             log(f"[qadd] Validation error line {i}: {e} (msg_id={msg_id})")
             return
 
@@ -1301,7 +1301,7 @@ def _handle_qadd(msg_id: str, content: str):
             append_entry(QUEUE_FILE, line)
             added.append(line)
         except ValueError as e:
-            post_discord(DISCORD_CHANNEL, f"qadd: エラー: {e}")
+            post_discord(DISCORD_CHANNEL, f"qadd: error: {e}")
             log(f"[qadd] Error: {e} (msg_id={msg_id})")
             return
 
@@ -1326,7 +1326,7 @@ def _handle_qdel(msg_id: str, content: str):
 
     parts = content.strip().split()
     if len(parts) < 2:
-        post_discord(DISCORD_CHANNEL, "qdel: 引数が必要です (例: qdel last / qdel 2)")
+        post_discord(DISCORD_CHANNEL, "qdel: argument required (e.g.: qdel last / qdel 2)")
         return
 
     target = parts[1]
@@ -1336,12 +1336,12 @@ def _handle_qdel(msg_id: str, content: str):
         try:
             idx = int(target)
         except ValueError:
-            post_discord(DISCORD_CHANNEL, f"qdel: 無効な引数 '{target}' (数値 or 'last')")
+            post_discord(DISCORD_CHANNEL, f"qdel: invalid argument '{target}' (number or 'last')")
             return
 
     result = delete_entry(QUEUE_FILE, idx)
     if result is None:
-        post_discord(DISCORD_CHANNEL, "qdel: 対象が見つからないか、キューが空です")
+        post_discord(DISCORD_CHANNEL, "qdel: target not found or queue is empty")
         log(f"[qdel] Target not found (msg_id={msg_id})")
         return
 
@@ -1369,7 +1369,7 @@ def _handle_qedit(msg_id: str, content: str):
 
     parts = content.strip().split(None, 2)
     if len(parts) < 3:
-        post_discord(DISCORD_CHANNEL, "qedit: 引数が必要です (例: qedit 1 gokrax 105 full ...)")
+        post_discord(DISCORD_CHANNEL, "qedit: argument required (e.g.: qedit 1 gokrax 105 full ...)")
         return
 
     target = parts[1]
@@ -1381,17 +1381,17 @@ def _handle_qedit(msg_id: str, content: str):
         try:
             idx = int(target)
         except ValueError:
-            post_discord(DISCORD_CHANNEL, f"qedit: 無効な引数 '{target}' (数値 or 'last')")
+            post_discord(DISCORD_CHANNEL, f"qedit: invalid argument '{target}' (number or 'last')")
             return
 
     try:
         result = replace_entry(QUEUE_FILE, idx, new_line)
     except ValueError as e:
-        post_discord(DISCORD_CHANNEL, f"qedit: エラー: {e}")
+        post_discord(DISCORD_CHANNEL, f"qedit: error: {e}")
         return
 
     if result is None:
-        post_discord(DISCORD_CHANNEL, "qedit: 対象が見つからないか、キューが空です")
+        post_discord(DISCORD_CHANNEL, "qedit: target not found or queue is empty")
         return
 
     entries = get_active_entries(QUEUE_FILE)
@@ -1438,7 +1438,7 @@ def check_discord_commands():
                 if heal_id is None:
                     continue
                 try:
-                    int(heal_id)  # 数値として妥当か検証
+                    int(heal_id)  # validate as numeric
                 except (ValueError, TypeError):
                     continue
                 def _heal(s, _hid=heal_id):

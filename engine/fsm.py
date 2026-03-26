@@ -126,20 +126,20 @@ class TransitionAction:
     new_state: str | None = None
     impl_msg: str | None = None
     send_review: bool = False
-    reset_reviewers: bool = False  # レビュアーに /new を先行送信
-    send_merge_summary: bool = False  # #gokrax にマージサマリーを投稿
-    run_cc: bool = False  # CC CLI を直接起動
-    run_test: bool = False  # テスト実行トリガー（CODE_TEST進入時）
-    nudge: str | None = None   # 催促通知が必要な状態名
-    nudge_reviewers: list | None = None  # 催促が必要なレビュアーのリスト
-    dispute_nudge_reviewers: list | None = None  # dispute pending で催促が必要なレビュアー
-    extend_notice: str | None = None  # タイムアウト延長案内メッセージ
-    save_grace_met_at: str | None = None  # grace met_atをpipelineに保存する必要がある場合のキー名
-    clear_grace_met_at: str | None = None  # 遷移確定時にクリアする grace met_at のキー名
-    npass_target_reviewers: list | None = None  # NPASS遷移時のターゲットレビュアー一覧
-    skipped_issues: list[dict] | None = None   # ASSESSMENT で除外された Issue の dict リスト
-    remaining_issues: list[dict] | None = None  # ASSESSMENT で残留した Issue の dict リスト
-    grace_skipped_reviewers: list[str] | None = None  # grace period 切れでスキップされたレビュアー
+    reset_reviewers: bool = False  # send /new to reviewers in advance
+    send_merge_summary: bool = False  # post merge summary to #gokrax
+    run_cc: bool = False  # launch CC CLI directly
+    run_test: bool = False  # test execution trigger (on CODE_TEST entry)
+    nudge: str | None = None   # state name requiring nudge notification
+    nudge_reviewers: list | None = None  # list of reviewers requiring nudge
+    dispute_nudge_reviewers: list | None = None  # reviewers requiring nudge with pending dispute
+    extend_notice: str | None = None  # timeout extension notice message
+    save_grace_met_at: str | None = None  # key name when grace met_at needs to be saved to pipeline
+    clear_grace_met_at: str | None = None  # key name of grace met_at to clear on transition
+    npass_target_reviewers: list | None = None  # target reviewer list for NPASS transition
+    skipped_issues: list[dict] | None = None   # list of Issue dicts excluded in ASSESSMENT
+    remaining_issues: list[dict] | None = None  # list of Issue dicts remaining in ASSESSMENT
+    grace_skipped_reviewers: list[str] | None = None  # reviewers skipped due to grace period expiration
 
 
 def _get_state_entered_at(data: dict, state: str) -> _datetime | None:
@@ -194,7 +194,7 @@ def _check_nudge(state: str, data: dict) -> TransitionAction | None:
     if elapsed >= block_sec:
         return TransitionAction(
             new_state="BLOCKED",
-            impl_msg=f"{state} タイムアウト。応答がありませんでした。",
+            impl_msg=f"{state} timeout. No response received.",
         )
 
     # 猶予期間内は催促しない
@@ -212,12 +212,12 @@ def _check_nudge(state: str, data: dict) -> TransitionAction | None:
         max_extends = 2
         if extend_count < max_extends:
             nudge.extend_notice = (
-                f"\n\n⏰ タイムアウトまで残り{int(remaining)}秒（延長残り{max_extends - extend_count}回）。延長が必要なら:\n"
+                f"\n\n⏰ {int(remaining)}s until timeout ({max_extends - extend_count} extensions remaining). To extend:\n"
                 f"{GOKRAX_CLI} extend --project {project} --by 600"
             )
         else:
             nudge.extend_notice = (
-                f"\n\n⏰ タイムアウトまで残り{int(remaining)}秒。延長上限に達しています。"
+                f"\n\n⏰ {int(remaining)}s until timeout. Extension limit reached."
             )
 
     return nudge
@@ -313,12 +313,12 @@ def get_notification_for_state(
         return TransitionAction(send_review=True)
 
     from config import OWNER_NAME
-    comment_line = f"{OWNER_NAME}からの要望: {comment}\n" if comment else ""
+    comment_line = f"{OWNER_NAME}'s request: {comment}\n" if comment else ""
 
     if state == "DESIGN_PLAN":
         issues_str = ", ".join(
             f"#{i['issue']}" for i in batch if not i.get("design_ready")
-        ) or "（全Issue）"
+        ) or "(all Issues)"
         msg = render("dev.design_plan", "transition",
             project=project, issues_str=issues_str,
             comment_line=comment_line, GOKRAX_CLI=GOKRAX_CLI,
@@ -329,8 +329,8 @@ def get_notification_for_state(
         issues_str = _revise_target_issues(batch, "design_reviews", "design_revised", p2_fix=p2_fix)
         p2_note = ""
         if p2_fix:
-            p2_note = "\n⚠️ --p2-fix モード: P2 指摘も全件修正が必要です。P0/P1 がなくても P2 が残っていれば再度 REVISE に差し戻されます。\n"
-        fix_label = "P0/P1/P2指摘" if p2_fix else "P0/P1指摘"
+            p2_note = "\n⚠️ --p2-fix mode: all P2 findings must also be fixed. Even without P0/P1, remaining P2 will cause another REVISE.\n"
+        fix_label = "P0/P1/P2 findings" if p2_fix else "P0/P1 findings"
         msg = render("dev.design_revise", "transition",
             project=project, issues_str=issues_str, comment_line=comment_line,
             fix_label=fix_label, p2_note=p2_note, GOKRAX_CLI=GOKRAX_CLI,
@@ -341,8 +341,8 @@ def get_notification_for_state(
         issues_str = _revise_target_issues(batch, "code_reviews", "code_revised", p2_fix=p2_fix)
         p2_note = ""
         if p2_fix:
-            p2_note = "\n⚠️ --p2-fix モード: P2 指摘も全件修正が必要です。P0/P1 がなくても P2 が残っていれば再度 REVISE に差し戻されます。\n"
-        fix_label = "P0/P1/P2指摘" if p2_fix else "P0/P1指摘"
+            p2_note = "\n⚠️ --p2-fix mode: all P2 findings must also be fixed. Even without P0/P1, remaining P2 will cause another REVISE.\n"
+        fix_label = "P0/P1/P2 findings" if p2_fix else "P0/P1 findings"
         msg = render("dev.code_revise", "transition",
             project=project, issues_str=issues_str, comment_line=comment_line,
             fix_label=fix_label, p2_note=p2_note, GOKRAX_CLI=GOKRAX_CLI,
@@ -350,7 +350,7 @@ def get_notification_for_state(
         return TransitionAction(impl_msg=msg)
 
     if state == "ASSESSMENT":
-        issues_str = ", ".join(f"#{i['issue']}" for i in batch) or "（全Issue）"
+        issues_str = ", ".join(f"#{i['issue']}" for i in batch) or "(all Issues)"
         domain_risk_content = _read_domain_risk(project, repo_path)
         msg = render("dev.assessment", "transition",
             project=project, issues_str=issues_str,
@@ -505,7 +505,7 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
         if review_mode == "skip":
             return TransitionAction(
                 new_state=appr,
-                impl_msg=f"[review_mode=skip] 自動承認: {appr}",
+                impl_msg=f"[review_mode=skip] auto-approved: {appr}",
             )
 
         phase = "design" if "DESIGN" in state else "code"
@@ -928,7 +928,7 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
                 if elapsed >= block_sec:
                     return TransitionAction(
                         new_state="BLOCKED",
-                        impl_msg="CODE_TEST タイムアウト。テストプロセスが応答しませんでした。",
+                        impl_msg="CODE_TEST timeout. Test process did not respond.",
                     )
             return TransitionAction()
         if test_result == "pass":
@@ -939,7 +939,7 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
         if retry_count >= MAX_TEST_RETRY:
             return TransitionAction(
                 new_state="BLOCKED",
-                impl_msg=f"テスト {retry_count} 回連続失敗。自動修復不能。",
+                impl_msg=f"test {retry_count} consecutive failures. Cannot auto-fix.",
             )
         return TransitionAction(new_state="CODE_TEST_FIX")
 
@@ -958,7 +958,7 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
 def _format_nudge_message(state: str, project: str, batch: list) -> str:
     """催促メッセージ生成。get_notification_for_state() に委譲。"""
     notif = get_notification_for_state(state, project=project, batch=batch)
-    return notif.impl_msg or f"[gokrax] {project}: {state} — 対応してください。"
+    return notif.impl_msg or f"[gokrax] {project}: {state} — please take action."
 
 
 def _recover_pending_notifications(pj: str, pending: dict) -> None:

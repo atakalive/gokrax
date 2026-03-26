@@ -26,19 +26,19 @@ import yaml
 DEFAULT_SELF_REVIEW_CHECKLIST: list[dict] = [
     {
         "id": "reflected_items_match",
-        "question": "revise 報告の reflected_items が仕様書本文に実際に反映されているか",
+        "question": "Whether reflected_items in the revise report are actually reflected in the spec body",
     },
     {
         "id": "no_new_contradictions",
-        "question": "今回の変更で新たな矛盾が発生していないか",
+        "question": "Whether the current changes introduced new contradictions",
     },
     {
         "id": "pseudocode_consistency",
-        "question": "擬似コードの型・引数・関数名が本文の説明と一致しているか",
+        "question": "Whether pseudocode types, arguments, and function names match the body description",
     },
     {
         "id": "deferred_reasons_valid",
-        "question": "deferred_items に理由が明記されているか",
+        "question": "Whether deferred_items have explicit reasons",
     },
 ]
 
@@ -151,7 +151,7 @@ def build_self_review_prompt(
         example_items.append(
             f'  - id: "{item["id"]}"\n'
             f'    result: "Yes"\n'
-            f'    evidence: "（確認内容を記述）"'
+            f'    evidence: "(describe verification details)"'
         )
     example_yaml = "checklist:\n" + "\n".join(example_items)
 
@@ -184,7 +184,7 @@ def get_self_review_agent(spec_config: dict) -> str:
     review_requests = spec_config.get("review_requests", {})
     if review_requests:
         return next(iter(review_requests))
-    from config import IMPLEMENTERS  # 関数内 import（循環参照回避のため）
+    from config import IMPLEMENTERS  # function-level import (to avoid circular imports)
     if IMPLEMENTERS:
         return IMPLEMENTERS[0]
     raise RuntimeError("get_self_review_agent: no implementer configured (IMPLEMENTERS is empty)")
@@ -392,7 +392,7 @@ def verify_git_diff(
 
     if git_added != reported_added or git_removed != reported_removed:
         return (
-            f"git diff不一致: git={git_added}+/{git_removed}-, "
+            f"git diff mismatch: git={git_added}+/{git_removed}-, "
             f"reported={reported_added}+/{reported_removed}-"
         )
 
@@ -449,7 +449,7 @@ def build_revise_completion_updates(
         "spec_path": new_spec_path,
         "last_commit": revise_data["commit"],
         "current_rev": str(revise_data["new_rev"]),
-        "rev_index": new_rev_int,  # new_rev から直接算出（drift 防止）
+        "rev_index": new_rev_int,  # computed directly from new_rev (prevents drift)
         "last_changes": changes,
         "review_history": review_history,
         # current_reviews クリア

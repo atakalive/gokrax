@@ -92,9 +92,9 @@ def parse_queue_line(line: str) -> dict:
         issues = "all"
     else:
         parts = issues_raw.split(",")
-        if any(not p.strip() for p in parts):  # 空要素チェック
+        if any(not p.strip() for p in parts):  # check for empty elements
             raise ValueError(f"Invalid issues format (empty element): {issues_raw!r}")
-        if any(not p.strip().isdigit() for p in parts):  # 数値チェック
+        if any(not p.strip().isdigit() for p in parts):  # numeric check
             raise ValueError(f"Invalid issues format (non-integer): {issues_raw!r}")
         issues = issues_raw
 
@@ -144,7 +144,7 @@ def parse_queue_line(line: str) -> dict:
             comment_parts.extend(tokens[i + 1:])
             raw_comment = " ".join(comment_parts)
             result["comment"] = sanitize_comment(raw_comment)
-            break  # comment= 以降は全てコメントなのでループ終了
+            break  # everything after comment= is a comment, break loop
         elif token == "automerge":
             if result.get("_seen_no_automerge"):
                 raise ValueError("automerge and no-automerge cannot be used together")
@@ -384,7 +384,7 @@ def restore_queue_entry(queue_path: Path, original_line: str) -> bool:
                 # "# done: {original_line}" を探す
                 stripped = line.strip()
                 if stripped.startswith("# done:"):
-                    content = stripped[7:].strip()  # "# done: " を除去
+                    content = stripped[7:].strip()  # strip "# done: " prefix
                     if content == original_line.strip():
                         # 復元: "# done: " を削除
                         lines[i] = original_line if original_line.endswith("\n") else f"{original_line}\n"

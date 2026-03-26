@@ -1221,7 +1221,7 @@ class TestTimeoutExtension:
         assert action is not None
         assert action.nudge == "DESIGN_PLAN"
         assert action.extend_notice is not None
-        assert "タイムアウトまで残り" in action.extend_notice
+        assert "until timeout" in action.extend_notice
         assert "extend --project test-pj" in action.extend_notice
 
     def test_check_nudge_extend_notice_not_shown_enough_time(self):
@@ -4225,16 +4225,16 @@ class TestVerdictObligation:
 
         batch = [{"issue": 1, "design_reviews": {"a": {"verdict": "P2"}}}]
         action = get_notification_for_state("DESIGN_REVISE", project="Foo", batch=batch, p2_fix=True)
-        assert "--p2-fix モード" in action.impl_msg
+        assert "--p2-fix mode" in action.impl_msg
 
     def test_revise_notification_default_shows_p0_p1(self):
-        """デフォルトの fix_label が P0/P1指摘"""
+        """デフォルトの fix_label が P0/P1 findings"""
         from engine.fsm import get_notification_for_state
 
         batch = [{"issue": 1, "design_reviews": {"a": {"verdict": "P0"}}}]
         action = get_notification_for_state("DESIGN_REVISE", project="Foo", batch=batch)
-        assert "P0/P1指摘" in action.impl_msg
-        assert "--p2-fix モード" not in action.impl_msg
+        assert "P0/P1 findings" in action.impl_msg
+        assert "--p2-fix mode" not in action.impl_msg
 
     def test_revise_notification_code_revise_p2_fix(self):
         """CODE_REVISE + p2_fix=True の通知に警告文が含まれる"""
@@ -4242,7 +4242,7 @@ class TestVerdictObligation:
 
         batch = [{"issue": 1, "code_reviews": {"a": {"verdict": "P2"}}}]
         action = get_notification_for_state("CODE_REVISE", project="Foo", batch=batch, p2_fix=True)
-        assert "--p2-fix モード" in action.impl_msg
+        assert "--p2-fix mode" in action.impl_msg
 
     # --- クリーンアップテスト ---
 
@@ -4328,7 +4328,7 @@ class TestHandleQadd:
 
         assert queue_file.read_text() == ""
         msg = mock_post.call_args[0][1]
-        assert "エラー" in msg
+        assert "error" in msg
 
     def test_no_args_sends_error(self, tmp_path, monkeypatch):
         """引数なし → エラーメッセージ"""
@@ -4339,7 +4339,7 @@ class TestHandleQadd:
 
         assert queue_file.read_text() == ""
         msg = mock_post.call_args[0][1]
-        assert "引数が必要" in msg
+        assert "argument required" in msg
 
 
 # ── TestGetNotificationForStateComment (Issue #88) ───────────────────────────
@@ -4348,39 +4348,39 @@ class TestGetNotificationForStateComment:
     """get_notification_for_state() の comment 引数テスト"""
 
     def test_design_plan_no_comment(self):
-        """comment なし → Mからの要望 が含まれない"""
+        """comment なし → M's request が含まれない"""
         from engine.fsm import get_notification_for_state
         batch = [{"issue": 1, "design_ready": False}]
         action = get_notification_for_state("DESIGN_PLAN", project="Foo", batch=batch)
-        assert "Mからの要望" not in action.impl_msg
+        assert "M's request" not in action.impl_msg
 
     def test_design_plan_with_comment(self):
-        """comment あり → Mからの要望 が含まれる"""
+        """comment あり → M's request が含まれる"""
         from engine.fsm import get_notification_for_state
         batch = [{"issue": 1, "design_ready": False}]
         action = get_notification_for_state("DESIGN_PLAN", project="Foo", batch=batch, comment="APIの互換性に注意")
-        assert "Mからの要望: APIの互換性に注意" in action.impl_msg
+        assert "M's request: APIの互換性に注意" in action.impl_msg
 
     def test_design_revise_with_comment(self):
-        """DESIGN_REVISE + comment → Mからの要望 が含まれる"""
+        """DESIGN_REVISE + comment → M's request が含まれる"""
         from engine.fsm import get_notification_for_state
         batch = [{"issue": 1, "design_reviews": {"r1": {"verdict": "P0", "summary": "x"}}}]
         action = get_notification_for_state("DESIGN_REVISE", project="Foo", batch=batch, comment="注意点")
-        assert "Mからの要望: 注意点" in action.impl_msg
+        assert "M's request: 注意点" in action.impl_msg
 
     def test_code_revise_with_comment(self):
-        """CODE_REVISE + comment → Mからの要望 が含まれる"""
+        """CODE_REVISE + comment → M's request が含まれる"""
         from engine.fsm import get_notification_for_state
         batch = [{"issue": 1, "code_reviews": {"r1": {"verdict": "P0", "summary": "x"}}}]
         action = get_notification_for_state("CODE_REVISE", project="Foo", batch=batch, comment="コード注意")
-        assert "Mからの要望: コード注意" in action.impl_msg
+        assert "M's request: コード注意" in action.impl_msg
 
     def test_empty_comment_not_shown(self):
-        """comment="" → Mからの要望 が含まれない"""
+        """comment="" → M's request が含まれない"""
         from engine.fsm import get_notification_for_state
         batch = [{"issue": 1, "design_ready": False}]
         action = get_notification_for_state("DESIGN_PLAN", project="Foo", batch=batch, comment="")
-        assert "Mからの要望" not in action.impl_msg
+        assert "M's request" not in action.impl_msg
 
 
 # ── Issue #92: pytest ベースライン ────────────────────────────────────────────
@@ -5304,7 +5304,7 @@ class TestHandleQedit:
 
         mock_post.assert_called_once()
         msg = mock_post.call_args[0][1]
-        assert "引数が必要" in msg
+        assert "argument required" in msg
 
     def test_qedit_invalid_target(self, tmp_path, monkeypatch):
         """不正 target → エラーメッセージ投稿"""
@@ -5326,7 +5326,7 @@ class TestHandleQedit:
 
         mock_post.assert_called_once()
         msg = mock_post.call_args[0][1]
-        assert "見つからない" in msg or "空" in msg
+        assert "not found" in msg or "empty" in msg
 
 
 class TestAssessmentToIdleSkip:

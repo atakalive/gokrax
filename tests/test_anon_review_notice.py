@@ -21,8 +21,8 @@ class TestAnonReviewNotice:
             gitlab="test/test",
             reviewer="reviewer1",
         )
-        assert "匿名レビュー" in result
-        assert "自分の名前" in result
+        assert "Anonymous review" in result
+        assert "your name" in result
 
     def test_build_npass_review_message_includes_anon_notice(self, monkeypatch):
         """_build_npass_review_message の戻り値に匿名レビュー注意書きが含まれること。"""
@@ -44,5 +44,5 @@ class TestAnonReviewNotice:
             batch=batch,
             reviewer="reviewer1",
         )
-        assert "匿名レビュー" in result
-        assert "自分の名前" in result
+        assert "Anonymous review" in result
+        assert "your name" in result

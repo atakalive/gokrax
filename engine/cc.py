@@ -14,7 +14,7 @@ from engine.shared import log
 from messages import render
 
 # Issue #92: pytest ベースライン定数
-PYTEST_BASELINE_TIMEOUT_SEC = 300   # 5分
+PYTEST_BASELINE_TIMEOUT_SEC = 300   # 5 min
 MAX_BASELINE_OUTPUT_CHARS   = 50_000
 MAX_BASELINE_EMBED_CHARS    = 30_000
 KILL_GRACE_SEC: float       = 2.0
@@ -66,7 +66,7 @@ def _start_cc(project: str, batch: list, gitlab: str, repo_path: str, pipeline_p
             continue
         num = item["issue"]
         issue_nums.append(num)
-        body = fetch_issue_body(num, gitlab) or f"(Issue #{num} の本文取得失敗)"
+        body = fetch_issue_body(num, gitlab) or f"(Issue #{num}'s body fetch failed)"
         issue_texts.append(f"### Issue #{num}: {item.get('title', '')}\n{body}")
 
     if not issue_nums:
@@ -78,7 +78,7 @@ def _start_cc(project: str, batch: list, gitlab: str, repo_path: str, pipeline_p
 
     comment = data.get("comment", "")
     from config import OWNER_NAME as _owner
-    comment_line = f"{_owner}からの要望: {comment}\n\n" if comment else ""
+    comment_line = f"{_owner}'s request: {comment}\n\n" if comment else ""
     plan_prompt = render("dev.implementation", "cc_plan",
         issues_block=issues_block, closes=closes, comment_line=comment_line,
     )
@@ -402,7 +402,7 @@ def _poll_pytest_baseline(path: Path, pj: str) -> None:
 
     if not finished:
         if proc_alive:
-            return  # まだ実行中
+            return  # still running
         # 異常終了: exit_code_path なし + proc 消滅 → exit_code=-1 で保存
 
     # 結果回収
@@ -578,7 +578,7 @@ def _poll_code_test(path: Path, pj: str) -> None:
 
     if not finished:
         if proc_alive:
-            return  # まだ実行中
+            return  # still running
         # プロセス消滅フォールバック
 
     # 結果回収
@@ -747,7 +747,7 @@ def _mark_push_failed(gitlab: str, batch: list[dict], project: str) -> None:
                 capture_output=True, text=True, timeout=30,
             )
             if view_result.returncode != 0:
-                log(f"[{project}] Issue #{issue_num} タイトル取得失敗: {view_result.stderr.strip()}")
+                log(f"[{project}] Issue #{issue_num} title fetch failed: {view_result.stderr.strip()}")
                 continue
             title = _json.loads(view_result.stdout).get("title", "")
             if title.startswith("[PUSH FAILED]"):
@@ -758,9 +758,9 @@ def _mark_push_failed(gitlab: str, batch: list[dict], project: str) -> None:
                 capture_output=True, text=True, timeout=30,
             )
             if upd_result.returncode != 0:
-                log(f"[{project}] Issue #{issue_num} タイトル更新失敗: {upd_result.stderr.strip()}")
+                log(f"[{project}] Issue #{issue_num} title update failed: {upd_result.stderr.strip()}")
         except Exception as e:
-            log(f"[{project}] Issue #{issue_num} タイトル更新エラー: {e}")
+            log(f"[{project}] Issue #{issue_num} title update error: {e}")
 
 
 def _auto_push_and_close(repo_path: str, gitlab: str, batch: list, project: str) -> None:
@@ -782,18 +782,18 @@ def _auto_push_and_close(repo_path: str, gitlab: str, batch: list, project: str)
                     capture_output=True, text=True, timeout=60,
                 )
                 if result.returncode == 0:
-                    log(f"[{project}] git push 成功")
+                    log(f"[{project}] git push succeeded")
                     push_ok = True
                     break
                 else:
-                    log(f"[{project}] git push 失敗: {result.stderr.strip()}")
+                    log(f"[{project}] git push failed: {result.stderr.strip()}")
             except Exception as e:
-                log(f"[{project}] git push エラー: {e}")
+                log(f"[{project}] git push error: {e}")
             if attempt < MAX_PUSH_RETRIES:
-                log(f"[{project}] git push リトライ {attempt}/{MAX_PUSH_RETRIES}")
+                log(f"[{project}] git push retry {attempt}/{MAX_PUSH_RETRIES}")
                 time.sleep(PUSH_RETRY_DELAY)
         if not push_ok:
-            log(f"[{project}] git push 全リトライ失敗 — issue close をスキップ")
+            log(f"[{project}] git push all retries failed — skipping issue close")
             _mark_push_failed(gitlab, batch, project)
             return
 
@@ -810,6 +810,6 @@ def _auto_push_and_close(repo_path: str, gitlab: str, batch: list, project: str)
             if result.returncode == 0:
                 log(f"[{project}] Issue #{issue_num} closed")
             else:
-                log(f"[{project}] Issue #{issue_num} close失敗: {result.stderr.strip()}")
+                log(f"[{project}] Issue #{issue_num} close failed: {result.stderr.strip()}")
         except Exception as e:
-            log(f"[{project}] Issue #{issue_num} closeエラー: {e}")
+            log(f"[{project}] Issue #{issue_num} close error: {e}")

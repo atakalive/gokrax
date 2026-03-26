@@ -254,7 +254,7 @@ class TestCmdReviewDisputeResolution:
                            },
                        })
         import gokrax
-        with pytest.raises(SystemExit, match="dispute pending"):
+        with pytest.raises(SystemExit, match="dispute is pending"):
             gokrax.cmd_review(_review_args(verdict="APPROVE"))
 
     def test_review_recorded_after_dispute_resolution(self, tmp_pipelines):

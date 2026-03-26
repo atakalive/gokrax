@@ -229,7 +229,7 @@ class TestAssessmentNoteOnIdleSkip:
 
         assert mock_note.call_count == 1
         body = mock_note.call_args[0][2]
-        assert "実装スキップ（除外条件に合致）" in body
+        assert "implementation skipped (matched exclusion criteria)" in body
         assert "Lvl 4" in body
         assert "Low Risk" in body
         assert "Risk reason: 認証関連" in body

@@ -413,7 +413,7 @@ class TestFormatMergedReport:
     def test_contains_header(self):
         report = MergedReviewReport([], [], {"critical": 0, "major": 0, "minor": 0, "suggestion": 0}, "APPROVE")
         text = format_merged_report(report, "1")
-        assert "# Rev1 レビュー統合レポート" in text
+        assert "# Rev1 Review Integration Report" in text
 
     def test_items_listed(self):
         items = [SpecReviewItem("C-1", "critical", "§1", "Bug", "desc", "fix it", "reviewer1", "reviewer1:C-1")]

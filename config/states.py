@@ -69,7 +69,7 @@ __all__ = [
 # パイプライン
 MAX_BATCH = 5
 MAX_HISTORY = 100
-MAX_REVISE_CYCLES = 4  # REVISE→REVIEWの最大サイクル数
+MAX_REVISE_CYCLES = 4  # max cycles for REVISE->REVIEW
 VALID_VERDICTS = ["APPROVE", "P0", "P1", "P2", "REJECT"]
 VALID_FLAG_VERDICTS = ["P0", "P1", "P2"]
 
@@ -123,7 +123,7 @@ VALID_TRANSITIONS = {
     "CODE_APPROVED": ["MERGE_SUMMARY_SENT"],
     "MERGE_SUMMARY_SENT": ["DONE"],
     "DONE": ["IDLE"],
-    "BLOCKED": ["IDLE"],  # 復帰はIDLEに戻してから再開
+    "BLOCKED": ["IDLE"],  # recovery: return to IDLE before restart
 }
 
 # フェーズ別タイムアウト (秒)。0 = タイムアウトなし
@@ -190,8 +190,8 @@ SPEC_BLOCK_TIMERS: dict[str, int] = {
     "SPEC_REVIEW":       1800,  # 30 min
     "SPEC_REVISE":       1800,  # 30 min
     "ISSUE_SUGGESTION":   600,  # 10 min
-    "ISSUE_PLAN":        1800,  # 30 min  §10.2 準拠
-    "QUEUE_PLAN":        1800,  # 30 min  §10.2 準拠
+    "ISSUE_PLAN":        1800,  # 30 min  per §10.2
+    "QUEUE_PLAN":        1800,  # 30 min  per §10.2
 }
 SPEC_REVISE_SELF_REVIEW_PASSES: int = 2
 MAX_SPEC_RETRIES: int = 3

@@ -260,7 +260,7 @@ def _build_file_review_message(
         batch: バッチ内Issueリスト（未APPROVE分のIssue番号を抽出するため）
         round_num: 現在のラウンド番号（--round引数用）
     """
-    phase = "コード" if is_code else "設計"
+    phase = "code" if is_code else "design"
     review_key = "code_reviews" if is_code else "design_reviews"
 
     # 未APPROVEのIssueを抽出
@@ -332,7 +332,7 @@ def _build_npass_review_message(
             "NPASS pass numbers not uniform for reviewer %s: passes=%s, targets=%s",
             reviewer, pass_nums, target_passes,
         )
-    pass_num = min(pass_nums) + 1  # 次のパス番号
+    pass_num = min(pass_nums) + 1  # next pass number
     target_pass = min(target_passes) if target_passes else 1
 
     # TODO チェックリスト
@@ -346,20 +346,20 @@ def _build_npass_review_message(
         review_cmds.append(cmd)
 
     todo_header = (
-        f"【タスク: {len(pending_issues)}件 — 全て完了するまで止めるな】\n"
+        f"[Task: {len(pending_issues)} items — do not stop until all are completed]\n"
         + "\n".join(todo_lines)
-        + "\n\n⚠️ 匿名レビュー: --summary に自分の名前やエージェント名を含めないこと。"
+        + "\n\n⚠️ Anonymous review: do not include your name or agent name in --summary."
     )
 
     cmds_block = "\n".join(review_cmds)
     completion = (
-        f"\n\n【完了コマンド — 全Issue分を実行すること】\n"
+        f"\n\n[Completion commands — execute for all Issues]\n"
         f"```\n{cmds_block}\n```\n"
-        f"⚠️ 全Issueのreviewコマンドを実行するまでタスク未完了。途中で止めるな。"
+        f"⚠️ Task is incomplete until review commands are executed for all Issues. Do not stop midway."
     )
 
     from config import OWNER_NAME
-    comment_line = f"\n{OWNER_NAME}からの要望: {comment}" if comment else ""
+    comment_line = f"\n{OWNER_NAME}'s request: {comment}" if comment else ""
 
     # Issue 内容の再取得コマンド（リテラル N ではなく具体的な Issue 番号）
     gitlab_ref = f" -R {gitlab}" if gitlab else ""
@@ -368,15 +368,15 @@ def _build_npass_review_message(
         saved_path = _load_npass_review_file_path(project, reviewer)
         if saved_path:
             from shlex import quote as _shquote
-            refresher_cmds = f"前パスの完全なレビュー内容: `cat {_shquote(saved_path)}`"
+            refresher_cmds = f"Full review content from previous pass: `cat {_shquote(saved_path)}`"
         else:
-            refresher_cmds = "前パスで参照したファイル/コマンドを再実行して確認せよ。"
+            refresher_cmds = "Re-execute files/commands referenced in the previous pass to verify."
     else:
         view_cmds = [f"`glab issue view {n}{gitlab_ref}`" for n in issue_nums]
         note_cmds = [f"`glab issue note-list {n}{gitlab_ref}`" for n in issue_nums]
         refresher_cmds = (
-            "Issue本文の確認: " + ", ".join(view_cmds) + "\n"
-            "前回レビューコメントの確認: " + ", ".join(note_cmds)
+            "Check Issue body: " + ", ".join(view_cmds) + "\n"
+            "Check previous review comments: " + ", ".join(note_cmds)
         )
 
     from messages import render
@@ -659,7 +659,7 @@ def _split_message(text: str, limit: int = 2000) -> list[str]:
         # 改行で切れる位置を探す
         cut = text.rfind("\n", 0, limit)
         if cut <= 0:
-            cut = limit  # 改行がなければ強制切断
+            cut = limit  # force break if no newline found
         chunks.append(text[:cut])
         text = text[cut:].lstrip("\n")
     return chunks
@@ -738,7 +738,7 @@ def _check_squash(batch: list, base_commit: str, repo_path: str) -> list[str]:
             capture_output=True, text=True, timeout=10, check=False,
         )
         if result.returncode != 0:
-            return []  # 検証不能時は続行
+            return []  # continue if verification is not possible
 
         topo_order = result.stdout.strip().split("\n")
         # 各 commit の位置を特定（短縮ハッシュ対応: startswith で比較）
@@ -761,7 +761,7 @@ def _check_squash(batch: list, base_commit: str, repo_path: str) -> list[str]:
         sorted_commits = [c for c in sorted_commits if topo_index(c[1]) >= 0]
 
     except (subprocess.TimeoutExpired, FileNotFoundError):
-        return []  # 検証不能時は続行
+        return []  # continue if verification is not possible
 
     warnings = []
     predecessor = base_commit
@@ -780,7 +780,7 @@ def _check_squash(batch: list, base_commit: str, repo_path: str) -> list[str]:
                         f"{predecessor[:7]}, got {count}. Squash required."
                     )
         except (subprocess.TimeoutExpired, FileNotFoundError, ValueError):
-            pass  # 検証不能時はスキップ
+            pass  # skip if verification is not possible
         predecessor = commit
 
     return warnings
@@ -813,25 +813,25 @@ def notify_dispute(
         logger.warning("notify_dispute: unknown reviewer %s", reviewer)
         return False
     msg = (
-        f"【異議申し立て】\n"
-        f"{project} #{issue_num} のあなたの P0/P1 判定に対して実装者から異議が出ました。\n\n"
-        f"理由: {reason}\n\n"
-        f"再評価した上で、以下のいずれかのコマンドで判定を報告してください:\n\n"
-        f"# 判定を変更する場合:\n"
+        f"[Dispute]\n"
+        f"{project} #{issue_num} : the implementer has filed a dispute against your P0/P1 verdict.\n\n"
+        f"Reason: {reason}\n\n"
+        f"Please re-evaluate and report your verdict using one of the following commands:\n\n"
+        f"# To change your verdict:\n"
         f"{GOKRAX_CLI} review --pj {project} --issue {issue_num} "
         f"--reviewer {reviewer} --verdict APPROVE --force\n"
         f"{GOKRAX_CLI} review --pj {project} --issue {issue_num} "
-        f"--reviewer {reviewer} --verdict P2 --summary \"理由\" --force\n"
+        f"--reviewer {reviewer} --verdict P2 --summary \"reason\" --force\n"
         f"{GOKRAX_CLI} review --pj {project} --issue {issue_num} "
-        f"--reviewer {reviewer} --verdict P1 --summary \"理由\" --force\n\n"
-        f"# 現在の判定を維持する場合:\n"
+        f"--reviewer {reviewer} --verdict P1 --summary \"reason\" --force\n\n"
+        f"# To maintain your current verdict:\n"
         f"{GOKRAX_CLI} review --pj {project} --issue {issue_num} "
-        f"--reviewer {reviewer} --verdict P0 --summary \"維持理由\" --force\n"
+        f"--reviewer {reviewer} --verdict P0 --summary \"reason for maintaining\" --force\n"
         f"{GOKRAX_CLI} review --pj {project} --issue {issue_num} "
-        f"--reviewer {reviewer} --verdict P1 --summary \"維持理由\" --force\n\n"
-        f"※ --force は必須です（既存レビューの上書きに必要）。\n"
-        f"※ 維持する場合も必ずコマンドで明示してください。\n"
-        f"※ あなたの現在の verdict に合った --verdict を使ってください。"
+        f"--reviewer {reviewer} --verdict P1 --summary \"reason for maintaining\" --force\n\n"
+        f"Note: --force is required (needed to overwrite existing review).\n"
+        f"Note: even when maintaining, you must explicitly report via command.\n"
+        f"Note: use the --verdict that matches your current verdict."
     )
     return send_to_agent(reviewer, msg)
 
@@ -956,7 +956,7 @@ def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
     # 全員失敗時のみ BLOCKED
     effective_set = {r for r in reviewers if r not in excluded and r in AGENTS}
     if effective_set and failed_set >= effective_set:
-        _trigger_blocked(project, f"全レビュアーへの送信失敗: {sorted(failed_set)}")
+        _trigger_blocked(project, f"Failed to send to all reviewers: {sorted(failed_set)}")
 
     return sorted(failed_set)
 
@@ -1026,7 +1026,7 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
         prev_reviews = {}
 
     is_code = "CODE" in state
-    phase = "コード" if is_code else "設計"
+    phase = "code" if is_code else "design"
     sections = []
 
     skill_phase = "code" if is_code else "design"
@@ -1054,10 +1054,10 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
             if prev_review:
                 prev_verdict = prev_review.get("verdict", "")
                 prev_summary = prev_review.get("summary", "").strip()
-                section_parts[0] = f"### #{num}: {title}（再レビュー — {prev_verdict}対応済み）\n"
+                section_parts[0] = f"### #{num}: {title}(re-review — {prev_verdict} addressed)\n"
                 if prev_summary:
                     quoted = "\n".join(f"> {line}" for line in prev_summary.split("\n"))
-                    section_parts.insert(1, f"**前回の{prev_verdict}指摘（あなた）:**\n{quoted}\n\n")
+                    section_parts.insert(1, f"**Previous {prev_verdict} findings (yours):**\n{quoted}\n\n")
 
         # dispute 理由の埋め込み (Issue #108)
         dispute_phase = "code" if is_code else "design"
@@ -1068,16 +1068,16 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
                 dispute_reason = disp.get("reason", "").strip()
                 if dispute_reason:
                     quoted_reason = "\n".join(f"> {line}" for line in dispute_reason.splitlines())
-                    section_parts.append(f"**実装者からの異議（あなたの{disp.get('filed_verdict', 'P0')}に対して）:**\n{quoted_reason}\n\n")
-                break  # 同一レビュアーの pending dispute は高々1件（cmd_dispute で保証）
+                    section_parts.append(f"**Dispute from implementer (against your {disp.get('filed_verdict', 'P0')}):**\n{quoted_reason}\n\n")
+                break  # at most one pending dispute per reviewer (guaranteed by cmd_dispute)
 
         # Issue本文を取得して埋め込み
         issue_body = fetch_issue_body(num, gitlab)
         if issue_body:
-            section_parts.append(f"**Issue本文:**\n```\n{issue_body}\n```\n")
+            section_parts.append(f"**Issue body:**\n```\n{issue_body}\n```\n")
         else:
             # 取得失敗時: fallbackコマンド
-            section_parts.append(f"Issue詳細: `{GLAB_BIN} issue show {num} -R {gitlab}`\n")
+            section_parts.append(f"Issue details: `{GLAB_BIN} issue show {num} -R {gitlab}`\n")
 
         # コードレビュー: diff参照を記録（埋め込みはループ外で一括）
         if is_code and commit and repo_path:
@@ -1107,13 +1107,13 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
             f"{GOKRAX_CLI} review --project {project} --issue {num}"
             f"{round_arg}"
             f" --reviewer {reviewer} --verdict <APPROVE|P0|P1|P2> "
-            f"--summary $'レビュー本文\n2行目\n3行目..'"
+            f"--summary $'review body\nline 2\nline 3..'"
         )
 
     todo_header = (
-        f"【タスク: {len(pending_issues)}件 — 全て完了するまで止めるな】\n"
+        f"[Task: {len(pending_issues)} items — do not stop until all are completed]\n"
         + "\n".join(pending_issues)
-        + "\n\n⚠️ 匿名レビュー: --summary に自分の名前やエージェント名を含めないこと。"
+        + "\n\n⚠️ Anonymous review: do not include your name or agent name in --summary."
     )
 
     body = "\n\n".join(sections)
@@ -1126,10 +1126,10 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
                 orig_len = len(diff)
                 if orig_len > MAX_DIFF_CHARS:
                     diff = diff[:MAX_DIFF_CHARS] + f"\n\n... (safety truncated: {orig_len} chars exceeds {MAX_DIFF_CHARS} hard limit)"
-                body += f"\n\n---\n**変更内容 (commit {commit_hash[:7]}):**\n```diff\n{diff}\n```\n"
+                body += f"\n\n---\n**Changes (commit {commit_hash[:7]}):**\n```diff\n{diff}\n```\n"
             else:
                 body += (
-                    f"\n\n---\n変更確認 (commit {commit_hash[:7]}):\n"
+                    f"\n\n---\nVerify changes (commit {commit_hash[:7]}):\n"
                     f"  `git -C {repo_path} show --stat {commit_hash}`\n"
                     f"  `git -C {repo_path} show {commit_hash}`\n"
                 )
@@ -1143,13 +1143,13 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
     # --- 完了コマンド一覧（末尾） ---
     cmds_block = "\n".join(pending_cmds)
     completion = (
-        f"\n\n【完了コマンド — 全Issue分を実行すること】\n"
+        f"\n\n[Completion commands — execute for all Issues]\n"
         f"```\n{cmds_block}\n```\n"
-        f"⚠️ 全Issueのreviewコマンドを実行するまでタスク未完了。途中で止めるな。"
+        f"⚠️ Task is incomplete until review commands are executed for all Issues. Do not stop midway."
     )
 
     from config import OWNER_NAME
-    comment_line = f"\n{OWNER_NAME}からの要望: {comment}" if comment else ""
+    comment_line = f"\n{OWNER_NAME}'s request: {comment}" if comment else ""
     phase_note = "" if is_code else render("dev.design_review", "phase_note")
     review_module = "dev.code_review" if is_code else "dev.design_review"
     final_message = render(review_module, "review_request",

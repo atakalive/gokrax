@@ -148,7 +148,7 @@ class TestTransitionNotifications:
         mock_rev.assert_not_called()
 
     def test_resume_transition_to_design_plan_sends_notification(self, tmp_pipelines, sample_pipeline):
-        """--resume 遷移（→DESIGN_PLAN）で notify_implementer が呼ばれ「（再開）」プレフィックスが含まれる"""
+        """--resume 遷移（→DESIGN_PLAN）で notify_implementer が呼ばれ「(resumed)」プレフィックスが含まれる"""
         sample_pipeline["state"] = "INITIALIZE"
         sample_pipeline["batch"] = [dict(self._BATCH_ITEM)]
         path = tmp_pipelines / "test-pj.json"
@@ -162,7 +162,7 @@ class TestTransitionNotifications:
             cmd_transition(args)
         mock_impl.assert_called_once()
         call_msg = mock_impl.call_args[0][1]
-        assert "（再開）" in call_msg
+        assert "(resumed)" in call_msg
         assert "設計確認フェーズ" in call_msg
 
     def test_resume_skips_validation(self, tmp_pipelines, sample_pipeline):
@@ -214,7 +214,7 @@ class TestTransitionNotifications:
         assert "INITIALIZE" in msg
         assert "DESIGN_PLAN" in msg
         assert "by cli" in msg
-        assert "（再開）" not in msg
+        assert "(resumed)" not in msg
 
     def test_force_notifies_discord(self, tmp_pipelines, sample_pipeline):
         """--force 遷移でも notify_discord が呼ばれること"""
@@ -234,7 +234,7 @@ class TestTransitionNotifications:
         assert "by M" in msg
 
     def test_resume_notifies_discord_with_prefix(self, tmp_pipelines, sample_pipeline):
-        """--resume 遷移で通知文に「（再開）」が含まれること"""
+        """--resume 遷移で通知文に「(resumed)」が含まれること"""
         sample_pipeline["state"] = "INITIALIZE"
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, sample_pipeline)
@@ -248,7 +248,7 @@ class TestTransitionNotifications:
             cmd_transition(args)
         mock_discord.assert_called_once()
         msg = mock_discord.call_args[0][0]
-        assert "（再開）" in msg
+        assert "(resumed)" in msg
         assert "DESIGN_PLAN" in msg
 
 

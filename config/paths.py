@@ -21,8 +21,8 @@ PROJECT_ROOT = _PROJECT_ROOT
 WATCHDOG_LOOP_SCRIPT = _PROJECT_ROOT / "watchdog-loop.sh"
 WATCHDOG_LOOP_PIDFILE = Path("/tmp/gokrax-watchdog-loop.pid")
 WATCHDOG_LOOP_LOCKFILE = Path("/tmp/gokrax-watchdog-loop.lock")
-WATCHDOG_LOOP_CRON_LOCKFILE = Path("/tmp/gokrax-cron-spawn.lock")  # cron用（loop.shのlockと別）
-WATCHDOG_LOOP_CRON_MARKER = "watchdog-loop"  # crontab行のgrep用マーカー
+WATCHDOG_LOOP_CRON_LOCKFILE = Path("/tmp/gokrax-cron-spawn.lock")  # for cron (separate from loop.sh lock)
+WATCHDOG_LOOP_CRON_MARKER = "watchdog-loop"  # marker for grep in crontab lines
 WATCHDOG_LOOP_CRON_ENTRY = (
     f"* * * * * flock -n {WATCHDOG_LOOP_CRON_LOCKFILE}"
     f" setsid bash {_PROJECT_ROOT / 'watchdog-loop.sh'}"

@@ -5,7 +5,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 
-import yaml  # PyYAML (既にdeps)
+import yaml  # PyYAML (already in deps)
 
 from config import MIN_VALID_REVIEWS_BY_MODE
 
@@ -52,7 +52,7 @@ class SpecReviewItem:
 @dataclass
 class SpecReviewResult:
     reviewer: str
-    verdict: str               # "APPROVE"|"P0"|"P1"|"P2" (parse_success=False時は "")
+    verdict: str               # "APPROVE"|"P0"|"P1"|"P2" ("" when parse_success=False)
     items: list[SpecReviewItem]
     raw_text: str
     parse_success: bool
@@ -61,7 +61,7 @@ class SpecReviewResult:
 @dataclass
 class MergedReviewReport:
     reviews: list[SpecReviewResult]
-    all_items: list[SpecReviewItem]   # 重篤度順ソート済み
+    all_items: list[SpecReviewItem]   # sorted by severity
     summary: dict[str, int]           # {"critical": n, "major": n, ...}
     highest_verdict: str              # "APPROVE"|"P0"|"P1"|"P2"
 
@@ -201,7 +201,7 @@ def should_continue_review(
             if validate_received_entry(v):
                 received[k] = v
             else:
-                parsed_fail[k] = v  # 不変条件違反 → parse_failed 降格
+                parsed_fail[k] = v  # invariant violation -> demote to parse_failed
         elif status == "parse_failed":
             parsed_fail[k] = v
         # timeout は received にも parsed_fail にも含まれない
@@ -217,8 +217,8 @@ def should_continue_review(
     # 2. 有効レビュー不足
     if len(received) < min_valid:
         if len(parsed_fail) > 0:
-            return "paused"   # パース失敗あり → 人間の介入必要
-        return "failed"       # タイムアウトのみ → 再送で回復可能
+            return "paused"   # parse failure present -> human intervention needed
+        return "failed"       # timeout only -> recoverable by resend
 
     # 3. 有効レビューで判定（received >= min_valid: parsed_fail は無視して続行）
     has_p1 = any(
@@ -301,27 +301,27 @@ def merge_reviews(reviews: list[SpecReviewResult]) -> MergedReviewReport:
 def format_merged_report(report: MergedReviewReport, rev: str) -> str:
     """MergedReviewReport を §5.6 の Markdown フォーマットに変換する。"""
     lines: list[str] = []
-    lines.append(f"# Rev{rev} レビュー統合レポート")
-    lines.append("## サマリー")
+    lines.append(f"# Rev{rev} Review Integration Report")
+    lines.append("## Summary")
 
     reviewer_summary = ", ".join(
         f"{r.reviewer} ({r.verdict})" for r in report.reviews
     )
-    lines.append(f"- レビュアー: {reviewer_summary}")
+    lines.append(f"- Reviewers: {reviewer_summary}")
     lines.append(
-        f"- Critical: {report.summary['critical']}件, "
-        f"Major: {report.summary['major']}件, "
-        f"Minor: {report.summary['minor']}件, "
-        f"Suggestion: {report.summary['suggestion']}件"
+        f"- Critical: {report.summary['critical']} items, "
+        f"Major: {report.summary['major']} items, "
+        f"Minor: {report.summary['minor']} items, "
+        f"Suggestion: {report.summary['suggestion']} items"
     )
 
-    lines.append("## 全指摘一覧（重篤度順）")
+    lines.append("## All Findings (by severity)")
     for item in report.all_items:
         sev_label = item.severity.capitalize()
         lines.append(f"### {sev_label} — {item.normalized_id}: {item.title} ({item.section})")
         lines.append(item.description)
         if item.suggestion:
-            lines.append(f"**提案:** {item.suggestion}")
+            lines.append(f"**Suggestion:** {item.suggestion}")
         lines.append("")
 
     return "\n".join(lines)

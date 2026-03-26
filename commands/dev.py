@@ -162,13 +162,13 @@ def cmd_extend(args):
         state = data.get("state", "IDLE")
         if state not in EXTENDABLE_STATES:
             raise SystemExit(
-                f"延長不可: 現在の状態 {state} は対象外です "
-                f"(対象: {', '.join(sorted(EXTENDABLE_STATES))})"
+                f"Cannot extend: current state {state} is not eligible "
+                f"(eligible: {', '.join(sorted(EXTENDABLE_STATES))})"
             )
         extend_count = data.get("extend_count", 0)
         if extend_count >= MAX_EXTENDS:
             raise SystemExit(
-                f"延長不可: 延長回数上限({MAX_EXTENDS}回)に達しています"
+                f"Cannot extend: maximum extension count ({MAX_EXTENDS}) reached"
             )
         data["timeout_extension"] = data.get("timeout_extension", 0) + args.by
         data["extend_count"] = extend_count + 1
@@ -182,11 +182,11 @@ def cmd_extend(args):
     from datetime import datetime
     ts = datetime.now(LOCAL_TZ).strftime("%m/%d %H:%M")
     notify_discord(
-        f"[{args.project}] {result['implementer']} がタイムアウトを{args.by}秒延長 "
-        f"({result['state']}, {result['count']}/{MAX_EXTENDS}回, 累計+{result['total']}秒, {ts})"
+        f"[{args.project}] {result['implementer']} extended timeout by {args.by}s "
+        f"({result['state']}, {result['count']}/{MAX_EXTENDS}, total +{result['total']}s, {ts})"
     )
 
-    print(f"{args.project}: タイムアウト延長 +{args.by}秒 (累計+{result['total']}秒)")
+    print(f"{args.project}: timeout extended +{args.by}s (total +{result['total']}s)")
 
 
 def _fetch_open_issues(gitlab: str) -> list[tuple[int, str]]:
@@ -534,7 +534,7 @@ def cmd_transition(args):
         _cfg.DRY_RUN = True
     path = get_path(args.project)
     resume = getattr(args, "resume", False)
-    ctx = {}  # ロック内→外の値受け渡し (Issue #59)
+    ctx = {}  # pass values from inside lock to outside (Issue #59)
 
     def do_transition(data):
         current = data.get("state", "IDLE")
@@ -575,7 +575,7 @@ def cmd_transition(args):
         p2_fix = data.get("p2_fix", False)
         comment = data.get("comment", "")
         notif = get_notification_for_state(target, pj, batch, gitlab, implementer, p2_fix=p2_fix, comment=comment)
-        prefix = "（再開）" if resume else ""
+        prefix = "(resumed) " if resume else ""
 
         pending = {}
         if notif.impl_msg:
@@ -619,7 +619,7 @@ def cmd_transition(args):
 
     if notif.reset_reviewers:
         if args.to in ("DESIGN_REVISE", "CODE_REVISE"):
-            skip_reset = True  # REVISE遷移は常にスキップ
+            skip_reset = True  # always skip for REVISE transition
         elif args.to == "DESIGN_PLAN":
             skip_reset = ctx["keep_ctx_batch"]
         elif args.to == "IMPLEMENTATION":
@@ -811,7 +811,7 @@ def cmd_review(args):
             # --force 必須（既存レビューの上書きが必要）
             if not args.force:
                 raise SystemExit(
-                    "REVISE 中の dispute レビューには --force が必須です"
+                    "--force is required for dispute reviews during REVISE"
                 )
             pending_dispute = None
             for d in issue.get("disputes", []):
@@ -822,7 +822,7 @@ def cmd_review(args):
                     break
             if pending_dispute is None:
                 raise SystemExit(
-                    f"REVISE 中のレビュー更新は dispute pending 時のみ可能 "
+                    f"Review updates during REVISE are only allowed when a dispute is pending "
                     f"(#{args.issue}, {args.reviewer})"
                 )
             # dispute 解決: severity 比較で accepted/rejected を判定
@@ -915,7 +915,7 @@ def cmd_review(args):
             target_pass = 1
 
         existing_entry = issue.get(key, {}).get(args.reviewer, {})
-        current_pass = existing_entry.get("pass", 0) + 1  # 既存なし→0+1=1, 既存あり→pass+1
+        current_pass = existing_entry.get("pass", 0) + 1  # no existing->0+1=1, existing->pass+1
 
         review_entry["pass"] = current_pass
         review_entry["target_pass"] = target_pass
@@ -971,7 +971,7 @@ def cmd_review(args):
 
     # GitLab Issue note に自動投稿
     gitlab = data.get("gitlab", f"{GITLAB_NAMESPACE}/{args.project}")
-    phase = "設計" if "DESIGN" in state else "コード"
+    phase = "design" if "DESIGN" in state else "code"
 
     # NPASS 中間パスでは APPROVE の場合のみ GitLab note をスキップ
     # P0/P1/P2 の指摘は中間パスでも GitLab に投稿（開発者が確認できるようにする）
@@ -988,7 +988,7 @@ def cmd_review(args):
     if not skip_note:
         reviewer_map = data.get("reviewer_number_map")
         masked = mask_agent_name(args.reviewer, reviewer_number_map=reviewer_map)
-        note_body = f"[{masked}] {args.verdict} ({phase}レビュー)\n\n{args.summary or ''}"
+        note_body = f"[{masked}] {args.verdict} ({phase} review)\n\n{args.summary or ''}"
         if _post_gitlab_note(gitlab, args.issue, note_body):
             print("  → GitLab issue note posted")
 
@@ -1006,7 +1006,7 @@ def cmd_dispute(args):
     def do_dispute(data):
         state = data.get("state", "IDLE")
         if state not in ("DESIGN_REVISE", "CODE_REVISE"):
-            raise SystemExit(f"dispute は REVISE 状態でのみ実行可能 (現在: {state})")
+            raise SystemExit(f"dispute is only allowed in REVISE state (current: {state})")
 
         issue = find_issue(data.get("batch", []), args.issue)
         if not issue:
@@ -1020,8 +1020,8 @@ def cmd_dispute(args):
         verdict = reviewer_review.get("verdict", "").upper()
         if verdict not in ("P0", "P1"):
             raise SystemExit(
-                f"#{args.issue}: {_masked_reviewer(args.reviewer, _pipeline.get('reviewer_number_map'))} の verdict は {verdict or '(なし)'} — "
-                f"P0/P1 のみ dispute 可能"
+                f"#{args.issue}: {_masked_reviewer(args.reviewer, _pipeline.get('reviewer_number_map'))}'s verdict is {verdict or '(none)'} — "
+                f"only P0/P1 can be disputed"
             )
 
         disputes = issue.setdefault("disputes", [])
@@ -1031,11 +1031,11 @@ def cmd_dispute(args):
         )
         if has_pending:
             raise SystemExit(
-                f"#{args.issue}: {_masked_reviewer(args.reviewer, _pipeline.get('reviewer_number_map'))} への dispute は既に pending"
+                f"#{args.issue}: {_masked_reviewer(args.reviewer, _pipeline.get('reviewer_number_map'))} already has a pending dispute"
             )
 
         if not args.reason.strip():
-            raise SystemExit("--reason は空にできません")
+            raise SystemExit("--reason cannot be empty")
 
         phase = "design" if "DESIGN" in state else "code"
         disputes.append({
@@ -1073,22 +1073,22 @@ def cmd_dispute(args):
     if issue_data:
         filed_verdict = issue_data.get(review_key, {}).get(args.reviewer, {}).get("verdict", "")
     dispute_msg = (
-        f"【異議申し立て — あなたの {filed_verdict} 判定に対する異議】\n"
-        f"{args.project} #{args.issue}: 実装者があなたの判定に異議を申し立てました。\n\n"
-        f"理由:\n{args.reason.strip()}\n\n"
-        f"再評価した上で --force 付きで判定を報告してください:\n"
+        f"[Dispute — objection to your {filed_verdict} verdict]\n"
+        f"{args.project} #{args.issue}: The implementer has filed a dispute against your verdict.\n\n"
+        f"Reason:\n{args.reason.strip()}\n\n"
+        f"Please re-evaluate and report your verdict with --force:\n"
         f"python3 {GOKRAX_CLI} review --pj {args.project} --issue {args.issue} "
         f"--reviewer {args.reviewer} --verdict <APPROVE/P0/P1/P2> --summary \"...\" --force"
     )
     if not send_to_agent_queued(args.reviewer, dispute_msg):
-        print(f"WARNING: dispute 通知の送信に失敗 ({_masked_reviewer(args.reviewer, data.get('reviewer_number_map'))})")
+        print(f"WARNING: Failed to send dispute notification ({_masked_reviewer(args.reviewer, data.get('reviewer_number_map'))})")
 
     gitlab = data.get("gitlab", f"{GITLAB_NAMESPACE}/{args.project}")
     reviewer_map = data.get("reviewer_number_map")
     masked = mask_agent_name(args.reviewer, reviewer_number_map=reviewer_map)
     note_body = (
-        f"[dispute] #{args.issue}: {masked} の判定に異議申し立て\n\n"
-        f"理由: {args.reason.strip()}"
+        f"[dispute] #{args.issue}: {masked}'s verdict disputed\n\n"
+        f"Reason: {args.reason.strip()}"
     )
     _post_gitlab_note(gitlab, args.issue, note_body)
 
@@ -1448,7 +1448,7 @@ def cmd_merge_summary(args):
 
     message_id = post_discord(DISCORD_CHANNEL, content)
     if not message_id:
-        raise SystemExit("Discord 投稿に失敗しました")
+        raise SystemExit("Failed to post to Discord")
 
     def do_update(data):
         data["summary_message_id"] = message_id
@@ -1460,18 +1460,18 @@ def cmd_merge_summary(args):
     # Notify implementer of batch completion (Issue #48)
     implementer = data.get("implementer") or IMPLEMENTERS[0]
     notification_msg = (
-        f"[gokrax] {project}: バッチ完了\n"
+        f"[gokrax] {project}: batch completed\n"
         f"{content}\n\n"
-        "上記の作業を振り返り、以下だけを記録してください:\n"
-        "- 踏んだ罠、ハマったこと（あれば）\n"
-        "- レビュアー指摘で学んだこと（あれば）\n"
-        "- 今後の作業に影響する判断（あれば）\n"
-        "記録すべきことがなければ NO_REPLY で構いません。"
+        "Review the above work and record only the following:\n"
+        "- Pitfalls or issues encountered (if any)\n"
+        "- Lessons learned from reviewer feedback (if any)\n"
+        "- Decisions that affect future work (if any)\n"
+        "If nothing to record, NO_REPLY is fine."
     )
     try:
         notify_implementer(implementer, notification_msg)
     except Exception as e:
-        logger.warning("実装者通知失敗（続行）: %s", e)
+        logger.warning("implementer notification failed (continuing): %s", e)
 
     print(f"{args.project}: merge summary sent (message_id={message_id})")
 
@@ -1707,29 +1707,29 @@ def cmd_qadd(args):
     # 入力ソース決定
     if getattr(args, "file", None):
         if args.entry or getattr(args, "from_stdin", False):
-            raise SystemExit("--file と位置引数/--stdin は排他です")
+            raise SystemExit("--file and positional args/--stdin are mutually exclusive")
         lines = args.file.read_text().splitlines()
     elif getattr(args, "from_stdin", False):
         if args.entry:
-            raise SystemExit("--stdin と位置引数は排他です")
+            raise SystemExit("--stdin and positional args are mutually exclusive")
         lines = sys.stdin.read().splitlines()
     elif args.entry:
         lines = [" ".join(args.entry)]
     else:
-        raise SystemExit("追加するエントリを指定してください（位置引数 or --file or --stdin）")
+        raise SystemExit("Specify entries to add (positional args or --file or --stdin)")
 
     # 空行・コメント行を除外
     lines = [l.strip() for l in lines if l.strip() and not l.strip().startswith("#")]
 
     if not lines:
-        raise SystemExit("追加するエントリがありません")
+        raise SystemExit("No entries to add")
 
     # 全行をバリデーション（1行でもエラーなら全体を中止）
     for i, line in enumerate(lines, 1):
         try:
             parse_queue_line(line)
         except ValueError as e:
-            raise SystemExit(f"行 {i}: {e}")
+            raise SystemExit(f"line {i}: {e}")
 
     # バリデーション通過後に追加
     added = []

@@ -241,7 +241,7 @@ class TestVerifyGitDiff:
             })()
             result = verify_git_diff("/repo", "abc", "def1234", "docs/spec.md", {"added_lines": 50, "removed_lines": 10})
             assert result is not None
-            assert "不一致" in result
+            assert "mismatch" in result
 
     def test_git_failure(self):
         with patch("subprocess.run") as mock_run:

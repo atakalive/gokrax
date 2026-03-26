@@ -84,7 +84,7 @@ class TestCmdMergeSummary:
         args = argparse.Namespace(project="test-pj")
         with patch("notify.post_discord", return_value=None), \
              patch("notify.send_to_agent", return_value=True):
-            with pytest.raises(SystemExit, match="Discord 投稿に失敗"):
+            with pytest.raises(SystemExit, match="Failed to post to Discord"):
                 cmd_merge_summary(args)
 
     def test_merge_summary_content_contains_project_and_issues(self, tmp_pipelines):
@@ -167,9 +167,9 @@ class TestCmdMergeSummary:
         message = call_args[0][1]
 
         assert agent_id == "implementer1"
-        assert "[gokrax] test-pj: バッチ完了" in message
-        assert "上記の作業を振り返り" in message
-        assert "NO_REPLY で構いません" in message
+        assert "[gokrax] test-pj: batch completed" in message
+        assert "Review the above work" in message
+        assert "NO_REPLY is fine" in message
         assert "#1" in message  # Issue from batch
 
     def test_merge_summary_notifies_custom_implementer(self, tmp_pipelines):

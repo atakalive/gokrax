@@ -165,12 +165,12 @@ def main():
                    help="skip ASSESSMENT phase, go directly to IMPLEMENTATION")
     p.add_argument("--no-skip-assess", action="store_true", default=None, dest="no_skip_assess")
     p.add_argument("--skip-design", action="store_true", default=None, dest="skip_design",
-                   help="DESIGN_PLAN/DESIGN_REVIEW をスキップ")
+                   help="Skip DESIGN_PLAN/DESIGN_REVIEW")
     p.add_argument("--no-skip-design", action="store_true", default=None, dest="no_skip_design")
     p.add_argument("--no-cc", action="store_true", default=None, dest="no_cc",
-                   help="IMPLEMENTATION で CC を使用せず手動実装モードにする")
+                   help="Use manual implementation mode without CC in IMPLEMENTATION")
     p.add_argument("--no-no-cc", action="store_true", default=None, dest="no_no_cc",
-                   help="CC 使用を強制（--no-cc を打ち消す）")
+                   help="Force CC usage (overrides --no-cc)")
     p.add_argument("--exclude-high-risk", action="store_true", default=None, dest="exclude_high_risk",
                    help="skip batch if domain_risk == high")
     p.add_argument("--no-exclude-high-risk", action="store_true", default=None, dest="no_exclude_high_risk")

@@ -64,8 +64,8 @@ NONE_TO_FALSE_KEYS: tuple[str, ...] = (
 )
 
 # CC model
-CC_MODEL_PLAN = "sonnet"     # DESIGN_PLAN フェーズ
-CC_MODEL_IMPL = "sonnet"   # IMPLEMENTATION フェーズ
+CC_MODEL_PLAN = "sonnet"     # DESIGN_PLAN phase
+CC_MODEL_IMPL = "sonnet"   # IMPLEMENTATION phase
 
 # Timezone
 LOCAL_TZ = timezone(timedelta(hours=9))
@@ -103,7 +103,7 @@ def _get_max_cli_arg_bytes() -> int:
     - Windows: CreateProcess=32,767文字
     """
     if sys.platform == "darwin":
-        return 900_000   # macOS ARG_MAX=1,048,576; ~14% margin (envp消費分に注意)
+        return 900_000   # macOS ARG_MAX=1,048,576; ~14% margin (note envp consumption)
     elif sys.platform == "win32":
         return 30_000    # Windows CreateProcess=32,767 chars; ~8% margin
     else:
@@ -214,11 +214,11 @@ else:
         # 1. 後方互換バリデーション: REVIEWERS/IMPLEMENTERS が未定義の場合フェイルファスト
         if not REVIEWERS and not IMPLEMENTERS:
             raise RuntimeError(
-                "settings.py に REVIEWERS と IMPLEMENTERS が定義されていません。\n"
-                "settings.py を更新してください:\n"
+                "REVIEWERS and IMPLEMENTERS are not defined in settings.py.\n"
+                "Please update settings.py:\n"
                 '  REVIEWERS = ["reviewer1", "reviewer2"]\n'
                 '  IMPLEMENTERS = ["impl1"]\n'
-                "詳細は settings.example.py を参照。"
+                "See settings.example.py for details."
             )
 
         # IMPLEMENTERS 単独の空チェック
@@ -234,8 +234,8 @@ else:
         _overlap = set(REVIEWERS) & set(IMPLEMENTERS)
         if _overlap:
             raise ValueError(
-                f"REVIEWERS と IMPLEMENTERS に重複があります: {_overlap}\n"
-                "同一エージェントを両方のリストに含めることはできません。"
+                f"REVIEWERS and IMPLEMENTERS have overlapping entries: {_overlap}\n"
+                "The same agent cannot be in both lists."
             )
         del _overlap
 

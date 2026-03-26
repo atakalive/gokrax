@@ -232,7 +232,7 @@ def cmd_spec_approve(args):
     _APPROVE_ALLOWED = ("SPEC_REVIEW", "SPEC_STALLED", "SPEC_REVISE")
     path = get_path(args.project)
     # 全チェックをflock内に移動してTOCTOU回避
-    ctx = {}  # ロック内→外の値受け渡し
+    ctx = {}  # pass values from inside lock to outside
 
     def do_approve(data):
         state = data.get("state")
@@ -355,7 +355,7 @@ def cmd_spec_stop(args):
     old_state = data.get("state", "IDLE")
 
     def do_stop(data):
-        old = data.get("state", "IDLE")  # ロック内で取得
+        old = data.get("state", "IDLE")  # acquired inside lock
         data["state"] = "IDLE"
         data["spec_mode"] = False
         data["spec_config"] = {}
@@ -699,7 +699,7 @@ def cmd_spec_self_review_submit(args):
         sc_pre = _pdata.get("spec_config", {})
         expected_ids_from_pipeline = sc_pre.get("_self_review_expected_ids")
     except Exception:
-        pass  # 読めなくても後続で処理
+        pass  # continue processing even if unreadable
 
     # パース検証（フェンス補完パターン）
     canonical_text = raw_text

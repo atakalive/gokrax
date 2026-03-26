@@ -256,7 +256,7 @@ class TestCheckIssueSuggestion:
         assert "sent_at" in rr_patch["reviewer2"]
         assert "timeout_at" in rr_patch["reviewer2"]
 
-    # 24. タイムアウト → rr_patch に status:timeout（既存フィールド保持）
+    # 24. timeout → rr_patch に status:timeout（既存フィールド保持）
     def test_timeout_sets_status(self):
         past = _now() - timedelta(seconds=config.SPEC_BLOCK_TIMERS["ISSUE_SUGGESTION"] + 10)
         sc = self._base_sc()
@@ -295,7 +295,7 @@ class TestCheckIssueSuggestion:
         rr_patch = action.pipeline_updates["review_requests_patch"]
         assert rr_patch["reviewer2"]["status"] == "received"
 
-    # 26. パース失敗 → rr_patch に status:parse_failed
+    # 26. parse failure → rr_patch に status:parse_failed
     def test_parse_failure_parse_failed(self):
         sc = self._base_sc()
         sc["review_requests"]["reviewer2"]["sent_at"] = _now().isoformat()
@@ -323,7 +323,7 @@ class TestCheckIssueSuggestion:
         }
         action = _check_issue_suggestion(sc, _now(), {"project": "gokrax"})
         assert action.next_state == "ISSUE_PLAN"
-        assert "[Spec] Issue分割提案回収完了" in action.discord_notify
+        assert "[Spec] Issue split suggestions collected" in action.discord_notify
         # review_requests 完全リセット確認
         reset = action.pipeline_updates["review_requests_patch"]["reviewer2"]
         assert reset["status"] == "pending"
@@ -342,7 +342,7 @@ class TestCheckIssueSuggestion:
         }
         action = _check_issue_suggestion(sc, _now(), {"project": "gokrax"})
         assert action.next_state == "SPEC_PAUSED"
-        assert "有効応答なし" in action.discord_notify
+        assert "no valid responses" in action.discord_notify
         assert action.pipeline_updates.get("paused_from") == "ISSUE_SUGGESTION"
 
 
@@ -394,7 +394,7 @@ class TestCheckIssuePlan:
         assert action.next_state == "SPEC_DONE"
         assert action.pipeline_updates["created_issues"] == [51]
 
-    # 32. 応答あり（パース失敗）→ SPEC_PAUSED + discord_notify
+    # 32. 応答あり（parse failure）→ SPEC_PAUSED + discord_notify
     def test_response_parse_failure(self):
         sc = self._base_sc(
             _issue_plan_response="invalid response",
@@ -402,10 +402,10 @@ class TestCheckIssuePlan:
         )
         action = _check_issue_plan(sc, _now(), {"project": "gokrax"})
         assert action.next_state == "SPEC_PAUSED"
-        assert "パース失敗" in action.discord_notify
+        assert "parse failure" in action.discord_notify
         assert action.pipeline_updates.get("paused_from") == "ISSUE_PLAN"
 
-    # 33. タイムアウト + リトライ → _issue_plan_sent リセット + discord_notify
+    # 33. timeout + リトライ → _issue_plan_sent リセット + discord_notify
     def test_timeout_retry(self):
         old_time = _now() - timedelta(seconds=config.SPEC_BLOCK_TIMERS["ISSUE_PLAN"] + 10)
         sc = self._base_sc(
@@ -415,10 +415,10 @@ class TestCheckIssuePlan:
         action = _check_issue_plan(sc, _now(), {"project": "gokrax"})
         assert action.next_state is None
         assert action.pipeline_updates.get("_issue_plan_sent") is None
-        assert "タイムアウト" in action.discord_notify
+        assert "timeout" in action.discord_notify
         assert "retry" in action.discord_notify
 
-    # 34. タイムアウト + MAX_SPEC_RETRIES 超過 → SPEC_PAUSED + discord_notify
+    # 34. timeout + MAX_SPEC_RETRIES 超過 → SPEC_PAUSED + discord_notify
     def test_timeout_max_retries(self):
         old_time = _now() - timedelta(seconds=config.SPEC_BLOCK_TIMERS["ISSUE_PLAN"] + 10)
         sc = self._base_sc(
@@ -427,7 +427,7 @@ class TestCheckIssuePlan:
         )
         action = _check_issue_plan(sc, _now(), {"project": "gokrax"})
         assert action.next_state == "SPEC_PAUSED"
-        assert "タイムアウト" in action.discord_notify
+        assert "timeout" in action.discord_notify
 
 
 # ===========================================================================
@@ -468,7 +468,7 @@ class TestCheckQueuePlan:
         assert "3バッチ" in action.discord_notify
         assert action.pipeline_updates.get("_queue_plan_response") is None
 
-    # 37. 応答あり（パース失敗）→ SPEC_PAUSED + discord_notify
+    # 37. 応答あり（parse failure）→ SPEC_PAUSED + discord_notify
     def test_response_parse_failure(self):
         sc = self._base_sc(
             _queue_plan_response="not valid",
@@ -476,7 +476,7 @@ class TestCheckQueuePlan:
         )
         action = _check_queue_plan(sc, _now(), {"project": "gokrax"})
         assert action.next_state == "SPEC_PAUSED"
-        assert "パース失敗" in action.discord_notify
+        assert "parse failure" in action.discord_notify
         assert action.pipeline_updates.get("paused_from") == "QUEUE_PLAN"
 
     # 38. 複数reviewer・受領と完了が別tick（Leibniz P0再現テスト）

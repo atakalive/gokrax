@@ -66,7 +66,7 @@ class TestCmdExtend:
         import argparse
         args = argparse.Namespace(project="test-pj", by=600)
 
-        with pytest.raises(SystemExit, match="延長不可"):
+        with pytest.raises(SystemExit, match="Cannot extend"):
             cmd_extend(args)
 
     def test_extend_invalid_state_review(self, tmp_pipelines, sample_pipeline):
@@ -79,7 +79,7 @@ class TestCmdExtend:
         import argparse
         args = argparse.Namespace(project="test-pj", by=600)
 
-        with pytest.raises(SystemExit, match="延長不可"):
+        with pytest.raises(SystemExit, match="Cannot extend"):
             cmd_extend(args)
 
     def test_extend_design_plan(self, tmp_pipelines, sample_pipeline):
@@ -164,5 +164,5 @@ class TestCmdExtend:
         call_args = mock_discord.call_args[0][0]
         assert "test-pj" in call_args
         assert "implementer1" in call_args
-        assert "600秒延長" in call_args
-        assert "累計+600秒" in call_args
+        assert "extended timeout by 600s" in call_args
+        assert "total +600s" in call_args

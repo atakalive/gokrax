@@ -22,9 +22,7 @@ PIPELINES_DIR = Path.home() / ".openclaw/shared/pipelines"
 
 REVIEWERS = ["reviewer1", "reviewer2"]
 IMPLEMENTERS = ["impl1"]
-# AGENTS は通常 config で REVIEWERS + IMPLEMENTERS から自動生成される。
-# session key を個別にカスタマイズしたい場合のみ明示定義（非推奨）:
-# AGENTS = {"reviewer1": "agent:reviewer1:main", "impl1": "agent:impl1:main"}
+# AGENTS dictionary is auto-generated from REVIEWERS + IMPLEMENTERS in config.
 
 # Reviewer tiers means that their infrastructure capability
 # Regular: Stable connection, enough context length
@@ -41,17 +39,18 @@ REVIEWER_TIERS: dict = {
 # Recommended — adjust to your setup
 # ===========================================================================
 OWNER_NAME: str = "User"
-PROMPT_LANG: str = "en"
+PROMPT_LANG: str = "en"  # Available: en, ja
 LOCAL_TZ = timezone(timedelta(hours=0))  # GMT = 0
 CC_MODEL_PLAN = "sonnet"
 CC_MODEL_IMPL = "sonnet"
 MASK_AGENT_NAMES = True  # if False, your agent names are shown in GitLab notes. (Default: True)
 
 DEFAULT_QUEUE_OPTIONS: dict[str, bool | str] = {
-    "skip_cc_plan": True,
-    "keep_ctx_intra": True,
-    "skip_test": True,
-    "skip_assess": True,
+    "skip_cc_plan": True,       # Claude Code Plan mode is skipped in IMPLEMENTATION. (Default: True)
+    "no-cc": False,             # Claude Code is not used in IMPLEMENTATION. (Default: False)
+    "keep_ctx_intra": True,     # Context is kept between DESIGN and CODE phases. (Default: True)
+    "skip_test": True,          # CODE_TEST is skipped. (Default: True)
+    "skip_assess": True,        # ASSESSMENT is skipped. (Default: True)
 }
 
 # Per-project overrides for DEFAULT_QUEUE_OPTIONS.
@@ -62,8 +61,8 @@ DEFAULT_QUEUE_OPTIONS: dict[str, bool | str] = {
 #   bool keys (e.g. "skip_test": False), alias keys (e.g. "impl": "opus"),
 #   and alias=value keys (e.g. "impl=opus": True).
 PROJECT_QUEUE_OPTIONS: dict[str, dict[str, bool | str]] = {
-    # "MyProject": {"skip_test": False},     # override skip_test for this project
-    # "SimpleProject": {"skip_test": True},   # explicitly keep default
+    # "MyProject": {"skip_assess": False},      # override skip_assess for this project
+    # "SimpleProject": {"skip_assess": True},   # explicitly keep default
 }
 
 REVIEW_MODES = {

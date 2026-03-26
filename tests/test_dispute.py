@@ -608,6 +608,24 @@ class TestAwaitingDisputeReReview:
         ]
         assert set(self._call(batch)) == {"reviewer1", "reviewer2"}
 
+    def test_accepted_approve_verdict_not_awaiting(self):
+        """accepted + resolved_verdict=APPROVE → review エントリなしでも awaiting に含まれない"""
+        batch = [{"issue": 1, "design_reviews": {}, "disputes": [
+            {"reviewer": "reviewer1", "status": "accepted", "phase": "design",
+             "resolved_verdict": "APPROVE",
+             "resolved_at": "2025-01-02T00:00:00+09:00"},
+        ]}]
+        assert self._call(batch) == []
+
+    def test_accepted_p2_verdict_still_awaiting(self):
+        """accepted + resolved_verdict=P2 → review なしなら awaiting"""
+        batch = [{"issue": 1, "design_reviews": {}, "disputes": [
+            {"reviewer": "reviewer1", "status": "accepted", "phase": "design",
+             "resolved_verdict": "P2",
+             "resolved_at": "2025-01-02T00:00:00+09:00"},
+        ]}]
+        assert self._call(batch) == ["reviewer1"]
+
 
 # ---------------------------------------------------------------------------
 # 9. check_transition での dispute 再レビュー待ち遷移ブロック
@@ -680,6 +698,31 @@ class TestCheckTransitionDisputeReReview:
              "resolved_at": "2025-01-02T00:00:00+09:00"},
         ]
         data = self._make_review_data(reviews=reviews, disputes=disputes)
+        import watchdog
+        action = watchdog.check_transition("DESIGN_REVIEW", data["batch"], data)
+        assert action.new_state == "DESIGN_APPROVED"
+
+    def test_accepted_approve_verdict_allows_transition(self):
+        """accepted + resolved_verdict=APPROVE → review エントリなしでも遷移
+
+        reviewer1 は dispute 経由の APPROVE のため design_reviews にエントリがない。
+        count_reviews() は design_reviews dict のエントリ数のみ数えるため、
+        reviewer1 を含めると min_reviews=3 (standard) を満たせない。
+        min_reviews_override=2 で「dispute 解決済みレビュアーの review エントリが
+        存在しなくても _awaiting_dispute_re_review が遷移をブロックしない」という
+        本バグの核心を検証する。
+        """
+        reviews = {
+            "reviewer3": {"verdict": "APPROVE", "at": "2025-01-03T00:00:00+09:00"},
+            "reviewer6": {"verdict": "APPROVE", "at": "2025-01-03T00:00:00+09:00"},
+        }
+        disputes = [
+            {"reviewer": "reviewer1", "status": "accepted", "phase": "design",
+             "resolved_verdict": "APPROVE",
+             "resolved_at": "2025-01-02T00:00:00+09:00"},
+        ]
+        data = self._make_review_data(reviews=reviews, disputes=disputes)
+        data["min_reviews_override"] = 2
         import watchdog
         action = watchdog.check_transition("DESIGN_REVIEW", data["batch"], data)
         assert action.new_state == "DESIGN_APPROVED"

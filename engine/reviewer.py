@@ -114,7 +114,10 @@ def _awaiting_dispute_re_review(
 
     対象:
     - status == "pending": 常に awaiting（未解決）
-    - status == "accepted": review が無い or review.at < dispute.resolved_at → awaiting
+    - status == "accepted" + resolved_verdict == "APPROVE": 対象外（レビュー完了扱い。
+      dispute 解決自体が final verdict として機能し、reviewer の再投稿は不要）
+    - status == "accepted" + それ以外の resolved_verdict: review が無い or
+      review.at < dispute.resolved_at → awaiting
     - status == "rejected": 対象外（元の判定維持）
 
     excluded に含まれるレビュアーは対象外（レート制限等で除外済み）。
@@ -136,7 +139,13 @@ def _awaiting_dispute_re_review(
             if status == "pending":
                 awaiting.add(reviewer)
                 continue
-            # accepted: review の有無と時刻で判定
+            # accepted + resolved_verdict=APPROVE: dispute resolution が
+            # final verdict として機能する。レビュー完了扱い（再レビュー不要）。
+            # reviewer の再投稿は不要であり、dispute 解決自体が APPROVE を確定する。
+            resolved_verdict = d.get("resolved_verdict", "")
+            if resolved_verdict.upper() == "APPROVE":
+                continue
+            # accepted (verdict降格: P0→P2 等): review の有無と時刻で判定
             resolved_at = d.get("resolved_at", "")
             review = issue.get(review_key, {}).get(reviewer)
             if review is None:

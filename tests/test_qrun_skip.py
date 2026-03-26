@@ -129,7 +129,7 @@ class TestHandleQrunSkip:
 
         with patch("gokrax.cmd_start",
                    side_effect=QueueSkipError("All issues are closed.")), \
-             patch("watchdog.update_pipeline"), \
+             patch("pipeline_io.update_pipeline"), \
              patch("task_queue.restore_queue_entry") as mock_restore, \
              patch("task_queue.rollback_queue_mode") as mock_rollback, \
              patch("notify.post_discord") as mock_post, \

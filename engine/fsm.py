@@ -139,6 +139,7 @@ class TransitionAction:
     npass_target_reviewers: list | None = None  # NPASS遷移時のターゲットレビュアー一覧
     skipped_issues: list[dict] | None = None   # ASSESSMENT で除外された Issue の dict リスト
     remaining_issues: list[dict] | None = None  # ASSESSMENT で残留した Issue の dict リスト
+    grace_skipped_reviewers: list[str] | None = None  # grace period 切れでスキップされたレビュアー
 
 
 def _get_state_entered_at(data: dict, state: str) -> _datetime | None:
@@ -545,6 +546,7 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
 
             # Determine if we should transition now
             should_transition = False
+            grace_expired = False
 
             # Case 1: All effective reviewers done → immediate
             if count >= effective_count:
@@ -558,6 +560,7 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
                 if elapsed >= grace_sec:
                     log(f"[GRACE] grace period expired ({elapsed:.1f}s >= {grace_sec}s), transitioning")
                     should_transition = True
+                    grace_expired = True
                 else:
                     log(f"[GRACE] waiting ({grace_sec - elapsed:.1f}s remaining)")
                     return TransitionAction(save_grace_met_at=met_key)
@@ -605,6 +608,11 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
                 # Grace met_at のクリアを呼び出し側に委譲（実際に met_at が存在する場合のみ）
                 if met_at_exists:
                     outcome.clear_grace_met_at = met_key
+                # Grace period expired 経路のみ: スキップされたレビュアーを記録
+                if grace_expired:
+                    pending = _get_pending_reviewers(batch, key, phase_config["members"], excluded=excluded)
+                    if pending:
+                        outcome.grace_skipped_reviewers = pending
                 return outcome
 
         # Not enough reviews yet

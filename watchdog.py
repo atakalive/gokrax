@@ -718,6 +718,20 @@ def process(path: Path):
         q_prefix = "[Queue]" if notification.get("queue_mode") else ""
         notify_discord(f"{q_prefix}[{pj}] {notification['old_state']} → {action.new_state} ({ts})")
 
+        # Grace period expired: スキップされたレビュアーを通知
+        if action.grace_skipped_reviewers:
+            from notify import mask_agent_name
+            _rnm = notification.get("reviewer_number_map")
+            masked_names = [
+                mask_agent_name(r, reviewer_number_map=_rnm)
+                for r in action.grace_skipped_reviewers
+            ]
+            phase = "design" if "DESIGN" in (notification.get("old_state") or "") else "code"
+            notify_discord(
+                f"{q_prefix}[{pj}] ⏰ Grace period expired: "
+                f"{', '.join(masked_names)} skipped ({phase} review)"
+            )
+
         # NPASS timeout: GitLab note を投稿（ロック外）
         _npass_timeout_notes = notification.get("_npass_timeout_notes", [])
         if _npass_timeout_notes:

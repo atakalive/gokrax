@@ -10,7 +10,7 @@ import pytest
 
 import config
 import notify
-from engine import backend, backend_pi, reviewer as _reviewer_mod
+from engine import backend, backend_openclaw, backend_pi, reviewer as _reviewer_mod
 
 # Save real function references before conftest's autouse fixtures replace them
 # with mocks. Module-level imports execute before per-test fixtures.
@@ -18,8 +18,6 @@ _real_reset_reviewers = _reviewer_mod._reset_reviewers
 _real_reset_short_context = _reviewer_mod._reset_short_context_reviewers
 _real_send_to_agent = notify.send_to_agent
 _real_ping_agent = notify.ping_agent
-_real_send_to_agent_openclaw = notify._send_to_agent_openclaw
-_real_ping_agent_openclaw = notify._ping_agent_openclaw
 _real_backend_send = backend.send
 _real_backend_ping = backend.ping
 
@@ -46,23 +44,15 @@ def _reset_starting_markers():
 # ===========================================================================
 
 class TestPreconditions:
-    """Guard: all target/helper functions referenced by #243 must exist."""
+    """Guard: all target/helper functions must exist."""
 
     @pytest.fixture(autouse=True)
     def _restore_real_bindings(self, monkeypatch):
         """Restore real bindings so precondition checks are not fooled by autouse mocks."""
         monkeypatch.setattr(notify, "send_to_agent", _real_send_to_agent)
         monkeypatch.setattr(notify, "ping_agent", _real_ping_agent)
-        monkeypatch.setattr(notify, "_send_to_agent_openclaw", _real_send_to_agent_openclaw)
-        monkeypatch.setattr(notify, "_ping_agent_openclaw", _real_ping_agent_openclaw)
         monkeypatch.setattr(backend, "send", _real_backend_send)
         monkeypatch.setattr(backend, "ping", _real_backend_ping)
-
-    def test_notify_send_to_agent_openclaw_exists(self):
-        assert getattr(notify, "_send_to_agent_openclaw", None) is _real_send_to_agent_openclaw
-
-    def test_notify_ping_agent_openclaw_exists(self):
-        assert getattr(notify, "_ping_agent_openclaw", None) is _real_ping_agent_openclaw
 
     def test_engine_backend_send_exists(self):
         assert getattr(backend, "send", None) is _real_backend_send
@@ -75,6 +65,12 @@ class TestPreconditions:
 
     def test_notify_ping_agent_exists(self):
         assert getattr(notify, "ping_agent", None) is _real_ping_agent
+
+    def test_backend_openclaw_send_exists(self):
+        assert callable(getattr(backend_openclaw, "send", None))
+
+    def test_backend_openclaw_ping_exists(self):
+        assert callable(getattr(backend_openclaw, "ping", None))
 
 
 # ===========================================================================
@@ -136,9 +132,9 @@ class TestThinWrapperPropagation:
 # ===========================================================================
 
 class TestBackendSendDispatch:
-    def test_openclaw_calls_gateway(self, monkeypatch):
+    def test_openclaw_calls_backend_openclaw_send(self, monkeypatch):
         monkeypatch.setattr(config, "AGENT_BACKEND", "openclaw")
-        with patch("notify._send_to_agent_openclaw", return_value=True) as mock_oc:
+        with patch("engine.backend_openclaw.send", return_value=True) as mock_oc:
             result = backend.send("reviewer1", "hello", 30)
         assert result is True
         mock_oc.assert_called_once_with("reviewer1", "hello", 30)
@@ -156,9 +152,9 @@ class TestBackendSendDispatch:
 # ===========================================================================
 
 class TestBackendPingDispatch:
-    def test_openclaw_calls_openclaw_ping(self, monkeypatch):
+    def test_openclaw_calls_backend_openclaw_ping(self, monkeypatch):
         monkeypatch.setattr(config, "AGENT_BACKEND", "openclaw")
-        with patch("notify._ping_agent_openclaw", return_value=True) as mock_oc:
+        with patch("engine.backend_openclaw.ping", return_value=True) as mock_oc:
             result = backend.ping("reviewer1", 20)
         assert result is True
         mock_oc.assert_called_once_with("reviewer1", 20)
@@ -327,3 +323,51 @@ class TestArchitectureGuard:
                     pytest.fail(
                         f"engine.backend_pi imports from {node.module}"
                     )
+
+    def test_backend_does_not_import_notify(self):
+        """engine/backend.py must not import notify (acyclic goal)."""
+        source = Path(backend.__file__).read_text()
+        tree = ast.parse(source)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    assert alias.name != "notify", \
+                        "engine.backend imports notify"
+            elif isinstance(node, ast.ImportFrom):
+                if node.module and (node.module == "notify" or node.module.startswith("notify.")):
+                    pytest.fail(
+                        f"engine.backend imports from {node.module}"
+                    )
+
+    def test_notify_does_not_define_removed_names(self):
+        """notify.py must not define or re-export openclaw backend helpers."""
+        removed = [
+            "_gateway_chat_send_cli",
+            "_gateway_chat_send",
+            "_send_to_agent_openclaw",
+            "_ping_agent_openclaw",
+        ]
+        source = Path(notify.__file__).read_text()
+        tree = ast.parse(source)
+        defined = set()
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                defined.add(node.name)
+            elif isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        defined.add(target.id)
+        for name in removed:
+            assert name not in defined, \
+                f"notify.py still defines {name!r}"
+
+    def test_backend_openclaw_exposes_send_and_ping(self):
+        """engine/backend_openclaw.py must expose send and ping as public API."""
+        source = Path(backend_openclaw.__file__).read_text()
+        tree = ast.parse(source)
+        top_level_funcs = set()
+        for node in ast.iter_child_nodes(tree):
+            if isinstance(node, ast.FunctionDef) and not node.name.startswith("_"):
+                top_level_funcs.add(node.name)
+        assert "send" in top_level_funcs, "backend_openclaw missing public send()"
+        assert "ping" in top_level_funcs, "backend_openclaw missing public ping()"

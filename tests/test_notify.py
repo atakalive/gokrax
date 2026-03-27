@@ -34,82 +34,80 @@ class TestGetBotToken:
 class TestSendToAgent:
 
     def test_cli_openclaw_not_found(self, caplog):
-        """CLI パス: openclaw が PATH にない場合 False を返すこと。"""
-        import notify
-        with patch("notify.subprocess.run", side_effect=FileNotFoundError("openclaw")):
-            with caplog.at_level(logging.ERROR, logger="gokrax.notify"):
-                result = notify._gateway_chat_send_cli('{"sessionKey":"x","message":"y","idempotencyKey":"z"}', 10)
+        """CLI path: return False when openclaw is not in PATH."""
+        from engine.backend_openclaw import _gateway_chat_send_cli
+        with patch("engine.backend_openclaw.subprocess.run", side_effect=FileNotFoundError("openclaw")):
+            with caplog.at_level(logging.ERROR, logger="engine.backend_openclaw"):
+                result = _gateway_chat_send_cli('{"sessionKey":"x","message":"y","idempotencyKey":"z"}', 10)
         assert result is False
         assert "not found" in caplog.text.lower()
 
     def test_cli_timeout(self, caplog):
-        """CLI パス: タイムアウト時に False を返すこと。"""
-        import notify
-        with patch("notify.subprocess.run", side_effect=subprocess.TimeoutExpired("cmd", 5)):
-            with caplog.at_level(logging.WARNING, logger="gokrax.notify"):
-                result = notify._gateway_chat_send_cli('{"sessionKey":"x","message":"y","idempotencyKey":"z"}', 5)
+        """CLI path: return False on timeout."""
+        from engine.backend_openclaw import _gateway_chat_send_cli
+        with patch("engine.backend_openclaw.subprocess.run", side_effect=subprocess.TimeoutExpired("cmd", 5)):
+            with caplog.at_level(logging.WARNING, logger="engine.backend_openclaw"):
+                result = _gateway_chat_send_cli('{"sessionKey":"x","message":"y","idempotencyKey":"z"}', 5)
         assert result is False
         assert "timed out" in caplog.text.lower()
 
     def test_cli_success_status_started(self):
-        """CLI パス正常系: status=started で成功。"""
-        import notify
+        """CLI path success: status=started."""
+        from engine.backend_openclaw import _gateway_chat_send_cli
         mock_result = MagicMock()
         mock_result.returncode = 0
         mock_result.stdout = '{"runId":"abc","status":"started"}'
-        with patch("notify.subprocess.run", return_value=mock_result):
-            result = notify._gateway_chat_send_cli('{"sessionKey":"x","message":"y","idempotencyKey":"z"}', 10)
+        with patch("engine.backend_openclaw.subprocess.run", return_value=mock_result):
+            result = _gateway_chat_send_cli('{"sessionKey":"x","message":"y","idempotencyKey":"z"}', 10)
         assert result is True
 
     def test_cli_success_ok_true(self):
-        """CLI パス正常系: ok=true で成功（レスポンス形式の差異に対応）。"""
-        import notify
+        """CLI path success: ok=true."""
+        from engine.backend_openclaw import _gateway_chat_send_cli
         mock_result = MagicMock()
         mock_result.returncode = 0
         mock_result.stdout = '{"ok":true,"runId":"abc"}'
-        with patch("notify.subprocess.run", return_value=mock_result):
-            result = notify._gateway_chat_send_cli('{"sessionKey":"x","message":"y","idempotencyKey":"z"}', 10)
+        with patch("engine.backend_openclaw.subprocess.run", return_value=mock_result):
+            result = _gateway_chat_send_cli('{"sessionKey":"x","message":"y","idempotencyKey":"z"}', 10)
         assert result is True
 
     def test_cli_nonzero_exit(self, caplog):
-        """CLI パス: 非ゼロ終了コードで False を返すこと。"""
-        import notify
+        """CLI path: return False on non-zero exit code."""
+        from engine.backend_openclaw import _gateway_chat_send_cli
         mock_result = MagicMock()
         mock_result.returncode = 1
         mock_result.stderr = "Gateway call failed"
-        with patch("notify.subprocess.run", return_value=mock_result):
-            with caplog.at_level(logging.WARNING, logger="gokrax.notify"):
-                result = notify._gateway_chat_send_cli('{"sessionKey":"x","message":"y","idempotencyKey":"z"}', 10)
+        with patch("engine.backend_openclaw.subprocess.run", return_value=mock_result):
+            with caplog.at_level(logging.WARNING, logger="engine.backend_openclaw"):
+                result = _gateway_chat_send_cli('{"sessionKey":"x","message":"y","idempotencyKey":"z"}', 10)
         assert result is False
 
     def test_dispatch_small_message_uses_cli(self):
-        """120KB 未満のメッセージは CLI パスを使うこと。"""
-        import notify
-        with patch("notify._gateway_chat_send_cli", return_value=True) as mock_cli:
-            result = notify._gateway_chat_send("agent:test:main", "small msg", 10)
+        """Small message (<120KB) uses CLI path."""
+        from engine.backend_openclaw import _gateway_chat_send
+        with patch("engine.backend_openclaw._gateway_chat_send_cli", return_value=True) as mock_cli:
+            result = _gateway_chat_send("agent:test:main", "small msg", 10)
         assert result is True
         mock_cli.assert_called_once()
 
     def test_dispatch_boundary_just_under_limit_uses_cli(self):
-        """120KB ギリギリ未満のメッセージは CLI パスを使うこと。"""
-        import notify
-        # _CLI_PARAMS_LIMIT = 120_000 bytes。params JSON にはメッセージ以外のキーも入るので
-        # メッセージサイズは少し小さくても params 全体で 120KB 未満に収まるケースをテスト
-        msg = "x" * 100_000  # params JSON 全体は ~100KB + overhead
-        with patch("notify._gateway_chat_send_cli", return_value=True) as mock_cli:
-            result = notify._gateway_chat_send("agent:test:main", msg, 10)
+        """Message just under 120KB uses CLI path."""
+        from engine.backend_openclaw import _gateway_chat_send
+        msg = "x" * 100_000  # params JSON ~100KB + overhead
+        with patch("engine.backend_openclaw._gateway_chat_send_cli", return_value=True) as mock_cli:
+            result = _gateway_chat_send("agent:test:main", msg, 10)
         assert result is True
         mock_cli.assert_called_once()
 
     def test_newline_preserved_cli(self):
-        """CLI パス: 改行を含むメッセージが params JSON で保持されること。"""
-        import notify
+        """CLI path: newlines in message are preserved in params JSON."""
+        from engine.backend_openclaw import _gateway_chat_send_cli
         mock_result = MagicMock()
         mock_result.returncode = 0
         mock_result.stdout = '{"status":"started"}'
         msg = "line1\nline2\nline3"
-        with patch("notify.subprocess.run", return_value=mock_result) as mock_run:
-            notify._gateway_chat_send_cli(
+        with patch("engine.backend_openclaw.subprocess.run", return_value=mock_result) as mock_run:
+            _gateway_chat_send_cli(
                 json.dumps({"sessionKey": "x", "message": msg, "idempotencyKey": "z"}), 10
             )
         # --params に渡された JSON 内に改行が保持されていること

@@ -125,70 +125,6 @@ def review_command(project: str, issue: int, reviewer: str, round_num: int | Non
     return cmd
 
 
-def _gateway_chat_send_cli(params_json: str, timeout: int) -> bool:
-    """openclaw gateway call CLI 経由で chat.send を送信する。
-
-    CLI が device identity と全 auth mode を内部で処理する。
-    MAX_CLI_ARG_BYTES (128KB) 未満のメッセージ専用。
-
-    Args:
-        params_json: JSON 文字列（sessionKey, message, idempotencyKey）
-        timeout: 秒単位のタイムアウト
-
-    Returns:
-        True: chat.send 成功, False: 失敗
-    """
-    try:
-        result = subprocess.run(
-            [
-                "openclaw", "gateway", "call", "chat.send",
-                "--params", params_json,
-                "--json",
-                "--timeout", str(timeout * 1000),
-            ],
-            capture_output=True,
-            text=True,
-            timeout=timeout + 5,  # CLI timeout + margin
-        )
-        if result.returncode != 0:
-            logger.warning("openclaw gateway call failed (rc=%d): %s",
-                          result.returncode, result.stderr.strip()[:200])
-            return False
-        resp = json.loads(result.stdout)
-        return resp.get("ok", False) or resp.get("status") == "started"
-    except FileNotFoundError:
-        logger.error("openclaw not found in PATH")
-        return False
-    except subprocess.TimeoutExpired:
-        logger.warning("openclaw gateway call timed out (%ds)", timeout)
-        return False
-    except (json.JSONDecodeError, OSError) as e:
-        logger.warning("openclaw gateway call error: %s", e)
-        return False
-
-
-def _gateway_chat_send(session_key: str, message: str, timeout: int) -> bool:
-    """Gateway 経由で chat.send を送信する（CLI経由のみ）。
-
-    MAX_CLI_ARG_BYTES 未満の params_json 専用。
-    それ以上のメッセージは呼び出し元でファイル外部化すること。
-    """
-    params_json = json.dumps({
-        "sessionKey": session_key,
-        "message": message,
-        "idempotencyKey": str(uuid.uuid4()),
-    })
-    return _gateway_chat_send_cli(params_json, timeout)
-
-
-def _send_to_agent_openclaw(agent_id: str, message: str, timeout: int = AGENT_SEND_TIMEOUT) -> bool:
-    """OpenClaw-specific send via gateway chat.send."""
-    if config.DRY_RUN:
-        logger.info("[dry-run] send_to_agent skipped (agent=%s)", agent_id)
-        return True
-    session_key = f"agent:{agent_id}:main"
-    return _gateway_chat_send(session_key, message, timeout)
-
 
 def send_to_agent(agent_id: str, message: str, timeout: int = AGENT_SEND_TIMEOUT) -> bool:
     """Send message to agent, dispatching to the selected backend.
@@ -563,35 +499,6 @@ def _trigger_blocked(project: str, reason: str) -> None:
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
         logger.error("Failed to trigger BLOCKED for %s: %s | reason: %s", project, e, reason)
 
-
-def _ping_agent_openclaw(agent_id: str, timeout: int = 20) -> bool:
-    """OpenClaw-specific ping via ``openclaw agent`` CLI."""
-    if config.DRY_RUN:
-        logger.info("[dry-run] ping_agent skipped (agent=%s)", agent_id)
-        return True
-
-    try:
-        result = subprocess.run(
-            [
-                "openclaw", "agent",
-                "--agent", agent_id,
-                "--message", "ping",
-                "--json",
-                "--timeout", str(timeout)
-            ],
-            capture_output=True,
-            text=True,
-            timeout=timeout + 10,  # subprocess timeout > CLI timeout
-        )
-        alive = result.returncode == 0
-        logger.info(
-            "ping_agent %s: %s (rc=%d)",
-            agent_id, "alive" if alive else "dead", result.returncode
-        )
-        return alive
-    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
-        logger.warning("ping_agent %s: dead (%s)", agent_id, e)
-        return False
 
 
 def ping_agent(agent_id: str, timeout: int = 20) -> bool:

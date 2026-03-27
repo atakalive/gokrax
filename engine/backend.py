@@ -29,8 +29,8 @@ def send(agent_id: str, message: str, timeout: int) -> bool:
         from engine.backend_pi import send as pi_send
         return pi_send(agent_id, message, timeout)
     # openclaw: delegate to the openclaw-specific implementation
-    from notify import _send_to_agent_openclaw
-    return _send_to_agent_openclaw(agent_id, message, timeout)
+    from engine.backend_openclaw import send as oc_send
+    return oc_send(agent_id, message, timeout)
 
 
 def ping(agent_id: str, timeout: int) -> bool:
@@ -39,8 +39,8 @@ def ping(agent_id: str, timeout: int) -> bool:
     if backend == "pi":
         from engine.backend_pi import ping as pi_ping
         return pi_ping(agent_id, timeout)
-    from notify import _ping_agent_openclaw
-    return _ping_agent_openclaw(agent_id, timeout)
+    from engine.backend_openclaw import ping as oc_ping
+    return oc_ping(agent_id, timeout)
 
 
 def is_inactive(agent_id: str, pipeline_data: dict | None = None) -> bool:

@@ -14,10 +14,12 @@ ANNOUNCE_BOT_USER_ID = ""  # Discord bot user ID of the bot (can be obtained by 
 MERGE_APPROVER_DISCORD_ID = ""  # Your Discord user ID for approving merges
 COMMAND_BOT_USER_ID = ""        # If you send commands via 3rd-party Discord tool (WatcherB etc.), include its bot user ID here
 
-GATEWAY_PORT = int(os.environ.get("OPENCLAW_GATEWAY_PORT", "18789"))  # openclaw gateway port (localhost)
 GLAB_BIN = "/usr/bin/glab"
 GITLAB_NAMESPACE: str = "YOUR_NAMESPACE"  # i.e., gitlab.com/YOUR_NAMESPACE/ProjectName/
 GOKRAX_CLI = PurePosixPath("/path/to/gokrax")  # may be symbolic link
+
+
+GATEWAY_PORT = int(os.environ.get("OPENCLAW_GATEWAY_PORT", "18789"))  # openclaw gateway port (localhost)
 PIPELINES_DIR = Path.home() / ".openclaw/shared/pipelines"
 
 REVIEWERS = ["reviewer1", "reviewer2"]

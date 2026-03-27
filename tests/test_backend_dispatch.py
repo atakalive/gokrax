@@ -222,6 +222,17 @@ class TestSharedIsInactiveDispatch:
         assert result is True
         mock_dispatch.assert_called_once_with("reviewer1", {"some": "data"})
 
+    def test_shared_cc_running_forces_active_openclaw(self, monkeypatch):
+        """At shared._is_agent_inactive boundary, live cc_pid forces active on openclaw."""
+        monkeypatch.setattr(config, "AGENT_BACKEND", "openclaw")
+        from engine.shared import _is_agent_inactive
+        with patch("engine.shared._is_cc_running", return_value=True), \
+             patch("engine.shared._is_agent_inactive_openclaw") as mock_oc:
+            result = _is_agent_inactive("reviewer1", {"cc_pid": 12345})
+        assert result is False
+        # Backend-specific check must not be reached when cc_pid is alive
+        mock_oc.assert_not_called()
+
 
 # ===========================================================================
 # Reviewer reset dispatch (test the branching logic directly)
@@ -296,12 +307,22 @@ class TestShortContextResetDispatch:
 
     def test_pi_calls_reset_session_no_sleep(self, monkeypatch):
         monkeypatch.setattr(config, "AGENT_BACKEND", "pi")
-        with patch("engine.backend.reset_session"), \
+        from engine.reviewer import get_tier
+        mode_config = config.REVIEW_MODES["full"]
+        expected_targets = sorted(
+            m for m in mode_config["members"]
+            if get_tier(m) == "short-context" and m in config.AGENTS
+        )
+        with patch("engine.backend.reset_session") as mock_reset, \
              patch.object(_reviewer_mod, "send_to_agent_queued") as mock_send, \
              patch("time.sleep") as mock_sleep:
             _real_reset_short_context("full")
         mock_send.assert_not_called()
         mock_sleep.assert_not_called()
+        # Assert reset_session call targets and count
+        assert mock_reset.call_count == len(expected_targets)
+        actual_targets = sorted(c[0][0] for c in mock_reset.call_args_list)
+        assert actual_targets == expected_targets
 
 
 # ===========================================================================

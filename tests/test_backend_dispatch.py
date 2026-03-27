@@ -222,8 +222,8 @@ class TestSharedIsInactiveDispatch:
         assert result is True
         mock_dispatch.assert_called_once_with("reviewer1", {"some": "data"})
 
-    def test_shared_cc_running_forces_active_openclaw(self, monkeypatch):
-        """Shared helper forwards original pipeline_data unchanged to backend dispatch."""
+    def test_shared_forwards_original_pipeline_data_unchanged(self, monkeypatch):
+        """Shared helper must forward the original pipeline_data object unchanged."""
         monkeypatch.setattr(config, "AGENT_BACKEND", "openclaw")
         from engine.shared import _is_agent_inactive
         pipeline_data = {"cc_pid": 12345}
@@ -231,6 +231,15 @@ class TestSharedIsInactiveDispatch:
             result = _is_agent_inactive("reviewer1", pipeline_data)
         assert result is False
         mock_dispatch.assert_called_once_with("reviewer1", pipeline_data)
+
+    def test_shared_cc_running_forces_active_openclaw(self, monkeypatch):
+        """At shared boundary on openclaw path, live cc_pid still forces active."""
+        monkeypatch.setattr(config, "AGENT_BACKEND", "openclaw")
+        from engine.shared import _is_agent_inactive
+        with patch("engine.shared._is_cc_running", return_value=True), \
+             patch("engine.shared._is_agent_inactive_openclaw", return_value=True):
+            result = _is_agent_inactive("reviewer1", {"cc_pid": 12345})
+        assert result is False
 
 
 # ===========================================================================
@@ -306,7 +315,12 @@ class TestShortContextResetDispatch:
 
     def test_pi_calls_reset_session_no_sleep(self, monkeypatch):
         monkeypatch.setattr(config, "AGENT_BACKEND", "pi")
-        expected_targets = ["reviewer5"]
+        from engine.reviewer import get_tier
+        mode_config = config.REVIEW_MODES["full"]
+        expected_targets = sorted(
+            m for m in mode_config["members"]
+            if get_tier(m) == "short-context" and m in config.AGENTS
+        )
         assert len(expected_targets) > 0, "Test prerequisite failed: empty target set"
         with patch("engine.backend.reset_session") as mock_reset, \
              patch.object(_reviewer_mod, "send_to_agent_queued") as mock_send, \

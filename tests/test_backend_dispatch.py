@@ -13,11 +13,15 @@ import notify
 from engine import backend, backend_pi, reviewer as _reviewer_mod
 
 # Save real function references before conftest's autouse fixtures replace them
-# with mocks.  Module-level imports execute before per-test fixtures.
+# with mocks. Module-level imports execute before per-test fixtures.
 _real_reset_reviewers = _reviewer_mod._reset_reviewers
 _real_reset_short_context = _reviewer_mod._reset_short_context_reviewers
 _real_send_to_agent = notify.send_to_agent
 _real_ping_agent = notify.ping_agent
+_real_send_to_agent_openclaw = notify._send_to_agent_openclaw
+_real_ping_agent_openclaw = notify._ping_agent_openclaw
+_real_backend_send = backend.send
+_real_backend_ping = backend.ping
 
 
 # ---------------------------------------------------------------------------
@@ -44,23 +48,33 @@ def _reset_starting_markers():
 class TestPreconditions:
     """Guard: all target/helper functions referenced by #243 must exist."""
 
+    @pytest.fixture(autouse=True)
+    def _restore_real_bindings(self, monkeypatch):
+        """Restore real bindings so precondition checks are not fooled by autouse mocks."""
+        monkeypatch.setattr(notify, "send_to_agent", _real_send_to_agent)
+        monkeypatch.setattr(notify, "ping_agent", _real_ping_agent)
+        monkeypatch.setattr(notify, "_send_to_agent_openclaw", _real_send_to_agent_openclaw)
+        monkeypatch.setattr(notify, "_ping_agent_openclaw", _real_ping_agent_openclaw)
+        monkeypatch.setattr(backend, "send", _real_backend_send)
+        monkeypatch.setattr(backend, "ping", _real_backend_ping)
+
     def test_notify_send_to_agent_openclaw_exists(self):
-        assert callable(getattr(notify, "_send_to_agent_openclaw", None))
+        assert getattr(notify, "_send_to_agent_openclaw", None) is _real_send_to_agent_openclaw
 
     def test_notify_ping_agent_openclaw_exists(self):
-        assert callable(getattr(notify, "_ping_agent_openclaw", None))
+        assert getattr(notify, "_ping_agent_openclaw", None) is _real_ping_agent_openclaw
 
     def test_engine_backend_send_exists(self):
-        assert callable(getattr(backend, "send", None))
+        assert getattr(backend, "send", None) is _real_backend_send
 
     def test_engine_backend_ping_exists(self):
-        assert callable(getattr(backend, "ping", None))
+        assert getattr(backend, "ping", None) is _real_backend_ping
 
     def test_notify_send_to_agent_exists(self):
-        assert callable(getattr(notify, "send_to_agent", None))
+        assert getattr(notify, "send_to_agent", None) is _real_send_to_agent
 
     def test_notify_ping_agent_exists(self):
-        assert callable(getattr(notify, "ping_agent", None))
+        assert getattr(notify, "ping_agent", None) is _real_ping_agent
 
 
 # ===========================================================================
@@ -102,15 +116,19 @@ class TestThinWrapperPropagation:
         monkeypatch.setattr(notify, "send_to_agent", _real_send_to_agent)
         monkeypatch.setattr(notify, "ping_agent", _real_ping_agent)
 
-    def test_send_to_agent_propagates_valueerror(self, monkeypatch):
-        monkeypatch.setattr(config, "AGENT_BACKEND", "unknown")
-        with pytest.raises(ValueError, match="Unsupported AGENT_BACKEND"):
-            notify.send_to_agent("reviewer1", "hello", 30)
+    def test_send_to_agent_propagates_same_valueerror_instance(self):
+        sentinel = ValueError("sentinel send")
+        with patch("engine.backend.send", side_effect=sentinel):
+            with pytest.raises(ValueError) as excinfo:
+                notify.send_to_agent("reviewer1", "hello", 30)
+        assert excinfo.value is sentinel
 
-    def test_ping_agent_propagates_valueerror(self, monkeypatch):
-        monkeypatch.setattr(config, "AGENT_BACKEND", "unknown")
-        with pytest.raises(ValueError, match="Unsupported AGENT_BACKEND"):
-            notify.ping_agent("reviewer1", 20)
+    def test_ping_agent_propagates_same_valueerror_instance(self):
+        sentinel = ValueError("sentinel ping")
+        with patch("engine.backend.ping", side_effect=sentinel):
+            with pytest.raises(ValueError) as excinfo:
+                notify.ping_agent("reviewer1", 20)
+        assert excinfo.value is sentinel
 
 
 # ===========================================================================

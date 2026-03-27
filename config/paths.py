@@ -13,6 +13,7 @@ __all__ = [
     "LOG_FILE",
     "REVIEW_FILE_DIR",
     "SESSIONS_BASE",
+    "PI_SESSIONS_DIR",
 ]
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -38,3 +39,6 @@ REVIEW_FILE_DIR: Path = Path("/tmp/gokrax-review")
 
 # エージェントセッションストアのベースパス
 SESSIONS_BASE = Path.home() / ".openclaw/agents"
+
+# pi backend session directory
+PI_SESSIONS_DIR = _PROJECT_ROOT / ".pi-sessions"

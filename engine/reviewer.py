@@ -16,7 +16,10 @@ _logger = logging.getLogger(__name__)
 
 
 def _reset_reviewers(review_mode: str = "standard", implementer: str = "") -> list[str]:
-    """レビュアー（+実装担当）に /new を先行送信（collectキュー経由）。free tier をping確認。
+    """Reset reviewer/implementer sessions before a review cycle.
+
+    For openclaw backend: sends /new to each target, waits, then pings free tier.
+    For pi backend: calls reset_session() for each target (no /new, no wait).
 
     Args:
         review_mode: Review mode to determine member list
@@ -25,6 +28,8 @@ def _reset_reviewers(review_mode: str = "standard", implementer: str = "") -> li
     Returns:
         List of excluded reviewer names (those who failed ping check)
     """
+    from engine.backend import reset_session as _dispatch_reset
+
     mode_config = REVIEW_MODES.get(review_mode, REVIEW_MODES["standard"])
     targets = set(mode_config["members"])
     if implementer:
@@ -32,7 +37,18 @@ def _reset_reviewers(review_mode: str = "standard", implementer: str = "") -> li
 
     log(f"[/new] reset_reviewers: mode={review_mode}, impl='{implementer}', targets={sorted(targets)}")
 
-    # Send /new to all targets
+    backend = config.AGENT_BACKEND
+
+    if backend == "pi":
+        for r in targets:
+            if r in AGENTS:
+                log(f"[/new] reset_session for {r} (pi backend)")
+                _dispatch_reset(r)
+            else:
+                log(f"[/new] SKIP {r} (not in AGENTS)")
+        return []
+
+    # openclaw path: send /new, wait, ping free tier
     sent_impl = False
     for r in targets:
         if r in AGENTS:
@@ -53,7 +69,6 @@ def _reset_reviewers(review_mode: str = "standard", implementer: str = "") -> li
     # Ping free tier reviewers
     excluded = []
 
-    # Check if any free tier members exist in this mode
     free_members = [m for m in mode_config["members"] if get_tier(m) == "free"]
     if not free_members:
         log("[/new] no free tier members in mode, skipping ping")
@@ -71,7 +86,13 @@ def _reset_reviewers(review_mode: str = "standard", implementer: str = "") -> li
 
 
 def _reset_short_context_reviewers(review_mode: str) -> None:
-    """keep_ctx スキップ時でも short-context tier のレビュアーだけ /new を送信。"""
+    """Reset short-context tier reviewers before a review cycle.
+
+    For openclaw backend: sends /new and waits POST_NEW_COMMAND_WAIT_SEC.
+    For pi backend: calls reset_session() (no /new, no wait).
+    """
+    from engine.backend import reset_session as _dispatch_reset
+
     mode_config = REVIEW_MODES.get(review_mode)
     if mode_config is None:
         log(f"[/new] WARNING: unknown review_mode '{review_mode}', skipping short-context reset")
@@ -80,6 +101,16 @@ def _reset_short_context_reviewers(review_mode: str) -> None:
                  if get_tier(m) == "short-context" and m in AGENTS]
     if not short_ctx:
         return
+
+    backend = config.AGENT_BACKEND
+
+    if backend == "pi":
+        for r in short_ctx:
+            log(f"[/new] reset_session for {r} (short-context, pi backend)")
+            _dispatch_reset(r)
+        return
+
+    # openclaw path: send /new and wait
     for r in short_ctx:
         log(f"[/new] sending /new to {r} (short-context, forced)")
         if not send_to_agent_queued(r, "/new"):

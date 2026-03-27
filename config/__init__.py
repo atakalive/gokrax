@@ -123,6 +123,12 @@ MASK_AGENT_NAMES: bool = True
 REVIEWER_TIERS: dict[str, list[str]] = {"regular": [], "free": [], "short-context": []}
 REVIEW_MODES: dict[str, dict] = {}
 
+# Agent backend
+AGENT_BACKEND: str = "openclaw"
+PI_BIN: str = "pi"
+PI_MODEL: str = ""
+PI_START_GRACE_SEC: int = 30
+
 # 非アクティブ判定 (秒)
 INACTIVE_THRESHOLD_SEC = 303
 

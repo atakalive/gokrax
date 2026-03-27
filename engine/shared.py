@@ -30,13 +30,11 @@ def _is_cc_running(data: dict) -> bool:
     return Path(f"/proc/{pid}").exists()
 
 
-def _is_agent_inactive(agent_id: str, pipeline_data: dict | None = None) -> bool:
-    """エージェントが非アクティブかどうか判定。
+def _is_agent_inactive_openclaw(agent_id: str) -> bool:
+    """OpenClaw-specific inactivity check (session JSON mtime).
 
-    CC実行中（cc_pid が /proc に存在）はアクティブと判定する。
+    Does NOT check cc_pid; the caller is responsible for that.
     """
-    if pipeline_data is not None and _is_cc_running(pipeline_data):
-        return False
     try:
         path = SESSIONS_BASE / agent_id / "sessions" / "sessions.json"
         data = json.loads(path.read_text())
@@ -48,3 +46,12 @@ def _is_agent_inactive(agent_id: str, pipeline_data: dict | None = None) -> bool
         return elapsed >= INACTIVE_THRESHOLD_SEC
     except (FileNotFoundError, json.JSONDecodeError, KeyError):
         return True
+
+
+def _is_agent_inactive(agent_id: str, pipeline_data: dict | None = None) -> bool:
+    """Return whether the agent is inactive, dispatching to the selected backend.
+
+    CC running (cc_pid alive in /proc) is treated as active for all backends.
+    """
+    from engine.backend import is_inactive as _dispatch_is_inactive
+    return _dispatch_is_inactive(agent_id, pipeline_data)

@@ -182,17 +182,23 @@ def _gateway_chat_send(session_key: str, message: str, timeout: int) -> bool:
     return _gateway_chat_send_cli(params_json, timeout)
 
 
-def send_to_agent(agent_id: str, message: str, timeout: int = AGENT_SEND_TIMEOUT) -> bool:
-    """Gateway 経由で chat.send を送信。
-
-    collectキュー（デフォルト）により、run中でもabortせずfollowup turnとして処理される。
-    改行を保持する。
-    """
+def _send_to_agent_openclaw(agent_id: str, message: str, timeout: int = AGENT_SEND_TIMEOUT) -> bool:
+    """OpenClaw-specific send via gateway chat.send."""
     if config.DRY_RUN:
         logger.info("[dry-run] send_to_agent skipped (agent=%s)", agent_id)
         return True
     session_key = f"agent:{agent_id}:main"
     return _gateway_chat_send(session_key, message, timeout)
+
+
+def send_to_agent(agent_id: str, message: str, timeout: int = AGENT_SEND_TIMEOUT) -> bool:
+    """Send message to agent, dispatching to the selected backend.
+
+    collectキュー（デフォルト）により、run中でもabortせずfollowup turnとして処理される。
+    改行を保持する。
+    """
+    from engine.backend import send as _dispatch_send
+    return _dispatch_send(agent_id, message, timeout)
 
 
 def send_to_agent_queued(agent_id: str, message: str, timeout: int = AGENT_SEND_TIMEOUT) -> bool:
@@ -560,20 +566,8 @@ def _trigger_blocked(project: str, reason: str) -> None:
         logger.error("Failed to trigger BLOCKED for %s: %s | reason: %s", project, e, reason)
 
 
-def ping_agent(agent_id: str, timeout: int = 20) -> bool:
-    """Send ping to agent and return True if it responds (returncode==0).
-
-    Protocol: Any response (even "NO_REPLY") counts as alive.
-    Timeout or returncode!=0 indicates agent is down.
-    In DRY_RUN mode, always returns True.
-
-    Args:
-        agent_id: Agent identifier
-        timeout: CLI timeout in seconds
-
-    Returns:
-        True if agent is alive (returncode==0), False otherwise
-    """
+def _ping_agent_openclaw(agent_id: str, timeout: int = 20) -> bool:
+    """OpenClaw-specific ping via ``openclaw agent`` CLI."""
     if config.DRY_RUN:
         logger.info("[dry-run] ping_agent skipped (agent=%s)", agent_id)
         return True
@@ -600,6 +594,15 @@ def ping_agent(agent_id: str, timeout: int = 20) -> bool:
     except (subprocess.TimeoutExpired, FileNotFoundError) as e:
         logger.warning("ping_agent %s: dead (%s)", agent_id, e)
         return False
+
+
+def ping_agent(agent_id: str, timeout: int = 20) -> bool:
+    """Ping agent, dispatching to the selected backend.
+
+    Returns True if agent is alive, False otherwise.
+    """
+    from engine.backend import ping as _dispatch_ping
+    return _dispatch_ping(agent_id, timeout)
 
 
 def get_bot_token() -> str | None:

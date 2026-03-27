@@ -135,16 +135,18 @@ def is_inactive(agent_id: str, pipeline_data: dict | None = None,
     if started_at is not None:
         elapsed_since_start = time.monotonic() - started_at
         if elapsed_since_start < config.PI_START_GRACE_SEC:
-            # Check if session file mtime has caught up
+            # If a fresh-enough session file already exists, the filesystem mtime
+            # has caught up and we can clear the local grace marker early.
             sp = _session_path(agent_id)
             try:
-                if sp.exists() and sp.stat().st_mtime >= (time.time() - elapsed_since_start + started_at):
-                    # mtime caught up; clear marker, continue to normal mtime check
-                    del _starting_markers[agent_id]
-                else:
-                    return False  # still within grace period
-            except OSError:
+                mtime = sp.stat().st_mtime
+            except (OSError, FileNotFoundError):
                 return False  # grace period active, fail-safe to active
+
+            if (time.time() - mtime) < config.PI_START_GRACE_SEC:
+                del _starting_markers[agent_id]
+            else:
+                return False  # still within grace period
         else:
             # Grace window expired; clear marker
             del _starting_markers[agent_id]

@@ -19,9 +19,8 @@ import config
 from config import (
     GOKRAX_CLI, GLAB_BIN, DISCORD_CHANNEL, DISCORD_BOT_TOKEN,
     AGENTS, REVIEW_MODES, MAX_DIFF_CHARS, GLAB_TIMEOUT,
-    AGENT_SEND_TIMEOUT, DISCORD_POST_TIMEOUT, POST_NEW_COMMAND_WAIT_SEC,
-    MAX_CLI_ARG_BYTES, REVIEW_FILE_DIR, REVIEW_FILE_WRITE_RETRIES,
-    REVIEW_FILE_WRITE_RETRY_DELAY,
+    AGENT_SEND_TIMEOUT, DISCORD_POST_TIMEOUT, REVIEW_FILE_DIR,
+    REVIEW_FILE_WRITE_RETRIES, REVIEW_FILE_WRITE_RETRY_DELAY,
 )
 
 logger = logging.getLogger("gokrax.notify")
@@ -266,7 +265,6 @@ def _build_file_review_message(
         batch: バッチ内Issueリスト（未APPROVE分のIssue番号を抽出するため）
         round_num: 現在のラウンド番号（--round引数用）
     """
-    phase = "code" if is_code else "design"
     review_key = "code_reviews" if is_code else "design_reviews"
 
     # 未APPROVEのIssueを抽出
@@ -1029,7 +1027,6 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
         prev_reviews = {}
 
     is_code = "CODE" in state
-    phase = "code" if is_code else "design"
     sections = []
 
     skill_phase = "code" if is_code else "design"

@@ -227,7 +227,7 @@ class TestShortContextResetDispatch:
 
     def test_pi_calls_reset_session_no_sleep(self, monkeypatch):
         monkeypatch.setattr(config, "AGENT_BACKEND", "pi")
-        with patch("engine.backend.reset_session") as mock_reset, \
+        with patch("engine.backend.reset_session"), \
              patch.object(_reviewer_mod, "send_to_agent_queued") as mock_send, \
              patch("time.sleep") as mock_sleep:
             _real_reset_short_context("full")

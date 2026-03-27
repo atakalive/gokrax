@@ -9,12 +9,15 @@ from unittest.mock import patch
 import pytest
 
 import config
+import notify
 from engine import backend, backend_pi, reviewer as _reviewer_mod
 
 # Save real function references before conftest's autouse fixtures replace them
 # with mocks.  Module-level imports execute before per-test fixtures.
 _real_reset_reviewers = _reviewer_mod._reset_reviewers
 _real_reset_short_context = _reviewer_mod._reset_short_context_reviewers
+_real_send_to_agent = notify.send_to_agent
+_real_ping_agent = notify.ping_agent
 
 
 # ---------------------------------------------------------------------------
@@ -32,6 +35,32 @@ def _reset_starting_markers():
     backend_pi._starting_markers.clear()
     yield
     backend_pi._starting_markers.clear()
+
+
+# ===========================================================================
+# Precondition: verify required functions exist in the codebase
+# ===========================================================================
+
+class TestPreconditions:
+    """Guard: all target/helper functions referenced by #243 must exist."""
+
+    def test_notify_send_to_agent_openclaw_exists(self):
+        assert callable(getattr(notify, "_send_to_agent_openclaw", None))
+
+    def test_notify_ping_agent_openclaw_exists(self):
+        assert callable(getattr(notify, "_ping_agent_openclaw", None))
+
+    def test_engine_backend_send_exists(self):
+        assert callable(getattr(backend, "send", None))
+
+    def test_engine_backend_ping_exists(self):
+        assert callable(getattr(backend, "ping", None))
+
+    def test_notify_send_to_agent_exists(self):
+        assert callable(getattr(notify, "send_to_agent", None))
+
+    def test_notify_ping_agent_exists(self):
+        assert callable(getattr(notify, "ping_agent", None))
 
 
 # ===========================================================================
@@ -58,6 +87,30 @@ class TestUnsupportedBackend:
         monkeypatch.setattr(config, "AGENT_BACKEND", "unknown")
         with pytest.raises(ValueError, match="Unsupported AGENT_BACKEND"):
             backend.reset_session("reviewer1")
+
+
+# ===========================================================================
+# Thin-wrapper propagation: ValueError surfaces unchanged through notify
+# ===========================================================================
+
+class TestThinWrapperPropagation:
+    """notify.send_to_agent / ping_agent must not swallow dispatch ValueError."""
+
+    @pytest.fixture(autouse=True)
+    def _restore_real_wrappers(self, monkeypatch):
+        """Restore real wrappers (conftest replaces them with Mocks)."""
+        monkeypatch.setattr(notify, "send_to_agent", _real_send_to_agent)
+        monkeypatch.setattr(notify, "ping_agent", _real_ping_agent)
+
+    def test_send_to_agent_propagates_valueerror(self, monkeypatch):
+        monkeypatch.setattr(config, "AGENT_BACKEND", "unknown")
+        with pytest.raises(ValueError, match="Unsupported AGENT_BACKEND"):
+            notify.send_to_agent("reviewer1", "hello", 30)
+
+    def test_ping_agent_propagates_valueerror(self, monkeypatch):
+        monkeypatch.setattr(config, "AGENT_BACKEND", "unknown")
+        with pytest.raises(ValueError, match="Unsupported AGENT_BACKEND"):
+            notify.ping_agent("reviewer1", 20)
 
 
 # ===========================================================================
@@ -92,10 +145,12 @@ class TestBackendPingDispatch:
         assert result is True
         mock_oc.assert_called_once_with("reviewer1", 20)
 
-    def test_pi_always_true(self, monkeypatch):
+    def test_pi_calls_pi_ping(self, monkeypatch):
         monkeypatch.setattr(config, "AGENT_BACKEND", "pi")
-        result = backend.ping("reviewer1", 20)
+        with patch("engine.backend_pi.ping", return_value=True) as mock_pi:
+            result = backend.ping("reviewer1", 20)
         assert result is True
+        mock_pi.assert_called_once_with("reviewer1", 20)
 
 
 # ===========================================================================

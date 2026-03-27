@@ -40,7 +40,7 @@ REVIEWER_TIERS: dict = {
 # ===========================================================================
 OWNER_NAME: str = "User"
 PROMPT_LANG: str = "en"  # Available: en, ja
-LOCAL_TZ = timezone(timedelta(hours=0))  # GMT = 0
+LOCAL_TZ = timezone(timedelta(hours=0))  # UTC = 0
 CC_MODEL_PLAN = "sonnet"
 CC_MODEL_IMPL = "sonnet"
 MASK_AGENT_NAMES = True  # if False, your agent names are shown in GitLab notes. (Default: True)

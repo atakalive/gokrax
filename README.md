@@ -386,11 +386,12 @@ gokrax init --pj myproject --gitlab user/myproject --repo-path /path/to/repo --i
 ### エージェント定義
 
 openclaw agentsのIDを登録する。以降は、ここで設定されたエージェント名を使用する。
+
 ```python
 # レビュアー名
 REVIEWERS = ["rev1", "rev2", "rev3", "rev4"]
 # 実装者名
-IMPLEMENTERS = ["impl0"]
+IMPLEMENTERS = ["impl1"]
 ```
 
 ### レビュアーティア

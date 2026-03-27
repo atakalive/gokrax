@@ -99,7 +99,7 @@ def send(agent_id: str, message: str, timeout: int) -> bool:
             pass
         return False
 
-    _starting_markers[agent_id] = time.monotonic()
+    _starting_markers[agent_id] = time.time()
     return True
 
 
@@ -133,17 +133,17 @@ def is_inactive(agent_id: str, pipeline_data: dict | None = None,
     # Check process-local starting marker
     started_at = _starting_markers.get(agent_id)
     if started_at is not None:
-        elapsed_since_start = time.monotonic() - started_at
+        elapsed_since_start = time.time() - started_at
         if elapsed_since_start < config.PI_START_GRACE_SEC:
-            # If a fresh-enough session file already exists, the filesystem mtime
-            # has caught up and we can clear the local grace marker early.
+            # If the session file mtime has caught up to started_at, the
+            # filesystem now reflects activity and we can clear the marker.
             sp = _session_path(agent_id)
             try:
                 mtime = sp.stat().st_mtime
             except (OSError, FileNotFoundError):
                 return False  # grace period active, fail-safe to active
 
-            if (time.time() - mtime) < config.PI_START_GRACE_SEC:
+            if mtime >= started_at:
                 del _starting_markers[agent_id]
             else:
                 return False  # still within grace period

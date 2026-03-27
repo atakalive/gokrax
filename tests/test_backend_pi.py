@@ -245,7 +245,7 @@ class TestIsInactive:
 
     def test_returns_false_with_valid_starting_marker(self, tmp_sessions, monkeypatch):
         monkeypatch.setattr(config, "PI_START_GRACE_SEC", 60)
-        backend_pi._starting_markers["reviewer1"] = time.monotonic()
+        backend_pi._starting_markers["reviewer1"] = time.time()
         result = backend_pi.is_inactive("reviewer1")
         assert result is False
 
@@ -280,7 +280,7 @@ class TestIsInactive:
         monkeypatch.setattr(config, "PI_START_GRACE_SEC", 60)
         monkeypatch.setattr(config, "INACTIVE_THRESHOLD_SEC", 300)
         # Set a starting marker
-        started = time.monotonic() - 5  # 5 seconds ago
+        started = time.time() - 5  # 5 seconds ago
         backend_pi._starting_markers["reviewer1"] = started
         # Create session file with fresh mtime
         session_file = tmp_sessions / "reviewer1.jsonl"
@@ -294,7 +294,7 @@ class TestIsInactive:
     def test_expired_marker_is_cleared(self, tmp_sessions, monkeypatch):
         monkeypatch.setattr(config, "PI_START_GRACE_SEC", 5)
         # Set a marker that's already expired
-        backend_pi._starting_markers["reviewer1"] = time.monotonic() - 10
+        backend_pi._starting_markers["reviewer1"] = time.time() - 10
         # No session file
         result = backend_pi.is_inactive("reviewer1")
         assert result is True
@@ -326,7 +326,7 @@ class TestResetSession:
         backend_pi.reset_session("nonexistent_agent")
 
     def test_clears_starting_marker(self, tmp_sessions):
-        backend_pi._starting_markers["reviewer1"] = time.monotonic()
+        backend_pi._starting_markers["reviewer1"] = time.time()
         backend_pi.reset_session("reviewer1")
         assert "reviewer1" not in backend_pi._starting_markers
 

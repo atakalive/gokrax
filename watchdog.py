@@ -438,9 +438,9 @@ def process(path: Path):
                 data.pop("code_min_reviews_met_at", None)
                 log(f"[{pj}] cleared code_min_reviews_met_at")
 
-        # REVIEW → APPROVED: exclude unresponsive reviewers (Issue #44, #237)
-        if (state == "DESIGN_REVIEW" and action.new_state == "DESIGN_APPROVED") or \
-           (state == "CODE_REVIEW" and action.new_state == "CODE_APPROVED"):
+        # REVIEW → APPROVED/REVISE: exclude unresponsive reviewers (Issue #44, #237, #256)
+        if (state == "DESIGN_REVIEW" and action.new_state in ("DESIGN_APPROVED", "DESIGN_REVISE")) or \
+           (state == "CODE_REVIEW" and action.new_state in ("CODE_APPROVED", "CODE_REVISE")):
             phase = "design" if "DESIGN" in state else "code"
             review_key = f"{phase}_reviews"
             phase_config = get_phase_config(data, phase)

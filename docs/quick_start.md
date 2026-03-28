@@ -6,7 +6,7 @@ gokrax を最短で動かすためのガイド。所要時間: 約15分。
 
 - Linux または macOS（WSL2 含む）
 - Python 3.11+
-- GitLab アカウント（無料で private repository を利用可能）
+- [GitLab](https://gitlab.com/) アカウント（無料で private repository を利用可能）
 
 ## 2. 必要なツールのインストール
 

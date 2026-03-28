@@ -647,6 +647,50 @@ class TestRebuildAgentsMd:
         backend_pi._rebuild_agents_md("agent1")
         assert (d / "AGENTS.md").read_text() == "instruction\n\n---\n\nmemory\n"
 
+    def test_identity_instruction_memory_generates_agents_md(self, tmp_profiles):
+        d = tmp_profiles / "agent1"
+        d.mkdir()
+        (d / "IDENTITY.md").write_text("identity")
+        (d / "INSTRUCTION.md").write_text("instruction")
+        (d / "MEMORY.md").write_text("memory")
+        backend_pi._rebuild_agents_md("agent1")
+        assert (d / "AGENTS.md").read_text() == "identity\n\n---\n\ninstruction\n\n---\n\nmemory\n"
+        assert (d / ".agents_hash").exists()
+
+    def test_identity_only(self, tmp_profiles):
+        d = tmp_profiles / "agent1"
+        d.mkdir()
+        (d / "IDENTITY.md").write_text("identity")
+        backend_pi._rebuild_agents_md("agent1")
+        assert (d / "AGENTS.md").read_text() == "identity\n"
+
+    def test_identity_and_instruction_only(self, tmp_profiles):
+        d = tmp_profiles / "agent1"
+        d.mkdir()
+        (d / "IDENTITY.md").write_text("identity")
+        (d / "INSTRUCTION.md").write_text("instruction")
+        backend_pi._rebuild_agents_md("agent1")
+        assert (d / "AGENTS.md").read_text() == "identity\n\n---\n\ninstruction\n"
+
+    def test_identity_and_memory_only(self, tmp_profiles):
+        d = tmp_profiles / "agent1"
+        d.mkdir()
+        (d / "IDENTITY.md").write_text("identity")
+        (d / "MEMORY.md").write_text("memory")
+        backend_pi._rebuild_agents_md("agent1")
+        assert (d / "AGENTS.md").read_text() == "identity\n\n---\n\nmemory\n"
+
+    def test_identity_change_triggers_rebuild(self, tmp_profiles):
+        d = tmp_profiles / "agent1"
+        d.mkdir()
+        (d / "IDENTITY.md").write_text("identity")
+        (d / "INSTRUCTION.md").write_text("instruction")
+        backend_pi._rebuild_agents_md("agent1")
+        (d / "AGENTS.md").write_text("tampered")
+        (d / "IDENTITY.md").write_text("updated identity")
+        backend_pi._rebuild_agents_md("agent1")
+        assert (d / "AGENTS.md").read_text() == "updated identity\n\n---\n\ninstruction\n"
+
 
 # ===========================================================================
 # reset_session

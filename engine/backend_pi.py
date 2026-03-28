@@ -260,7 +260,7 @@ def is_inactive(agent_id: str, pipeline_data: dict | None = None,
 
 
 def _rebuild_agents_md(agent_id: str) -> None:
-    """INSTRUCTION.md + MEMORY.md から AGENTS.md を再生成する（ソース変更時のみ）。"""
+    """Rebuild AGENTS.md from IDENTITY.md + INSTRUCTION.md + MEMORY.md (on source change only)."""
     try:
         profile_dir = AGENT_PROFILES_DIR / agent_id
         if not profile_dir.is_dir():
@@ -268,7 +268,12 @@ def _rebuild_agents_md(agent_id: str) -> None:
 
         instruction_path = profile_dir / "INSTRUCTION.md"
         memory_path = profile_dir / "MEMORY.md"
+        identity_path = profile_dir / "IDENTITY.md"
 
+        try:
+            identity_bytes = identity_path.read_bytes()
+        except FileNotFoundError:
+            identity_bytes = b""
         try:
             instruction_bytes = instruction_path.read_bytes()
         except FileNotFoundError:
@@ -281,13 +286,15 @@ def _rebuild_agents_md(agent_id: str) -> None:
         agents_md_path = profile_dir / "AGENTS.md"
         hash_path = profile_dir / ".agents_hash"
 
-        if instruction_bytes == b"" and memory_bytes == b"":
+        if identity_bytes == b"" and instruction_bytes == b"" and memory_bytes == b"":
             agents_md_path.unlink(missing_ok=True)
             hash_path.unlink(missing_ok=True)
             return
 
         new_hash = hashlib.sha256(
-            len(instruction_bytes).to_bytes(8, "big")
+            len(identity_bytes).to_bytes(8, "big")
+            + identity_bytes
+            + len(instruction_bytes).to_bytes(8, "big")
             + instruction_bytes
             + memory_bytes,
         ).hexdigest()
@@ -300,20 +307,18 @@ def _rebuild_agents_md(agent_id: str) -> None:
         if old_hash == new_hash and agents_md_path.exists():
             return
 
+        identity_text = identity_bytes.decode("utf-8").rstrip()
         instruction_text = instruction_bytes.decode("utf-8").rstrip()
         memory_text = memory_bytes.decode("utf-8").rstrip()
 
-        if not instruction_text and not memory_text:
+        parts = [t for t in (identity_text, instruction_text, memory_text) if t]
+
+        if not parts:
             agents_md_path.unlink(missing_ok=True)
             hash_path.unlink(missing_ok=True)
             return
 
-        if instruction_text and memory_text:
-            output = instruction_text + "\n\n---\n\n" + memory_text + "\n"
-        elif instruction_text:
-            output = instruction_text + "\n"
-        else:
-            output = memory_text + "\n"
+        output = "\n\n---\n\n".join(parts) + "\n"
 
         agents_md_path.write_text(output, encoding="utf-8")
         hash_path.write_text(new_hash + "\n", encoding="utf-8")

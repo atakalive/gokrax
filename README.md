@@ -607,7 +607,7 @@ IMPLEMENTATION -> CODE_TEST 遷移および CODE_REVISE -> CODE_TEST -> CODE_REV
 ### openclaw依存性 / 導入の敷居が高い
 
 エージェントの認証とプロンプト送出といった基本機能のためにgokraxはopenclawの枠組みを利用しているが、gokraxのもつ機能に対して導入の敷居が高い。今後、(1) 最低限のパッケージを使用、(2) gokraxを拡張して使用、といったバックエンド切り替えオプションの追加が考えられる。  
- → (1) pi-ai に対応作業中 <https://github.com/badlogic/pi-mono>
+ → (1) 軽量な pi backend に対応作業中 <https://github.com/badlogic/pi-mono>
 
 
 ## ライセンス

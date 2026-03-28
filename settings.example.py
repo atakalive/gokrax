@@ -48,6 +48,7 @@ CC_MODEL_IMPL = "sonnet"
 MASK_AGENT_NAMES = True  # if False, your agent names are shown in GitLab notes. (Default: True)
 
 DEFAULT_QUEUE_OPTIONS: dict[str, bool | str] = {
+    "automerge": True,          # Auto-merge after CODE_APPROVED without waiting for owner OK. (Default: True)
     "skip_cc_plan": True,       # Claude Code Plan mode is skipped in IMPLEMENTATION. (Default: True)
     "no-cc": False,             # Claude Code is not used in IMPLEMENTATION. (Default: False)
     "keep_ctx_intra": True,     # Context is kept between DESIGN and CODE phases. (Default: True)

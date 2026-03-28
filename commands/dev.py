@@ -1664,6 +1664,21 @@ def _get_running_info() -> "dict | None":
                 "issues": ",".join(issue_strs),
                 "state": data["state"],
                 "review_mode": data.get("review_mode") or "",
+                "automerge": data.get("automerge", False),
+                "p2_fix": data.get("p2_fix", False),
+                "cc_plan_model": data.get("cc_plan_model"),
+                "cc_impl_model": data.get("cc_impl_model"),
+                "keep_ctx_batch": data.get("keep_ctx_batch", False),
+                "keep_ctx_intra": data.get("keep_ctx_intra", False),
+                "skip_cc_plan": data.get("skip_cc_plan", False),
+                "skip_test": data.get("skip_test", False),
+                "skip_assess": data.get("skip_assess", False),
+                "skip_design": data.get("skip_design", False),
+                "no_cc": data.get("no_cc", False),
+                "exclude_high_risk": data.get("exclude_high_risk", False),
+                "exclude_any_risk": data.get("exclude_any_risk", False),
+                "allow_closed": data.get("allow_closed", False),
+                "comment": data.get("comment"),
             })
 
     if len(candidates) > 1:
@@ -1683,6 +1698,36 @@ def get_qstatus_text(entries: list[dict], running: "dict | None" = None) -> str:
             parts.append(running["state"])
         if running.get("review_mode"):
             parts.append(running["review_mode"])
+        if not running.get("automerge", False):
+            parts.append("no-automerge")
+        if running.get("p2_fix"):
+            parts.append("p2-fix")
+        if running.get("cc_plan_model"):
+            parts.append(f"plan={running['cc_plan_model']}")
+        if running.get("cc_impl_model"):
+            parts.append(f"impl={running['cc_impl_model']}")
+        if running.get("keep_ctx_batch") and running.get("keep_ctx_intra"):
+            parts.append("keep-ctx-all")
+        elif running.get("keep_ctx_batch"):
+            parts.append("keep-ctx-batch")
+        elif running.get("keep_ctx_intra"):
+            parts.append("keep-ctx-intra")
+        if running.get("skip_cc_plan"):
+            parts.append("skip-cc-plan")
+        if running.get("skip_test"):
+            parts.append("skip-test")
+        if running.get("skip_assess"):
+            parts.append("skip-assess")
+        if running.get("skip_design"):
+            parts.append("skip-design")
+        if running.get("no_cc"):
+            parts.append("no-cc")
+        if running.get("exclude_high_risk"):
+            parts.append("exclude-high-risk")
+        if running.get("exclude_any_risk"):
+            parts.append("exclude-any-risk")
+        if running.get("allow_closed"):
+            parts.append("allow-closed")
         lines.append(f"[*] {' '.join(parts)}")
     for e in entries:
         idx = e.get("index", 0)

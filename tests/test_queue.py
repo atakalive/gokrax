@@ -979,7 +979,7 @@ class TestGetQstatusText:
     def test_running_shows_star_line_at_top(self):
         """running がある場合 [*] 行が先頭に来る。"""
         entries = [_make_entry(idx=0, project="Bar", issues="2")]
-        running = {"project": "Foo", "issues": "#1,#2", "state": "DESIGN_REVIEW", "review_mode": "full"}
+        running = {"project": "Foo", "issues": "#1,#2", "state": "DESIGN_REVIEW", "review_mode": "full", "automerge": True}
         text = get_qstatus_text(entries, running=running)
         lines = text.splitlines()
         assert lines[0] == "[*] Foo #1,#2 DESIGN_REVIEW full"
@@ -987,32 +987,32 @@ class TestGetQstatusText:
 
     def test_empty_entries_running_only(self):
         """entries 空でも running があれば [*] 行だけ返す。"""
-        running = {"project": "Foo", "issues": "#1", "state": "IMPLEMENTATION", "review_mode": "standard"}
+        running = {"project": "Foo", "issues": "#1", "state": "IMPLEMENTATION", "review_mode": "standard", "automerge": True}
         text = get_qstatus_text([], running=running)
         assert text == "[*] Foo #1 IMPLEMENTATION standard"
 
     def test_running_issues_empty_string_omitted(self):
         """running['issues'] が空文字の場合、issues 部分が省略される。"""
-        running = {"project": "Foo", "issues": "", "state": "IDLE_CHECK", "review_mode": "full"}
+        running = {"project": "Foo", "issues": "", "state": "IDLE_CHECK", "review_mode": "full", "automerge": True}
         text = get_qstatus_text([], running=running)
         assert "#" not in text
         assert "[*] Foo IDLE_CHECK full" == text
 
     def test_running_issues_none_omitted(self):
         """running['issues'] が None の場合、issues 部分が省略される。"""
-        running = {"project": "Foo", "issues": None, "state": "IDLE_CHECK", "review_mode": "full"}
+        running = {"project": "Foo", "issues": None, "state": "IDLE_CHECK", "review_mode": "full", "automerge": True}
         text = get_qstatus_text([], running=running)
         assert "[*] Foo IDLE_CHECK full" == text
 
     def test_running_review_mode_empty_string_omitted(self):
         """running['review_mode'] が空文字の場合、review_mode 部分が省略される。"""
-        running = {"project": "Foo", "issues": "#1", "state": "DESIGN_REVIEW", "review_mode": ""}
+        running = {"project": "Foo", "issues": "#1", "state": "DESIGN_REVIEW", "review_mode": "", "automerge": True}
         text = get_qstatus_text([], running=running)
         assert text == "[*] Foo #1 DESIGN_REVIEW"
 
     def test_running_review_mode_none_omitted(self):
         """running['review_mode'] が None の場合、review_mode 部分が省略される。"""
-        running = {"project": "Foo", "issues": "#1", "state": "DESIGN_REVIEW", "review_mode": None}
+        running = {"project": "Foo", "issues": "#1", "state": "DESIGN_REVIEW", "review_mode": None, "automerge": True}
         text = get_qstatus_text([], running=running)
         assert text == "[*] Foo #1 DESIGN_REVIEW"
 

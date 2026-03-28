@@ -19,7 +19,7 @@ PROMPT_LANG: str = "en"
 DRY_RUN: bool = os.environ.get("GOKRAX_DRY_RUN", "").strip() not in ("", "0", "false")
 
 # パス（テスト時は環境変数で上書き可能）
-PIPELINES_DIR = Path(os.environ["GOKRAX_PIPELINES_DIR"]) if "GOKRAX_PIPELINES_DIR" in os.environ else Path.home() / ".openclaw/shared/pipelines"
+PIPELINES_DIR = Path(os.environ["GOKRAX_PIPELINES_DIR"]) if "GOKRAX_PIPELINES_DIR" in os.environ else Path.home() / ".gokrax/pipelines"
 GOKRAX_CLI = PurePosixPath("")
 GLAB_BIN: str = "glab"
 GITLAB_NAMESPACE: str = "YOUR_NAMESPACE"  # i.e., gitlab.com/YOUR_NAMESPACE/ProjectName/

@@ -17,10 +17,10 @@ COMMAND_BOT_USER_ID = ""        # If you send commands via 3rd-party Discord too
 GLAB_BIN = "/usr/bin/glab"
 GITLAB_NAMESPACE: str = "YOUR_NAMESPACE"  # i.e., gitlab.com/YOUR_NAMESPACE/ProjectName/
 GOKRAX_CLI = PurePosixPath("/path/to/gokrax")  # may be symbolic link
+PIPELINES_DIR = Path.home() / ".gokrax/pipelines"
 
-
+# openclaw settings (if using openclaw backend)
 GATEWAY_PORT = int(os.environ.get("OPENCLAW_GATEWAY_PORT", "18789"))  # openclaw gateway port (localhost)
-PIPELINES_DIR = Path.home() / ".openclaw/shared/pipelines"
 
 REVIEWERS = ["reviewer1", "reviewer2"]
 IMPLEMENTERS = ["impl1"]

@@ -34,7 +34,7 @@ def transition(
         f"   View findings: `glab issue view N --comments --per-page 100`\n"
         f"2. git commit\n"
         f"3. Report completion to gokrax:\n"
-        f"   {GOKRAX_CLI} code-revise --pj {project} --issue N [N...] --hash <commit>\n\n"
+        f"   {GOKRAX_CLI} code-revise --pj {project} --issue N [N...] --hash <commit> --summary \"<brief summary of changes>\"\n\n"
         f"If multiple reviewers raise the same P2/Suggestion, the finding is likely correct — fix it.\n"
         f"Do not forget to include --hash <commit> when submitting.\n"
         f"If reviewer findings conflict with design decisions, create a new Issue to discuss the design decision.\n"

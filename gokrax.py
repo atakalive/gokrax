@@ -257,14 +257,14 @@ def main():
     p = sub.add_parser("design-revise", help="mark design revision as done: set design_revised flag")
     p.add_argument("--pj", "--project", dest="project", required=True)
     p.add_argument("--issue", type=int, nargs="+", required=True, help="issue numbers (multiple allowed)")
-    p.add_argument("--comment", default=None, help="comment to post as GitLab issue note (optional)")
+    p.add_argument("--summary", default=None, help="revise summary to post as GitLab issue note (optional)")
 
     # code-revise
     p = sub.add_parser("code-revise", help="mark code revision as done: record commit hash + set code_revised flag")
     p.add_argument("--pj", "--project", dest="project", required=True)
     p.add_argument("--issue", type=int, nargs="+", required=True, help="issue numbers (multiple allowed)")
     p.add_argument("--hash", required=True, help="git commit hash")
-    p.add_argument("--comment", default=None, help="comment to post as GitLab issue note (optional)")
+    p.add_argument("--summary", default=None, help="revise summary to post as GitLab issue note (optional)")
 
     # review-mode
     p = sub.add_parser("review-mode", help="change review mode")

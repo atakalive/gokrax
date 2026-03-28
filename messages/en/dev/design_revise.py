@@ -33,7 +33,7 @@ def transition(
         f"1. Read {fix_label} and update the Issue body (glab issue update)\n"
         f"   View findings: `glab issue view N --comments --per-page 100`\n"
         f"2. Report completion to gokrax:\n"
-        f"   {GOKRAX_CLI} design-revise --pj {project} --issue N [N...]\n\n"
+        f"   {GOKRAX_CLI} design-revise --pj {project} --issue N [N...] --summary \"<brief summary of changes>\"\n\n"
         f"If multiple reviewers raise the same P2/Suggestion, the finding is likely correct — fix it.\n"
         f"If reviewer findings conflict with design decisions, create a new Issue to discuss the design decision.\n"
         f"Note: If you are confident that a P0/P1 finding is incorrect, you can file a dispute before completing the revise:\n"

@@ -1268,11 +1268,12 @@ def cmd_design_revise(args):
     """DESIGN_REVISE: design_revised フラグを設定"""
     path = get_path(args.project)
 
-    if args.comment:
+    if args.summary:
         data = load_pipeline(path)
         gitlab = data.get("gitlab", f"{GITLAB_NAMESPACE}/{args.project}")
+        note_body = f"[gokrax] Revise summary (design)\n\n{args.summary}"
         for num in args.issue:
-            if not _post_gitlab_note(gitlab, num, args.comment):
+            if not _post_gitlab_note(gitlab, num, note_body):
                 sys.exit(1)
 
     def do_design_revise(data):
@@ -1294,11 +1295,12 @@ def cmd_code_revise(args):
     """CODE_REVISE: commit 記録 + code_revised フラグを一発で設定"""
     path = get_path(args.project)
 
-    if args.comment:
+    if args.summary:
         data = load_pipeline(path)
         gitlab = data.get("gitlab", f"{GITLAB_NAMESPACE}/{args.project}")
+        note_body = f"[gokrax] Revise summary (code)\n\n{args.summary}"
         for num in args.issue:
-            if not _post_gitlab_note(gitlab, num, args.comment):
+            if not _post_gitlab_note(gitlab, num, note_body):
                 sys.exit(1)
 
     def do_code_revise(data):

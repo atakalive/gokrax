@@ -46,12 +46,12 @@ def _make_pipeline(tmp_pipelines, state="DESIGN_REVISE", issues=None):
 
 class TestDesignRevise:
 
-    def test_design_revise_with_comment(self, tmp_pipelines):
-        """--comment あり + glab 成功 → design_revised が True に設定される。"""
+    def test_design_revise_with_summary(self, tmp_pipelines):
+        """--summary あり + glab 成功 → design_revised が True に設定される。"""
         _make_pipeline(tmp_pipelines, state="DESIGN_REVISE")
 
         import gokrax
-        args = argparse.Namespace(project="test-pj", issue=[1], comment="修正完了")
+        args = argparse.Namespace(project="test-pj", issue=[1], summary="修正完了")
         with patch("commands.dev._post_gitlab_note", return_value=True):
             gokrax.cmd_design_revise(args)
 
@@ -59,12 +59,12 @@ class TestDesignRevise:
         data = json.loads(path.read_text())
         assert data["batch"][0].get("design_revised") is True
 
-    def test_design_revise_comment_glab_fail(self, tmp_pipelines):
-        """--comment あり + glab 失敗 → SystemExit(1) が上がり、design_revised は未設定。"""
+    def test_design_revise_summary_glab_fail(self, tmp_pipelines):
+        """--summary あり + glab 失敗 → SystemExit(1) が上がり、design_revised は未設定。"""
         _make_pipeline(tmp_pipelines, state="DESIGN_REVISE")
 
         import gokrax
-        args = argparse.Namespace(project="test-pj", issue=[1], comment="修正完了")
+        args = argparse.Namespace(project="test-pj", issue=[1], summary="修正完了")
         with patch("commands.dev._post_gitlab_note", return_value=False):
             with pytest.raises(SystemExit) as exc_info:
                 gokrax.cmd_design_revise(args)
@@ -75,12 +75,12 @@ class TestDesignRevise:
         data = json.loads(path.read_text())
         assert "design_revised" not in data["batch"][0]
 
-    def test_design_revise_without_comment(self, tmp_pipelines):
-        """--comment なし → glab 投稿なし、design_revised が True に設定される。"""
+    def test_design_revise_without_summary(self, tmp_pipelines):
+        """--summary なし → glab 投稿なし、design_revised が True に設定される。"""
         _make_pipeline(tmp_pipelines, state="DESIGN_REVISE")
 
         import gokrax
-        args = argparse.Namespace(project="test-pj", issue=[1], comment=None)
+        args = argparse.Namespace(project="test-pj", issue=[1], summary=None)
         with patch("commands.dev._post_gitlab_note") as mock_post:
             gokrax.cmd_design_revise(args)
             mock_post.assert_not_called()
@@ -94,7 +94,7 @@ class TestDesignRevise:
         _make_pipeline(tmp_pipelines, state="CODE_REVISE")
 
         import gokrax
-        args = argparse.Namespace(project="test-pj", issue=[1], comment=None)
+        args = argparse.Namespace(project="test-pj", issue=[1], summary=None)
         with pytest.raises(SystemExit):
             gokrax.cmd_design_revise(args)
 
@@ -103,7 +103,7 @@ class TestDesignRevise:
         _make_pipeline(tmp_pipelines, state="DESIGN_REVISE", issues=[1, 2, 3])
 
         import gokrax
-        args = argparse.Namespace(project="test-pj", issue=[1, 2, 3], comment=None)
+        args = argparse.Namespace(project="test-pj", issue=[1, 2, 3], summary=None)
         gokrax.cmd_design_revise(args)
 
         path = tmp_pipelines / "test-pj.json"
@@ -111,18 +111,33 @@ class TestDesignRevise:
         for item in data["batch"]:
             assert item.get("design_revised") is True
 
-    def test_design_revise_multi_issue_with_comment(self, tmp_pipelines):
-        """複数 issue + --comment → 各 issue に glab note が投稿される。"""
+    def test_design_revise_multi_issue_with_summary(self, tmp_pipelines):
+        """複数 issue + --summary → 各 issue に glab note が投稿される。"""
         _make_pipeline(tmp_pipelines, state="DESIGN_REVISE", issues=[1, 2])
 
         import gokrax
-        args = argparse.Namespace(project="test-pj", issue=[1, 2], comment="修正完了")
+        args = argparse.Namespace(project="test-pj", issue=[1, 2], summary="修正完了")
         with patch("commands.dev._post_gitlab_note", return_value=True) as mock_post:
             gokrax.cmd_design_revise(args)
 
         assert mock_post.call_count == 2
-        mock_post.assert_any_call("testns/test-pj", 1, "修正完了")
-        mock_post.assert_any_call("testns/test-pj", 2, "修正完了")
+        expected_body = "[gokrax] Revise summary (design)\n\n修正完了"
+        mock_post.assert_any_call("testns/test-pj", 1, expected_body)
+        mock_post.assert_any_call("testns/test-pj", 2, expected_body)
+
+    def test_design_revise_summary_note_format(self, tmp_pipelines):
+        """--summary の note body に [gokrax] ヘッダー + \\n\\n 段落分離が含まれる。"""
+        _make_pipeline(tmp_pipelines, state="DESIGN_REVISE")
+
+        import gokrax
+        args = argparse.Namespace(project="test-pj", issue=[1], summary="Design updated")
+        with patch("commands.dev._post_gitlab_note", return_value=True) as mock_post:
+            gokrax.cmd_design_revise(args)
+
+        mock_post.assert_called_once()
+        body = mock_post.call_args[0][2]
+        assert body == "[gokrax] Revise summary (design)\n\nDesign updated"
+        assert "\n\n" in body
 
 
 class TestCodeRevise:
@@ -132,7 +147,7 @@ class TestCodeRevise:
         _make_pipeline(tmp_pipelines, state="CODE_REVISE")
 
         import gokrax
-        args = argparse.Namespace(project="test-pj", issue=[1], hash="deadbeef", comment=None)
+        args = argparse.Namespace(project="test-pj", issue=[1], hash="deadbeef", summary=None)
         gokrax.cmd_code_revise(args)
 
         path = tmp_pipelines / "test-pj.json"
@@ -140,12 +155,12 @@ class TestCodeRevise:
         assert data["batch"][0]["commit"] == "deadbeef"
         assert data["batch"][0].get("code_revised") is True
 
-    def test_code_revise_with_comment(self, tmp_pipelines):
-        """--comment あり + glab 成功 → commit 更新 + code_revised=True。"""
+    def test_code_revise_with_summary(self, tmp_pipelines):
+        """--summary あり + glab 成功 → commit 更新 + code_revised=True。"""
         _make_pipeline(tmp_pipelines, state="CODE_REVISE")
 
         import gokrax
-        args = argparse.Namespace(project="test-pj", issue=[1], hash="deadbeef", comment="修正完了")
+        args = argparse.Namespace(project="test-pj", issue=[1], hash="deadbeef", summary="修正完了")
         with patch("commands.dev._post_gitlab_note", return_value=True):
             gokrax.cmd_code_revise(args)
 
@@ -154,12 +169,12 @@ class TestCodeRevise:
         assert data["batch"][0]["commit"] == "deadbeef"
         assert data["batch"][0].get("code_revised") is True
 
-    def test_code_revise_comment_glab_fail(self, tmp_pipelines):
-        """--comment あり + glab 失敗 → SystemExit(1) が上がり、code_revised は未設定。"""
+    def test_code_revise_summary_glab_fail(self, tmp_pipelines):
+        """--summary あり + glab 失敗 → SystemExit(1) が上がり、code_revised は未設定。"""
         _make_pipeline(tmp_pipelines, state="CODE_REVISE")
 
         import gokrax
-        args = argparse.Namespace(project="test-pj", issue=[1], hash="deadbeef", comment="修正完了")
+        args = argparse.Namespace(project="test-pj", issue=[1], hash="deadbeef", summary="修正完了")
         with patch("commands.dev._post_gitlab_note", return_value=False):
             with pytest.raises(SystemExit) as exc_info:
                 gokrax.cmd_code_revise(args)
@@ -175,7 +190,7 @@ class TestCodeRevise:
         _make_pipeline(tmp_pipelines, state="DESIGN_REVISE")
 
         import gokrax
-        args = argparse.Namespace(project="test-pj", issue=[1], hash="deadbeef", comment=None)
+        args = argparse.Namespace(project="test-pj", issue=[1], hash="deadbeef", summary=None)
         with pytest.raises(SystemExit):
             gokrax.cmd_code_revise(args)
 
@@ -184,7 +199,7 @@ class TestCodeRevise:
         _make_pipeline(tmp_pipelines, state="CODE_REVISE", issues=[1, 2, 3])
 
         import gokrax
-        args = argparse.Namespace(project="test-pj", issue=[1, 2, 3], hash="deadbeef", comment=None)
+        args = argparse.Namespace(project="test-pj", issue=[1, 2, 3], hash="deadbeef", summary=None)
         gokrax.cmd_code_revise(args)
 
         path = tmp_pipelines / "test-pj.json"
@@ -193,15 +208,30 @@ class TestCodeRevise:
             assert item["commit"] == "deadbeef"
             assert item.get("code_revised") is True
 
-    def test_code_revise_multi_issue_with_comment(self, tmp_pipelines):
-        """複数 issue + --comment → 各 issue に glab note が投稿される。"""
+    def test_code_revise_multi_issue_with_summary(self, tmp_pipelines):
+        """複数 issue + --summary → 各 issue に glab note が投稿される。"""
         _make_pipeline(tmp_pipelines, state="CODE_REVISE", issues=[1, 2])
 
         import gokrax
-        args = argparse.Namespace(project="test-pj", issue=[1, 2], hash="deadbeef", comment="修正完了")
+        args = argparse.Namespace(project="test-pj", issue=[1, 2], hash="deadbeef", summary="修正完了")
         with patch("commands.dev._post_gitlab_note", return_value=True) as mock_post:
             gokrax.cmd_code_revise(args)
 
         assert mock_post.call_count == 2
-        mock_post.assert_any_call("testns/test-pj", 1, "修正完了")
-        mock_post.assert_any_call("testns/test-pj", 2, "修正完了")
+        expected_body = "[gokrax] Revise summary (code)\n\n修正完了"
+        mock_post.assert_any_call("testns/test-pj", 1, expected_body)
+        mock_post.assert_any_call("testns/test-pj", 2, expected_body)
+
+    def test_code_revise_summary_note_format(self, tmp_pipelines):
+        """--summary の note body に [gokrax] ヘッダー + \\n\\n 段落分離が含まれる。"""
+        _make_pipeline(tmp_pipelines, state="CODE_REVISE")
+
+        import gokrax
+        args = argparse.Namespace(project="test-pj", issue=[1], hash="abc123", summary="Fixed guard")
+        with patch("commands.dev._post_gitlab_note", return_value=True) as mock_post:
+            gokrax.cmd_code_revise(args)
+
+        mock_post.assert_called_once()
+        body = mock_post.call_args[0][2]
+        assert body == "[gokrax] Revise summary (code)\n\nFixed guard"
+        assert "\n\n" in body

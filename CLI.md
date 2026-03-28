@@ -268,14 +268,14 @@ Title update failure is a warning only — it does not block assessment recordin
 ```bash
 gokrax design-revise --pj myproject --issue 17
 gokrax design-revise --pj myproject --issue 17 18
-gokrax design-revise --pj myproject --issue 17 --comment "Fixed P0 issue in design"
+gokrax design-revise --pj myproject --issue 17 --summary "Fixed P0: added input validation"
 ```
 
 | Option | Required | Description |
 |--------|----------|-------------|
 | `--pj` | Yes | project name |
 | `--issue N [N ...]` | Yes | issue numbers (multiple allowed) |
-| `--comment COMMENT` | No | comment to post as GitLab issue note (optional) |
+| `--summary SUMMARY` | No | revise summary to post as GitLab issue note (optional) |
 
 Only valid in DESIGN_REVISE state.
 
@@ -284,7 +284,7 @@ Only valid in DESIGN_REVISE state.
 ```bash
 gokrax code-revise --pj myproject --issue 17 --hash f8f7c30
 gokrax code-revise --pj myproject --issue 17 18 19 --hash f8f7c30
-gokrax code-revise --pj myproject --issue 17 --hash f8f7c30 --comment "Added zero-division guard"
+gokrax code-revise --pj myproject --issue 17 --hash f8f7c30 --summary "Added zero-division guard"
 ```
 
 | Option | Required | Description |
@@ -292,7 +292,7 @@ gokrax code-revise --pj myproject --issue 17 --hash f8f7c30 --comment "Added zer
 | `--pj` | Yes | project name |
 | `--issue N [N ...]` | Yes | issue numbers (multiple allowed) |
 | `--hash HASH` | Yes | git commit hash |
-| `--comment COMMENT` | No | comment to post as GitLab issue note (optional) |
+| `--summary SUMMARY` | No | revise summary to post as GitLab issue note (optional) |
 
 Only valid in CODE_REVISE state. Records commit hash and sets code_revised flag in one step.
 

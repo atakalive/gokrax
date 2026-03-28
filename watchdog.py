@@ -1536,7 +1536,8 @@ def main():
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
-        handlers=[logging.StreamHandler(), logging.FileHandler(LOG_FILE)],
+        handlers=[logging.FileHandler(LOG_FILE)],
+        force=True,
     )
 
     # Check Discord commands BEFORE pipeline processing

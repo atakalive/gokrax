@@ -68,7 +68,7 @@ CC_MODEL_PLAN = "sonnet"     # DESIGN_PLAN phase
 CC_MODEL_IMPL = "sonnet"   # IMPLEMENTATION phase
 
 # Timezone
-LOCAL_TZ = timezone(timedelta(hours=9))
+LOCAL_TZ = timezone(timedelta(hours=0))  # UTC
 
 # パイプライン
 

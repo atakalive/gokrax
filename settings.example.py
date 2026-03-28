@@ -120,7 +120,8 @@ REVIEW_MODES = {
 # Advanced — uncomment and edit if needed
 #            Other settings in config directory can be overridden in settings.py
 # ===========================================================================
-# AGENT_BACKEND = "openclaw"    # "openclaw" (default) or "pi"
+# DEFAULT_AGENT_BACKEND = "openclaw"    # "openclaw" (default) or "pi"
+# AGENT_BACKEND_OVERRIDE = {}           # per-agent override, e.g. {"reviewer1": "pi"}
 # PI_BIN = "pi"                 # path to pi CLI binary
 # PI_START_GRACE_SEC = 30       # seconds to treat a just-spawned pi agent as active
 # AGENT_SEND_TIMEOUT = 30

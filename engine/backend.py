@@ -1,30 +1,50 @@
 """engine/backend.py - backend dispatch layer for agent communication.
 
 Thin router that delegates to the selected backend (openclaw or pi).
-Backend-specific state (e.g. pi starting markers) lives in the backend
-module, not here.
+Backend is resolved per-agent: AGENT_BACKEND_OVERRIDE[agent_id] takes
+precedence over DEFAULT_AGENT_BACKEND.  Backend-specific state (e.g. pi
+starting markers) lives in the backend module, not here.
 """
 
 from __future__ import annotations
 
 import config
 from engine.backend_pi import SUPPORTED_BACKENDS
+from engine.shared import log
 
 
-def _validate_backend() -> str:
-    """Return current AGENT_BACKEND after validation."""
-    backend = config.AGENT_BACKEND
+def resolve_backend(agent_id: str) -> str:
+    """Resolve backend for the given agent: override > default.
+
+    Raises ValueError if the resolved backend is not in SUPPORTED_BACKENDS.
+    """
+    backend = config.AGENT_BACKEND_OVERRIDE.get(agent_id, config.DEFAULT_AGENT_BACKEND)
     if backend not in SUPPORTED_BACKENDS:
         raise ValueError(
-            f"Unsupported AGENT_BACKEND={backend!r}. "
+            f"Unsupported backend={backend!r} for agent={agent_id!r}. "
             f"Supported values: {sorted(SUPPORTED_BACKENDS)}"
         )
     return backend
 
 
+def validate_overrides() -> list[str]:
+    """Warn about AGENT_BACKEND_OVERRIDE keys not found in config.AGENTS.
+
+    Returns list of unknown agent names (for testability).
+    Called at watchdog startup or on demand.
+    """
+    unknown = [
+        agent_id for agent_id in config.AGENT_BACKEND_OVERRIDE
+        if agent_id not in config.AGENTS
+    ]
+    for name in unknown:
+        log(f"WARNING: AGENT_BACKEND_OVERRIDE contains unknown agent '{name}' (not in AGENTS)")
+    return unknown
+
+
 def send(agent_id: str, message: str, timeout: int) -> bool:
     """Dispatch send to the selected backend."""
-    backend = _validate_backend()
+    backend = resolve_backend(agent_id)
     if backend == "pi":
         from engine.backend_pi import send as pi_send
         return pi_send(agent_id, message, timeout)
@@ -35,7 +55,7 @@ def send(agent_id: str, message: str, timeout: int) -> bool:
 
 def ping(agent_id: str, timeout: int) -> bool:
     """Dispatch ping to the selected backend."""
-    backend = _validate_backend()
+    backend = resolve_backend(agent_id)
     if backend == "pi":
         from engine.backend_pi import ping as pi_ping
         return pi_ping(agent_id, timeout)
@@ -50,7 +70,7 @@ def is_inactive(agent_id: str, pipeline_data: dict | None = None) -> bool:
     is considered active.  The cc_pid check lives in engine.shared (via
     _is_cc_running) and is computed here before delegating to the backend.
     """
-    backend = _validate_backend()
+    backend = resolve_backend(agent_id)
 
     # Compute cc_running once (shared across backends)
     from engine.shared import _is_cc_running
@@ -77,7 +97,7 @@ def reset_session(agent_id: str) -> None:
     if an old process recreates the file after reset.
     See backend_pi.reset_session docstring and #246 for design rationale.
     """
-    backend = _validate_backend()
+    backend = resolve_backend(agent_id)
     if backend == "pi":
         from engine.backend_pi import reset_session as pi_reset
         pi_reset(agent_id)

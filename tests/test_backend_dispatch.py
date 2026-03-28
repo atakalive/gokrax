@@ -29,7 +29,8 @@ _real_backend_ping = backend.ping
 @pytest.fixture(autouse=True)
 def _reset_backend(monkeypatch):
     """Ensure default backend for each test."""
-    monkeypatch.setattr(config, "AGENT_BACKEND", "openclaw")
+    monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "openclaw")
+    monkeypatch.setattr(config, "AGENT_BACKEND_OVERRIDE", {})
 
 
 @pytest.fixture(autouse=True)
@@ -79,23 +80,23 @@ class TestPreconditions:
 
 class TestUnsupportedBackend:
     def test_send_raises_valueerror(self, monkeypatch):
-        monkeypatch.setattr(config, "AGENT_BACKEND", "unknown")
-        with pytest.raises(ValueError, match="Unsupported AGENT_BACKEND"):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "unknown")
+        with pytest.raises(ValueError, match="Unsupported backend"):
             backend.send("reviewer1", "hello", 30)
 
     def test_ping_raises_valueerror(self, monkeypatch):
-        monkeypatch.setattr(config, "AGENT_BACKEND", "unknown")
-        with pytest.raises(ValueError, match="Unsupported AGENT_BACKEND"):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "unknown")
+        with pytest.raises(ValueError, match="Unsupported backend"):
             backend.ping("reviewer1", 30)
 
     def test_is_inactive_raises_valueerror(self, monkeypatch):
-        monkeypatch.setattr(config, "AGENT_BACKEND", "unknown")
-        with pytest.raises(ValueError, match="Unsupported AGENT_BACKEND"):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "unknown")
+        with pytest.raises(ValueError, match="Unsupported backend"):
             backend.is_inactive("reviewer1")
 
     def test_reset_session_raises_valueerror(self, monkeypatch):
-        monkeypatch.setattr(config, "AGENT_BACKEND", "unknown")
-        with pytest.raises(ValueError, match="Unsupported AGENT_BACKEND"):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "unknown")
+        with pytest.raises(ValueError, match="Unsupported backend"):
             backend.reset_session("reviewer1")
 
 
@@ -133,14 +134,14 @@ class TestThinWrapperPropagation:
 
 class TestBackendSendDispatch:
     def test_openclaw_calls_backend_openclaw_send(self, monkeypatch):
-        monkeypatch.setattr(config, "AGENT_BACKEND", "openclaw")
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "openclaw")
         with patch("engine.backend_openclaw.send", return_value=True) as mock_oc:
             result = backend.send("reviewer1", "hello", 30)
         assert result is True
         mock_oc.assert_called_once_with("reviewer1", "hello", 30)
 
     def test_pi_calls_pi_send(self, monkeypatch):
-        monkeypatch.setattr(config, "AGENT_BACKEND", "pi")
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "pi")
         with patch("engine.backend_pi.send", return_value=True) as mock_pi:
             result = backend.send("reviewer1", "hello", 30)
         assert result is True
@@ -153,14 +154,14 @@ class TestBackendSendDispatch:
 
 class TestBackendPingDispatch:
     def test_openclaw_calls_backend_openclaw_ping(self, monkeypatch):
-        monkeypatch.setattr(config, "AGENT_BACKEND", "openclaw")
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "openclaw")
         with patch("engine.backend_openclaw.ping", return_value=True) as mock_oc:
             result = backend.ping("reviewer1", 20)
         assert result is True
         mock_oc.assert_called_once_with("reviewer1", 20)
 
     def test_pi_calls_pi_ping(self, monkeypatch):
-        monkeypatch.setattr(config, "AGENT_BACKEND", "pi")
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "pi")
         with patch("engine.backend_pi.ping", return_value=True) as mock_pi:
             result = backend.ping("reviewer1", 20)
         assert result is True
@@ -173,27 +174,27 @@ class TestBackendPingDispatch:
 
 class TestBackendIsInactiveDispatch:
     def test_openclaw_preserves_semantics(self, monkeypatch):
-        monkeypatch.setattr(config, "AGENT_BACKEND", "openclaw")
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "openclaw")
         with patch("engine.shared._is_agent_inactive_openclaw", return_value=True) as mock_oc:
             result = backend.is_inactive("reviewer1")
         assert result is True
         mock_oc.assert_called_once_with("reviewer1")
 
     def test_openclaw_cc_running_returns_false(self, monkeypatch):
-        monkeypatch.setattr(config, "AGENT_BACKEND", "openclaw")
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "openclaw")
         with patch("engine.shared._is_cc_running", return_value=True):
             result = backend.is_inactive("reviewer1", {"cc_pid": 12345})
         assert result is False
 
     def test_pi_dispatches(self, monkeypatch):
-        monkeypatch.setattr(config, "AGENT_BACKEND", "pi")
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "pi")
         with patch("engine.backend_pi.is_inactive", return_value=False):
             result = backend.is_inactive("reviewer1")
         assert result is False
 
     def test_regression_openclaw_inactive_path_unchanged(self, monkeypatch, tmp_path):
         """Regression: openclaw inactivity check uses sessions.json as before."""
-        monkeypatch.setattr(config, "AGENT_BACKEND", "openclaw")
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "openclaw")
         import json
         from datetime import datetime
         sessions_dir = tmp_path / "reviewer1" / "sessions"
@@ -215,7 +216,7 @@ class TestBackendIsInactiveDispatch:
 class TestSharedIsInactiveDispatch:
     def test_shared_dispatches_to_backend(self, monkeypatch):
         """_is_agent_inactive in shared.py delegates to engine.backend."""
-        monkeypatch.setattr(config, "AGENT_BACKEND", "openclaw")
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "openclaw")
         with patch("engine.backend.is_inactive", return_value=True) as mock_dispatch:
             from engine.shared import _is_agent_inactive
             result = _is_agent_inactive("reviewer1", {"some": "data"})
@@ -224,7 +225,7 @@ class TestSharedIsInactiveDispatch:
 
     def test_shared_forwards_original_pipeline_data_unchanged(self, monkeypatch):
         """Shared helper must forward the original pipeline_data object unchanged."""
-        monkeypatch.setattr(config, "AGENT_BACKEND", "openclaw")
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "openclaw")
         from engine.shared import _is_agent_inactive
         pipeline_data = {"cc_pid": 12345}
         with patch("engine.backend.is_inactive", return_value=False) as mock_dispatch:
@@ -234,7 +235,7 @@ class TestSharedIsInactiveDispatch:
 
     def test_shared_cc_running_forces_active_openclaw(self, monkeypatch):
         """At shared boundary on openclaw path, live cc_pid still forces active."""
-        monkeypatch.setattr(config, "AGENT_BACKEND", "openclaw")
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "openclaw")
         from engine.shared import _is_agent_inactive
         with patch("engine.shared._is_cc_running", return_value=True), \
              patch("engine.shared._is_agent_inactive_openclaw", return_value=True):
@@ -255,7 +256,7 @@ class TestReviewerResetDispatch:
 
     def test_openclaw_sends_new(self, monkeypatch):
         """openclaw backend sends /new via send_to_agent_queued."""
-        monkeypatch.setattr(config, "AGENT_BACKEND", "openclaw")
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "openclaw")
         monkeypatch.setattr(config, "DRY_RUN", False)
         with patch.object(_reviewer_mod, "send_to_agent_queued", return_value=True) as mock_send, \
              patch.object(_reviewer_mod, "ping_agent", return_value=True), \
@@ -267,7 +268,7 @@ class TestReviewerResetDispatch:
 
     def test_pi_calls_reset_session_not_new(self, monkeypatch):
         """pi backend calls reset_session, not /new."""
-        monkeypatch.setattr(config, "AGENT_BACKEND", "pi")
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "pi")
         with patch("engine.backend.reset_session") as mock_reset, \
              patch.object(_reviewer_mod, "send_to_agent_queued") as mock_send:
             _real_reset_reviewers(review_mode="standard")
@@ -275,14 +276,14 @@ class TestReviewerResetDispatch:
         mock_send.assert_not_called()
 
     def test_pi_reset_returns_empty_excluded(self, monkeypatch):
-        monkeypatch.setattr(config, "AGENT_BACKEND", "pi")
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "pi")
         with patch("engine.backend.reset_session"):
             excluded = _real_reset_reviewers(review_mode="standard")
         assert excluded == []
 
     def test_openclaw_reset_waits(self, monkeypatch):
         """Regression: openclaw reset path includes POST_NEW_COMMAND_WAIT_SEC sleep."""
-        monkeypatch.setattr(config, "AGENT_BACKEND", "openclaw")
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "openclaw")
         monkeypatch.setattr(config, "DRY_RUN", False)
         with patch.object(_reviewer_mod, "send_to_agent_queued", return_value=True), \
              patch.object(_reviewer_mod, "ping_agent", return_value=True), \
@@ -303,7 +304,7 @@ class TestShortContextResetDispatch:
         monkeypatch.setattr(_reviewer_mod, "_reset_short_context_reviewers", _real_reset_short_context)
 
     def test_openclaw_sends_new_and_waits(self, monkeypatch):
-        monkeypatch.setattr(config, "AGENT_BACKEND", "openclaw")
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "openclaw")
         monkeypatch.setattr(config, "DRY_RUN", False)
         with patch.object(_reviewer_mod, "send_to_agent_queued", return_value=True) as mock_send, \
              patch("time.sleep") as mock_sleep:
@@ -314,7 +315,7 @@ class TestShortContextResetDispatch:
             mock_sleep.assert_called()
 
     def test_pi_calls_reset_session_no_sleep(self, monkeypatch):
-        monkeypatch.setattr(config, "AGENT_BACKEND", "pi")
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "pi")
         from engine.reviewer import get_tier
         mode_config = config.REVIEW_MODES["full"]
         expected_targets = sorted(
@@ -332,6 +333,103 @@ class TestShortContextResetDispatch:
         assert mock_reset.call_count == len(expected_targets)
         actual_targets = sorted(c[0][0] for c in mock_reset.call_args_list)
         assert actual_targets == expected_targets
+
+
+# ===========================================================================
+# resolve_backend: override > default
+# ===========================================================================
+
+class TestResolveBackend:
+    def test_override_takes_precedence(self, monkeypatch):
+        """resolve_backend returns override value when set for the agent."""
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "openclaw")
+        monkeypatch.setattr(config, "AGENT_BACKEND_OVERRIDE", {"reviewer1": "pi"})
+        assert backend.resolve_backend("reviewer1") == "pi"
+
+    def test_default_when_no_override(self, monkeypatch):
+        """resolve_backend returns default when agent has no override."""
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "openclaw")
+        monkeypatch.setattr(config, "AGENT_BACKEND_OVERRIDE", {"reviewer1": "pi"})
+        assert backend.resolve_backend("reviewer2") == "openclaw"
+
+    def test_invalid_override_raises_valueerror_with_agent_id(self, monkeypatch):
+        """ValueError includes agent_id for debugging."""
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "openclaw")
+        monkeypatch.setattr(config, "AGENT_BACKEND_OVERRIDE", {"reviewer1": "bogus"})
+        with pytest.raises(ValueError, match="agent='reviewer1'"):
+            backend.resolve_backend("reviewer1")
+
+    def test_empty_override_uses_default(self, monkeypatch):
+        """Empty AGENT_BACKEND_OVERRIDE dict falls through to default."""
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "pi")
+        monkeypatch.setattr(config, "AGENT_BACKEND_OVERRIDE", {})
+        assert backend.resolve_backend("reviewer1") == "pi"
+
+
+# ===========================================================================
+# validate_overrides
+# ===========================================================================
+
+class TestValidateOverrides:
+    def test_detects_unknown_agents(self, monkeypatch):
+        """validate_overrides returns agent names not in config.AGENTS."""
+        monkeypatch.setattr(config, "AGENT_BACKEND_OVERRIDE", {"ghost_agent": "pi", "another_ghost": "openclaw"})
+        unknown = backend.validate_overrides()
+        assert sorted(unknown) == ["another_ghost", "ghost_agent"]
+
+    def test_empty_override_returns_empty(self, monkeypatch):
+        """No warnings when override is empty."""
+        monkeypatch.setattr(config, "AGENT_BACKEND_OVERRIDE", {})
+        assert backend.validate_overrides() == []
+
+    def test_known_agents_not_flagged(self, monkeypatch):
+        """Known agents (present in config.AGENTS) are not flagged."""
+        known = next(iter(config.AGENTS)) if config.AGENTS else None
+        if known is None:
+            pytest.skip("No agents configured")
+        monkeypatch.setattr(config, "AGENT_BACKEND_OVERRIDE", {known: "pi"})
+        assert backend.validate_overrides() == []
+
+
+# ===========================================================================
+# Mixed backend reset (per-agent branching)
+# ===========================================================================
+
+class TestMixedBackendReset:
+    @pytest.fixture(autouse=True)
+    def _restore_real_reset(self, monkeypatch):
+        """Restore real _reset_reviewers (conftest replaces it with a Mock)."""
+        monkeypatch.setattr(_reviewer_mod, "_reset_reviewers", _real_reset_reviewers)
+        monkeypatch.setattr(_reviewer_mod, "_reset_short_context_reviewers", _real_reset_short_context)
+
+    def test_mixed_backend_branches_correctly(self, monkeypatch):
+        """With mixed override, pi agents get reset_session, openclaw get /new."""
+        mode_config = config.REVIEW_MODES.get("standard", config.REVIEW_MODES.get("full"))
+        members = mode_config["members"]
+        assert len(members) >= 2, "Test prerequisite: need at least 2 members"
+
+        # First member → pi, rest → openclaw (default)
+        pi_agent = members[0]
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "openclaw")
+        monkeypatch.setattr(config, "AGENT_BACKEND_OVERRIDE", {pi_agent: "pi"})
+        monkeypatch.setattr(config, "DRY_RUN", False)
+
+        with patch("engine.backend.reset_session") as mock_reset, \
+             patch.object(_reviewer_mod, "send_to_agent_queued", return_value=True) as mock_send, \
+             patch.object(_reviewer_mod, "ping_agent", return_value=True), \
+             patch("time.sleep"):
+            review_mode = "standard" if "standard" in config.REVIEW_MODES else "full"
+            _real_reset_reviewers(review_mode=review_mode)
+
+        # pi agent got reset_session
+        reset_targets = [c[0][0] for c in mock_reset.call_args_list]
+        assert pi_agent in reset_targets
+
+        # openclaw agents got /new
+        send_targets = [c[0][0] for c in mock_send.call_args_list]
+        assert pi_agent not in send_targets
+        # At least one openclaw agent got /new
+        assert len(send_targets) > 0
 
 
 # ===========================================================================

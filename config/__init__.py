@@ -124,7 +124,8 @@ REVIEWER_TIERS: dict[str, list[str]] = {"regular": [], "free": [], "short-contex
 REVIEW_MODES: dict[str, dict] = {}
 
 # Agent backend
-AGENT_BACKEND: str = "openclaw"
+DEFAULT_AGENT_BACKEND: str = "openclaw"
+AGENT_BACKEND_OVERRIDE: dict[str, str] = {}
 PI_BIN: str = "pi"
 PI_START_GRACE_SEC: int = 30
 

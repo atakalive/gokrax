@@ -29,6 +29,7 @@ def _reset_reviewers(review_mode: str = "standard", implementer: str = "") -> li
         List of excluded reviewer names (those who failed ping check)
     """
     from engine.backend import reset_session as _dispatch_reset
+    from engine.backend import resolve_backend
 
     mode_config = REVIEW_MODES.get(review_mode, REVIEW_MODES["standard"])
     targets = set(mode_config["members"])
@@ -37,39 +38,37 @@ def _reset_reviewers(review_mode: str = "standard", implementer: str = "") -> li
 
     log(f"[/new] reset_reviewers: mode={review_mode}, impl='{implementer}', targets={sorted(targets)}")
 
-    backend = config.AGENT_BACKEND
-
-    if backend == "pi":
-        for r in targets:
-            if r in AGENTS:
-                log(f"[/new] reset_session for {r} (pi backend)")
-                _dispatch_reset(r)
-            else:
-                log(f"[/new] SKIP {r} (not in AGENTS)")
-        return []
-
-    # openclaw path: send /new, wait, ping free tier
-    sent_impl = False
+    excluded = []
+    oc_targets = []  # openclaw agents that received /new
     for r in targets:
-        if r in AGENTS:
+        if r not in AGENTS:
+            log(f"[/new] SKIP {r} (not in AGENTS)")
+            continue
+        try:
+            agent_backend = resolve_backend(r)
+        except ValueError:
+            log(f"[/new] ERROR: invalid backend for {r}, skipping")
+            excluded.append(r)
+            continue
+        if agent_backend == "pi":
+            log(f"[/new] reset_session for {r} (pi backend)")
+            _dispatch_reset(r)
+        else:
             log(f"[/new] sending /new to {r}")
             if not send_to_agent_queued(r, "/new"):
                 log(f"[/new] WARNING: failed to send /new to {r}")
-            if r == implementer:
-                sent_impl = True
-        else:
-            log(f"[/new] SKIP {r} (not in AGENTS)")
+            oc_targets.append(r)
 
-    # Wait for session reset completion
-    if sent_impl or targets:
-        log(f"[/new] waiting {POST_NEW_COMMAND_WAIT_SEC} sec for session reset")
-        if not config.DRY_RUN:
-            time.sleep(POST_NEW_COMMAND_WAIT_SEC)
+    # sleep は openclaw 経路のセッションリセット完了を待つため。
+    # /new 送信後、エージェント側で新セッションが立ち上がるまでの猶予。
+    # openclaw エージェントが1人以上いた場合のみ待機する。
+    if oc_targets and not config.DRY_RUN:
+        log(f"[/new] waiting {POST_NEW_COMMAND_WAIT_SEC} sec for openclaw session reset")
+        time.sleep(POST_NEW_COMMAND_WAIT_SEC)
 
-    # Ping free tier reviewers
-    excluded = []
-
-    free_members = [m for m in mode_config["members"] if get_tier(m) == "free"]
+    # Ping free tier reviewers (openclaw only — pi agents have no ping check)
+    free_members = [m for m in mode_config["members"]
+                    if get_tier(m) == "free" and m in oc_targets]
     if not free_members:
         log("[/new] no free tier members in mode, skipping ping")
         return excluded
@@ -92,6 +91,7 @@ def _reset_short_context_reviewers(review_mode: str) -> None:
     For pi backend: calls reset_session() (no /new, no wait).
     """
     from engine.backend import reset_session as _dispatch_reset
+    from engine.backend import resolve_backend
 
     mode_config = REVIEW_MODES.get(review_mode)
     if mode_config is None:
@@ -102,20 +102,23 @@ def _reset_short_context_reviewers(review_mode: str) -> None:
     if not short_ctx:
         return
 
-    backend = config.AGENT_BACKEND
-
-    if backend == "pi":
-        for r in short_ctx:
+    oc_short = []
+    for r in short_ctx:
+        try:
+            agent_backend = resolve_backend(r)
+        except ValueError:
+            log(f"[/new] ERROR: invalid backend for {r} (short-context), skipping")
+            continue
+        if agent_backend == "pi":
             log(f"[/new] reset_session for {r} (short-context, pi backend)")
             _dispatch_reset(r)
-        return
-
-    # openclaw path: send /new and wait
-    for r in short_ctx:
-        log(f"[/new] sending /new to {r} (short-context, forced)")
-        if not send_to_agent_queued(r, "/new"):
-            log(f"[/new] WARNING: failed to send /new to {r}")
-    if not config.DRY_RUN:
+        else:
+            log(f"[/new] sending /new to {r} (short-context, forced)")
+            if not send_to_agent_queued(r, "/new"):
+                log(f"[/new] WARNING: failed to send /new to {r}")
+            oc_short.append(r)
+    # sleep は openclaw の /new 処理完了待ち（POST_NEW_COMMAND_WAIT_SEC 秒）
+    if oc_short and not config.DRY_RUN:
         log(f"[/new] waiting {POST_NEW_COMMAND_WAIT_SEC} sec for short-context reset")
         time.sleep(POST_NEW_COMMAND_WAIT_SEC)
 

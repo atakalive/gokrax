@@ -1,13 +1,13 @@
 {
-  "example_reviewer": {
-    "provider": "anthropic",
-    "model": "claude-sonnet-4-20250514",
-    "thinking": "high",
-    "tools": "read,grep,find,ls"
-  },
   "example_implementer": {
     "provider": "anthropic",
-    "model": "claude-sonnet-4-20250514",
-    "thinking": "medium"
+    "model": "claude-opus-4-6",
+    "thinking": "low"
+  },
+  "example_reviewer": {
+    "provider": "google",
+    "model": "gemini-3.1-pro-preview",
+    "thinking": "low",
+    "tools": "read,bash,grep,find,ls"
   }
 }

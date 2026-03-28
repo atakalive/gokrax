@@ -781,7 +781,7 @@ def process(path: Path):
                     lines.append(f"Risk reason: {risk_reason}")
                 if summary:
                     lines.append(summary)
-                body = "\n".join(lines)
+                body = "\n\n".join(lines)
                 ok = post_gitlab_note(gitlab, issue["issue"], body)
                 if not ok:
                     log(f"[{pj}] WARNING: assessment note failed for issue #{issue['issue']}")
@@ -804,7 +804,7 @@ def process(path: Path):
                         lines.append(f"Risk reason: {risk_reason}")
                     if summary:
                         lines.append(summary)
-                    body = "\n".join(lines)
+                    body = "\n\n".join(lines)
                     ok = post_gitlab_note(gitlab, issue["issue"], body)
                     if not ok:
                         log(f"[{pj}] WARNING: assessment note (excluded) failed for issue #{issue['issue']}")

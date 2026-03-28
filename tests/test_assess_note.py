@@ -106,6 +106,7 @@ class TestAssessmentNoteOnImplementation:
         assert "Low Risk" in body
         assert "Risk reason: 理由テスト" in body
         assert "概要" in body
+        assert "\n\n" in body
 
     def test_summary_empty_omits_second_line(self, tmp_pipelines, monkeypatch):
         """summary が空文字列のとき2行目が省略される"""
@@ -234,3 +235,50 @@ class TestAssessmentNoteOnIdleSkip:
         assert "Low Risk" in body
         assert "Risk reason: 認証関連" in body
         assert "Auth change" in body
+        assert "\n\n" in body
+
+    def test_excluded_issue_note_double_newline(self, tmp_pipelines, monkeypatch):
+        """一部除外された Issue の note にも段落分離が適用される (L807)"""
+        from watchdog import process
+        from engine.fsm import TransitionAction
+
+        # Issue #1: domain_risk=none (通常進行), Issue #2: domain_risk=low (除外対象)
+        issue_normal = _make_issue(1, {
+            "complex_level": 2, "domain_risk": "none", "summary": "Normal",
+        })
+        issue_excluded = _make_issue(2, {
+            "complex_level": 3, "domain_risk": "low",
+            "risk_reason": "Risky area", "summary": "Excluded change",
+        })
+        batch = [issue_normal]
+        pipeline_path = tmp_pipelines / "test-pj.json"
+        _write_pipeline(pipeline_path, _base_pipeline(batch, exclude_any_risk=True))
+
+        mock_action = TransitionAction(
+            new_state="IMPLEMENTATION",
+            run_cc=True,
+            reset_reviewers=True,
+            skipped_issues=[issue_excluded],
+        )
+        mock_note = MagicMock(return_value=True)
+        monkeypatch.setattr("watchdog.notify_discord", MagicMock())
+        monkeypatch.setattr("watchdog._start_cc", MagicMock())
+        monkeypatch.setattr("notify.post_discord", MagicMock())
+        monkeypatch.setattr("watchdog.check_transition", lambda *a, **kw: mock_action)
+
+        with patch("notify.post_gitlab_note", mock_note):
+            process(pipeline_path)
+
+        # 除外 Issue #2 の note を検索
+        excluded_calls = [
+            c for c in mock_note.call_args_list
+            if c[0][1] == 2
+        ]
+        assert len(excluded_calls) == 1
+        body = excluded_calls[0][0][2]
+        assert "Excluded by risk filter" in body
+        assert "Lvl 3" in body
+        assert "Low Risk" in body
+        assert "Risk reason: Risky area" in body
+        assert "Excluded change" in body
+        assert "\n\n" in body

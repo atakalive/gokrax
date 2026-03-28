@@ -19,6 +19,9 @@ GITLAB_NAMESPACE: str = "YOUR_NAMESPACE"  # i.e., gitlab.com/YOUR_NAMESPACE/Proj
 GOKRAX_CLI = PurePosixPath("/path/to/gokrax")  # may be symbolic link
 PIPELINES_DIR = Path.home() / ".gokrax/pipelines"
 
+DEFAULT_AGENT_BACKEND = "openclaw"    # "openclaw" or "pi"
+AGENT_BACKEND_OVERRIDE = {}           # per-agent override, e.g. {"reviewer1": "pi"}
+
 # openclaw settings (if using openclaw backend)
 OPENCLAW_GATEWAY_PORT = int(os.environ.get("OPENCLAW_GATEWAY_PORT", "18789"))  # openclaw gateway port (localhost)
 
@@ -70,11 +73,6 @@ PROJECT_QUEUE_OPTIONS: dict[str, dict[str, bool | str]] = {
 
 REVIEW_MODES = {
     "full": {
-        "members": ["reviewer1", "reviewer2", "reviewer3", "reviewer4"],
-        "min_reviews": 4,
-        "grace_period_sec": 0,
-    },
-    "standard": {
         "members": ["reviewer1", "reviewer2", "reviewer3"],
         "min_reviews": 3,
         "grace_period_sec": 0,
@@ -94,12 +92,12 @@ REVIEW_MODES = {
         "min_reviews": 2,
         "grace_period_sec": 300,
     },
-    "standard-x2": {
+    "lite3-x2": {
         "members": ["reviewer1", "reviewer2", "reviewer3"],
-        "min_reviews": 3,
-        "grace_period_sec": 0,
+        "min_reviews": 2,
+        "grace_period_sec": 300,
         # n_pass: per-reviewer multi-pass count (positive int). Reviewers not listed default to 1.
-        "n_pass": {"reviewer1": 2, "reviewer3": 2},
+        "n_pass": {"reviewer1": 2},
     },
     # --- Phase override example ---
     # You can override per-phase (design/code) settings within any mode.

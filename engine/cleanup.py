@@ -72,6 +72,7 @@ def _cleanup_batch_state(data: dict, pj: str) -> None:
     data.pop("reviewer_number_map", None)
     # Merge summary
     data.pop("summary_message_id", None)
+    data.pop("merge_approved", None)
     # Pending notifications
     data.pop("_pending_notifications", None)
     # State timer

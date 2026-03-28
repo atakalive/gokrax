@@ -474,6 +474,10 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
         if data.get("automerge", False):
             return TransitionAction(new_state="DONE")
 
+        # CLI approval: gokrax ok (Issue #258)
+        if data.get("merge_approved", False):
+            return TransitionAction(new_state="DONE")
+
         # Manual merge: wait for M's OK
         from notify import fetch_discord_replies
         from config import MERGE_APPROVER_DISCORD_ID, DISCORD_CHANNEL

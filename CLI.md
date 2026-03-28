@@ -346,6 +346,18 @@ gokrax merge-summary --pj myproject
 
 Only valid in CODE_APPROVED state. Normally posted automatically by watchdog.
 
+### `ok` -- Approve merge
+
+```bash
+gokrax ok --pj myproject
+```
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--pj` | Yes | project name |
+
+Only valid in MERGE_SUMMARY_SENT state. Alternative to replying "ok" on Discord.
+
 ### `cc-start` -- Record CC process PID
 
 ```bash

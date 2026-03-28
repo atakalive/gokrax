@@ -1497,6 +1497,20 @@ def cmd_merge_summary(args):
     print(f"{args.project}: merge summary sent (message_id={message_id})")
 
 
+def cmd_ok(args):
+    """MERGE_SUMMARY_SENT: record merge approval"""
+    path = get_path(args.project)
+
+    def do_ok(data: dict) -> None:
+        state = data.get("state", "IDLE")
+        if state != "MERGE_SUMMARY_SENT":
+            raise SystemExit(f"Cannot approve in state {state} (expected MERGE_SUMMARY_SENT)")
+        data["merge_approved"] = True
+
+    update_pipeline(path, do_ok)
+    print(f"{args.project}: merge approved")
+
+
 def cmd_qrun(args):
     """キューから次のバッチを実行: pop → cmd_start → オプション保存"""
     from task_queue import pop_next_queue_entry, restore_queue_entry, peek_queue, save_queue_options_to_pipeline, rollback_queue_mode, QueueSkipError

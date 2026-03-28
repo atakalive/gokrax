@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 
 import config
-from config import LOCAL_TZ, SESSIONS_BASE, INACTIVE_THRESHOLD_SEC
+from config import LOCAL_TZ, OPENCLAW_SESSIONS_BASE, INACTIVE_THRESHOLD_SEC
 
 
 def log(msg: str) -> None:
@@ -36,7 +36,7 @@ def _is_agent_inactive_openclaw(agent_id: str) -> bool:
     Does NOT check cc_pid; the caller is responsible for that.
     """
     try:
-        path = SESSIONS_BASE / agent_id / "sessions" / "sessions.json"
+        path = OPENCLAW_SESSIONS_BASE / agent_id / "sessions" / "sessions.json"
         data = json.loads(path.read_text())
         session = data.get(f"agent:{agent_id}:main")
         if not session or "updatedAt" not in session:

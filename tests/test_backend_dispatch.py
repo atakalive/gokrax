@@ -204,7 +204,7 @@ class TestBackendIsInactiveDispatch:
         sessions_file.write_text(json.dumps({
             "agent:reviewer1:main": {"updatedAt": stale_ts}
         }))
-        monkeypatch.setattr("engine.shared.SESSIONS_BASE", tmp_path)
+        monkeypatch.setattr("engine.shared.OPENCLAW_SESSIONS_BASE", tmp_path)
         result = backend.is_inactive("reviewer1")
         assert result is True
 

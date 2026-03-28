@@ -12,7 +12,7 @@ __all__ = [
     "WATCHDOG_LOOP_CRON_LOCKFILE", "WATCHDOG_LOOP_CRON_MARKER", "WATCHDOG_LOOP_CRON_ENTRY",
     "LOG_FILE",
     "REVIEW_FILE_DIR",
-    "SESSIONS_BASE",
+    "OPENCLAW_SESSIONS_BASE",
     "PI_SESSIONS_DIR",
     "PI_AGENT_CONFIG",
 ]
@@ -39,7 +39,7 @@ LOG_FILE = Path(os.environ.get("GOKRAX_LOG_FILE") or "/tmp/gokrax-watchdog.log")
 REVIEW_FILE_DIR: Path = Path("/tmp/gokrax-review")
 
 # エージェントセッションストアのベースパス
-SESSIONS_BASE = Path.home() / ".openclaw/agents"
+OPENCLAW_SESSIONS_BASE = Path.home() / ".openclaw/agents"
 
 # pi backend session directory
 PI_SESSIONS_DIR = _PROJECT_ROOT / ".pi-sessions"

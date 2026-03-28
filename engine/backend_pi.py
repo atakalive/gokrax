@@ -17,6 +17,7 @@ Liveness invariant:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import subprocess
@@ -258,6 +259,68 @@ def is_inactive(agent_id: str, pipeline_data: dict | None = None,
     return elapsed >= INACTIVE_THRESHOLD_SEC
 
 
+def _rebuild_agents_md(agent_id: str) -> None:
+    """INSTRUCTION.md + MEMORY.md から AGENTS.md を再生成する（ソース変更時のみ）。"""
+    try:
+        profile_dir = AGENT_PROFILES_DIR / agent_id
+        if not profile_dir.is_dir():
+            return
+
+        instruction_path = profile_dir / "INSTRUCTION.md"
+        memory_path = profile_dir / "MEMORY.md"
+
+        try:
+            instruction_bytes = instruction_path.read_bytes()
+        except FileNotFoundError:
+            instruction_bytes = b""
+        try:
+            memory_bytes = memory_path.read_bytes()
+        except FileNotFoundError:
+            memory_bytes = b""
+
+        agents_md_path = profile_dir / "AGENTS.md"
+        hash_path = profile_dir / ".agents_hash"
+
+        if instruction_bytes == b"" and memory_bytes == b"":
+            agents_md_path.unlink(missing_ok=True)
+            hash_path.unlink(missing_ok=True)
+            return
+
+        new_hash = hashlib.sha256(
+            len(instruction_bytes).to_bytes(8, "big")
+            + instruction_bytes
+            + memory_bytes,
+        ).hexdigest()
+
+        try:
+            old_hash = hash_path.read_text(encoding="utf-8").strip()
+        except OSError:
+            old_hash = ""
+
+        if old_hash == new_hash and agents_md_path.exists():
+            return
+
+        instruction_text = instruction_bytes.decode("utf-8").rstrip()
+        memory_text = memory_bytes.decode("utf-8").rstrip()
+
+        if not instruction_text and not memory_text:
+            agents_md_path.unlink(missing_ok=True)
+            hash_path.unlink(missing_ok=True)
+            return
+
+        if instruction_text and memory_text:
+            output = instruction_text + "\n\n---\n\n" + memory_text + "\n"
+        elif instruction_text:
+            output = instruction_text + "\n"
+        else:
+            output = memory_text + "\n"
+
+        agents_md_path.write_text(output, encoding="utf-8")
+        hash_path.write_text(new_hash + "\n", encoding="utf-8")
+    except Exception as exc:
+        logger.warning("_rebuild_agents_md: failed for %s: %s", agent_id, exc)
+
+
 def reset_session(agent_id: str) -> None:
     """Best-effort session reset: delete the session file and clear the starting marker.
 
@@ -277,6 +340,7 @@ def reset_session(agent_id: str) -> None:
 
     See #246 for full design rationale.
     """
+    _rebuild_agents_md(agent_id)
     _starting_markers.pop(agent_id, None)
     try:
         _session_path(agent_id).unlink(missing_ok=True)

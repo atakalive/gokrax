@@ -525,6 +525,130 @@ class TestIsInactive:
 
 
 # ===========================================================================
+# _rebuild_agents_md
+# ===========================================================================
+
+@pytest.fixture
+def tmp_profiles(tmp_path, monkeypatch):
+    """Redirect AGENT_PROFILES_DIR to a temporary directory."""
+    monkeypatch.setattr("config.AGENT_PROFILES_DIR", tmp_path)
+    monkeypatch.setattr("engine.backend_pi.AGENT_PROFILES_DIR", tmp_path)
+    return tmp_path
+
+
+class TestRebuildAgentsMd:
+    def test_both_files_generates_agents_md(self, tmp_profiles):
+        d = tmp_profiles / "agent1"
+        d.mkdir()
+        (d / "INSTRUCTION.md").write_text("instruction")
+        (d / "MEMORY.md").write_text("memory")
+        backend_pi._rebuild_agents_md("agent1")
+        assert (d / "AGENTS.md").read_text() == "instruction\n\n---\n\nmemory\n"
+        assert (d / ".agents_hash").exists()
+
+    def test_hash_match_skips_regeneration(self, tmp_profiles):
+        d = tmp_profiles / "agent1"
+        d.mkdir()
+        (d / "INSTRUCTION.md").write_text("instruction")
+        (d / "MEMORY.md").write_text("memory")
+        backend_pi._rebuild_agents_md("agent1")
+        (d / "AGENTS.md").write_text("tampered")
+        backend_pi._rebuild_agents_md("agent1")
+        assert (d / "AGENTS.md").read_text() == "tampered"
+
+    def test_hash_mismatch_regenerates(self, tmp_profiles):
+        d = tmp_profiles / "agent1"
+        d.mkdir()
+        (d / "INSTRUCTION.md").write_text("instruction")
+        (d / "MEMORY.md").write_text("memory")
+        backend_pi._rebuild_agents_md("agent1")
+        (d / "MEMORY.md").write_text("updated memory")
+        backend_pi._rebuild_agents_md("agent1")
+        assert (d / "AGENTS.md").read_text() == "instruction\n\n---\n\nupdated memory\n"
+
+    def test_neither_file_is_noop(self, tmp_profiles):
+        d = tmp_profiles / "agent1"
+        d.mkdir()
+        backend_pi._rebuild_agents_md("agent1")
+        assert not (d / "AGENTS.md").exists()
+        assert not (d / ".agents_hash").exists()
+
+    def test_instruction_only(self, tmp_profiles):
+        d = tmp_profiles / "agent1"
+        d.mkdir()
+        (d / "INSTRUCTION.md").write_text("instruction")
+        backend_pi._rebuild_agents_md("agent1")
+        assert (d / "AGENTS.md").read_text() == "instruction\n"
+
+    def test_memory_only(self, tmp_profiles):
+        d = tmp_profiles / "agent1"
+        d.mkdir()
+        (d / "MEMORY.md").write_text("memory")
+        backend_pi._rebuild_agents_md("agent1")
+        assert (d / "AGENTS.md").read_text() == "memory\n"
+
+    def test_io_error_is_swallowed(self, tmp_profiles, caplog):
+        d = tmp_profiles / "agent1"
+        d.mkdir()
+        (d / "INSTRUCTION.md").write_text("instruction")
+        with patch.object(Path, "write_text", side_effect=OSError("disk full")):
+            backend_pi._rebuild_agents_md("agent1")  # must not raise
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("_rebuild_agents_md" in r.message for r in warnings)
+
+    def test_corrupt_hash_triggers_rebuild(self, tmp_profiles):
+        d = tmp_profiles / "agent1"
+        d.mkdir()
+        (d / "INSTRUCTION.md").write_text("instruction")
+        (d / "MEMORY.md").write_text("memory")
+        (d / ".agents_hash").write_text("not-a-valid-hash\n")
+        backend_pi._rebuild_agents_md("agent1")
+        assert (d / "AGENTS.md").read_text() == "instruction\n\n---\n\nmemory\n"
+
+    def test_nonexistent_profile_dir(self, tmp_profiles):
+        backend_pi._rebuild_agents_md("nonexistent_agent")  # must not raise
+
+    def test_reset_session_calls_rebuild(self, tmp_profiles, tmp_sessions):
+        with patch("engine.backend_pi._rebuild_agents_md") as mock_rebuild:
+            backend_pi.reset_session("agent1")
+        mock_rebuild.assert_called_once_with("agent1")
+
+    def test_both_deleted_cleans_up(self, tmp_profiles):
+        d = tmp_profiles / "agent1"
+        d.mkdir()
+        (d / "INSTRUCTION.md").write_text("instruction")
+        (d / "MEMORY.md").write_text("memory")
+        backend_pi._rebuild_agents_md("agent1")
+        assert (d / "AGENTS.md").exists()
+        (d / "INSTRUCTION.md").unlink()
+        (d / "MEMORY.md").unlink()
+        backend_pi._rebuild_agents_md("agent1")
+        assert not (d / "AGENTS.md").exists()
+        assert not (d / ".agents_hash").exists()
+
+    def test_whitespace_only_files_clean_up(self, tmp_profiles):
+        d = tmp_profiles / "agent1"
+        d.mkdir()
+        (d / "INSTRUCTION.md").write_text("  \n\n")
+        (d / "MEMORY.md").write_text("  \n\n")
+        backend_pi._rebuild_agents_md("agent1")
+        assert not (d / "AGENTS.md").exists()
+        assert not (d / ".agents_hash").exists()
+
+    def test_missing_agents_md_triggers_rebuild(self, tmp_profiles):
+        d = tmp_profiles / "agent1"
+        d.mkdir()
+        (d / "INSTRUCTION.md").write_text("instruction")
+        (d / "MEMORY.md").write_text("memory")
+        backend_pi._rebuild_agents_md("agent1")
+        assert (d / "AGENTS.md").exists()
+        (d / "AGENTS.md").unlink()
+        assert (d / ".agents_hash").exists()
+        backend_pi._rebuild_agents_md("agent1")
+        assert (d / "AGENTS.md").read_text() == "instruction\n\n---\n\nmemory\n"
+
+
+# ===========================================================================
 # reset_session
 # ===========================================================================
 

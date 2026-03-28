@@ -734,16 +734,13 @@ def process(path: Path):
 
         # Grace period expired: スキップされたレビュアーを通知
         if action.grace_skipped_reviewers:
-            from notify import mask_agent_name
-            _rnm = notification.get("reviewer_number_map")
-            masked_names = [
-                mask_agent_name(r, reviewer_number_map=_rnm)
-                for r in action.grace_skipped_reviewers
-            ]
-            phase = "design" if "DESIGN" in (notification.get("old_state") or "") else "code"
+            names = action.grace_skipped_reviewers
+            old_state = notification.get("old_state") or ""
+            if old_state not in ("DESIGN_REVIEW", "CODE_REVIEW"):
+                log(f"[{pj}] WARNING: grace skip in unexpected state: {old_state}")
             notify_discord(
                 f"{q_prefix}[{pj}] ⏰ Grace period expired: "
-                f"{', '.join(masked_names)} skipped ({phase} review)"
+                f"{', '.join(names)} skipped ({old_state})"
             )
 
         # NPASS timeout: GitLab note を投稿（ロック外）
@@ -852,8 +849,8 @@ def process(path: Path):
                 ))
 
         # バッチ開始時のみIssue一覧を別メッセージで通知
-        if action.new_state == "DESIGN_PLAN":
-            batch = notification["batch"]
+        if notification.get("old_state") == "INITIALIZE":
+            batch = notification.get("batch", [])
             if batch:
                 issue_lines = [f"#{i['issue']}: {i.get('title', '')}" for i in batch]
                 notify_discord(render("dev.design_plan", "notify_issues",

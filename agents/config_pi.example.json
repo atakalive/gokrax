@@ -1,0 +1,13 @@
+{
+  "example_reviewer": {
+    "provider": "anthropic",
+    "model": "claude-sonnet-4-20250514",
+    "thinking": "high",
+    "tools": "read,grep,find,ls"
+  },
+  "example_implementer": {
+    "provider": "anthropic",
+    "model": "claude-sonnet-4-20250514",
+    "thinking": "medium"
+  }
+}

@@ -126,7 +126,6 @@ REVIEW_MODES: dict[str, dict] = {}
 # Agent backend
 AGENT_BACKEND: str = "openclaw"
 PI_BIN: str = "pi"
-PI_MODEL: str = ""
 PI_START_GRACE_SEC: int = 30
 
 # 非アクティブ判定 (秒)

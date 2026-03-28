@@ -14,6 +14,7 @@ __all__ = [
     "REVIEW_FILE_DIR",
     "SESSIONS_BASE",
     "PI_SESSIONS_DIR",
+    "PI_AGENT_CONFIG",
 ]
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -42,3 +43,6 @@ SESSIONS_BASE = Path.home() / ".openclaw/agents"
 
 # pi backend session directory
 PI_SESSIONS_DIR = _PROJECT_ROOT / ".pi-sessions"
+
+# pi backend per-agent config
+PI_AGENT_CONFIG = AGENT_PROFILES_DIR / "config_pi.json"

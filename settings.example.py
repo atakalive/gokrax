@@ -122,7 +122,6 @@ REVIEW_MODES = {
 # ===========================================================================
 # AGENT_BACKEND = "openclaw"    # "openclaw" (default) or "pi"
 # PI_BIN = "pi"                 # path to pi CLI binary
-# PI_MODEL = ""                 # empty = do not pass --model; non-empty = append --model flag
 # PI_START_GRACE_SEC = 30       # seconds to treat a just-spawned pi agent as active
 # AGENT_SEND_TIMEOUT = 30
 # DISCORD_POST_TIMEOUT = 10

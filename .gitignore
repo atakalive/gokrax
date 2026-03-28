@@ -12,5 +12,6 @@ messages_custom/**/*.py
 TESTING_NOTES.md
 agents/*
 !agents/example/
+!agents/config_pi.example.json
 .pi-sessions/
 .claude/

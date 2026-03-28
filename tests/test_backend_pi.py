@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from pathlib import Path
@@ -24,6 +25,14 @@ def _reset_starting_markers():
     backend_pi._starting_markers.clear()
     yield
     backend_pi._starting_markers.clear()
+
+
+@pytest.fixture(autouse=True)
+def _reset_agent_config_cache():
+    """Reset _agent_config_cache between tests to prevent cross-test pollution."""
+    backend_pi._agent_config_cache = None
+    yield
+    backend_pi._agent_config_cache = None
 
 
 @pytest.fixture
@@ -50,6 +59,74 @@ class TestSessionPath:
     def test_format(self):
         path = backend_pi._session_path("my_agent")
         assert path == PI_SESSIONS_DIR / "my_agent.jsonl"
+
+
+# ===========================================================================
+# _load_config
+# ===========================================================================
+
+class TestLoadConfig:
+    def test_file_missing_returns_empty(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(
+            "engine.backend_pi.PI_AGENT_CONFIG",
+            tmp_path / "nonexistent.json",
+        )
+        result = backend_pi._load_config()
+        assert result == {}
+
+    def test_valid_json_returns_parsed(self, monkeypatch, tmp_path):
+        cfg_file = tmp_path / "config_pi.json"
+        cfg_file.write_text(json.dumps({
+            "reviewer1": {"model": "claude-sonnet", "thinking": "high"},
+        }))
+        monkeypatch.setattr("engine.backend_pi.PI_AGENT_CONFIG", cfg_file)
+        result = backend_pi._load_config()
+        assert result == {"reviewer1": {"model": "claude-sonnet", "thinking": "high"}}
+
+    def test_invalid_json_returns_empty_with_warning(self, monkeypatch, tmp_path, caplog):
+        cfg_file = tmp_path / "config_pi.json"
+        cfg_file.write_text("{invalid json")
+        monkeypatch.setattr("engine.backend_pi.PI_AGENT_CONFIG", cfg_file)
+        with caplog.at_level(logging.WARNING):
+            result = backend_pi._load_config()
+        assert result == {}
+        assert any("Invalid JSON" in r.message for r in caplog.records)
+
+    def test_empty_file_returns_empty(self, monkeypatch, tmp_path):
+        cfg_file = tmp_path / "config_pi.json"
+        cfg_file.write_text("   ")
+        monkeypatch.setattr("engine.backend_pi.PI_AGENT_CONFIG", cfg_file)
+        result = backend_pi._load_config()
+        assert result == {}
+
+    def test_non_dict_root_returns_empty_with_warning(self, monkeypatch, tmp_path, caplog):
+        cfg_file = tmp_path / "config_pi.json"
+        cfg_file.write_text("[]")
+        monkeypatch.setattr("engine.backend_pi.PI_AGENT_CONFIG", cfg_file)
+        with caplog.at_level(logging.WARNING):
+            result = backend_pi._load_config()
+        assert result == {}
+        assert any("Expected JSON object" in r.message for r in caplog.records)
+
+    def test_non_dict_entry_filtered_with_warning(self, monkeypatch, tmp_path, caplog):
+        cfg_file = tmp_path / "config_pi.json"
+        cfg_file.write_text(json.dumps({
+            "good": {"model": "x"},
+            "bad": "just-a-string",
+        }))
+        monkeypatch.setattr("engine.backend_pi.PI_AGENT_CONFIG", cfg_file)
+        with caplog.at_level(logging.WARNING):
+            result = backend_pi._load_config()
+        assert result == {"good": {"model": "x"}}
+        assert any("Skipped non-dict" in r.message for r in caplog.records)
+
+    def test_caching_returns_same_object(self, monkeypatch, tmp_path):
+        cfg_file = tmp_path / "config_pi.json"
+        cfg_file.write_text(json.dumps({"a": {"model": "m"}}))
+        monkeypatch.setattr("engine.backend_pi.PI_AGENT_CONFIG", cfg_file)
+        first = backend_pi._load_config()
+        second = backend_pi._load_config()
+        assert first is second
 
 
 # ===========================================================================
@@ -128,9 +205,9 @@ class TestSend:
             backend_pi.send("reviewer1", "hello", timeout=30)
         assert mock_popen.call_args[1]["cwd"] == str(PROJECT_ROOT)
 
-    def test_omits_model_flag_when_empty(self, tmp_sessions, monkeypatch):
+    def test_omits_model_flag_when_no_profile(self, tmp_sessions, monkeypatch):
         monkeypatch.setattr(config, "DRY_RUN", False)
-        monkeypatch.setattr(config, "PI_MODEL", "")
+        monkeypatch.setattr(backend_pi, "_agent_config_cache", {})
         mock_proc = MagicMock()
         mock_proc.stdin = MagicMock()
         with patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
@@ -138,9 +215,11 @@ class TestSend:
         cmd = mock_popen.call_args[0][0]
         assert "--model" not in cmd
 
-    def test_includes_model_flag_when_set(self, tmp_sessions, monkeypatch):
+    def test_includes_model_flag_from_profile(self, tmp_sessions, monkeypatch):
         monkeypatch.setattr(config, "DRY_RUN", False)
-        monkeypatch.setattr(config, "PI_MODEL", "claude-sonnet")
+        monkeypatch.setattr(backend_pi, "_agent_config_cache", {
+            "reviewer1": {"model": "claude-sonnet"},
+        })
         mock_proc = MagicMock()
         mock_proc.stdin = MagicMock()
         with patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
@@ -149,6 +228,141 @@ class TestSend:
         assert "--model" in cmd
         idx = cmd.index("--model")
         assert cmd[idx + 1] == "claude-sonnet"
+
+    def test_provider_and_model_combined(self, tmp_sessions, monkeypatch):
+        monkeypatch.setattr(config, "DRY_RUN", False)
+        monkeypatch.setattr(backend_pi, "_agent_config_cache", {
+            "reviewer1": {"provider": "anthropic", "model": "claude-sonnet-4"},
+        })
+        mock_proc = MagicMock()
+        mock_proc.stdin = MagicMock()
+        with patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
+            backend_pi.send("reviewer1", "hello", timeout=30)
+        cmd = mock_popen.call_args[0][0]
+        idx = cmd.index("--model")
+        assert cmd[idx + 1] == "anthropic/claude-sonnet-4"
+
+    def test_model_only_no_provider(self, tmp_sessions, monkeypatch):
+        monkeypatch.setattr(config, "DRY_RUN", False)
+        monkeypatch.setattr(backend_pi, "_agent_config_cache", {
+            "reviewer1": {"model": "gpt-4.1"},
+        })
+        mock_proc = MagicMock()
+        mock_proc.stdin = MagicMock()
+        with patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
+            backend_pi.send("reviewer1", "hello", timeout=30)
+        cmd = mock_popen.call_args[0][0]
+        idx = cmd.index("--model")
+        assert cmd[idx + 1] == "gpt-4.1"
+
+    def test_provider_without_model_warns(self, tmp_sessions, monkeypatch, caplog):
+        monkeypatch.setattr(config, "DRY_RUN", False)
+        monkeypatch.setattr(backend_pi, "_agent_config_cache", {
+            "reviewer1": {"provider": "anthropic"},
+        })
+        mock_proc = MagicMock()
+        mock_proc.stdin = MagicMock()
+        with caplog.at_level(logging.WARNING):
+            with patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
+                backend_pi.send("reviewer1", "hello", timeout=30)
+        cmd = mock_popen.call_args[0][0]
+        assert "--model" not in cmd
+        assert any("'provider' set without 'model'" in r.message for r in caplog.records)
+
+    def test_thinking_flag(self, tmp_sessions, monkeypatch):
+        monkeypatch.setattr(config, "DRY_RUN", False)
+        monkeypatch.setattr(backend_pi, "_agent_config_cache", {
+            "reviewer1": {"thinking": "high"},
+        })
+        mock_proc = MagicMock()
+        mock_proc.stdin = MagicMock()
+        with patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
+            backend_pi.send("reviewer1", "hello", timeout=30)
+        cmd = mock_popen.call_args[0][0]
+        idx = cmd.index("--thinking")
+        assert cmd[idx + 1] == "high"
+
+    def test_tools_flag(self, tmp_sessions, monkeypatch):
+        monkeypatch.setattr(config, "DRY_RUN", False)
+        monkeypatch.setattr(backend_pi, "_agent_config_cache", {
+            "reviewer1": {"tools": "read,grep,find,ls"},
+        })
+        mock_proc = MagicMock()
+        mock_proc.stdin = MagicMock()
+        with patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
+            backend_pi.send("reviewer1", "hello", timeout=30)
+        cmd = mock_popen.call_args[0][0]
+        idx = cmd.index("--tools")
+        assert cmd[idx + 1] == "read,grep,find,ls"
+
+    def test_no_profile_unknown_agent_debug_log(self, tmp_sessions, monkeypatch, caplog):
+        monkeypatch.setattr(config, "DRY_RUN", False)
+        monkeypatch.setattr(backend_pi, "_agent_config_cache", {})
+        mock_proc = MagicMock()
+        mock_proc.stdin = MagicMock()
+        with caplog.at_level(logging.DEBUG):
+            with patch("subprocess.Popen", return_value=mock_proc):
+                backend_pi.send("unknown_agent", "hello", timeout=30)
+        assert any("No pi profile" in r.message for r in caplog.records)
+
+    def test_all_flags_combined(self, tmp_sessions, monkeypatch):
+        monkeypatch.setattr(config, "DRY_RUN", False)
+        monkeypatch.setattr(backend_pi, "_agent_config_cache", {
+            "reviewer1": {
+                "provider": "anthropic",
+                "model": "claude-sonnet-4",
+                "thinking": "high",
+                "tools": "read,grep",
+            },
+        })
+        mock_proc = MagicMock()
+        mock_proc.stdin = MagicMock()
+        with patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
+            backend_pi.send("reviewer1", "hello", timeout=30)
+        cmd = mock_popen.call_args[0][0]
+        model_idx = cmd.index("--model")
+        assert cmd[model_idx + 1] == "anthropic/claude-sonnet-4"
+        thinking_idx = cmd.index("--thinking")
+        assert cmd[thinking_idx + 1] == "high"
+        tools_idx = cmd.index("--tools")
+        assert cmd[tools_idx + 1] == "read,grep"
+
+    def test_non_string_values_coerced_to_str(self, tmp_sessions, monkeypatch):
+        """Non-string values (int, bool) in profile are str()-coerced, not TypeError."""
+        monkeypatch.setattr(config, "DRY_RUN", False)
+        monkeypatch.setattr(backend_pi, "_agent_config_cache", {
+            "reviewer1": {
+                "model": 12345,
+                "thinking": True,
+                "tools": 42,
+            },
+        })
+        mock_proc = MagicMock()
+        mock_proc.stdin = MagicMock()
+        with patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
+            result = backend_pi.send("reviewer1", "hello", timeout=30)
+        assert result is True
+        cmd = mock_popen.call_args[0][0]
+        model_idx = cmd.index("--model")
+        assert cmd[model_idx + 1] == "12345"
+        thinking_idx = cmd.index("--thinking")
+        assert cmd[thinking_idx + 1] == "True"
+        tools_idx = cmd.index("--tools")
+        assert cmd[tools_idx + 1] == "42"
+
+    def test_empty_profile_no_flags(self, tmp_sessions, monkeypatch):
+        monkeypatch.setattr(config, "DRY_RUN", False)
+        monkeypatch.setattr(backend_pi, "_agent_config_cache", {
+            "reviewer1": {},
+        })
+        mock_proc = MagicMock()
+        mock_proc.stdin = MagicMock()
+        with patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
+            backend_pi.send("reviewer1", "hello", timeout=30)
+        cmd = mock_popen.call_args[0][0]
+        assert "--model" not in cmd
+        assert "--thinking" not in cmd
+        assert "--tools" not in cmd
 
     def test_returns_false_on_spawn_failure(self, tmp_sessions, monkeypatch):
         monkeypatch.setattr(config, "DRY_RUN", False)

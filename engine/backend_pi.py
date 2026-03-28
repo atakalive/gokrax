@@ -17,6 +17,7 @@ Liveness invariant:
 
 from __future__ import annotations
 
+import json
 import logging
 import subprocess
 import time
@@ -27,6 +28,7 @@ from config import (
     PI_SESSIONS_DIR,
     INACTIVE_THRESHOLD_SEC,
     AGENT_PROFILES_DIR,
+    PI_AGENT_CONFIG,
     PROJECT_ROOT,
 )
 
@@ -41,6 +43,73 @@ SUPPORTED_BACKENDS: frozenset[str] = frozenset({"openclaw", "pi"})
 # Process-local starting-state marker
 # ---------------------------------------------------------------------------
 _starting_markers: dict[str, float] = {}
+
+# ---------------------------------------------------------------------------
+# Per-agent config (agents/config_pi.json)
+# ---------------------------------------------------------------------------
+_agent_config_cache: dict[str, dict[str, str]] | None = None
+
+
+def _load_config() -> dict[str, dict[str, str]]:
+    """Load and cache agents/config_pi.json. Called once per process lifetime.
+
+    Returns:
+        Dict mapping agent_id -> {provider?, model?, thinking?, tools?}.
+        Returns empty dict if:
+        - File does not exist
+        - File is empty or contains only whitespace
+        - JSON decode fails (log warning)
+        - JSON root is not a dict (log warning)
+
+        Non-dict entries within the root object are silently filtered out
+        (with a warning listing skipped keys). This prevents AttributeError
+        when send() calls profile.get() on a string or other non-dict value.
+
+    The returned dict is the cached reference. Callers must not mutate it.
+    """
+    global _agent_config_cache
+    if _agent_config_cache is not None:
+        return _agent_config_cache
+
+    try:
+        text = PI_AGENT_CONFIG.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        _agent_config_cache = {}
+        return _agent_config_cache
+    except OSError as exc:
+        logger.warning("Failed to read %s: %s", PI_AGENT_CONFIG, exc)
+        _agent_config_cache = {}
+        return _agent_config_cache
+
+    if not text:
+        _agent_config_cache = {}
+        return _agent_config_cache
+
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as exc:
+        logger.warning("Invalid JSON in %s: %s", PI_AGENT_CONFIG, exc)
+        _agent_config_cache = {}
+        return _agent_config_cache
+
+    if not isinstance(parsed, dict):
+        logger.warning(
+            "Expected JSON object in %s, got %s",
+            PI_AGENT_CONFIG, type(parsed).__name__,
+        )
+        _agent_config_cache = {}
+        return _agent_config_cache
+
+    # Filter out non-dict entries (e.g. shorthand "agent": "model-name" typos)
+    _agent_config_cache = {
+        k: v for k, v in parsed.items() if isinstance(v, dict)
+    }
+    if len(_agent_config_cache) < len(parsed):
+        skipped = [k for k, v in parsed.items() if not isinstance(v, dict)]
+        logger.warning(
+            "Skipped non-dict entries in %s: %s", PI_AGENT_CONFIG, skipped,
+        )
+    return _agent_config_cache
 
 
 def _session_path(agent_id: str) -> Path:
@@ -70,8 +139,35 @@ def send(agent_id: str, message: str, timeout: int) -> bool:
     PI_SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 
     cmd: list[str] = [config.PI_BIN, "--session", str(_session_path(agent_id))]
-    if config.PI_MODEL:
-        cmd.extend(["--model", config.PI_MODEL])
+
+    config_data = _load_config()
+    profile = config_data.get(agent_id, {})
+
+    if not profile:
+        logger.debug("No pi profile for agent %s; using pi defaults", agent_id)
+
+    # --model
+    if profile.get("provider") and not profile.get("model"):
+        logger.warning(
+            "Agent %s: 'provider' set without 'model' in config_pi.json; "
+            "ignoring provider", agent_id,
+        )
+
+    model_arg = ""
+    if profile.get("provider") and profile.get("model"):
+        model_arg = f"{profile['provider']}/{profile['model']}"
+    elif profile.get("model"):
+        model_arg = str(profile["model"])
+    if model_arg:
+        cmd.extend(["--model", model_arg])
+
+    # --thinking
+    if profile.get("thinking"):
+        cmd.extend(["--thinking", str(profile["thinking"])])
+
+    # --tools
+    if profile.get("tools"):
+        cmd.extend(["--tools", str(profile["tools"])])
 
     profile_dir = AGENT_PROFILES_DIR / agent_id
     cwd = profile_dir if profile_dir.is_dir() else PROJECT_ROOT

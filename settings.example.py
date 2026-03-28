@@ -19,10 +19,6 @@ GITLAB_NAMESPACE: str = "YOUR_NAMESPACE"  # i.e., gitlab.com/YOUR_NAMESPACE/Proj
 GOKRAX_CLI = PurePosixPath("/path/to/gokrax")  # may be symbolic link
 PIPELINES_DIR = Path.home() / ".gokrax/pipelines"
 
-DEFAULT_AGENT_BACKEND = "openclaw"    # "openclaw" or "pi"
-AGENT_BACKEND_OVERRIDE = {}           # per-agent override, e.g. {"reviewer1": "pi"}
-
-
 # openclaw settings (if using openclaw backend)
 OPENCLAW_GATEWAY_PORT = int(os.environ.get("OPENCLAW_GATEWAY_PORT", "18789"))  # openclaw gateway port (localhost)
 
@@ -124,7 +120,8 @@ REVIEW_MODES = {
 # ===========================================================================
 # Advanced — uncomment and edit if needed
 #            Other settings in config directory can be overridden in settings.py
-# ===========================================================================
+# DEFAULT_AGENT_BACKEND = "openclaw"    # "openclaw" (default) or "pi"
+# AGENT_BACKEND_OVERRIDE = {}           # per-agent override, e.g. {"reviewer1": "pi"}
 # PI_BIN = "pi"                 # path to pi CLI binary
 # PI_START_GRACE_SEC = 30       # seconds to treat a just-spawned pi agent as active
 # AGENT_SEND_TIMEOUT = 30

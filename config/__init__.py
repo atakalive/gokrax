@@ -122,6 +122,7 @@ MASK_AGENT_NAMES: bool = True
 
 REVIEWER_TIERS: dict[str, list[str]] = {"regular": [], "free": [], "short-context": []}
 REVIEW_MODES: dict[str, dict] = {}
+DEFAULT_REVIEW_MODE: str = "standard"
 
 # Agent backend
 DEFAULT_AGENT_BACKEND: str = "openclaw"
@@ -194,6 +195,11 @@ def _validate_review_modes(review_modes: dict, reviewers: list[str]) -> None:
                             f"unknown reviewers: {unknown_members}. "
                             f"All members must be in REVIEWERS."
                         )
+    if DEFAULT_REVIEW_MODE not in review_modes:
+        raise ValueError(
+            f"DEFAULT_REVIEW_MODE '{DEFAULT_REVIEW_MODE}' is not defined in REVIEW_MODES. "
+            f"Available modes: {sorted(review_modes.keys())}"
+        )
 
 
 if os.environ.get("GOKRAX_SKIP_USER_SETTINGS", "").strip().lower() not in ("", "0", "false"):

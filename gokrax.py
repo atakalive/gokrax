@@ -145,7 +145,7 @@ def main():
     p.add_argument("--pj", "--project", dest="project", required=True)
     p.add_argument("--issue", type=int, nargs="+",
                    help="issue numbers (omit to fetch all open issues from GitLab)")
-    p.add_argument("--mode", choices=["full", "standard", "lite", "min", "skip"],
+    p.add_argument("--mode", choices=list(REVIEW_MODES.keys()),
                    help="review mode (omit to keep current setting)")
     p.add_argument("--keep-context", action="store_true", default=None, dest="keep_context",
                    help="(backward compat) alias for --keep-ctx-all")
@@ -328,7 +328,7 @@ def main():
     p.add_argument("--skip-review", action="store_true", default=False, dest="skip_review")
     p.add_argument("--max-cycles", type=int, default=None, dest="max_cycles")
     p.add_argument("--review-mode", default=None, dest="review_mode",
-                   choices=["full", "standard", "lite", "min"])
+                   choices=[k for k in REVIEW_MODES.keys() if k != "skip"])
     p.add_argument("--model", default=None)
     p.add_argument("--auto-continue", action="store_true", default=False, dest="auto_continue")
     p.add_argument("--auto-qrun", action="store_true", default=False, dest="auto_qrun")

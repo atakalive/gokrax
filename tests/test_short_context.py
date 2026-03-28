@@ -262,17 +262,12 @@ class TestResetShortContextReviewers:
 
         mock_queued.assert_not_called()
 
-    def test_unknown_review_mode_warns(self, monkeypatch):
-        """未知の review_mode を渡したとき warning ログを出して早期 return し send_to_agent_queued が呼ばれないこと。"""
+    def test_unknown_review_mode_raises(self, monkeypatch):
+        """未知の review_mode を渡したとき KeyError を raise すること。"""
         import engine.reviewer
 
-        with patch("engine.reviewer.send_to_agent_queued") as mock_queued, \
-             patch("engine.reviewer.log") as mock_log:
+        with pytest.raises(KeyError):
             engine.reviewer._reset_short_context_reviewers("nonexistent_mode_xyz")
-
-        mock_queued.assert_not_called()
-        log_messages = [str(c.args[0]) for c in mock_log.call_args_list]
-        assert any("WARNING" in m and "unknown review_mode" in m for m in log_messages)
 
     def test_dry_run_skips_sleep(self, monkeypatch):
         """DRY_RUN=True 時に time.sleep が呼ばれないこと。"""

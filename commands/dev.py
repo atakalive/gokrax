@@ -10,6 +10,7 @@ from config import (
     PIPELINES_DIR, GLAB_BIN, LOG_FILE,
     VALID_STATES, VALID_TRANSITIONS, MAX_BATCH,
     VALID_VERDICTS, GLAB_TIMEOUT, REVIEWERS, REVIEW_MODES, LOCAL_TZ,
+    DEFAULT_REVIEW_MODE,
     WATCHDOG_LOOP_PIDFILE, WATCHDOG_LOOP_LOCKFILE,
     VALID_FLAG_VERDICTS, STATE_PHASE_MAP,
     GOKRAX_CLI, OWNER_NAME, GITLAB_NAMESPACE, IMPLEMENTERS,
@@ -60,7 +61,7 @@ def get_status_text(enabled_only: bool = False) -> str:
         state = data.get("state", "IDLE")
         enabled = "ON" if data.get("enabled") else "OFF"
         batch = data.get("batch", [])
-        review_mode = data.get("review_mode", "standard")
+        review_mode = data.get("review_mode", DEFAULT_REVIEW_MODE)
         issues = ", ".join(f"#{i['issue']}" for i in batch) if batch else "none"
         from engine.fsm import get_phase_config
         phase = "code" if state.startswith("CODE_") else "design"
@@ -505,10 +506,28 @@ def cmd_start(args):
         resume=False,
         set_enabled=True,
     )
-    cmd_transition(transition_args)
+    try:
+        cmd_transition(transition_args)
 
-    # 8. loop起動
-    _start_loop()
+        # 8. loop起動
+        _start_loop()
+    except BaseException:
+        # step 6 が成功して enabled=True + INITIALIZE が残っている可能性がある
+        # 安全側に倒す: 状態を IDLE + enabled=False に戻す
+        def _rollback(data: dict) -> None:
+            if data.get("state") != "IDLE":
+                add_history(data, data.get("state", "IDLE"), "IDLE", "cli:rollback")
+            _reset_to_idle(data)
+            data["state"] = "IDLE"
+        try:
+            update_pipeline(path, _rollback)
+        except Exception:
+            pass  # ロールバック自体の失敗は握りつぶす（元の例外を優先）
+        # watchdog-loop を停止（他 PJ が有効でない場合のみ）
+        from gokrax import _any_pj_enabled, _stop_loop
+        if not _any_pj_enabled():
+            _stop_loop()
+        raise
 
     # 9. 完了メッセージ
     issues_str = ", ".join(f"#{n}" for n in issue_nums)
@@ -570,7 +589,7 @@ def cmd_transition(args):
         gitlab = data.get("gitlab", f"{GITLAB_NAMESPACE}/{pj}")
         implementer = data.get("implementer", IMPLEMENTERS[0])
         repo_path = data.get("repo_path", "")
-        review_mode = data.get("review_mode", "standard")
+        review_mode = data.get("review_mode", DEFAULT_REVIEW_MODE)
 
         p2_fix = data.get("p2_fix", False)
         comment = data.get("comment", "")
@@ -1303,12 +1322,12 @@ def cmd_review_mode(args):
     path = get_path(args.project)
 
     def do_update(data):
-        old = data.get("review_mode", "standard")
+        old = data.get("review_mode", DEFAULT_REVIEW_MODE)
         data["review_mode"] = args.mode
         return old
 
     data = update_pipeline(path, do_update)
-    old = data.get("_prev_review_mode", data.get("review_mode", "standard"))
+    old = data.get("_prev_review_mode", data.get("review_mode", DEFAULT_REVIEW_MODE))
     members = REVIEW_MODES[args.mode]["members"]
     print(f"{args.project}: review_mode → {args.mode} (reviewers: {members})")
 
@@ -1564,6 +1583,21 @@ def cmd_qrun(args):
         data["queue_mode"] = True
     update_pipeline(path, _set_queue_mode_early)
 
+    def _rollback_pipeline() -> None:
+        """cmd_start 成功後の例外で pipeline を安全に戻す。"""
+        def _do_rollback(data: dict) -> None:
+            if data.get("state") != "IDLE":
+                add_history(data, data.get("state", "IDLE"), "IDLE", "cli:qrun-rollback")
+            _reset_to_idle(data)
+            data["state"] = "IDLE"
+        try:
+            update_pipeline(path, _do_rollback)
+        except Exception:
+            pass  # ロールバック失敗は握りつぶす
+        from gokrax import _any_pj_enabled, _stop_loop
+        if not _any_pj_enabled():
+            _stop_loop()
+
     # cmd_start 実行 (エラー時は復元 + queue_mode ロールバック)
     try:
         cmd_start(start_args)
@@ -1572,6 +1606,7 @@ def cmd_qrun(args):
         # pop_next_queue_entry が付与した "# done: " prefix がそのまま残り、
         # 次回の qrun では次のエントリが処理される。
         rollback_queue_mode(path)
+        _rollback_pipeline()
         print(f"[qrun] Skipped {project}: {e}", file=sys.stderr)
         return
     except (SystemExit, Exception) as e:
@@ -1581,14 +1616,19 @@ def cmd_qrun(args):
         # 両方を明示的にキャッチし、エントリを復元して再試行可能にしている。
         restore_queue_entry(queue_path, entry["original_line"])
         rollback_queue_mode(path)
+        _rollback_pipeline()
         print(f"[qrun] Failed to start {project}: {e}", file=sys.stderr)
         raise
 
     # 成功: automerge/cc_model/comment をパイプラインに保存
-    def _save_queue_options(data):
-        save_queue_options_to_pipeline(data, entry)
+    try:
+        def _save_queue_options(data: dict) -> None:
+            save_queue_options_to_pipeline(data, entry)
 
-    update_pipeline(path, _save_queue_options)
+        update_pipeline(path, _save_queue_options)
+    except BaseException:
+        _rollback_pipeline()
+        raise
 
     automerge_flag = entry.get("automerge", True)
     print(f"[qrun] {project}: started (automerge={automerge_flag})")

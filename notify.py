@@ -18,7 +18,7 @@ import requests
 import config
 from config import (
     GOKRAX_CLI, GLAB_BIN, DISCORD_CHANNEL, DISCORD_BOT_TOKEN,
-    AGENTS, REVIEW_MODES, MAX_DIFF_CHARS, GLAB_TIMEOUT,
+    AGENTS, REVIEW_MODES, DEFAULT_REVIEW_MODE, MAX_DIFF_CHARS, GLAB_TIMEOUT,
     AGENT_SEND_TIMEOUT, DISCORD_POST_TIMEOUT, REVIEW_FILE_DIR,
     REVIEW_FILE_WRITE_RETRIES, REVIEW_FILE_WRITE_RETRY_DELAY,
 )
@@ -745,7 +745,7 @@ def notify_dispute(
 
 
 def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
-                     repo_path: str = "", review_mode: str = "standard",
+                     repo_path: str = "", review_mode: str = DEFAULT_REVIEW_MODE,
                      prev_reviews: dict = None, excluded: list[str] = None,
                      base_commit: str | None = None,
                      comment: str = "",
@@ -770,8 +770,8 @@ def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
 
     # review_mode 検証
     if review_mode not in REVIEW_MODES:
-        logger.error("Invalid review_mode: %s, defaulting to 'standard'", review_mode)
-        review_mode = "standard"
+        logger.error("Invalid review_mode: %s, defaulting to '%s'", review_mode, DEFAULT_REVIEW_MODE)
+        review_mode = DEFAULT_REVIEW_MODE
 
     mode_config = REVIEW_MODES[review_mode]
     reviewers = mode_config["members"]

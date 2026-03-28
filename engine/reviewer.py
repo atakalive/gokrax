@@ -8,6 +8,7 @@ from datetime import datetime
 import config
 from config import (
     AGENTS, REVIEW_MODES, POST_NEW_COMMAND_WAIT_SEC,
+    DEFAULT_REVIEW_MODE,
 )
 from engine.shared import log
 from notify import send_to_agent_queued, ping_agent
@@ -15,7 +16,7 @@ from notify import send_to_agent_queued, ping_agent
 _logger = logging.getLogger(__name__)
 
 
-def _reset_reviewers(review_mode: str = "standard", implementer: str = "") -> list[str]:
+def _reset_reviewers(review_mode: str = DEFAULT_REVIEW_MODE, implementer: str = "") -> list[str]:
     """Reset reviewer/implementer sessions before a review cycle.
 
     For openclaw backend: sends /new to each target, waits, then pings free tier.
@@ -31,7 +32,7 @@ def _reset_reviewers(review_mode: str = "standard", implementer: str = "") -> li
     from engine.backend import reset_session as _dispatch_reset
     from engine.backend import resolve_backend
 
-    mode_config = REVIEW_MODES.get(review_mode, REVIEW_MODES["standard"])
+    mode_config = REVIEW_MODES[review_mode]
     targets = set(mode_config["members"])
     if implementer:
         targets.add(implementer)
@@ -93,10 +94,7 @@ def _reset_short_context_reviewers(review_mode: str) -> None:
     from engine.backend import reset_session as _dispatch_reset
     from engine.backend import resolve_backend
 
-    mode_config = REVIEW_MODES.get(review_mode)
-    if mode_config is None:
-        log(f"[/new] WARNING: unknown review_mode '{review_mode}', skipping short-context reset")
-        return
+    mode_config = REVIEW_MODES[review_mode]
     short_ctx = [m for m in mode_config["members"]
                  if get_tier(m) == "short-context" and m in AGENTS]
     if not short_ctx:

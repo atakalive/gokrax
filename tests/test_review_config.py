@@ -397,19 +397,25 @@ class TestValidateReviewModes:
         with pytest.raises(ValueError, match="unknown reviewers"):
             _validate_review_modes(modes, ["r1"])
 
-    def test_no_phase_overrides_passes(self):
+    def test_no_phase_overrides_passes(self, monkeypatch):
         """フェーズ上書きなしの設定は正常。"""
+        import config
         modes = {
             "simple": {
                 "members": ["r1", "r2"],
                 "min_reviews": 2,
             },
         }
+        monkeypatch.setattr(config, "DEFAULT_REVIEW_MODE", "simple")
         _validate_review_modes(modes, ["r1", "r2"])
 
-    def test_empty_modes_passes(self):
-        """空の REVIEW_MODES でもエラーにならない。"""
-        _validate_review_modes({}, [])
+    def test_empty_modes_passes(self, monkeypatch):
+        """空の REVIEW_MODES でもエラーにならない（DEFAULT_REVIEW_MODE を無効化）。"""
+        import config
+        monkeypatch.setattr(config, "DEFAULT_REVIEW_MODE", "__none__")
+        # DEFAULT_REVIEW_MODE が REVIEW_MODES に存在しない場合は ValueError
+        with pytest.raises(ValueError, match="DEFAULT_REVIEW_MODE"):
+            _validate_review_modes({}, [])
 
 
 # ---------------------------------------------------------------------------

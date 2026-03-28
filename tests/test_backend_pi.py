@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -344,3 +345,15 @@ class TestResetSession:
         backend_pi.reset_session("reviewer1")
         assert not target.exists()
         assert other.exists()
+
+    def test_reset_session_unlink_oserror_is_swallowed(self, tmp_sessions, caplog):
+        backend_pi._starting_markers["reviewer1"] = time.time()
+        with patch.object(Path, "unlink", side_effect=PermissionError("denied")):
+            backend_pi.reset_session("reviewer1")  # must not raise
+        # Marker is cleared before the try/except
+        assert "reviewer1" not in backend_pi._starting_markers
+        # Warning logged
+        warnings = [r for r in caplog.records
+                    if r.levelno == logging.WARNING]
+        assert any("reset_session" in r.message and "failed to delete" in r.message
+                    for r in warnings)

@@ -163,9 +163,29 @@ def is_inactive(agent_id: str, pipeline_data: dict | None = None,
 
 
 def reset_session(agent_id: str) -> None:
-    """Delete the deterministic session file and clear the starting marker.
+    """Best-effort session reset: delete the session file and clear the starting marker.
 
-    No error if the file is absent.  Does not delete parent directories.
+    Contract:
+    - Clears the process-local starting marker unconditionally.
+    - Deletes the session file if present.  Absent files are not an error.
+    - Does NOT terminate in-flight pi processes (fire-and-forget, no PID
+      tracking).  Under POSIX, unlink removes the directory entry; any old
+      process with the file still open writes to the old inode.  In observed
+      pi behavior, processes do not reopen the session file by path after
+      the original fd is closed.
+    - Does NOT wait for quiescence.  If an old process recreates the file
+      after unlink, ``is_inactive()`` will report the agent as active for
+      up to ``INACTIVE_THRESHOLD_SEC`` (bounded false-active window).
+      This delay is accepted as part of the pi backend contract.
+    - Unexpected OS errors are logged as warnings and swallowed.
+
+    See #246 for full design rationale.
     """
     _starting_markers.pop(agent_id, None)
-    _session_path(agent_id).unlink(missing_ok=True)
+    try:
+        _session_path(agent_id).unlink(missing_ok=True)
+    except OSError as exc:
+        logger.warning(
+            "reset_session: failed to delete session file for %s: %s",
+            agent_id, exc,
+        )

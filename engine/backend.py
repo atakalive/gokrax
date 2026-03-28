@@ -71,7 +71,11 @@ def reset_session(agent_id: str) -> None:
     """Dispatch reset_session to the selected backend.
 
     For openclaw, this is a no-op (session reset is done via /new message).
-    For pi, this deletes the session file and clears the starting marker.
+    For pi, this is best-effort: deletes the session file and clears the
+    starting marker.  Does not terminate processes or wait for quiescence.
+    A bounded false-active window of up to INACTIVE_THRESHOLD_SEC may occur
+    if an old process recreates the file after reset.
+    See backend_pi.reset_session docstring and #246 for design rationale.
     """
     backend = _validate_backend()
     if backend == "pi":

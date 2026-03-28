@@ -26,6 +26,7 @@ def review_request(
     body: str,
     completion: str,
     comment_line: str,
+    repo_line: str = "",
     **_kw,
 ) -> str:
     """Code review request message (notify.py format_review_request assembly part).
@@ -33,8 +34,9 @@ def review_request(
     skill_block insertion is done by the caller.
     """
     return (
-        f"[gokrax] {project}: code review request{comment_line}\n\n"
-        f"{todo_header}\n\n{guidance}\n\n{body}{completion}"
+        f"[gokrax] {project}: code review request{comment_line}\n"
+        f"{repo_line}"
+        f"\n{todo_header}\n\n{guidance}\n\n{body}{completion}"
     )
 
 

@@ -22,6 +22,7 @@ def review_request(
     completion: str,
     comment_line: str,
     phase_note: str,
+    repo_line: str = "",
     **_kw,
 ) -> str:
     """Design review request message (notify.py format_review_request assembly part).
@@ -29,8 +30,9 @@ def review_request(
     skill_block insertion is done by the caller.
     """
     return (
-        f"[gokrax] {project}: design review request{comment_line}{phase_note}\n\n"
-        f"{todo_header}\n\n{guidance}\n\n{body}{completion}"
+        f"[gokrax] {project}: design review request{comment_line}{phase_note}\n"
+        f"{repo_line}"
+        f"\n{todo_header}\n\n{guidance}\n\n{body}{completion}"
     )
 
 

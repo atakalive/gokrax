@@ -1058,11 +1058,12 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
     from config import OWNER_NAME
     comment_line = f"\n{OWNER_NAME}'s request: {comment}" if comment else ""
     phase_note = "" if is_code else render("dev.design_review", "phase_note")
+    repo_line = f"Repository: {repo_path}\n" if repo_path else ""
     review_module = "dev.code_review" if is_code else "dev.design_review"
     final_message = render(review_module, "review_request",
         project=project, todo_header=todo_header, guidance=guidance,
         body=body, completion=completion, comment_line=comment_line,
-        phase_note=phase_note,
+        phase_note=phase_note, repo_line=repo_line,
     )
     # skill_block が非空なら先頭に挿入
     if skill_block:

@@ -13,13 +13,17 @@ def transition(
     issues_str: str,
     comment_line: str,
     GOKRAX_CLI: str,
+    repo_path: str = "",
     **_kw,
 ) -> str:
     """Design plan phase instruction message (watchdog.py get_notification_for_state DESIGN_PLAN)."""
+    repo_line = f"Repository: {repo_path}\n" if repo_path else ""
+
     return (
         f"[gokrax] {project}: design plan phase\n"
         f"{comment_line}"
         f"Target Issues: {issues_str}\n"
+        f"{repo_line}"
         f"**Update the target Issue descriptions** (glab issue update) to a granularity that Claude Code can reliably implement.\n"
         f"Do not supplement via comments.\n"
         f"After all updates, run plan-done to complete (batch reporting supported).\n"

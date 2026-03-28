@@ -17,13 +17,17 @@ def transition(
     fix_label: str,
     p2_note: str,
     GOKRAX_CLI: str,
+    repo_path: str = "",
     **_kw,
 ) -> str:
     """Code revise phase instruction message (watchdog.py get_notification_for_state CODE_REVISE)."""
+    repo_line = f"Repository: {repo_path}\n" if repo_path else ""
+
     return (
         f"[gokrax] {project}: code revise phase\n"
         f"{comment_line}"
         f"Target Issues: {issues_str}\n"
+        f"{repo_line}"
         f"{p2_note}"
         f"[Steps]\n"
         f"1. Read {fix_label} and fix the code\n"

@@ -322,6 +322,7 @@ def get_notification_for_state(
         msg = render("dev.design_plan", "transition",
             project=project, issues_str=issues_str,
             comment_line=comment_line, GOKRAX_CLI=GOKRAX_CLI,
+            repo_path=repo_path,
         )
         return TransitionAction(impl_msg=msg, reset_reviewers=True)
 
@@ -334,6 +335,7 @@ def get_notification_for_state(
         msg = render("dev.design_revise", "transition",
             project=project, issues_str=issues_str, comment_line=comment_line,
             fix_label=fix_label, p2_note=p2_note, GOKRAX_CLI=GOKRAX_CLI,
+            repo_path=repo_path,
         )
         return TransitionAction(impl_msg=msg)
 
@@ -346,6 +348,7 @@ def get_notification_for_state(
         msg = render("dev.code_revise", "transition",
             project=project, issues_str=issues_str, comment_line=comment_line,
             fix_label=fix_label, p2_note=p2_note, GOKRAX_CLI=GOKRAX_CLI,
+            repo_path=repo_path,
         )
         return TransitionAction(impl_msg=msg)
 
@@ -357,6 +360,7 @@ def get_notification_for_state(
             comment_line=comment_line, GOKRAX_CLI=GOKRAX_CLI,
             domain_risk_content=domain_risk_content,
             batch=batch,
+            repo_path=repo_path,
         )
         return TransitionAction(impl_msg=msg)
 
@@ -383,6 +387,7 @@ def _resolve_review_outcome(
     revise_state = "DESIGN_REVISE" if "DESIGN" in state else "CODE_REVISE"
     pj = data.get("project", "") if data else ""
     p2_fix = data.get("p2_fix", False) if data else False
+    repo_path = data.get("repo_path", "") if data else ""
 
     # P0 or P1 あり → REVISE or BLOCKED/フォールバック
     if has_p0 or has_p1:
@@ -403,7 +408,7 @@ def _resolve_review_outcome(
 
         return TransitionAction(
             new_state=revise_state,
-            impl_msg=get_notification_for_state(revise_state, project=pj, batch=batch, p2_fix=p2_fix, comment=comment).impl_msg,
+            impl_msg=get_notification_for_state(revise_state, project=pj, batch=batch, p2_fix=p2_fix, comment=comment, repo_path=repo_path).impl_msg,
         )
 
     # P0/P1 なし + p2_fix 有効 + P2 あり → REVISE（max_revise_cycles フォールバック付き）
@@ -416,18 +421,18 @@ def _resolve_review_outcome(
             # フォールバック: P0/P1 がないので APPROVE する
             return TransitionAction(
                 new_state=appr,
-                impl_msg=get_notification_for_state(appr, project=pj, batch=batch, comment=comment).impl_msg,
+                impl_msg=get_notification_for_state(appr, project=pj, batch=batch, comment=comment, repo_path=repo_path).impl_msg,
             )
 
         return TransitionAction(
             new_state=revise_state,
-            impl_msg=get_notification_for_state(revise_state, project=pj, batch=batch, p2_fix=True, comment=comment).impl_msg,
+            impl_msg=get_notification_for_state(revise_state, project=pj, batch=batch, p2_fix=True, comment=comment, repo_path=repo_path).impl_msg,
         )
 
     # P0/P1/P2 なし or (P2 ありだが p2_fix 無効) → APPROVE
     return TransitionAction(
         new_state=appr,
-        impl_msg=get_notification_for_state(appr, project=pj, batch=batch, comment=comment).impl_msg,
+        impl_msg=get_notification_for_state(appr, project=pj, batch=batch, comment=comment, repo_path=repo_path).impl_msg,
     )
 
 
@@ -452,6 +457,7 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
         comment = data.get("comment", "") if data else ""
         notif = get_notification_for_state(
             "DESIGN_PLAN", project=pj, batch=batch, comment=comment,
+            repo_path=data.get("repo_path", "") if data else "",
         )
         return TransitionAction(
             new_state="DESIGN_PLAN",

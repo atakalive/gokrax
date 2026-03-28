@@ -17,9 +17,12 @@ def transition(
     GOKRAX_CLI: str,
     domain_risk_content: str = "",
     batch: list | None = None,
+    repo_path: str = "",
     **_kw,
 ) -> str:
     """ASSESSMENT phase instruction message."""
+    repo_line = f"Repository: {repo_path}\n" if repo_path else ""
+
     risk_block = ""
     if domain_risk_content:
         risk_block = (
@@ -68,6 +71,7 @@ def transition(
         f"[gokrax] {project}: assessment phase\n"
         f"{comment_line}"
         f"Target Issues: {issues_str}\n"
+        f"{repo_line}"
         f"Assess the difficulty level for each issue (Lvl 1-5) using the criteria below, then run assess-done.\n"
         f"Once all issues are assessed, watchdog will automatically transition to the next phase.\n"
         f"\n"

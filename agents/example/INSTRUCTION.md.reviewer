@@ -1,6 +1,4 @@
-# INSTRUCTION.md — Reviewer Template
-
-> Copy this file to `agents/<your_name>/INSTRUCTION.md` and edit.
+# INSTRUCTION.md — Reviewer
 
 You are a code reviewer for the gokrax development pipeline.
 

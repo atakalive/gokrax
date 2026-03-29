@@ -860,7 +860,7 @@ def process(path: Path):
         # MERGE_SUMMARY_SENT遷移時: #gokrax にサマリーを投稿（リトライ付き）
         if action.send_merge_summary:
             from config import DISCORD_CHANNEL
-            from notify import post_discord
+            from notify import post_discord, get_bot_token
             batch = notification["batch"]
             # automerge フラグを最新のパイプラインから読み取る (Issue #45)
             notify_path = get_path(pj)
@@ -873,8 +873,14 @@ def process(path: Path):
                 MERGE_SUMMARY_FOOTER=MERGE_SUMMARY_FOOTER,
                 reviewer_number_map=pipeline_data.get("reviewer_number_map"),
             )
-            message_id = post_discord(DISCORD_CHANNEL, content)
-            if message_id:
+            discord_available = bool(DISCORD_CHANNEL and get_bot_token())
+            if discord_available:
+                message_id = post_discord(DISCORD_CHANNEL, content)
+            else:
+                message_id = None
+                log(f"[{pj}] Discord not configured; skipping merge-summary post")
+
+            if message_id is not None:
                 # summary_message_id をパイプラインに保存
                 notify_path = get_path(pj)
                 def _save_summary_id(data):
@@ -895,14 +901,23 @@ def process(path: Path):
                 except Exception as e:
                     log(f"[{pj}] WARNING: implementer notification failed: {e}")
             else:
-                # 全リトライ失敗: 遷移をロールバックして次サイクルで再試行
-                log(f"[{pj}] WARNING: merge summary post failed after 3 attempts, rolling back state")
-                notify_path = get_path(pj)
-                old_state = notification["old_state"]
-                def _rollback(data, restore=old_state):
-                    data["state"] = restore
-                update_pipeline(notify_path, _rollback)
-                clear_pending_notification(pj, "merge_summary")
+                if discord_available:
+                    # Discord configured but post failed after retries → rollback
+                    log(f"[{pj}] WARNING: merge summary post failed after 3 attempts, rolling back state")
+                    notify_path = get_path(pj)
+                    old_state = notification["old_state"]
+                    def _rollback(data, restore=old_state):
+                        data["state"] = restore
+                    update_pipeline(notify_path, _rollback)
+                    clear_pending_notification(pj, "merge_summary")
+                else:
+                    # Discord not configured → proceed with empty summary_message_id
+                    notify_path = get_path(pj)
+                    def _save_empty_summary_id(data):
+                        data["summary_message_id"] = ""
+                    update_pipeline(notify_path, _save_empty_summary_id)
+                    log(f"[{pj}] merge summary skipped (no Discord), proceeding with empty summary_message_id")
+                    clear_pending_notification(pj, "merge_summary")
 
         # DONE遷移時: git push + issue close を自動実行
         if action.new_state == "DONE":

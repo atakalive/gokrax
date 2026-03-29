@@ -272,6 +272,8 @@ class TestWatchdogCodeApprovedPostsSummary:
 
         with patch("watchdog.notify_discord"), \
              patch("watchdog.notify_implementer"), \
+             patch("notify.get_bot_token", return_value="fake-token"), \
+             patch("config.DISCORD_CHANNEL", "123456"), \
              patch("notify.post_discord", side_effect=mock_post):
             from watchdog import process
             process(path)
@@ -286,6 +288,48 @@ class TestWatchdogCodeApprovedPostsSummary:
             data = json.load(f)
         assert data["state"] == "MERGE_SUMMARY_SENT"
         assert data["summary_message_id"] == "summary-msg-42"
+
+    def test_process_merge_summary_no_discord(self, tmp_pipelines, monkeypatch):
+        """Discord未設定時、watchdog が rollback せず summary_message_id="" で MERGE_SUMMARY_SENT に遷移すること"""
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, _make_pipeline(state="CODE_APPROVED"))
+
+        monkeypatch.setattr("watchdog.PIPELINES_DIR", tmp_pipelines)
+
+        with patch("watchdog.notify_discord"), \
+             patch("notify.get_bot_token", return_value=None), \
+             patch("config.DISCORD_CHANNEL", ""), \
+             patch("notify.post_discord") as mock_post:
+            from watchdog import process
+            process(path)
+
+        # post_discord is NOT called
+        mock_post.assert_not_called()
+
+        # State is MERGE_SUMMARY_SENT (not rolled back to CODE_APPROVED)
+        with open(path) as f:
+            data = json.load(f)
+        assert data["state"] == "MERGE_SUMMARY_SENT"
+        assert data["summary_message_id"] == ""
+
+    def test_process_merge_summary_discord_fails_rollback(self, tmp_pipelines, monkeypatch):
+        """Discord設定済みで post_discord が None を返したとき rollback すること"""
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, _make_pipeline(state="CODE_APPROVED"))
+
+        monkeypatch.setattr("watchdog.PIPELINES_DIR", tmp_pipelines)
+
+        with patch("watchdog.notify_discord"), \
+             patch("notify.get_bot_token", return_value="fake-token"), \
+             patch("config.DISCORD_CHANNEL", "123456"), \
+             patch("notify.post_discord", return_value=None):
+            from watchdog import process
+            process(path)
+
+        # State is rolled back to CODE_APPROVED (retry on next cycle)
+        with open(path) as f:
+            data = json.load(f)
+        assert data["state"] == "CODE_APPROVED"
 
 
 class TestWatchdogMergeSummary:

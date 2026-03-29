@@ -86,7 +86,7 @@ Follow the Issue spec exactly and report completion with gokrax commands.
 EOF
 ```
 
-モデル設定（`agents/config_pi.json`）:
+モデル設定（`agents/config_pi.json`）。`provider` と `model` は `pi --list-models` で表示される名前を使う:
 
 ```json
 {

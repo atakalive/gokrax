@@ -1679,12 +1679,12 @@ class TestSaveQueueOptionsToPipeline:
         save_queue_options_to_pipeline(data, entry)
         assert "queue_mode" not in data
 
-    def test_automerge_default_true(self):
-        """Test D: entry に automerge キーなし → data['automerge'] が True になる。"""
+    def test_automerge_not_in_entry(self):
+        """Test D: entry に automerge キーなし → data に automerge キーが書き込まれない。"""
         data: dict = {}
         entry: dict = {}
         save_queue_options_to_pipeline(data, entry)
-        assert data["automerge"] is True
+        assert "automerge" not in data
 
 
 class TestRollbackQueueMode:

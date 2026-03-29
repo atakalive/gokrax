@@ -177,6 +177,9 @@ def main():
     p.add_argument("--exclude-any-risk", action="store_true", default=None, dest="exclude_any_risk",
                    help="skip batch if domain_risk != none")
     p.add_argument("--no-exclude-any-risk", action="store_true", default=None, dest="no_exclude_any_risk")
+    p.add_argument("--automerge", action="store_true", default=None, dest="automerge",
+                   help="auto-merge on all reviewers APPROVE (skip manual approval)")
+    p.add_argument("--no-automerge", action="store_true", default=None, dest="no_automerge")
     p.add_argument("--allow-closed", action="store_true", default=False, dest="allow_closed",
                    help="allow closed issues in batch (skip closed-issue filtering)")
 

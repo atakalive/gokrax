@@ -386,6 +386,8 @@ def cmd_start(args):
         args.exclude_high_risk = False
     if getattr(args, "no_exclude_any_risk", None):
         args.exclude_any_risk = False
+    if getattr(args, "no_automerge", None):
+        args.automerge = False
 
     # デフォルトオプション適用: CLI 引数で明示指定されていない（None のまま）オプションにデフォルト値を注入
     from task_queue import _QUEUE_OPT_ALIASES
@@ -494,6 +496,9 @@ def cmd_start(args):
             data["exclude_high_risk"] = True
         if getattr(args, "exclude_any_risk", False):
             data["exclude_any_risk"] = True
+        am = getattr(args, "automerge", None)
+        if am is not None:
+            data["automerge"] = am
         if getattr(args, "cc_plan_model", None):
             data["cc_plan_model"] = args.cc_plan_model
         if getattr(args, "cc_impl_model", None):

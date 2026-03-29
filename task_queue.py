@@ -414,10 +414,9 @@ def save_queue_options_to_pipeline(data: dict, entry: dict) -> None:
     - queue_mode は呼び出し元が事前に設定済みであること（本関数では設定しない）。
     - 非真値のフィールドは書き込みも削除もしない（truthy な項目のみ上書き）。
       cleanup 時に engine/cleanup.py の _cleanup_batch_state() が全フィールドを削除する。
-    - automerge のみデフォルト True: entry に "automerge" キーがない場合は True を書き込む。
-      これはキュー未経由の start でも automerge=True がデフォルト動作であるため。
     """
-    data["automerge"] = entry.get("automerge", True)
+    if "automerge" in entry:
+        data["automerge"] = entry["automerge"]
     if entry.get("p2_fix"):
         data["p2_fix"] = True
     if entry.get("cc_plan_model"):

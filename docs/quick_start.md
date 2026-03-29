@@ -45,21 +45,25 @@ pip install -r requirements.txt
 # "externally managed" エラーが出る場合:
 # pip install -r requirements.txt --break-system-packages
 
+# homebrew (https://brew.sh/ja/)
+# 無ければインストール -> Next steps に従って PATH に追加
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
 # glab（GitLab CLI — https://gitlab.com/gitlab-org/cli/-/releases）
-# Debian / Ubuntu:
-curl -sL "https://gitlab.com/gitlab-org/cli/-/releases/v1.90.0/downloads/glab_1.90.0_linux_amd64.deb" -o /tmp/glab.deb
-sudo dpkg -i /tmp/glab.deb
-# macOS: brew install glab
-# その他: 上記リリースページから OS に合ったバイナリを取得
-glab auth login
+brew install glab
+glab auth login  # Host: gitlab.com、接続は SSH を選択
+
+# WSL の場合: nvm でインストール
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash
+source ~/.bashrc
+nvm install --lts
 
 # pi（エージェント基盤 https://github.com/badlogic/pi-mono/tree/main/packages/agent）
 npm install -g @mariozechner/pi-coding-agent
-pi    # 起動後、/login でプロバイダを選択してブラウザでログイン
-
 # pi にパスが通っているか確認
 which pi
 # 見つからない場合: echo 'export PATH="$(npm -g prefix)/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
+pi    # 起動後、/login でプロバイダを選択してブラウザでログイン
 ```
 
 ## 3. gokrax コマンドの設定（必須）
@@ -169,13 +173,16 @@ nano agents/config_pi.json
 GitLab にリポジトリがまだない場合:
 
 ```bash
+# gokrax ディレクトリの外に移動してからプロジェクトを作成
+cd ~
+
 # GitLab にリポジトリを作成
 glab repo create myproject --private
 
-# gokrax ディレクトリの外に移動してからプロジェクトを作成
-cd ~
-mkdir myproject && cd myproject
-git init
+mkdir myproject  # リポジトリ作成時に実行済みなら不要
+git init         # リポジトリ作成時に実行済みなら不要
+
+cd myproject
 git config user.email "you@example.com"
 git config user.name "Your Name"
 git remote add origin git@gitlab.com:your-username/myproject.git

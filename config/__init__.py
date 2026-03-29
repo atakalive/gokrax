@@ -122,7 +122,7 @@ MASK_AGENT_NAMES: bool = True
 
 REVIEWER_TIERS: dict[str, list[str]] = {"regular": [], "free": [], "short-context": []}
 REVIEW_MODES: dict[str, dict] = {}
-DEFAULT_REVIEW_MODE: str = "standard"
+DEFAULT_REVIEW_MODE: str = "lite"
 
 # Agent backend
 DEFAULT_AGENT_BACKEND: str = "openclaw"

@@ -26,6 +26,7 @@ class QueueSkipError(Exception):
 _QUEUE_OPT_ALIASES: dict[str, str] = {
     "impl": "cc_impl_model",
     "plan": "cc_plan_model",
+    "no-cc": "no_cc",
 }
 
 

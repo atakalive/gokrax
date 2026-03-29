@@ -62,6 +62,7 @@ which pi
 エージェントが内部で `gokrax` コマンドを呼び出すため、PATH の通った場所にシンボリックリンクが必要:
 
 ```bash
+chmod +x /path/to/gokrax/gokrax.py
 mkdir -p ~/.local/bin
 ln -s /path/to/gokrax/gokrax.py ~/.local/bin/gokrax
 

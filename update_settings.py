@@ -94,6 +94,15 @@ def main(base_dir: Path) -> int:
             shutil.copy2(template_path, queue_path)
             print("Created gokrax-queue.txt from template.")
 
+    pi_config_path = base_dir / "agents" / "config_pi.json"
+    pi_example_path = base_dir / "agents" / "config_pi.example.json"
+    if not pi_config_path.exists():
+        if not pi_example_path.exists():
+            print("agents/config_pi.example.json not found, skipping.", file=sys.stderr)
+        else:
+            shutil.copy2(pi_example_path, pi_config_path)
+            print("Created agents/config_pi.json from template.")
+
     return 0
 
 

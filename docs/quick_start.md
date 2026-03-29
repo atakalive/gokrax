@@ -7,6 +7,7 @@ gokrax を最短で動かすためのガイド。所要時間: 約15分。
 - Linux または macOS（WSL2 含む）
 - Python 3.11+
 - [GitLab](https://gitlab.com/) アカウント（無料で private repository を利用可能）
+- いずれかの LLM プロバイダのアカウント（Anthropic, Google, OpenAI, GitHub Copilot 等）
 
 ## 2. 必要なツールのインストール
 
@@ -24,7 +25,7 @@ glab auth login
 
 # pi（エージェント基盤 https://github.com/badlogic/pi-mono/tree/main/packages/agent）
 npm install -g @mariozechner/pi-agent-core
-pi    # /login でプロバイダを選択してブラウザでログイン（URL Space 混入注意）
+pi    # 起動後、/login でプロバイダを選択してブラウザでログイン（URLへのスペース混入注意）
 ```
 
 ## 3. 設定
@@ -44,7 +45,7 @@ DEFAULT_AGENT_BACKEND = "pi"
 
 DEFAULT_QUEUE_OPTIONS = {
     "no-cc": True,              # <- Claude Code CLI 無しで動かす
-    "automerge": True,
+    "automerge": True,          # no-cc 以外はデフォルトでOK
     "skip_cc_plan": True,
     "keep_ctx_intra": True,
     "skip_test": True,
@@ -87,8 +88,8 @@ cp agents/example/MEMORY.md.example          agents/impl1/MEMORY.md
 ```json
 {
   "reviewer1": {
-    "provider": "anthropic",
-    "model": "claude-opus-4-6",
+    "provider": "google-gemini-cli",
+    "model": "gemini-3.1-pro-preview",
     "thinking": "low",
     "tools": "read,bash,grep,find,ls"
   },
@@ -112,7 +113,7 @@ git commit --allow-empty -m "init" && git push --set-upstream origin main
 ```
 
 ```bash
-# gokrax にプロジェクトを登録（GitLab リポジトリとローカルパスを指定）
+# gokrax にプロジェクトを登録（GitLab リポジトリとローカルパスを指定して実行）
 gokrax init \
   --pj myproject \
   --gitlab your-username/myproject \

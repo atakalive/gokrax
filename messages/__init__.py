@@ -26,7 +26,11 @@ def render(template: str, macro: str, lang: str | None = None, **kwargs) -> str:
     lang = lang or PROMPT_LANG
     # カスタムテンプレートを優先（find_spec で存在確認し、内部エラーは浮上させる）
     custom_name = f"messages_custom.{lang}.{template}"
-    if importlib.util.find_spec(custom_name) is not None:
+    try:
+        spec = importlib.util.find_spec(custom_name)
+    except (ModuleNotFoundError, ValueError):
+        spec = None
+    if spec is not None:
         custom_mod = importlib.import_module(custom_name)
         fn = getattr(custom_mod, macro, None)
         if fn is not None:

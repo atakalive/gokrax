@@ -87,6 +87,21 @@ def phase_note(**kwargs)  # missing colon
         with pytest.raises(SyntaxError):
             render("dev.design_review", "phase_note", lang="ja")
 
+    def test_fallback_when_find_spec_raises_module_not_found(self, monkeypatch):
+        """find_spec が ModuleNotFoundError を送出する場合（messages_custom/ 不在）でも
+        デフォルトテンプレートにフォールバックする。"""
+        original_find_spec = importlib.util.find_spec
+
+        def patched_find_spec(name, *args, **kwargs):
+            if name.startswith("messages_custom"):
+                raise ModuleNotFoundError(f"No module named '{name}'")
+            return original_find_spec(name, *args, **kwargs)
+
+        monkeypatch.setattr(importlib.util, "find_spec", patched_find_spec)
+        result = render("dev.design_review", "phase_note", lang="ja")
+        assert isinstance(result, str)
+        assert len(result) > 0
+
     def test_custom_internal_import_error_propagates(self, custom_module):
         """カスタムモジュール内部で存在しないライブラリを import している場合、
         ImportError が握りつぶされずにそのまま浮上すること。

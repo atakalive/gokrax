@@ -99,10 +99,15 @@ def cmd_init(args):
         print(f"Already exists: {path}", file=sys.stderr)
         sys.exit(1)
 
+    abs_repo = os.path.abspath(args.repo_path) if args.repo_path else ""
+    if abs_repo and not os.path.isdir(abs_repo):
+        print(f"Error: --repo-path does not exist or is not a directory: {abs_repo}", file=sys.stderr)
+        sys.exit(1)
+
     data = {
         "project": args.project,
         "gitlab": args.gitlab or f"{GITLAB_NAMESPACE}/{args.project}",
-        "repo_path": args.repo_path or "",
+        "repo_path": abs_repo,
         "state": "IDLE",
         "enabled": False,
         "implementer": args.implementer or IMPLEMENTERS[0],

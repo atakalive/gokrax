@@ -28,6 +28,9 @@ def _start_cc(project: str, batch: list, gitlab: str, repo_path: str, pipeline_p
     import tempfile
     from notify import fetch_issue_body
 
+    if not repo_path:
+        raise ValueError(f"repo_path is empty for project {project}. Set it with: gokrax init --repo-path /path/to/repo")
+
     # CC モデル指定を pipeline JSON から読み取る (Issue #45)
     data = load_pipeline(pipeline_path)
     skip_plan = data.get("skip_cc_plan", False)

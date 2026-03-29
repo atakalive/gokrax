@@ -1,6 +1,6 @@
 # Quick Start
 
-gokrax を最短で動かすためのガイド。所要時間: 約30分。
+gokrax を最短で動かすためのガイド。所要時間: 30―60分。
 
 ## 1. 前提
 
@@ -207,9 +207,9 @@ glab issue create \
   --description "Create hello.py that prints 'Hello, gokrax.' to stdout."
 ```
 
-GitLab の Issue #1 ページをブラウザで開いておく。設計・レビューのコメントがリアルタイムで追記されていく。
-
 ## 7. 実行
+
+ブラウザで GitLab の Issue #1 ページを開いておく。本文更新・設計・レビューのコメントがリアルタイムで反映されていく。
 
 ```bash
 gokrax start --project myproject --issue 1 --mode min

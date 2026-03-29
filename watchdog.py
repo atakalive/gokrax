@@ -21,7 +21,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config import (
     PIPELINES_DIR, LOCAL_TZ, LOG_FILE, REVIEW_MODES, CC_MODEL_PLAN, CC_MODEL_IMPL,
-    GOKRAX_CLI, INACTIVE_THRESHOLD_SEC, OPENCLAW_SESSIONS_BASE,
+    GOKRAX_CLI, INACTIVE_THRESHOLD_SEC, INACTIVE_THRESHOLD_PLAN_SEC, OPENCLAW_SESSIONS_BASE,
     STATE_PHASE_MAP, GITLAB_NAMESPACE, IMPLEMENTERS,
     # WATCHDOG_LOOP_PIDFILE, WATCHDOG_LOOP_CRON_MARKER は gokrax.py の enable/disable 専用
 )
@@ -243,12 +243,14 @@ def process(path: Path):
             if not _is_agent_inactive(implementer, data):
                 # アクティブなら催促しない（カウンタも上げない）
                 return
-            # 前回催促からINACTIVE_THRESHOLD_SEC未満ならスキップ
+            # 前回催促からの経過が閾値未満ならスキップ
+            # DESIGN_PLAN は作業時間が長いため専用閾値を使う
+            nudge_threshold = INACTIVE_THRESHOLD_PLAN_SEC if state == "DESIGN_PLAN" else INACTIVE_THRESHOLD_SEC
             last_nudge = data.get("_last_nudge_at")
             if last_nudge:
                 try:
                     elapsed_since_nudge = (_datetime.now(LOCAL_TZ) - _datetime.fromisoformat(last_nudge)).total_seconds()
-                    if elapsed_since_nudge < INACTIVE_THRESHOLD_SEC:
+                    if elapsed_since_nudge < nudge_threshold:
                         return
                 except (ValueError, TypeError):
                     pass

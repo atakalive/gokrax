@@ -6198,3 +6198,93 @@ class TestNotifyReviewersFailedExcluded:
         assert result.get("min_reviews_override") is not None, \
             "DEADLOCK clamp should be applied when effective < min_reviews"
         assert result["min_reviews_override"] == 2
+
+
+# ── Issue #273: DESIGN_PLAN 催促レート制限の閾値切り替えテスト ──────────────
+
+class TestNudgeRateLimitThreshold:
+    """DESIGN_PLAN 状態の催促レート制限に INACTIVE_THRESHOLD_PLAN_SEC を使うことを検証"""
+
+    def _make_pipeline(self, tmp_path, state: str, last_nudge_seconds_ago: int) -> Path:
+        """テスト用パイプライン JSON を作成する。"""
+        import json
+        from datetime import datetime, timedelta, timezone
+        from config import NUDGE_GRACE_SEC
+
+        entered_at = (datetime.now(timezone.utc) - timedelta(seconds=NUDGE_GRACE_SEC + 60)).isoformat()
+        last_nudge_at = (datetime.now(timezone.utc) - timedelta(seconds=last_nudge_seconds_ago)).isoformat()
+
+        batch = [{"issue": 1}]
+        if state == "DESIGN_REVISE":
+            batch = [{"issue": 1, "design_reviews": {"reviewer1": {"verdict": "P0"}}}]
+
+        data = {
+            "project": "test-pj",
+            "state": state,
+            "enabled": True,
+            "review_mode": "min",
+            "batch": batch,
+            "implementer": "implementer1",
+            "history": [{"from": "PREV", "to": state, "at": entered_at, "actor": "watchdog"}],
+            "_last_nudge_at": last_nudge_at,
+            "created_at": "2025-01-01T00:00:00+09:00",
+            "updated_at": "2025-01-01T00:00:00+09:00",
+        }
+        path = tmp_path / "test-pj.json"
+        path.write_text(json.dumps(data))
+        return path
+
+    def test_nudge_suppressed_within_plan_threshold(self, tmp_path, monkeypatch):
+        """DESIGN_PLAN: _last_nudge_at が 400秒前 (303 < 400 < 600) → 催促が抑制される"""
+        import config
+        import pipeline_io
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        path = self._make_pipeline(tmp_path, "DESIGN_PLAN", last_nudge_seconds_ago=400)
+
+        from watchdog import process
+        with patch("watchdog.send_to_agent_queued", return_value=True) as mock_send, \
+             patch("watchdog._is_agent_inactive", return_value=True), \
+             patch("watchdog.notify_discord"):
+            process(path)
+
+        # DESIGN_PLAN では INACTIVE_THRESHOLD_PLAN_SEC=600 が使われるため、
+        # 400秒前の催促は閾値未満 → 送信されない
+        mock_send.assert_not_called()
+
+    def test_nudge_sent_after_plan_threshold(self, tmp_path, monkeypatch):
+        """DESIGN_PLAN: _last_nudge_at が 610秒前 (> 600) → 催促が送信される"""
+        import config
+        import pipeline_io
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        path = self._make_pipeline(tmp_path, "DESIGN_PLAN", last_nudge_seconds_ago=610)
+
+        from watchdog import process
+        with patch("watchdog.send_to_agent_queued", return_value=True) as mock_send, \
+             patch("watchdog._is_agent_inactive", return_value=True), \
+             patch("watchdog.notify_discord"):
+            process(path)
+
+        # 610秒 > INACTIVE_THRESHOLD_PLAN_SEC=600 → 催促が送信される
+        assert mock_send.called, "Nudge should be sent after INACTIVE_THRESHOLD_PLAN_SEC elapsed"
+
+    def test_non_plan_state_uses_default_threshold(self, tmp_path, monkeypatch):
+        """DESIGN_REVISE: _last_nudge_at が 400秒前 (> 303) → 従来閾値で催促が送信される"""
+        import config
+        import pipeline_io
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        path = self._make_pipeline(tmp_path, "DESIGN_REVISE", last_nudge_seconds_ago=400)
+
+        from watchdog import process
+        with patch("watchdog.send_to_agent_queued", return_value=True) as mock_send, \
+             patch("watchdog._is_agent_inactive", return_value=True), \
+             patch("watchdog.notify_discord"):
+            process(path)
+
+        # DESIGN_REVISE は INACTIVE_THRESHOLD_SEC=303 を使う → 400秒 > 303 → 催促が送信される
+        assert mock_send.called, "Non-DESIGN_PLAN states should use INACTIVE_THRESHOLD_SEC"

@@ -50,6 +50,19 @@ glab auth login
 # pi（エージェント基盤 https://github.com/badlogic/pi-mono/tree/main/packages/agent）
 npm install -g @mariozechner/pi-coding-agent
 pi    # 起動後、/login でプロバイダを選択してブラウザでログイン（URLへのスペース混入注意）
+
+# pi にパスが通っているか確認
+which pi
+# 見つからない場合: echo 'export PATH="$(npm -g prefix)/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
+```
+
+以降のコマンド例は gokrax ディレクトリ内で `python3 gokrax.py` として実行する。シンボリックリンクを作成すれば、任意の場所から `gokrax` コマンドとして実行できる:
+
+```bash
+mkdir -p ~/.local/bin
+ln -s /path/to/gokrax/gokrax.py ~/.local/bin/gokrax
+# ~/.local/bin が PATH にない場合:
+# echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
 ```
 
 ## 3. 設定
@@ -60,9 +73,15 @@ python3 update_settings.py    # settings.example.py → settings.py を生成
 
 `settings.py` を編集:
 
+```bash
+# 設定 (Save: Ctrl+O, Exit: Ctrl+X)
+nano settings.py
+```
+
 ```python
 # --- 必須 ---
 GLAB_BIN = "/usr/bin/glab"              # which glab で確認
+PI_BIN = "/usr/bin/pi"                  # which pi で確認
 GITLAB_NAMESPACE = "your-username"      # gitlab.com/YOUR_NAMESPACE/...
 
 DEFAULT_AGENT_BACKEND = "pi"
@@ -106,7 +125,7 @@ cp agents/example/INSTRUCTION.md.implementer agents/impl1/INSTRUCTION.md
 モデル設定（`agents/config_pi.json`）。`provider` と `model` は `pi --list-models` で表示される名前を使う:
 
 ```bash
-# モデル設定
+# モデル設定 (Save: Ctrl+O, Exit: Ctrl+X)
 nano agents/config_pi.json
 ```
 
@@ -153,18 +172,19 @@ git push -u origin HEAD
 GitLab リポジトリ作成後:
 
 ```bash
+# gokrax ディレクトリに戻って実行
+cd /path/to/gokrax
+
 # gokrax にプロジェクトを登録（GitLab リポジトリとローカルパスを指定して実行）
-gokrax init \
-  --pj myproject \
-  --gitlab your-username/myproject \
-  --repo-path /path/to/your/project \
-  --implementer impl1
+python3 gokrax.py init --pj myproject --gitlab your-username/myproject --repo-path /path/to/your/project --implementer impl1
+
+# myproject ディレクトリに戻る
+cd /path/to/your/project
 
 # サンプル Issue を作成
-cd /path/to/your/project
 glab issue create \
   --title "Add hello.py" \
-  --description "Create hello.py that prints 'Hello, gokrax!' to stdout."
+  --description "Create hello.py that prints 'Hello, gokrax.' to stdout."
 ```
 
 GitLab の Issue #1 ページをブラウザで開いておく。設計・レビューのコメントがリアルタイムで追記されていく。
@@ -172,7 +192,7 @@ GitLab の Issue #1 ページをブラウザで開いておく。設計・レビ
 ## 6. 実行
 
 ```bash
-gokrax start --project myproject --issue 1 --mode min
+python3 gokrax.py start --project myproject --issue 1 --mode min
 
 # 進捗をリアルタイムで確認
 tail -f /tmp/gokrax-watchdog.log
@@ -195,7 +215,7 @@ cat /path/to/your/project/hello.py
 テスト用プロジェクトが不要になった場合:
 
 ```bash
-gokrax reset --pj myproject                      # パイプライン状態をリセット
+python3 gokrax.py reset --pj myproject                      # パイプライン状態をリセット
 glab repo delete your-username/myproject --yes   # GitLab リポジトリを削除
 rm -rf /path/to/myproject                        # ローカルディレクトリを削除
 ```

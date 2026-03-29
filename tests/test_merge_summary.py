@@ -77,12 +77,14 @@ class TestCmdMergeSummary:
             cmd_merge_summary(args)
 
     def test_merge_summary_discord_post_fails(self, tmp_pipelines):
-        """post_discord が None を返したとき SystemExit が発生すること"""
+        """Discord設定済みで post_discord が None を返したとき SystemExit が発生すること"""
         path = tmp_pipelines / "test-pj.json"
         write_pipeline(path, _make_pipeline())
         from gokrax import cmd_merge_summary
         args = argparse.Namespace(project="test-pj")
         with patch("notify.post_discord", return_value=None), \
+             patch("notify.get_bot_token", return_value="fake-token"), \
+             patch("config.DISCORD_CHANNEL", "fake-channel"), \
              patch("notify.send_to_agent", return_value=True):
             with pytest.raises(SystemExit, match="Failed to post to Discord"):
                 cmd_merge_summary(args)
@@ -206,6 +208,23 @@ class TestCmdMergeSummary:
             data = json.load(f)
         assert data["state"] == "MERGE_SUMMARY_SENT"
         assert data["summary_message_id"] == "1234567890"
+
+    def test_merge_summary_no_discord_skips_post(self, tmp_pipelines):
+        """Discord未設定時は投稿をスキップしてMERGE_SUMMARY_SENTに遷移すること"""
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, _make_pipeline())
+        from gokrax import cmd_merge_summary
+        args = argparse.Namespace(project="test-pj")
+        with patch("notify.get_bot_token", return_value=None), \
+             patch("config.DISCORD_CHANNEL", ""), \
+             patch("notify.post_discord") as mock_post, \
+             patch("notify.send_to_agent", return_value=True):
+            cmd_merge_summary(args)
+        mock_post.assert_not_called()
+        with open(path) as f:
+            data = json.load(f)
+        assert data["state"] == "MERGE_SUMMARY_SENT"
+        assert data["summary_message_id"] == ""
 
     def test_merge_summary_continues_on_send_exception(self, tmp_pipelines):
         """send_to_agent が例外を投げてもフローが継続すること (Issue #48)"""
@@ -339,6 +358,24 @@ class TestWatchdogMergeSummary:
         # summary_message_id なし
         action = check_transition("MERGE_SUMMARY_SENT", data["batch"], data)
         assert action.new_state is None
+
+    def test_check_transition_empty_summary_id_returns_no_action(self):
+        """summary_message_id が空文字列のときは no-action（gokrax ok 待ち）"""
+        from engine.fsm import check_transition, TransitionAction
+        data = _make_pipeline(state="MERGE_SUMMARY_SENT", summary_message_id="")
+        result = check_transition("MERGE_SUMMARY_SENT", batch=data["batch"], data=data)
+        assert result == TransitionAction()
+
+    def test_check_transition_cli_approved_no_discord(self):
+        """Discord未設定でも gokrax ok (merge_approved=True) でDONEに遷移すること"""
+        from engine.fsm import check_transition, TransitionAction
+        data = _make_pipeline(
+            state="MERGE_SUMMARY_SENT",
+            summary_message_id="",
+            merge_approved=True,
+        )
+        result = check_transition("MERGE_SUMMARY_SENT", batch=data["batch"], data=data)
+        assert result == TransitionAction(new_state="DONE")
 
     def test_watchdog_data_none_returns_no_action(self):
         """data=None のとき遷移しない（既存テストとの互換）"""

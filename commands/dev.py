@@ -1447,7 +1447,7 @@ def cmd_merge_summary(args):
     import logging
     logger = logging.getLogger(__name__)
     from config import DISCORD_CHANNEL
-    from notify import post_discord, notify_implementer
+    from notify import post_discord, notify_implementer, get_bot_token
     from config import MERGE_SUMMARY_FOOTER
     from messages import render
 
@@ -1467,9 +1467,14 @@ def cmd_merge_summary(args):
         MERGE_SUMMARY_FOOTER=MERGE_SUMMARY_FOOTER,
     )
 
-    message_id = post_discord(DISCORD_CHANNEL, content)
-    if not message_id:
-        raise SystemExit("Failed to post to Discord")
+    discord_available = bool(DISCORD_CHANNEL and get_bot_token())
+    if discord_available:
+        message_id = post_discord(DISCORD_CHANNEL, content)
+        if not message_id:
+            raise SystemExit("Failed to post to Discord")
+    else:
+        message_id = ""
+        logger.warning("Discord not configured; skipping merge-summary post")
 
     def do_update(data):
         data["summary_message_id"] = message_id

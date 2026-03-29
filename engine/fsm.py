@@ -483,6 +483,8 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
         from config import MERGE_APPROVER_DISCORD_ID, DISCORD_CHANNEL
         summary_id = data.get("summary_message_id")
         if not summary_id:
+            # Discord not configured: summary_message_id is "".
+            # Only gokrax ok CLI can approve. Return no-action to wait.
             return TransitionAction()
         messages = fetch_discord_replies(DISCORD_CHANNEL, summary_id)
         for msg in messages:

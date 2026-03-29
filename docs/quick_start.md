@@ -7,7 +7,7 @@ gokrax を最短で動かすためのガイド。所要時間: 約15分。
 - Linux または macOS（WSL2 含む）
 - Python 3.11+
 - [GitLab](https://gitlab.com/) アカウント（無料で private repository を利用可能）
-- いずれかの LLM プロバイダのアカウント（Anthropic, Google, OpenAI, GitHub Copilot 等）
+- いずれかの LLM プロバイダのアカウント（[pi が対応するプロバイダ](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/providers.md): Anthropic, GitHub Copilot, Google Gemini CLI, OpenAI Codex, Antigravity 等）
 
 ## 2. 必要なツールのインストール
 

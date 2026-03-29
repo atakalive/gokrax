@@ -1,6 +1,6 @@
 # gokrax — Architecture & State Machine Diagrams
 
-> Last updated: 2026-03-22
+> Last updated: 2026-03-29
 
 ## 1. System Architecture (Overall Flow)
 
@@ -19,8 +19,13 @@ graph LR
     end
 
     subgraph Execution
+        BD["Backend Dispatch<br/>(engine/backend.py)"]
+        BE_OC["openclaw Backend<br/>(engine/backend_openclaw.py)"]
+        BE_PI["pi Backend<br/>(engine/backend_pi.py)"]
         CC1["Claude Code CLI<br/>(Impl Lead 1)"]
         CC2["Claude Code CLI<br/>(Impl Lead 2)"]
+        BD --> BE_OC
+        BD --> BE_PI
     end
 
     subgraph Review["Reviewer Ensemble"]
@@ -40,8 +45,9 @@ graph LR
     CLI --> SM
     SM <--> WD
     WD -->|"dispatch task"| TQ
-    TQ -->|"design/implement"| CC1
-    TQ -->|"design/implement"| CC2
+    TQ -->|"design/implement"| BD
+    BD -->|"design/implement"| CC1
+    BD -->|"design/implement"| CC2
     WD -->|"request review"| R_REG
     WD -->|"request review"| R_SHORT
     R_REG -->|"verdict"| CLI
@@ -62,6 +68,7 @@ stateDiagram-v2
     IDLE --> INITIALIZE : gokrax start
 
     INITIALIZE --> DESIGN_PLAN : auto-transition
+    INITIALIZE --> DESIGN_APPROVED : skip_design
 
     state "Design Phase" as design {
         DESIGN_PLAN --> DESIGN_REVIEW : plan submitted
@@ -99,15 +106,18 @@ stateDiagram-v2
     }
 
     DESIGN_APPROVED --> ASSESSMENT : auto-transition
+    DESIGN_APPROVED --> IMPLEMENTATION : skip_assess
     ASSESSMENT --> IMPLEMENTATION : assessed (Lvl 1-5)
     ASSESSMENT --> IDLE : domain_risk exclusion
 
     CODE_APPROVED --> MERGE_SUMMARY_SENT : auto-transition
-    MERGE_SUMMARY_SENT --> DONE : human approves merge
+    MERGE_SUMMARY_SENT --> DONE : human approves merge / automerge / gokrax ok
 
     DONE --> IDLE : next issue
     BLOCKED --> IDLE : manual reset
 
+    note right of INITIALIZE : skip_design → DESIGN_APPROVED
+    note right of DESIGN_APPROVED : skip_assess → IMPLEMENTATION
     note right of DESIGN_REVISE : MAX_REVISE_CYCLES = 4
     note right of CODE_REVISE : MAX_REVISE_CYCLES = 4
 ```
@@ -117,12 +127,12 @@ stateDiagram-v2
 | From | To |
 |------|----|
 | IDLE | INITIALIZE |
-| INITIALIZE | DESIGN_PLAN |
+| INITIALIZE | DESIGN_PLAN, DESIGN_APPROVED |
 | DESIGN_PLAN | DESIGN_REVIEW |
 | DESIGN_REVIEW | DESIGN_APPROVED, DESIGN_REVISE, BLOCKED, DESIGN_REVIEW_NPASS |
 | DESIGN_REVIEW_NPASS | DESIGN_APPROVED, DESIGN_REVISE, DESIGN_REVIEW_NPASS |
 | DESIGN_REVISE | DESIGN_REVIEW |
-| DESIGN_APPROVED | ASSESSMENT |
+| DESIGN_APPROVED | ASSESSMENT, IMPLEMENTATION |
 | ASSESSMENT | IMPLEMENTATION, IDLE |
 | IMPLEMENTATION | CODE_TEST, CODE_REVIEW |
 | CODE_TEST | CODE_REVIEW, CODE_TEST_FIX, BLOCKED |
@@ -175,6 +185,22 @@ Review modes are defined in `settings.py` (`REVIEW_MODES`). See `settings.exampl
 | min | `settings.py` の `REVIEW_MODES` で定義 | 1 | 0 | — |
 | skip | (none) | 0 | 0 | — |
 | standard-x2 | `settings.py` の `REVIEW_MODES` で定義 | 3 | 0 | {reviewer1: 2, reviewer3: 2} |
+
+### Phase Override
+
+Review modes support per-phase (design/code) configuration overrides.
+Fields not overridden inherit from the mode's top-level defaults.
+
+Example in `settings.py`:
+```python
+"full-custom": {
+    "members": ["reviewer1", "reviewer2", "reviewer3", "reviewer4"],
+    "code": {
+        "members": ["reviewer1", "reviewer2", "reviewer3"],
+        "n_pass": {"reviewer1": 2},
+    },
+}
+```
 
 ### Reviewer Tiers
 
@@ -235,7 +261,9 @@ Reviewers not listed in `n_pass` default to 1 pass.
 
 ```mermaid
 graph TD
-    START["Watchdog Loop<br/>(20s interval)"] --> SCAN["Scan all pipeline.json files"]
+    START["Watchdog Loop<br/>(20s interval)"] --> DISCORD["Check Discord<br/>commands"]
+    DISCORD --> QUEUE["Check queue<br/>(auto-pop)"]
+    QUEUE --> SCAN["Scan all pipeline.json files"]
     SCAN --> CHECK{"Active issue<br/>found?"}
     CHECK -->|No| IDLE_CHECK{"All projects<br/>DONE/IDLE?"}
     IDLE_CHECK -->|Yes| STOP["Auto-stop<br/>watchdog loop"]
@@ -299,7 +327,13 @@ sequenceDiagram
     DB->>DB: Set state -> CODE_APPROVED
     DB->>DB: Auto -> MERGE_SUMMARY_SENT
     DB->>DC: Merge summary
-    M->>DB: "OK" (approve merge)
+    alt Merge approval
+        M->>DB: "OK" (Discord reply)
+    else automerge enabled
+        DB->>DB: automerge flag → DONE
+    else CLI approval
+        M->>DB: gokrax ok --pj X
+    end
     DB->>GL: glab mr merge
     DB->>DB: Set state -> DONE
     DB->>DC: Issue complete
@@ -368,3 +402,32 @@ stateDiagram-v2
 
     note right of SPEC_PAUSED : SPEC_PAUSED can resume to\nany spec state (7 transitions)
 ```
+
+## 7. Task Queue (Batch Execution)
+
+### Queue File Format
+
+Queue file: `gokrax-queue.txt` — one entry per line:
+
+```
+PROJECT ISSUES [MODE] [OPTIONS...]
+```
+
+### CLI Commands
+
+| Command | Description |
+|---------|-------------|
+| `gokrax qrun` | Pop next queue entry and start |
+| `gokrax qstatus` | Show queue + running batch status |
+| `gokrax qadd` | Append entry to queue |
+| `gokrax qdel` | Remove entry from queue |
+| `gokrax qedit` | Edit entry in queue |
+
+### Queue Options
+
+Available options: `automerge`, `skip_cc_plan`, `no-cc`, `keep_ctx_intra`, `skip_test`, `skip_assess`, `skip_design`, `impl=MODEL`, `plan=MODEL`.
+See `settings.example.py` `DEFAULT_QUEUE_OPTIONS` for defaults.
+
+### Discord Integration
+
+Watchdog's `check_discord_commands()` processes queue commands (`qrun`, `qstatus`, `qadd`, `qdel`, `qedit`) from Discord.

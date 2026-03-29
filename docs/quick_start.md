@@ -42,12 +42,15 @@ ssh -T git@gitlab.com
 git clone https://gitlab.com/atakalive/gokrax.git
 cd gokrax
 pip install -r requirements.txt
+# "externally managed" エラーが出る場合:
+# pip install -r requirements.txt --break-system-packages
 
-# Homebrew（未インストールの場合 — https://brew.sh）
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-
-# glab（GitLab CLI — https://gitlab.com/gitlab-org/cli）
-brew install glab
+# glab（GitLab CLI — https://gitlab.com/gitlab-org/cli/-/releases）
+# Debian / Ubuntu:
+curl -sL "https://gitlab.com/gitlab-org/cli/-/releases/v1.90.0/downloads/glab_1.90.0_linux_amd64.deb" -o /tmp/glab.deb
+sudo dpkg -i /tmp/glab.deb
+# macOS: brew install glab
+# その他: 上記リリースページから OS に合ったバイナリを取得
 glab auth login
 
 # pi（エージェント基盤 https://github.com/badlogic/pi-mono/tree/main/packages/agent）

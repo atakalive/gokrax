@@ -24,7 +24,7 @@ brew install glab          # macOS / Linux (Homebrew)
 glab auth login
 
 # pi（エージェント基盤 https://github.com/badlogic/pi-mono/tree/main/packages/agent）
-npm install -g @mariozechner/pi-agent-core
+npm install -g @mariozechner/pi-coding-agent
 pi    # 起動後、/login でプロバイダを選択してブラウザでログイン（URLへのスペース混入注意）
 ```
 

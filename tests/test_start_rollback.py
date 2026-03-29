@@ -27,6 +27,7 @@ def _make_idle_pipeline(project: str = "testpj") -> dict:
         "enabled": False, "batch": [], "history": [],
         "gitlab": f"testns/{project}", "repo_path": f"/tmp/repo/{project}",
         "implementer": "implementer1",
+        "review_mode": "standard",
     }
 
 

@@ -10,7 +10,6 @@ from config import (
     PIPELINES_DIR, GLAB_BIN, LOG_FILE,
     VALID_STATES, VALID_TRANSITIONS, MAX_BATCH,
     VALID_VERDICTS, GLAB_TIMEOUT, REVIEWERS, REVIEW_MODES, LOCAL_TZ,
-    DEFAULT_REVIEW_MODE,
     WATCHDOG_LOOP_PIDFILE, WATCHDOG_LOOP_LOCKFILE,
     VALID_FLAG_VERDICTS, STATE_PHASE_MAP,
     GOKRAX_CLI, OWNER_NAME, GITLAB_NAMESPACE, IMPLEMENTERS,
@@ -61,7 +60,7 @@ def get_status_text(enabled_only: bool = False) -> str:
         state = data.get("state", "IDLE")
         enabled = "ON" if data.get("enabled") else "OFF"
         batch = data.get("batch", [])
-        review_mode = data.get("review_mode", DEFAULT_REVIEW_MODE)
+        review_mode = data.get("review_mode", "")
         issues = ", ".join(f"#{i['issue']}" for i in batch) if batch else "none"
         from engine.fsm import get_phase_config
         phase = "code" if state.startswith("CODE_") else "design"
@@ -494,6 +493,11 @@ def cmd_start(args):
             data["cc_plan_model"] = args.cc_plan_model
         if getattr(args, "cc_impl_model", None):
             data["cc_impl_model"] = args.cc_impl_model
+        if not data.get("review_mode"):
+            raise SystemExit(
+                f"review_mode is not set for {args.project}. "
+                f"Use --mode <mode> or set it with: gokrax review-mode --pj {args.project} --mode <mode>"
+            )
     update_pipeline(path, do_setup)
 
 
@@ -589,7 +593,9 @@ def cmd_transition(args):
         gitlab = data.get("gitlab", f"{GITLAB_NAMESPACE}/{pj}")
         implementer = data.get("implementer", IMPLEMENTERS[0])
         repo_path = data.get("repo_path", "")
-        review_mode = data.get("review_mode", DEFAULT_REVIEW_MODE)
+        review_mode = data.get("review_mode")
+        if not review_mode:
+            raise SystemExit(f"review_mode is not set for {args.project}. Set it with: gokrax review-mode --pj {args.project} --mode <mode>")
 
         p2_fix = data.get("p2_fix", False)
         comment = data.get("comment", "")
@@ -1324,12 +1330,12 @@ def cmd_review_mode(args):
     path = get_path(args.project)
 
     def do_update(data):
-        old = data.get("review_mode", DEFAULT_REVIEW_MODE)
+        old = data.get("review_mode", "(unset)")
         data["review_mode"] = args.mode
         return old
 
     data = update_pipeline(path, do_update)
-    old = data.get("_prev_review_mode", data.get("review_mode", DEFAULT_REVIEW_MODE))
+    old = data.get("_prev_review_mode", data.get("review_mode", "(unset)"))
     members = REVIEW_MODES[args.mode]["members"]
     print(f"{args.project}: review_mode → {args.mode} (reviewers: {members})")
 

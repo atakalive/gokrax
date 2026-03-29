@@ -1291,7 +1291,8 @@ class TestCmdStartSkipCcPlan:
         self._write_pipeline(path, {
             "project": "test-pj", "gitlab": "testns/test-pj",
             "state": "IDLE", "enabled": False,
-            "implementer": "implementer1", "batch": [], "history": [],
+            "implementer": "implementer1", "review_mode": "standard",
+            "batch": [], "history": [],
             "created_at": "2025-01-01T00:00:00+09:00",
             "updated_at": "2025-01-01T00:00:00+09:00",
         })
@@ -1324,7 +1325,8 @@ class TestCmdStartSkipCcPlan:
         self._write_pipeline(path, {
             "project": "test-pj", "gitlab": "testns/test-pj",
             "state": "IDLE", "enabled": False,
-            "implementer": "implementer1", "batch": [], "history": [],
+            "implementer": "implementer1", "review_mode": "standard",
+            "batch": [], "history": [],
             "skip_cc_plan": True,  # 残留フラグ
             "created_at": "2025-01-01T00:00:00+09:00",
             "updated_at": "2025-01-01T00:00:00+09:00",
@@ -1358,7 +1360,8 @@ class TestCmdStartSkipCcPlan:
         self._write_pipeline(path, {
             "project": "test-pj", "gitlab": "testns/test-pj",
             "state": "IDLE", "enabled": False,
-            "implementer": "implementer1", "batch": [], "history": [],
+            "implementer": "implementer1", "review_mode": "standard",
+            "batch": [], "history": [],
             "skip_cc_plan": True,  # 残留フラグ
             "created_at": "2025-01-01T00:00:00+09:00",
             "updated_at": "2025-01-01T00:00:00+09:00",
@@ -1489,7 +1492,8 @@ class TestCmdStartDefaultModelOptions:
         return {
             "project": "test-pj", "gitlab": "testns/test-pj",
             "state": "IDLE", "enabled": False,
-            "implementer": "implementer1", "batch": [], "history": [],
+            "implementer": "implementer1", "review_mode": "standard",
+            "batch": [], "history": [],
             "created_at": "2025-01-01T00:00:00+09:00",
             "updated_at": "2025-01-01T00:00:00+09:00",
         }
@@ -1808,7 +1812,7 @@ class TestCmdTransitionSetEnabled:
         self._write_pipeline(path, {
             "project": "test-pj", "gitlab": "testns/test-pj",
             "state": "IDLE", "enabled": False,
-            "implementer": "implementer1",
+            "implementer": "implementer1", "review_mode": "standard",
             "batch": [{"issue": 1, "title": "t"}],
             "history": [],
         })
@@ -1841,7 +1845,7 @@ class TestCmdTransitionSetEnabled:
         self._write_pipeline(path, {
             "project": "test-pj", "gitlab": "testns/test-pj",
             "state": "IDLE", "enabled": False,
-            "implementer": "implementer1",
+            "implementer": "implementer1", "review_mode": "standard",
             "batch": [{"issue": 1, "title": "t"}],
             "history": [],
         })

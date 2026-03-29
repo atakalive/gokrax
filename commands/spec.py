@@ -143,8 +143,15 @@ def cmd_spec_start(args):
         auto_continue = False
         no_queue = True
 
-    review_mode = args.review_mode or data.get("review_mode", "full")
-    reviewers = REVIEW_MODES.get(review_mode, REVIEW_MODES["full"])["members"]
+    review_mode = args.review_mode or data.get("review_mode")
+    if not review_mode:
+        raise SystemExit(
+            "review_mode is not set. Use --review-mode <mode> or set it with: "
+            f"gokrax review-mode --pj {args.project} --mode <mode>"
+        )
+    if review_mode not in REVIEW_MODES:
+        raise SystemExit(f"Unknown review_mode: {review_mode!r} (available: {sorted(REVIEW_MODES.keys())})")
+    reviewers = REVIEW_MODES[review_mode]["members"]
     review_requests = {
         r: {
             "status": "pending",
@@ -162,7 +169,7 @@ def cmd_spec_start(args):
     if not skip_review:
         from engine.reviewer import _reset_reviewers
         excluded = _reset_reviewers(review_mode, implementer=args.implementer or "")
-        mode_config = REVIEW_MODES.get(review_mode, REVIEW_MODES["full"])
+        mode_config = REVIEW_MODES[review_mode]
         excluded_reviewers_only = [r for r in excluded if r in mode_config["members"]]
     else:
         excluded = []
@@ -490,7 +497,7 @@ def cmd_spec_status(args):
             reviewer_parts.append(f"{r}({'⏳' if status == 'pending' else status})")
     print(f"  reviewers: {', '.join(reviewer_parts)}")
 
-    review_mode = data.get("review_mode", "full")
+    review_mode = data.get("review_mode", "")
     min_valid = MIN_VALID_REVIEWS_BY_MODE.get(review_mode, 0)
     print(f"  min_valid: {min_valid} ({review_mode} mode)")
     print(f"  auto_qrun: {sc.get('auto_qrun', False)}")

@@ -26,6 +26,7 @@ def _base_data(batch: list[dict] | None = None) -> dict:
         "gitlab": "testns/test-pj",
         "state": "INITIALIZE",
         "enabled": True,
+        "review_mode": "standard",
         "batch": batch or [
             {"issue": 1, "title": "First issue"},
             {"issue": 2, "title": "Second issue"},

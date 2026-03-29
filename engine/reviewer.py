@@ -8,7 +8,6 @@ from datetime import datetime
 import config
 from config import (
     AGENTS, REVIEW_MODES, POST_NEW_COMMAND_WAIT_SEC,
-    DEFAULT_REVIEW_MODE,
 )
 from engine.shared import log
 from notify import send_to_agent_queued, ping_agent
@@ -16,7 +15,7 @@ from notify import send_to_agent_queued, ping_agent
 _logger = logging.getLogger(__name__)
 
 
-def _reset_reviewers(review_mode: str = DEFAULT_REVIEW_MODE, implementer: str = "") -> list[str]:
+def _reset_reviewers(review_mode: str, implementer: str = "") -> list[str]:
     """Reset reviewer/implementer sessions before a review cycle.
 
     For openclaw backend: sends /new to each target, waits, then pings free tier.

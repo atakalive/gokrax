@@ -104,7 +104,7 @@ class TestCheckTransition:
         import config
         reviews = _make_reviews(["APPROVE"] * (3 - 1) + ["P0"])
         batch = [{"issue": 1, "design_reviews": reviews, "code_reviews": {}}]
-        action = check_transition("DESIGN_REVIEW", batch)
+        action = check_transition("DESIGN_REVIEW", batch, data={"review_mode": "standard"})
         assert action.new_state == "DESIGN_REVISE"
         assert action.impl_msg is not None
 
@@ -113,13 +113,13 @@ class TestCheckTransition:
         import config
         reviews = _make_reviews(["APPROVE"] * 3)
         batch = [{"issue": 1, "design_reviews": reviews, "code_reviews": {}}]
-        action = check_transition("DESIGN_REVIEW", batch)
+        action = check_transition("DESIGN_REVIEW", batch, data={"review_mode": "standard"})
         assert action.new_state == "DESIGN_APPROVED"
 
     def test_design_review_not_enough_reviews(self):
         from engine.fsm import check_transition
         batch = [{"issue": 1, "design_reviews": _make_reviews(["APPROVE"]), "code_reviews": {}}]
-        action = check_transition("DESIGN_REVIEW", batch)
+        action = check_transition("DESIGN_REVIEW", batch, data={"review_mode": "standard"})
         assert action.new_state is None
 
     def test_code_review_p0_enough_reviews(self):
@@ -127,7 +127,7 @@ class TestCheckTransition:
         import config
         reviews = _make_reviews(["APPROVE"] * (3 - 1) + ["REJECT"])
         batch = [{"issue": 1, "code_reviews": reviews, "design_reviews": {}}]
-        action = check_transition("CODE_REVIEW", batch)
+        action = check_transition("CODE_REVIEW", batch, data={"review_mode": "standard"})
         assert action.new_state == "CODE_REVISE"
 
     def test_code_review_approved_enough_reviews(self):
@@ -135,7 +135,7 @@ class TestCheckTransition:
         import config
         reviews = _make_reviews(["APPROVE"] * 3)
         batch = [{"issue": 1, "code_reviews": reviews, "design_reviews": {}}]
-        action = check_transition("CODE_REVIEW", batch)
+        action = check_transition("CODE_REVIEW", batch, data={"review_mode": "standard"})
         assert action.new_state == "CODE_APPROVED"
 
     def test_design_revise_all_revised(self):
@@ -313,6 +313,7 @@ class TestProcessUpdatePipelineCalled:
         data = {
             "project": "test-pj", "state": "DESIGN_PLAN",
             "enabled": True, "batch": _make_batch(1, design_ready=True),
+            "review_mode": "standard",
             "history": [], "created_at": "", "updated_at": "",
         }
         _write_pipeline(path, data)
@@ -396,6 +397,7 @@ class TestDoubleCheckedLocking:
             "enabled": True,
             "implementer": "implementer1",
             "gitlab": "testns/test-pj",
+            "review_mode": "standard",
             "batch": _make_batch(1, design_ready=True),
             "history": [], "created_at": "", "updated_at": "",
         }
@@ -4064,6 +4066,7 @@ class TestQueueFieldLifecycle:
             "state": "DONE",
             "enabled": True,
             "batch": [],
+            "review_mode": "standard",
             "automerge": True,
             "cc_plan_model": "opus",
             "cc_impl_model": "sonnet",
@@ -4332,6 +4335,7 @@ class TestFlag:
         _write_pipeline(pipeline, {
             "project": "myproject",
             "state": "DESIGN_REVISE",
+            "review_mode": "standard",
             "batch": [{
                 "issue": 1,
                 "title": "Test",
@@ -5256,6 +5260,7 @@ class TestDoneCleanupTestBaseline:
         data = {
             "project": "pj", "gitlab": "testns/pj",
             "state": "DONE", "enabled": True,
+            "review_mode": "standard",
             "batch": [{"issue": 1, "title": "T", "commit": "abc",
                        "design_reviews": {}, "code_reviews": {}}],
             "history": [],
@@ -5292,6 +5297,7 @@ class TestInitializeToDesignPlanPytest:
         data = {
             "project": "pj", "gitlab": "testns/pj",
             "state": "INITIALIZE", "enabled": True,
+            "review_mode": "standard",
             "batch": [{"issue": 1}],
             "history": [],
             "repo_path": "/fake/repo",
@@ -5326,6 +5332,7 @@ class TestInitializeToDesignPlanPytest:
         data = {
             "project": "pj", "gitlab": "testns/pj",
             "state": "INITIALIZE", "enabled": True,
+            "review_mode": "standard",
             "batch": [{"issue": 1}],
             "history": [],
             "repo_path": "/fake/repo",
@@ -5361,6 +5368,7 @@ class TestInitializeToDesignPlanPytest:
         data = {
             "project": "pj", "gitlab": "testns/pj",
             "state": "INITIALIZE", "enabled": True,
+            "review_mode": "standard",
             "batch": [{"issue": 1}],
             "history": [],
             "repo_path": "/fake/repo",
@@ -5705,6 +5713,7 @@ class TestAssessmentToIdleSkip:
             "project": "test-pj",
             "state": "ASSESSMENT",
             "enabled": True,
+            "review_mode": "standard",
             "batch": [{"issue": 1, "title": "t", "commit": None,
                        "cc_session_id": None,
                        "design_reviews": {}, "code_reviews": {},
@@ -5735,6 +5744,7 @@ class TestAssessmentToIdleSkip:
             "state": "DONE",
             "enabled": True,
             "batch": [],
+            "review_mode": "standard",
             "queue_mode": True,
         }
         _write_pipeline(pipeline_path, pipeline_data)
@@ -5758,6 +5768,7 @@ class TestAssessmentToIdleSkip:
             "project": "test-pj",
             "state": "ASSESSMENT",
             "enabled": True,
+            "review_mode": "standard",
             "batch": [{"issue": 42, "title": "t", "commit": None,
                        "cc_session_id": None,
                        "design_reviews": {}, "code_reviews": {},
@@ -5792,6 +5803,7 @@ class TestAssessmentToIdleSkip:
             "project": "test-pj",
             "state": "ASSESSMENT",
             "enabled": True,
+            "review_mode": "standard",
             "batch": [{"issue": 7, "title": "t", "commit": None,
                        "cc_session_id": None,
                        "design_reviews": {}, "code_reviews": {},
@@ -5826,6 +5838,7 @@ class TestAssessmentToIdleSkip:
             "project": "test-pj",
             "state": "ASSESSMENT",
             "enabled": True,
+            "review_mode": "standard",
             "batch": [{"issue": 1, "title": "t", "commit": None,
                        "cc_session_id": None,
                        "design_reviews": {}, "code_reviews": {},
@@ -5877,6 +5890,7 @@ class TestAssessmentPartialExclude:
             "project": "test-pj",
             "state": "ASSESSMENT",
             "enabled": True,
+            "review_mode": "standard",
             "batch": [
                 {"issue": 10, "title": "High risk", "commit": None,
                  "cc_session_id": None,
@@ -5925,6 +5939,7 @@ class TestAssessmentPartialExclude:
             "project": "test-pj",
             "state": "ASSESSMENT",
             "enabled": True,
+            "review_mode": "standard",
             "batch": [
                 {"issue": 10, "title": "High risk", "commit": None,
                  "cc_session_id": None,
@@ -5983,6 +5998,7 @@ class TestSkipDesignInitialization:
         data = {
             "project": "pj", "gitlab": "testns/pj",
             "state": "INITIALIZE", "enabled": True,
+            "review_mode": "standard",
             "batch": [{"issue": 1}],
             "history": [],
             "repo_path": "/fake/repo",
@@ -6029,6 +6045,7 @@ class TestReviewerNumberMapPhaseOverride:
         data = {
             "project": "pj", "gitlab": "testns/pj",
             "state": "INITIALIZE", "enabled": True,
+            "review_mode": "standard",
             "batch": [{"issue": 1}],
             "history": [],
             "repo_path": "/fake/repo",

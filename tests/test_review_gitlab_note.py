@@ -20,6 +20,7 @@ def _make_pipeline(tmp_pipelines, state="DESIGN_REVIEW"):
         "state": state,
         "enabled": True,
         "implementer": "implementer1",
+        "review_mode": "standard",
         "batch": [
             {
                 "issue": 1,

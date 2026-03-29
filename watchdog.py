@@ -21,7 +21,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config import (
     PIPELINES_DIR, LOCAL_TZ, LOG_FILE, REVIEW_MODES, CC_MODEL_PLAN, CC_MODEL_IMPL,
-    DEFAULT_REVIEW_MODE,
     GOKRAX_CLI, INACTIVE_THRESHOLD_SEC, OPENCLAW_SESSIONS_BASE,
     STATE_PHASE_MAP, GITLAB_NAMESPACE, IMPLEMENTERS,
     # WATCHDOG_LOOP_PIDFILE, WATCHDOG_LOOP_CRON_MARKER は gokrax.py の enable/disable 専用
@@ -340,7 +339,7 @@ def process(path: Path):
             data.pop("test_retry_count", None)
 
             # Issue #203: フェーズ別レビュアー構成を review_config に展開
-            review_mode = data.get("review_mode", DEFAULT_REVIEW_MODE)
+            review_mode = data["review_mode"]
             mode_config = REVIEW_MODES[review_mode]
             data["review_config"] = build_review_config(mode_config)
 
@@ -522,7 +521,7 @@ def process(path: Path):
             "implementer": data.get("implementer", IMPLEMENTERS[0]),
             "batch": saved_batch,
             "repo_path": data.get("repo_path", ""),
-            "review_mode": data.get("review_mode", DEFAULT_REVIEW_MODE),
+            "review_mode": data["review_mode"],
             "keep_ctx_batch": data.get("keep_ctx_batch", False),
             "keep_ctx_intra": data.get("keep_ctx_intra", False),
             "queue_mode": _done_queue_mode if state == "DONE" else (_skip_queue_mode if state == "ASSESSMENT" and action.new_state == "IDLE" else data.get("queue_mode", False)),
@@ -560,7 +559,7 @@ def process(path: Path):
                 "batch": saved_batch,
                 "gitlab": data.get("gitlab", f"{GITLAB_NAMESPACE}/{pj}"),
                 "repo_path": data.get("repo_path", ""),
-                "review_mode": data.get("review_mode", DEFAULT_REVIEW_MODE),
+                "review_mode": data["review_mode"],
                 "base_commit": data.get("base_commit"),
             }
         if action.send_merge_summary:
@@ -951,7 +950,7 @@ def process(path: Path):
 
         skip_reset = True  # reset not executed if reset_reviewers=False -> already_reset=False
         if action.reset_reviewers:
-            review_mode = notification.get("review_mode", DEFAULT_REVIEW_MODE)
+            review_mode = notification.get("review_mode", "")
             # keep_ctx 分岐: 遷移先に応じて参照フラグを切り替え
             if action.new_state in ("DESIGN_REVISE", "CODE_REVISE"):
                 skip_reset = True  # always skip for REVISE transition
@@ -1025,7 +1024,7 @@ def process(path: Path):
             )
             clear_pending_notification(pj, "impl")
         if action.send_review:
-            review_mode = notification.get("review_mode", DEFAULT_REVIEW_MODE)
+            review_mode = notification.get("review_mode", "")
             prev_reviews = notification.get("prev_reviews", {})
             # Read excluded from pipeline data (not notification) to pick up _save_excluded writes
             pipeline_data = load_pipeline(get_path(pj))
@@ -1034,17 +1033,24 @@ def process(path: Path):
             base_commit = pipeline_data.get("base_commit")
             from pipeline_io import get_current_round
             round_num = get_current_round(pipeline_data)
-            failed = notify_reviewers(
-                pj, action.new_state, notification["batch"], notification["gitlab"],
-                repo_path=notification.get("repo_path", ""),
-                review_mode=review_mode,
-                prev_reviews=prev_reviews,
-                excluded=excluded,
-                base_commit=base_commit,
-                comment=pipeline_data.get("comment", ""),
-                round_num=round_num if round_num > 0 else None,
-                already_reset=not skip_reset,  # True if _reset_reviewers() was executed
-            )
+            try:
+                failed = notify_reviewers(
+                    pj, action.new_state, notification["batch"], notification["gitlab"],
+                    repo_path=notification.get("repo_path", ""),
+                    review_mode=review_mode,
+                    prev_reviews=prev_reviews,
+                    excluded=excluded,
+                    base_commit=base_commit,
+                    comment=pipeline_data.get("comment", ""),
+                    round_num=round_num if round_num > 0 else None,
+                    already_reset=not skip_reset,  # True if _reset_reviewers() was executed
+                )
+            except KeyError as e:
+                log(f"[{pj}] FATAL: notify_reviewers failed due to configuration error: {e}. Disabling watchdog.")
+                def _disable_on_notify_error(data: dict) -> None:
+                    data["enabled"] = False
+                update_pipeline(get_path(pj), _disable_on_notify_error)
+                return
 
             # 送信失敗レビュアーを excluded_reviewers に追加（2回目の update_pipeline）
             if isinstance(failed, list) and failed:

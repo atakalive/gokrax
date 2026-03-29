@@ -12,6 +12,13 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 
+@pytest.fixture
+def sample_pipeline(sample_pipeline):
+    """Add review_mode required by cmd_transition (no implicit fallback)."""
+    sample_pipeline["review_mode"] = "standard"
+    return sample_pipeline
+
+
 def write_pipeline(path: Path, data: dict):
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as f:

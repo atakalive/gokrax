@@ -37,6 +37,7 @@ def _make_pipeline(tmp_pipelines, state="DESIGN_REVISE", extra_issue_fields=None
         "state": state,
         "enabled": True,
         "implementer": "implementer1",
+        "review_mode": "standard",
         "batch": [issue],
         "history": [{"from": "DESIGN_REVIEW", "to": state,
                       "at": "2025-01-01T00:00:00+09:00", "actor": "watchdog"}],
@@ -422,6 +423,7 @@ def _make_review_pipeline(tmp_pipelines, state="DESIGN_REVIEW", extra_issue_fiel
         "state": state,
         "enabled": True,
         "implementer": "implementer1",
+        "review_mode": "standard",
         "batch": [issue],
         "history": [{"from": "DESIGN_REVISE", "to": state,
                       "at": "2025-01-01T00:00:00+09:00", "actor": "watchdog"}],
@@ -652,6 +654,7 @@ class TestCheckTransitionDisputeReReview:
         return {
             "project": "test-pj",
             "state": state,
+            "review_mode": "standard",
             "batch": [issue],
             "history": [{"from": "DESIGN_REVISE", "to": state, "at": entered_at,
                          "actor": "watchdog"}],

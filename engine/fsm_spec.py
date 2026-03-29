@@ -7,7 +7,6 @@ from datetime import datetime as _datetime, timedelta as _timedelta
 from pathlib import Path
 
 from config import (
-    DEFAULT_REVIEW_MODE,
     LOCAL_TZ, GOKRAX_CLI,
     SPEC_STATES, SPEC_BLOCK_TIMERS,
     MAX_SPEC_RETRIES, SPEC_REVISE_SELF_REVIEW_PASSES,
@@ -144,7 +143,9 @@ def _check_spec_review(
         effective_sc = dict(spec_config)
         effective_sc["current_reviews"] = effective_cr
 
-        review_mode = data.get("review_mode", DEFAULT_REVIEW_MODE)
+        review_mode = data.get("review_mode")
+        if not review_mode:
+            raise KeyError("review_mode is not set in pipeline data (spec mode)")
         min_reviews_override = data.get("min_reviews_override")
         result = should_continue_review(effective_sc, review_mode, min_reviews_override=min_reviews_override)
 

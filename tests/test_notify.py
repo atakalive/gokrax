@@ -248,7 +248,8 @@ class TestNotifyReviewers:
         batch = [self._make_batch_item(1)]
         with patch("notify.send_to_agent") as mock_send:
             with patch("notify.fetch_issue_body", return_value="body"):
-                notify.notify_reviewers("proj", "DESIGN_REVIEW", batch, "testns/proj")
+                notify.notify_reviewers("proj", "DESIGN_REVIEW", batch, "testns/proj",
+                                       review_mode="standard")
 
         # レビュー依頼メッセージのみ（/new はwatchdog側で先行送信）
         called_agents = [c.args[0] for c in mock_send.call_args_list]
@@ -671,7 +672,7 @@ class TestBaseCommitDiff:
                 with patch("notify.format_review_request", return_value="msg") as mock_fmt:
                     notify.notify_reviewers(
                         "proj", "CODE_REVIEW", batch, "testns/proj",
-                        base_commit="abc123"
+                        review_mode="standard", base_commit="abc123"
                     )
         # format_review_request が base_commit="abc123" で呼ばれたことを検証
         for call in mock_fmt.call_args_list:
@@ -719,7 +720,7 @@ class TestFormatReviewRequestComment:
                 with patch("notify.format_review_request", return_value="msg") as mock_fmt:
                     notify.notify_reviewers(
                         "proj", "DESIGN_REVIEW", batch, "testns/proj",
-                        comment="コメントテスト"
+                        review_mode="standard", comment="コメントテスト"
                     )
         for c in mock_fmt.call_args_list:
             assert c.kwargs.get("comment") == "コメントテスト"
@@ -812,6 +813,7 @@ class TestNotifyReviewersSquash:
                     with caplog.at_level(logging.WARNING, logger="gokrax.notify"):
                         notify.notify_reviewers(
                             "proj", "CODE_REVIEW", batch, "testns/proj",
+                            review_mode="standard",
                             base_commit="a" * 40, repo_path="/repo"
                         )
         # squash 警告はログに出る
@@ -828,6 +830,7 @@ class TestNotifyReviewersSquash:
                 with patch("notify.fetch_issue_body", return_value="body"):
                     notify.notify_reviewers(
                         "proj", "CODE_REVIEW", batch, "testns/proj",
+                        review_mode="standard",
                         base_commit="a" * 40, repo_path="/repo"
                     )
         assert mock_send.call_count > 0

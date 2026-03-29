@@ -72,6 +72,7 @@ class TestCmdReviewMask:
             "state": "DESIGN_REVIEW",
             "enabled": True,
             "implementer": "implementer1",
+            "review_mode": "standard",
             "reviewer_number_map": {"reviewer5": 3, "reviewer6": 1},
             "batch": [
                 {
@@ -115,6 +116,7 @@ class TestCmdDisputeMask:
             "state": "DESIGN_REVISE",
             "enabled": True,
             "implementer": "implementer1",
+            "review_mode": "standard",
             "reviewer_number_map": {"reviewer1": 2, "reviewer6": 1},
             "batch": [
                 {
@@ -162,6 +164,7 @@ class TestCmdExcludeMask:
             "gitlab": "testns/test-pj",
             "state": "IDLE",
             "enabled": True,
+            "review_mode": "standard",
             "excluded_reviewers": [],
             "reviewer_number_map": {"reviewer5": 3},
         })

@@ -6,7 +6,6 @@ from datetime import datetime as _datetime
 
 from config import (
     BLOCK_TIMERS,
-    DEFAULT_REVIEW_MODE,
     GOKRAX_CLI,
     EXTENDABLE_STATES,
     EXTEND_NOTICE_THRESHOLD,
@@ -116,7 +115,9 @@ def get_phase_config(data: dict | None, phase: str) -> dict:
         if rc is not None:
             return rc
     # フォールバック: review_config が存在しない旧パイプライン、または data=None
-    review_mode = data.get("review_mode", DEFAULT_REVIEW_MODE) if data else DEFAULT_REVIEW_MODE
+    if not data or "review_mode" not in data:
+        raise KeyError("review_mode is not set in pipeline data")
+    review_mode = data["review_mode"]
     mode_config = REVIEW_MODES[review_mode]
     return _build_phase_config(mode_config, phase)
 
@@ -512,7 +513,9 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
         key = "design_reviews" if "DESIGN" in state else "code_reviews"
         appr = "DESIGN_APPROVED" if "DESIGN" in state else "CODE_APPROVED"
         revise_state = "DESIGN_REVISE" if "DESIGN" in state else "CODE_REVISE"
-        review_mode = data.get("review_mode", DEFAULT_REVIEW_MODE) if data else DEFAULT_REVIEW_MODE
+        if not data or "review_mode" not in data:
+            raise KeyError("review_mode is not set in pipeline data")
+        review_mode = data["review_mode"]
 
         # "skip" mode: 即座に承認状態へ遷移
         if review_mode == "skip":
@@ -997,7 +1000,7 @@ def _recover_pending_notifications(pj: str, pending: dict) -> None:
             notify_reviewers(
                 pj, info["new_state"], info["batch"], info["gitlab"],
                 repo_path=info.get("repo_path", ""),
-                review_mode=info.get("review_mode", DEFAULT_REVIEW_MODE),
+                review_mode=info.get("review_mode", ""),
                 excluded=excluded,
                 base_commit=info.get("base_commit"),
                 comment=comment,

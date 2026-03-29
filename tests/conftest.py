@@ -185,6 +185,7 @@ def sample_pipeline():
         "state": "IDLE",
         "enabled": False,
         "implementer": TEST_IMPLEMENTERS[0],
+        "review_mode": "standard",
         "batch": [],
         "history": [],
         "created_at": "2025-01-01T00:00:00+09:00",

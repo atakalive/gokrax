@@ -37,6 +37,7 @@ def _base_pipeline(batch: list, **overrides) -> dict:
         "state": "ASSESSMENT",
         "enabled": True,
         "implementer": "implementer1",
+        "review_mode": "standard",
         "batch": batch,
         "history": [{"from": "DESIGN_APPROVED", "to": "ASSESSMENT",
                       "at": "2025-01-01T00:00:00+09:00", "actor": "watchdog"}],

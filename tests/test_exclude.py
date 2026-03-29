@@ -44,6 +44,7 @@ class TestExcludeAdd:
         _write_pipeline(pipeline, {
             "project": "myproject",
             "state": "IDLE",
+            "review_mode": "standard",
             "excluded_reviewers": [],
         })
         args = argparse.Namespace(
@@ -60,6 +61,7 @@ class TestExcludeAdd:
         _write_pipeline(pipeline, {
             "project": "myproject",
             "state": "IDLE",
+            "review_mode": "standard",
             "excluded_reviewers": ["reviewer1"],
         })
         args = argparse.Namespace(
@@ -76,6 +78,7 @@ class TestExcludeAdd:
         _write_pipeline(pipeline, {
             "project": "myproject",
             "state": "IDLE",
+            "review_mode": "standard",
             "excluded_reviewers": [],
         })
         args = argparse.Namespace(
@@ -91,6 +94,7 @@ class TestExcludeAdd:
         _write_pipeline(pipeline, {
             "project": "myproject",
             "state": "IDLE",
+            "review_mode": "standard",
             "excluded_reviewers": [],
         })
         args = argparse.Namespace(
@@ -109,6 +113,7 @@ class TestExcludeRemove:
         _write_pipeline(pipeline, {
             "project": "myproject",
             "state": "IDLE",
+            "review_mode": "standard",
             "excluded_reviewers": ["reviewer1"],
         })
         args = argparse.Namespace(
@@ -125,6 +130,7 @@ class TestExcludeRemove:
         _write_pipeline(pipeline, {
             "project": "myproject",
             "state": "IDLE",
+            "review_mode": "standard",
             "excluded_reviewers": [],
         })
         args = argparse.Namespace(
@@ -249,6 +255,7 @@ class TestExcludeList:
         _write_pipeline(pipeline, {
             "project": "myproject",
             "state": "IDLE",
+            "review_mode": "standard",
             "excluded_reviewers": [],
         })
         args = argparse.Namespace(
@@ -266,6 +273,7 @@ class TestExcludeList:
         _write_pipeline(pipeline, {
             "project": "myproject",
             "state": "IDLE",
+            "review_mode": "standard",
             "excluded_reviewers": ["reviewer1"],
         })
         args = argparse.Namespace(

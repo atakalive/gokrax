@@ -71,20 +71,16 @@ REVIEW_MODES = {
 ## 4. エージェントの準備
 
 ```bash
+# テンプレートからコピー
 mkdir -p agents/reviewer1 agents/impl1
 
-cat > agents/reviewer1/INSTRUCTION.md << 'EOF'
-# INSTRUCTION.md — Reviewer
-You are a code reviewer for the gokrax development pipeline.
-Follow the review commands provided in review requests.
-EOF
-
-cat > agents/impl1/INSTRUCTION.md << 'EOF'
-# INSTRUCTION.md — Implementer
-You are an implementer in the gokrax development pipeline.
-Follow the Issue spec exactly and report completion with gokrax commands.
-EOF
+cp agents/example/INSTRUCTION.md.reviewer   agents/reviewer1/INSTRUCTION.md
+cp agents/example/INSTRUCTION.md.implementer agents/impl1/INSTRUCTION.md
+cp agents/example/MEMORY.md.example          agents/reviewer1/MEMORY.md
+cp agents/example/MEMORY.md.example          agents/impl1/MEMORY.md
 ```
+
+必要に応じて各ファイルを編集する。`agents/example/` にテンプレートの説明がある。
 
 モデル設定（`agents/config_pi.json`）。`provider` と `model` は `pi --list-models` で表示される名前を使う:
 

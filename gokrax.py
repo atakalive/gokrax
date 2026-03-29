@@ -433,10 +433,12 @@ def main():
         "spec": cmd_spec,
     }
     from task_queue import QueueSkipError
+    from config import EXIT_QUEUE_SKIP
     try:
         cmds[args.command](args)
     except QueueSkipError as e:
-        sys.exit(str(e))
+        print(str(e), file=sys.stderr)
+        sys.exit(EXIT_QUEUE_SKIP)
 
 
 if __name__ == "__main__":

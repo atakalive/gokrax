@@ -53,8 +53,9 @@ class TestCmdQrunSkip:
              patch("task_queue.rollback_queue_mode") as mock_rollback:
             from commands.dev import cmd_qrun
             args = argparse.Namespace(queue=str(queue_file), dry_run=False)
-            # QueueSkipError 時は raise せず return する
-            cmd_qrun(args)
+            # QueueSkipError は cleanup 後に re-raise される (#272)
+            with pytest.raises(QueueSkipError):
+                cmd_qrun(args)
             mock_restore.assert_not_called()
             mock_rollback.assert_called_once()
 
@@ -168,6 +169,7 @@ class TestMainQueueSkipError:
 
     def test_queue_skip_error_becomes_system_exit(self, monkeypatch):
         from task_queue import QueueSkipError
+        from config import EXIT_QUEUE_SKIP
 
         monkeypatch.setattr(
             sys, "argv",
@@ -178,4 +180,4 @@ class TestMainQueueSkipError:
             from gokrax import main
             with pytest.raises(SystemExit) as exc_info:
                 main()
-            assert "All issues are closed" in str(exc_info.value)
+            assert exc_info.value.code == EXIT_QUEUE_SKIP

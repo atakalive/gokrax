@@ -1642,10 +1642,11 @@ def cmd_qrun(args):
         # 永続的エラー: エントリを復元せずスキップ。
         # pop_next_queue_entry が付与した "# done: " prefix がそのまま残り、
         # 次回の qrun では次のエントリが処理される。
+        # cleanup してから re-raise → main() で exit 75 に変換。
         rollback_queue_mode(path)
         _rollback_pipeline()
         print(f"[qrun] Skipped {project}: {e}", file=sys.stderr)
-        return
+        raise
     except (SystemExit, Exception) as e:
         # 一時的エラー: エントリを復元。
         # NOTE: SystemExit は BaseException のサブクラスであり Exception ではない。

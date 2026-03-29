@@ -431,3 +431,17 @@ See `settings.example.py` `DEFAULT_QUEUE_OPTIONS` for defaults.
 ### Discord Integration
 
 Watchdog's `check_discord_commands()` processes queue commands (`qrun`, `qstatus`, `qadd`, `qdel`, `qedit`) from Discord.
+
+### QueueSkipError Retry
+
+When `gokrax qrun` encounters a skippable condition (e.g., all issues closed), it exits with code 75 (`EXIT_QUEUE_SKIP`).
+
+- `_check_queue()`: `while True` loop until a non-skip result. Each skipped entry is marked `# done:` by `pop_next_queue_entry`, so the loop always terminates (queue exhaustion → exit 0).
+- `_handle_qrun()`: Same `while True` drain loop with batched Discord notifications.
+
+Exit codes:
+| Code | Meaning |
+|------|---------|
+| 0 | Success or queue empty |
+| 75 | Entry skipped (next entry available) |
+| other | Error (no retry) |

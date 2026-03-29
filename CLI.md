@@ -383,6 +383,14 @@ gokrax qrun --dry-run
 | `--queue QUEUE` | No | queue file path (default: `gokrax-queue.txt`) |
 | `--dry-run` | No | show entry without executing |
 
+**Exit Codes:**
+
+| Code | Meaning |
+|------|---------|
+| `0` | Success or queue empty |
+| `75` | Entry skipped (closed issue etc.) — caller should retry with next entry |
+| `1` | Error |
+
 ### `qstatus` -- Show active queue entries
 
 ```bash

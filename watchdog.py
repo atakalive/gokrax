@@ -89,28 +89,42 @@ def _check_queue():
     """キューから次のタスクを起動 (DONE→IDLE後、または SPEC_DONE→IDLE後に呼ばれる)。
 
     Issue #45: gokrax qrun をサブプロセス経由で呼び出し、循環 import を回避。
+    Issue #272: QueueSkipError (exit 75) 時は次エントリを試行するループ。
+
+    終了保証: gokrax qrun 内部の pop_next_queue_entry が各エントリを
+    "# done:" に書き換える。キューファイルの行数は有限なので、
+    exit 75 が返る回数にも上限があり、ループは必ず終了する
+    （最終的に pop_next_queue_entry → None → exit 0）。
     """
     import subprocess as _sp
-    from config import GOKRAX_CLI, QUEUE_FILE
+    from config import QUEUE_FILE, EXIT_QUEUE_SKIP
 
     queue_path = QUEUE_FILE
     if not queue_path.exists():
         return
 
-    # gokrax qrun を subprocess 経由で呼び出し
-    try:
-        result = _sp.run(
-            [str(GOKRAX_CLI), "qrun", "--queue", str(queue_path)],
-            capture_output=True, text=True, timeout=180,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            log(f"[queue] {result.stdout.strip()}")
-        elif "Queue empty" not in result.stdout:
-            log(f"[queue] qrun failed: {result.stderr.strip()}")
-    except _sp.TimeoutExpired:
-        log("[queue] qrun timeout (>180s)")
-    except Exception as e:
-        log(f"[queue] qrun error: {e}")
+    while True:
+        try:
+            result = _sp.run(
+                [str(GOKRAX_CLI), "qrun", "--queue", str(queue_path)],
+                capture_output=True, text=True, timeout=180,
+            )
+            if result.returncode == EXIT_QUEUE_SKIP:
+                log("[queue] entry skipped — retrying next entry")
+                continue
+            elif result.returncode == 0:
+                if result.stdout.strip():
+                    log(f"[queue] {result.stdout.strip()}")
+                return
+            else:
+                log(f"[queue] qrun failed (exit {result.returncode}): {result.stderr.strip()}")
+                return
+        except _sp.TimeoutExpired:
+            log("[queue] qrun timeout (>180s)")
+            return
+        except Exception as e:
+            log(f"[queue] qrun error: {e}")
+            return
 
 
 def process(path: Path):
@@ -1152,15 +1166,9 @@ def process(path: Path):
 def _handle_qrun(msg_id: str):
     """Handle Discord qrun command: pop queue entry and start project.
 
-    Process flow:
-    1. Check DRY_RUN mode (skip all actions if true)
-    2. Pop next queue entry
-    3. If None: post "Queue empty" to Discord
-    4. Parse issues field (handle ValueError)
-    5. Build argparse.Namespace for cmd_start
-    6. Call cmd_start() with try-catch
-    7. On exception: restore_queue_entry + post error to Discord
-    8. On success: update_pipeline with queue options + post success to Discord
+    QueueSkipError 時は次エントリを自動試行する。
+    pop_next_queue_entry が各エントリを "# done:" に書き換えるため、
+    ループは有限回で必ず終了する（キュー空 → "Queue empty"）。
 
     Args:
         msg_id: Discord message ID (for logging only)
@@ -1178,96 +1186,105 @@ def _handle_qrun(msg_id: str):
         log(f"[dry-run] Discord qrun command skipped (msg_id={msg_id})")
         return
 
-    # Pop next queue entry
-    entry = pop_next_queue_entry(QUEUE_FILE)
+    # pop_next_queue_entry が各エントリを "# done:" に書き換えるため、
+    # exit 75 が返る回数はキューの有効行数で上限付き。ループは必ず終了する。
+    skipped_entries: list[str] = []
+    while True:
+        # Pop next queue entry
+        entry = pop_next_queue_entry(QUEUE_FILE)
 
-    # Handle empty queue
-    if not entry:
-        post_discord(DISCORD_CHANNEL, "Queue empty")
-        log(f"[qrun] Queue empty (msg_id={msg_id})")
+        # Handle empty queue
+        if not entry:
+            if skipped_entries:
+                skip_summary = f"qrun: skipped {len(skipped_entries)} entries: {', '.join(skipped_entries)}"
+                post_discord(DISCORD_CHANNEL, skip_summary)
+            else:
+                post_discord(DISCORD_CHANNEL, "Queue empty")
+            log(f"[qrun] Queue empty (msg_id={msg_id})")
+            return
+
+        project = entry["project"]
+        issues = entry["issues"]
+        mode = entry.get("mode")
+
+        # Parse issues field (defensive, parse_queue_line already validates)
+        try:
+            if issues == "all":
+                issue_list = None
+            else:
+                issue_list = [int(x) for x in issues.split(",")]
+        except ValueError as e:
+            restore_queue_entry(QUEUE_FILE, entry["original_line"])
+            error_msg = f"qrun: invalid issues format: {issues}"
+            post_discord(DISCORD_CHANNEL, error_msg)
+            log(f"[qrun] {error_msg} (msg_id={msg_id})")
+            return
+
+        # Build argparse.Namespace for cmd_start
+        start_args = argparse.Namespace(
+            project=project,
+            issue=issue_list,
+            mode=mode,
+            keep_ctx_batch=entry.get("keep_ctx_batch", False),
+            keep_ctx_intra=entry.get("keep_ctx_intra", False),
+            p2_fix=entry.get("p2_fix", False),
+            comment=entry.get("comment") or None,
+            skip_cc_plan=entry.get("skip_cc_plan", False),
+            skip_test=entry.get("skip_test", False),
+            skip_assess=entry.get("skip_assess", False),
+            skip_design=entry.get("skip_design", False),
+            no_cc=entry.get("no_cc", False),
+            exclude_high_risk=entry.get("exclude_high_risk", False),
+            exclude_any_risk=entry.get("exclude_any_risk", False),
+            allow_closed=entry.get("allow_closed", False),
+        )
+
+        # queue_mode を先に設定（cmd_start 内の遷移通知で [Queue] prefix を使うため）
+        path = get_path(project)
+        def _set_queue_mode_early(data):
+            data["queue_mode"] = True
+        update_pipeline(path, _set_queue_mode_early)
+
+        # Call cmd_start with try-catch
+        try:
+            cmd_start(start_args)
+        except QueueSkipError as e:
+            # 永続的エラー: エントリを復元せずスキップ → 次エントリへ
+            rollback_queue_mode(path)
+            skipped_entries.append(f"{project}#{issues}")
+            log(f"[qrun] skipped {project}: {str(e)} (msg_id={msg_id})")
+            continue
+        except SystemExit as e:
+            restore_queue_entry(QUEUE_FILE, entry["original_line"])
+            rollback_queue_mode(path)
+            error_msg = f"qrun: failed to start {project}: {str(e)}"
+            post_discord(DISCORD_CHANNEL, error_msg)
+            log(f"[qrun] {error_msg} (msg_id={msg_id})")
+            return
+        except Exception as e:
+            restore_queue_entry(QUEUE_FILE, entry["original_line"])
+            rollback_queue_mode(path)
+            error_msg = f"qrun: failed to start {project}: {type(e).__name__}: {str(e)}"
+            post_discord(DISCORD_CHANNEL, error_msg)
+            log(f"[qrun] {error_msg} (msg_id={msg_id})")
+            return
+
+        # Success: update_pipeline with queue options
+        def _save_queue_options(data):
+            save_queue_options_to_pipeline(data, entry)
+
+        update_pipeline(path, _save_queue_options)
+
+        # Post success to Discord (スキップがあれば一緒に報告)
+        automerge_flag = entry.get("automerge", True)
+        parts: list[str] = []
+        if skipped_entries:
+            parts.append(f"skipped {len(skipped_entries)}: {', '.join(skipped_entries)}")
+        parts.append(f"{project} started (issues={issues}, automerge={automerge_flag})")
+        success_msg = "qrun: " + " → ".join(parts)
+        post_discord(DISCORD_CHANNEL, success_msg)
+        log(f"[qrun] {success_msg} (msg_id={msg_id})")
         return
-
-    project = entry["project"]
-    issues = entry["issues"]
-    mode = entry.get("mode")
-
-    # Parse issues field (defensive, parse_queue_line already validates)
-    try:
-        if issues == "all":
-            issue_list = None
-        else:
-            issue_list = [int(x) for x in issues.split(",")]
-    except ValueError as e:
-        restore_queue_entry(QUEUE_FILE, entry["original_line"])
-        error_msg = f"qrun: invalid issues format: {issues}"
-        post_discord(DISCORD_CHANNEL, error_msg)
-        log(f"[qrun] {error_msg} (msg_id={msg_id})")
-        return
-
-    # Build argparse.Namespace for cmd_start
-    start_args = argparse.Namespace(
-        project=project,
-        issue=issue_list,
-        mode=mode,
-        keep_ctx_batch=entry.get("keep_ctx_batch", False),
-        keep_ctx_intra=entry.get("keep_ctx_intra", False),
-        p2_fix=entry.get("p2_fix", False),
-        comment=entry.get("comment") or None,
-        skip_cc_plan=entry.get("skip_cc_plan", False),
-        skip_test=entry.get("skip_test", False),
-        skip_assess=entry.get("skip_assess", False),
-        skip_design=entry.get("skip_design", False),
-        no_cc=entry.get("no_cc", False),
-        exclude_high_risk=entry.get("exclude_high_risk", False),
-        exclude_any_risk=entry.get("exclude_any_risk", False),
-        allow_closed=entry.get("allow_closed", False),
-    )
-
-    # queue_mode を先に設定（cmd_start 内の遷移通知で [Queue] prefix を使うため）
-    path = get_path(project)
-    def _set_queue_mode_early(data):
-        data["queue_mode"] = True
-    update_pipeline(path, _set_queue_mode_early)
-
-    # Call cmd_start with try-catch
-    try:
-        cmd_start(start_args)
-    except QueueSkipError as e:
-        # 永続的エラー: エントリを復元せずスキップ。
-        # pop_next_queue_entry が付与した "# done: " prefix がそのまま残る。
-        rollback_queue_mode(path)
-        skip_msg = f"qrun: skipped {project}: {str(e)}"
-        post_discord(DISCORD_CHANNEL, skip_msg)
-        log(f"[qrun] {skip_msg} (msg_id={msg_id})")
-        return
-    except SystemExit as e:
-        # NOTE: SystemExit は BaseException のサブクラスであり Exception ではない。
-        # 一時的エラー（状態不整合等）を想定してキャッチし、エントリを復元する。
-        restore_queue_entry(QUEUE_FILE, entry["original_line"])
-        rollback_queue_mode(path)
-        error_msg = f"qrun: failed to start {project}: {str(e)}"
-        post_discord(DISCORD_CHANNEL, error_msg)
-        log(f"[qrun] {error_msg} (msg_id={msg_id})")
-        return
-    except Exception as e:
-        restore_queue_entry(QUEUE_FILE, entry["original_line"])
-        rollback_queue_mode(path)
-        error_msg = f"qrun: failed to start {project}: {type(e).__name__}: {str(e)}"
-        post_discord(DISCORD_CHANNEL, error_msg)
-        log(f"[qrun] {error_msg} (msg_id={msg_id})")
-        return
-
-    # Success: update_pipeline with queue options
-    def _save_queue_options(data):
-        save_queue_options_to_pipeline(data, entry)
-
-    update_pipeline(path, _save_queue_options)
-
-    # Post success to Discord
-    automerge_flag = entry.get("automerge", True)
-    success_msg = f"qrun: {project} started (issues={issues}, automerge={automerge_flag})"
-    post_discord(DISCORD_CHANNEL, success_msg)
-    log(f"[qrun] {success_msg} (msg_id={msg_id})")
 
 
 def _handle_qstatus(msg_id: str):

@@ -16,8 +16,10 @@ git clone https://gitlab.com/atakalive/gokrax.git
 cd gokrax
 pip install -r requirements.txt
 
-# glab（GitLab CLI）
-brew install glab    # または https://gitlab.com/gitlab-org/cli/-/releases
+# glab（GitLab CLI — https://gitlab.com/gitlab-org/cli）
+brew install glab          # macOS / Linux (Homebrew)
+# apt install glab         # Debian / Ubuntu
+# dnf install glab         # Fedora
 glab auth login
 
 # pi（エージェント基盤 https://github.com/badlogic/pi-mono/tree/main/packages/agent）

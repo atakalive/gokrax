@@ -1,13 +1,37 @@
 # Quick Start
 
-gokrax を最短で動かすためのガイド。所要時間: 約15分。
+gokrax を最短で動かすためのガイド。所要時間: 約30分。
 
 ## 1. 前提
 
 - Linux または macOS（WSL2 含む）
 - Python 3.11+
 - [GitLab](https://gitlab.com/) アカウント（無料で private repository を利用可能）
+- GitLab に SSH 鍵を登録済みであること（下記参照）
 - いずれかの LLM プロバイダのアカウント（[pi が対応するプロバイダ](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/providers.md): Anthropic, GitHub Copilot, Google Gemini CLI, OpenAI Codex, Antigravity 等）
+
+### SSH 鍵の登録（GitLab）
+
+gokrax のパイプラインは自動で git push するため、SSH 鍵が必要。
+
+```bash
+# 既存の鍵を確認
+ls ~/.ssh/id_ed25519.pub
+# "No such file or directory" と出たら鍵がないので作成する:
+ssh-keygen -t ed25519 -C "you@example.com"
+# Enter で全てデフォルト（パスフレーズは空でも可）
+
+# 公開鍵を表示してコピー
+cat ~/.ssh/id_ed25519.pub
+```
+
+表示された内容を [GitLab SSH Keys 設定ページ](https://gitlab.com/-/user_settings/ssh_keys) に貼り付けて登録する。
+
+```bash
+# 接続確認
+ssh -T git@gitlab.com
+# "Welcome to GitLab, @your-username!" と出れば成功
+```
 
 ## 2. 必要なツールのインストール
 
@@ -72,18 +96,19 @@ REVIEW_MODES = {
 ## 4. エージェントの準備
 
 ```bash
-# テンプレートからコピー
+# 指示のテンプレートをコピー
 mkdir -p agents/reviewer1 agents/impl1
 
-cp agents/example/INSTRUCTION.md.reviewer   agents/reviewer1/INSTRUCTION.md
+cp agents/example/INSTRUCTION.md.reviewer agents/reviewer1/INSTRUCTION.md
 cp agents/example/INSTRUCTION.md.implementer agents/impl1/INSTRUCTION.md
-cp agents/example/MEMORY.md.example          agents/reviewer1/MEMORY.md
-cp agents/example/MEMORY.md.example          agents/impl1/MEMORY.md
 ```
 
-必要に応じて各ファイルを編集する。`agents/example/` にテンプレートの説明がある。
-
 モデル設定（`agents/config_pi.json`）。`provider` と `model` は `pi --list-models` で表示される名前を使う:
+
+```bash
+# モデル設定
+nano agents/config_pi.json
+```
 
 ```json
 {
@@ -103,14 +128,29 @@ cp agents/example/MEMORY.md.example          agents/impl1/MEMORY.md
 
 ## 5. プロジェクト登録とサンプル Issue
 
-GitLab にプロジェクトがまだない場合:
+GitLab にリポジトリがまだない場合:
 
 ```bash
+# GitLab にリポジトリを作成
+glab repo create myproject --private
+
+# gokrax ディレクトリの外に移動してからプロジェクトを作成
+cd ~
 mkdir myproject && cd myproject
 git init
-glab repo create myproject --private
-git commit --allow-empty -m "init" && git push --set-upstream origin main
+git config user.email "you@example.com"
+git config user.name "Your Name"
+git remote add origin git@gitlab.com:your-username/myproject.git
+# 修正したい場合: git remote set-url origin git@gitlab.com:correct-username/myproject.git
+
+# 初回コミットとプッシュ
+echo "# myproject" > README.md
+git add README.md
+git commit -m "init"
+git push -u origin HEAD
 ```
+
+GitLab リポジトリ作成後:
 
 ```bash
 # gokrax にプロジェクトを登録（GitLab リポジトリとローカルパスを指定して実行）
@@ -127,7 +167,7 @@ glab issue create \
   --description "Create hello.py that prints 'Hello, gokrax!' to stdout."
 ```
 
-GitLab の Issue ページをブラウザで開いておく。設計・レビューのコメントがリアルタイムで追記されていく。
+GitLab の Issue #1 ページをブラウザで開いておく。設計・レビューのコメントがリアルタイムで追記されていく。
 
 ## 6. 実行
 

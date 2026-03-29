@@ -1,6 +1,6 @@
 # gokrax -- 開発パイプライン仕様書
 
-> 現行コード (2026-03-20 時点) に基づく正式仕様。全エージェントはこの文書に従うこと。
+> 現行コード (2026-03-29 時点) に基づく正式仕様。全エージェントはこの文書に従うこと。
 > 定数値は config のデフォルト値。settings.py で上書き可能 (14 章参照)。
 
 ## 1. 概要
@@ -23,6 +23,10 @@ engine/
   cc.py                -- Claude Code 自動起動・テスト実行
   reviewer.py          -- レビュアー管理 (tier, pending, revise 判定)
   shared.py            -- 共有ユーティリティ (log, is_cc_running, is_ok_reply)
+  backend.py           -- バックエンドディスパッチ (openclaw/pi 振り分け)
+  backend_openclaw.py  -- openclaw バックエンド (Gateway CLI 経由)
+  backend_pi.py        -- pi バックエンド (pi CLI 経由)
+  cleanup.py           -- バッチ状態クリーンアップ共通関数
 watchdog.py           -- watchdog ループ + Discord コマンド処理
 notify.py             -- エージェント通知 + Discord 投稿 (CLI 経由)
 pipeline_io.py        -- JSON 読み書き (排他ロック + atomic write)
@@ -32,11 +36,14 @@ spec_issue.py         -- Issue 分割・起票・キュー生成
 task_queue.py         -- タスクキュー管理 (qrun/qadd/qdel/qedit)
 messages/             -- テンプレートメッセージ (render() 経由)
   __init__.py          -- render() エントリポイント
-  ja/dev/              -- 通常モード (design_plan, code_review 等)
-  ja/spec/             -- spec mode (review, revise, approved 等)
+  ja/dev/              -- 通常モード (日本語)
+  ja/spec/             -- spec mode (日本語)
+  en/dev/              -- 通常モード (英語)
+  en/spec/             -- spec mode (英語)
 settings.py           -- ユーザー設定 (config override)
 ```
 
+- **エージェント通信**: `engine/backend.py` がルーターとして機能し、エージェントごとに `openclaw` または `pi` バックエンドに振り分ける。`settings.py` の `DEFAULT_AGENT_BACKEND` と `AGENT_BACKEND_OVERRIDE` で制御。
 - **pipeline JSON**: `~/.openclaw/shared/pipelines/<project>.json`
 - **watchdog**: `watchdog-loop.sh` で 20 秒おきにポーリング (後述 7 章)
 - **Discord 通知先**: Discord 通知チャンネル（`settings.py` の `DISCORD_CHANNEL` で設定）
@@ -68,7 +75,10 @@ settings.py           -- ユーザー設定 (config override)
 
 ### 3.3 承認者 = M (人間)
 
-- MERGE_SUMMARY_SENT で Discord 通知チャンネルにサマリーが投稿される。M が「OK」とリプライすると DONE -> マージ
+- MERGE_SUMMARY_SENT で Discord 通知チャンネルにサマリーが投稿される。以下のいずれかで DONE に遷移:
+  - Discord サマリーに「OK」リプライ
+  - `gokrax ok --pj <project>` CLI コマンド (`commands/dev.py` `cmd_ok`)
+  - `automerge` フラグ有効時は自動遷移
 - `gokrax start` や `gokrax transition --force` 等の制御コマンドを実行する
 
 ### 3.4 CC (Claude Code)
@@ -86,7 +96,7 @@ settings.py           -- ユーザー設定 (config override)
 ```
 IDLE, INITIALIZE,
 DESIGN_PLAN, DESIGN_REVIEW, DESIGN_REVIEW_NPASS, DESIGN_REVISE, DESIGN_APPROVED,
-IMPLEMENTATION,
+ASSESSMENT, IMPLEMENTATION,
 CODE_TEST, CODE_TEST_FIX,
 CODE_REVIEW, CODE_REVIEW_NPASS, CODE_REVISE, CODE_APPROVED,
 MERGE_SUMMARY_SENT, DONE, BLOCKED
@@ -99,12 +109,13 @@ MERGE_SUMMARY_SENT, DONE, BLOCKED
 
 ```
 IDLE         -> [INITIALIZE]
-INITIALIZE   -> [DESIGN_PLAN]
+INITIALIZE   -> [DESIGN_PLAN, DESIGN_APPROVED]
 DESIGN_PLAN  -> [DESIGN_REVIEW]
 DESIGN_REVIEW -> [DESIGN_APPROVED, DESIGN_REVISE, BLOCKED, DESIGN_REVIEW_NPASS]
 DESIGN_REVIEW_NPASS -> [DESIGN_APPROVED, DESIGN_REVISE, DESIGN_REVIEW_NPASS]
 DESIGN_REVISE -> [DESIGN_REVIEW]
-DESIGN_APPROVED -> [IMPLEMENTATION]
+DESIGN_APPROVED -> [ASSESSMENT, IMPLEMENTATION]
+ASSESSMENT   -> [IMPLEMENTATION, IDLE]
 IMPLEMENTATION  -> [CODE_TEST, CODE_REVIEW]
 CODE_TEST       -> [CODE_REVIEW, CODE_TEST_FIX, BLOCKED]
 CODE_TEST_FIX   -> [CODE_TEST, BLOCKED]
@@ -120,26 +131,28 @@ BLOCKED      -> [IDLE]
 フロー図:
 
 ```
-IDLE -> INITIALIZE -> DESIGN_PLAN -> DESIGN_REVIEW -> DESIGN_APPROVED -> IMPLEMENTATION
-                                    ^              |                                   |
-                                    |              v                                   v
-                                DESIGN_REVISE <----+                              CODE_TEST
-                                                                                  |       |
-                                                                                  v       v
-                                                                          CODE_REVIEW  CODE_TEST_FIX
-                                                                          |       |       |
-                                                                          v       v       v
-                                                                    CODE_REVISE CODE_APPROVED
-                                                                                  |
-                                                                                  v
-                                                                        MERGE_SUMMARY_SENT
-                                                                                  |
-                                                                                  v
-                                                                                DONE -> IDLE
+IDLE -> INITIALIZE -> DESIGN_PLAN -> DESIGN_REVIEW -> DESIGN_APPROVED -> ASSESSMENT -> IMPLEMENTATION
+                                    ^              |                                                  |
+                                    |              v                                                  v
+                                DESIGN_REVISE <----+                                             CODE_TEST
+                                                                                                 |       |
+                                                                                                 v       v
+                                                                                         CODE_REVIEW  CODE_TEST_FIX
+                                                                                         |       |       |
+                                                                                         v       v       v
+                                                                                   CODE_REVISE CODE_APPROVED
+                                                                                                 |
+                                                                                                 v
+                                                                                       MERGE_SUMMARY_SENT
+                                                                                                 |
+                                                                                                 v
+                                                                                               DONE -> IDLE
 
   ※ DESIGN_REVIEW, CODE_TEST, CODE_TEST_FIX, CODE_REVIEW から BLOCKED に遷移可能
   ※ BLOCKED からは IDLE にのみ戻れる
   ※ CODE_REVISE からは CODE_TEST (再テスト) または CODE_REVIEW (テスト不要時) に遷移
+  ※ skip_design 有効時: INITIALIZE -> DESIGN_APPROVED (DESIGN_PLAN/REVIEW をスキップ)
+  ※ skip_assess 有効時: DESIGN_APPROVED -> IMPLEMENTATION (ASSESSMENT をスキップ)
 ```
 
 ### 4.1 各状態の詳細
@@ -151,20 +164,22 @@ IDLE -> INITIALIZE -> DESIGN_PLAN -> DESIGN_REVIEW -> DESIGN_APPROVED -> IMPLEME
 | DESIGN_PLAN | 実装担当 | Issue 本文を確認・修正し `plan-done` | 全 Issue に `design_ready` フラグ |
 | DESIGN_REVIEW | レビュアー | 設計レビュー、`gokrax review` で投稿 | `min_reviews` 件集まる |
 | DESIGN_REVISE | 実装担当 | P0 指摘に基づき Issue 本文を修正、`design-revise` | 全対象 Issue に `design_revised` フラグ |
-| DESIGN_APPROVED | (自動通過) | 即座に IMPLEMENTATION に遷移 | - |
+| DESIGN_APPROVED | (自動通過) | skip_assess 有効時は即座に IMPLEMENTATION へ。無効時は ASSESSMENT へ | - |
+| ASSESSMENT | CC (自動) | Issue ごとの難易度・ドメインリスクを判定 | 全 Issue 判定完了で IMPLEMENTATION へ。domain_risk 除外時は IDLE へ |
 | IMPLEMENTATION | CC (自動) | CC 自動起動 -> Plan + Impl -> `commit` | 全 Issue に `commit` ハッシュ |
 | CODE_TEST | (自動) | テスト自動実行 (`_start_code_test`) | テスト結果に応じて CODE_REVIEW / CODE_TEST_FIX / BLOCKED |
 | CODE_TEST_FIX | CC (自動) | テスト失敗の修正 | 修正完了後 CODE_TEST へ再遷移 |
 | CODE_REVIEW | レビュアー | コードレビュー、`gokrax review` で投稿 | `min_reviews` 件集まる |
 | CODE_REVISE | 実装担当 | P0 指摘に基づきコード修正 -> `code-revise --hash` | 全対象 Issue に `code_revised` フラグ |
 | CODE_APPROVED | (自動通過) | 即座に MERGE_SUMMARY_SENT に遷移 | - |
-| MERGE_SUMMARY_SENT | M (人間) | Discord 通知チャンネルのサマリーに「OK」リプライ | M の OK リプライ検出 |
+| MERGE_SUMMARY_SENT | M (人間) | Discord「OK」リプライ / gokrax ok CLI / automerge で DONE に遷移 | M の OK リプライ検出 |
 | DONE | (自動) | git push + issue close -> IDLE | 自動遷移 |
 | BLOCKED | M (人間) | 手動復旧が必要 | `transition --force --to IDLE` |
 
 ### 4.2 自動通過状態
 
-- **DESIGN_APPROVED**: watchdog が検出次第、即座に IMPLEMENTATION に遷移。CC 自動起動。
+- **DESIGN_APPROVED**: watchdog が検出次第、ASSESSMENT に遷移（skip_assess 有効時は直接 IMPLEMENTATION に遷移）。
+- **ASSESSMENT**: CC が Issue ごとに複雑度レベルと domain risk を判定。判定完了で IMPLEMENTATION に遷移。domain risk 除外対象のみの場合は IDLE に遷移。
 - **CODE_APPROVED**: watchdog が検出次第、即座に MERGE_SUMMARY_SENT に遷移。サマリー自動投稿。
 - **DONE**: git push + issue close -> IDLE
 
@@ -282,6 +297,12 @@ IDLE -> INITIALIZE -> DESIGN_PLAN -> DESIGN_REVIEW -> DESIGN_APPROVED -> IMPLEME
 5. ロック外で通知 (Discord, エージェント送信)
 
 ### 7.2 エージェント送信方法
+
+エージェントへの送信は `engine/backend.py` の `send()` / `ping()` を経由する。エージェントごとに `resolve_backend()` でバックエンドを決定する:
+- **openclaw**: `engine/backend_openclaw.py` — `openclaw gateway call` CLI 経由で Gateway に送信
+- **pi**: `engine/backend_pi.py` — `pi` CLI 経由で送信。セッションファイルの mtime でアクティビティを判定
+
+バックエンドは `settings.py` の `DEFAULT_AGENT_BACKEND`（config デフォルト: `"openclaw"`、`settings.example.py` 推奨値: `"pi"`）で設定し、`AGENT_BACKEND_OVERRIDE` でエージェント単位の上書きが可能。
 
 `send_to_agent()` と `send_to_agent_queued()` は同一関数 (後者はエイリアス)。
 `openclaw gateway call` CLI 経由で Gateway に `chat.send` を送信する。
@@ -517,6 +538,11 @@ PROJECT ISSUES [MODE] [OPTIONS...]
 | p2-fix | P2 修正モード |
 | skip-cc-plan | CC Plan フェーズスキップ |
 | skip-test | CODE_TEST スキップ |
+| skip-assess | ASSESSMENT スキップ |
+| skip-design | DESIGN_PLAN/REVIEW スキップ |
+| no-cc | CC を使わず手動実装 |
+| exclude-high-risk | domain_risk=high の Issue を除外 |
+| exclude-any-risk | domain_risk が none 以外の Issue を除外 |
 
 - キュー操作は `fcntl` ロックでアトミックに実行される
 
@@ -576,13 +602,16 @@ if _settings_path.exists():
 ```
 messages/
   __init__.py    -- render() エントリポイント
-  ja/dev/        -- 通常モード (design_plan, code_review, code_revise, implementation, code_test_fix, blocked 等)
-  ja/spec/       -- spec mode (review, revise, approved 等)
+  ja/dev/        -- 通常モード (日本語)
+  ja/spec/       -- spec mode (日本語)
+  en/dev/        -- 通常モード (英語)
+  en/spec/       -- spec mode (英語)
 ```
 
 ### 使い方
 
 - `messages.render()` を呼び出してテンプレートを取得する
+- `settings.py` の `PROMPT_LANG`（デフォルト: `"en"`）でテンプレート言語を切り替える
 - テンプレートカテゴリ: design_plan, design_review, code_review, code_revise, implementation, code_test_fix, blocked 等
 
 ## 16. spec mode 概要

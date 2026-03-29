@@ -179,12 +179,12 @@ Review modes are defined in `settings.py` (`REVIEW_MODES`). See `settings.exampl
 
 | Mode | Members | min_reviews | grace_period_sec | n_pass |
 |------|---------|-------------|------------------|--------|
-| full | `settings.py` の `REVIEW_MODES` で定義 | 4 | 0 | — |
-| standard | `settings.py` の `REVIEW_MODES` で定義 | 3 | 0 | — |
-| lite | `settings.py` の `REVIEW_MODES` で定義 | 2 | 0 | — |
-| min | `settings.py` の `REVIEW_MODES` で定義 | 1 | 0 | — |
+| full | Defined in `settings.py` `REVIEW_MODES` | 4 | 0 | — |
+| standard | Defined in `settings.py` `REVIEW_MODES` | 3 | 0 | — |
+| lite | Defined in `settings.py` `REVIEW_MODES` | 2 | 0 | — |
+| min | Defined in `settings.py` `REVIEW_MODES` | 1 | 0 | — |
 | skip | (none) | 0 | 0 | — |
-| standard-x2 | `settings.py` の `REVIEW_MODES` で定義 | 3 | 0 | {reviewer1: 2, reviewer3: 2} |
+| standard-x2 | Defined in `settings.py` `REVIEW_MODES` | 3 | 0 | {reviewer1: 2, reviewer3: 2} |
 
 ### Phase Override
 

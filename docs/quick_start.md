@@ -199,10 +199,7 @@ GitLab リポジトリ作成後:
 
 ```bash
 # gokrax にプロジェクトを登録（GitLab リポジトリとローカルパスを指定して実行）
-gokrax init --pj myproject --gitlab your-username/myproject --repo-path /path/to/your/project --implementer impl1
-
-# myproject ディレクトリに戻る
-cd /path/to/your/project
+gokrax init --pj myproject --gitlab your-username/myproject --repo-path /fullpath/to/your/project --implementer impl1
 
 # サンプル Issue を作成
 glab issue create \

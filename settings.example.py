@@ -14,13 +14,13 @@ ANNOUNCE_BOT_USER_ID = ""  # Discord bot user ID of the bot (can be obtained by 
 MERGE_APPROVER_DISCORD_ID = ""  # Your Discord user ID for approving merges
 COMMAND_BOT_USER_ID = ""        # If you send commands via 3rd-party Discord tool (WatcherB etc.), include its bot user ID here
 
-GLAB_BIN = "/usr/bin/glab"  # "which glab" to locate GitLab CLI binary
-GITLAB_NAMESPACE: str = "YOUR_NAMESPACE"  # i.e., gitlab.com/YOUR_NAMESPACE/ProjectName/
-GOKRAX_CLI = Path.home() / ".local/bin/gokrax"  # must be symbolic link
-PIPELINES_DIR = Path.home() / ".gokrax/pipelines"
+GLAB_BIN = "/usr/bin/glab"                         # "which glab" to locate GitLab CLI binary
+GITLAB_NAMESPACE: str = "YOUR_NAMESPACE"           # i.e., gitlab.com/YOUR_NAMESPACE/ProjectName/
+GOKRAX_CLI = Path.home() / ".local/bin/gokrax"     # must be symbolic link to gokrax.py
+PIPELINES_DIR = Path.home() / ".gokrax/pipelines"  # myproject.json pipeline files are stored here
 
 DEFAULT_AGENT_BACKEND = "pi"    # "openclaw" or "pi"
-AGENT_BACKEND_OVERRIDE = {}     # per-agent override, e.g. {"reviewer1": "pi"}
+AGENT_BACKEND_OVERRIDE = {}     # per-agent override, e.g. {"impl1": "openclaw"}
 
 # pi settings (if using pi backend)
 PI_BIN = "/usr/bin/pi"          # "which pi" to locate pi CLI binary
@@ -66,21 +66,18 @@ DEFAULT_QUEUE_OPTIONS: dict[str, bool | str] = {
 # Keys present here override DEFAULT_QUEUE_OPTIONS for the specified project.
 # Keys not present fall through to DEFAULT_QUEUE_OPTIONS.
 # If a project is not listed, DEFAULT_QUEUE_OPTIONS is used as-is.
-# Supports the same key space as DEFAULT_QUEUE_OPTIONS:
-#   bool keys (e.g. "skip_test": False), alias keys (e.g. "impl": "opus"),
-#   and alias=value keys (e.g. "impl=opus": True).
 PROJECT_QUEUE_OPTIONS: dict[str, dict[str, bool | str]] = {
     # "MyProject": {"skip_assess": False},      # override skip_assess for this project
     # "SimpleProject": {"skip_assess": True},   # explicitly keep default
 }
 
 REVIEW_MODES = {
-    "full": {
-        "members": ["reviewer1", "reviewer2", "reviewer3"],
-    },
-    "lite": {
-        "members": ["reviewer1", "reviewer2"],
-    },
+    # "full": {
+    #     "members": ["reviewer1", "reviewer2", "reviewer3"],
+    # },
+    # "lite": {
+    #     "members": ["reviewer1", "reviewer2"],
+    # },
     "min": {
         "members": ["reviewer1"],
     },

@@ -8,7 +8,7 @@
 graph LR
     subgraph Input
         GL[("GitLab<br/>Issues")]
-        M["Human<br/>Operator"]
+        Owner["Human<br/>Operator"]
     end
 
     subgraph gokrax["gokrax (Pipeline Orchestrator)"]
@@ -41,7 +41,7 @@ graph LR
     end
 
     GL -->|"issue created"| CLI
-    M -->|"gokrax start"| CLI
+    Owner -->|"gokrax start"| CLI
     CLI --> SM
     SM <--> WD
     WD -->|"dispatch task"| TQ
@@ -282,7 +282,7 @@ graph TD
 
 ```mermaid
 sequenceDiagram
-    participant M as Human (M)
+    participant Owner as Human Operator
     participant DB as gokrax CLI
     participant WD as Watchdog
     participant CC as Claude Code
@@ -290,7 +290,7 @@ sequenceDiagram
     participant GL as GitLab
     participant DC as Discord
 
-    M->>DB: gokrax start --project X --issue 42
+    Owner->>DB: gokrax start --project X --issue 42
     DB->>DB: Set state -> INITIALIZE
     DB->>DB: Auto -> DESIGN_PLAN
     DB->>DC: Plan started
@@ -328,11 +328,11 @@ sequenceDiagram
     DB->>DB: Auto -> MERGE_SUMMARY_SENT
     DB->>DC: Merge summary
     alt Merge approval
-        M->>DB: "OK" (Discord reply)
+        Owner->>DB: "OK" (Discord reply)
     else automerge enabled
         DB->>DB: automerge flag → DONE
     else CLI approval
-        M->>DB: gokrax ok --pj X
+        Owner->>DB: gokrax ok --pj X
     end
     DB->>GL: glab mr merge
     DB->>DB: Set state -> DONE

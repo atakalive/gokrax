@@ -73,7 +73,7 @@ settings.py           -- ユーザー設定 (config override)
 - **自分が設計・実装したものを自分でレビューしてはならない**
 - レビュアーは実装担当ではない。レビュアーが `plan-done`, `commit`, `design-revise`, `code-revise` を実行することはない
 
-### 3.3 承認者 = M (人間)
+### 3.3 承認者 (Owner)
 
 - MERGE_SUMMARY_SENT で Discord 通知チャンネルにサマリーが投稿される。以下のいずれかで DONE に遷移:
   - Discord サマリーに「OK」リプライ
@@ -172,9 +172,9 @@ IDLE -> INITIALIZE -> DESIGN_PLAN -> DESIGN_REVIEW -> DESIGN_APPROVED -> ASSESSM
 | CODE_REVIEW | レビュアー | コードレビュー、`gokrax review` で投稿 | `min_reviews` 件集まる |
 | CODE_REVISE | 実装担当 | P0 指摘に基づきコード修正 -> `code-revise --hash` | 全対象 Issue に `code_revised` フラグ |
 | CODE_APPROVED | (自動通過) | 即座に MERGE_SUMMARY_SENT に遷移 | - |
-| MERGE_SUMMARY_SENT | M (人間) | Discord「OK」リプライ / gokrax ok CLI / automerge で DONE に遷移 | M の OK リプライ検出 |
+| MERGE_SUMMARY_SENT | Owner | Discord「OK」リプライ / gokrax ok CLI / automerge で DONE に遷移 | Owner の OK リプライ検出 |
 | DONE | (自動) | git push + issue close -> IDLE | 自動遷移 |
-| BLOCKED | M (人間) | 手動復旧が必要 | `transition --force --to IDLE` |
+| BLOCKED | Owner | 手動復旧が必要 | `transition --force --to IDLE` |
 
 ### 4.2 自動通過状態
 

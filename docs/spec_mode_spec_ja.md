@@ -448,7 +448,7 @@ gokrax spec approve --pj PROJECT [--force]
 ```json
 {
   "at": "2026-02-28T23:00:00+09:00",
-  "actor": "M",
+  "actor": "owner",
   "from_state": "SPEC_STALLED",
   "rev": "3",
   "rev_index": 3,
@@ -859,7 +859,7 @@ changes:
 
 ## 7. ISSUE_SUGGESTIONフェーズ
 
-M が `gokrax spec continue` 実行後（またはauto_continue時に自動で）遷移。
+Owner が `gokrax spec continue` 実行後（またはauto_continue時に自動で）遷移。
 
 **送信プロンプト（send_to_agent）:**
 ```
@@ -952,7 +952,7 @@ queue_file: "gokrax-queue.txt"
 ```
 ```
 
-`config.QUEUE_FILE` に追記。完了後 → SPEC_DONE。M が `gokrax spec done` で IDLE。
+`config.QUEUE_FILE` に追記。完了後 → SPEC_DONE。Owner が `gokrax spec done` で IDLE。
 
 ---
 

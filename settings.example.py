@@ -14,13 +14,16 @@ ANNOUNCE_BOT_USER_ID = ""  # Discord bot user ID of the bot (can be obtained by 
 MERGE_APPROVER_DISCORD_ID = ""  # Your Discord user ID for approving merges
 COMMAND_BOT_USER_ID = ""        # If you send commands via 3rd-party Discord tool (WatcherB etc.), include its bot user ID here
 
-GLAB_BIN = "/usr/bin/glab"
+GLAB_BIN = "/usr/bin/glab"  # "which glab" to locate GitLab CLI binary
 GITLAB_NAMESPACE: str = "YOUR_NAMESPACE"  # i.e., gitlab.com/YOUR_NAMESPACE/ProjectName/
-GOKRAX_CLI = PurePosixPath("/path/to/gokrax")  # may be symbolic link
+GOKRAX_CLI = Path.home() / ".local/bin/gokrax"  # must be symbolic link
 PIPELINES_DIR = Path.home() / ".gokrax/pipelines"
 
 DEFAULT_AGENT_BACKEND = "pi"    # "openclaw" or "pi"
 AGENT_BACKEND_OVERRIDE = {}     # per-agent override, e.g. {"reviewer1": "pi"}
+
+# pi settings (if using pi backend)
+PI_BIN = "/usr/bin/pi"          # "which pi" to locate pi CLI binary
 
 # openclaw settings (if using openclaw backend)
 OPENCLAW_GATEWAY_PORT = int(os.environ.get("OPENCLAW_GATEWAY_PORT", "18789"))  # openclaw gateway port (localhost)
@@ -53,7 +56,7 @@ MASK_AGENT_NAMES = True  # if False, your agent names are shown in GitLab notes.
 DEFAULT_QUEUE_OPTIONS: dict[str, bool | str] = {
     "automerge": True,          # Auto-merge after CODE_APPROVED without waiting for owner OK. (Default: True)
     "skip_cc_plan": True,       # Claude Code Plan mode is skipped in IMPLEMENTATION. (Default: True)
-    "no-cc": False,             # Claude Code is not used in IMPLEMENTATION. (Default: False)
+    "no_cc": False,             # Claude Code is not used in IMPLEMENTATION. (Default: False)
     "keep_ctx_intra": True,     # Context is kept between DESIGN and CODE phases. (Default: True)
     "skip_test": True,          # CODE_TEST is skipped. (Default: True)
     "skip_assess": True,        # ASSESSMENT is skipped. (Default: True)

@@ -1,4 +1,5 @@
-"""Append new settings from settings.example.py to settings.py."""
+"""Append new settings from settings.example.py to settings.py. 
+   (additionally gokrax-queue.txt and agents/config_pi.json)"""
 from __future__ import annotations
 
 import ast

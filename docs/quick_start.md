@@ -41,31 +41,38 @@ git clone https://gitlab.com/atakalive/gokrax.git
 cd gokrax
 pip install -r requirements.txt
 
+# Homebrew（未インストールの場合 — https://brew.sh）
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
 # glab（GitLab CLI — https://gitlab.com/gitlab-org/cli）
-brew install glab          # macOS / Linux (Homebrew)
-# apt install glab         # Debian / Ubuntu
-# dnf install glab         # Fedora
+brew install glab
 glab auth login
 
 # pi（エージェント基盤 https://github.com/badlogic/pi-mono/tree/main/packages/agent）
 npm install -g @mariozechner/pi-coding-agent
-pi    # 起動後、/login でプロバイダを選択してブラウザでログイン（URLへのスペース混入注意）
+pi    # 起動後、/login でプロバイダを選択してブラウザでログイン
 
 # pi にパスが通っているか確認
 which pi
 # 見つからない場合: echo 'export PATH="$(npm -g prefix)/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
 ```
 
-以降のコマンド例は gokrax ディレクトリ内で `python3 gokrax.py` として実行する。シンボリックリンクを作成すれば、任意の場所から `gokrax` コマンドとして実行できる:
+## 3. gokrax コマンドの設定（必須）
+
+エージェントが内部で `gokrax` コマンドを呼び出すため、PATH の通った場所にシンボリックリンクが必要:
 
 ```bash
 mkdir -p ~/.local/bin
 ln -s /path/to/gokrax/gokrax.py ~/.local/bin/gokrax
+
 # ~/.local/bin が PATH にない場合:
-# echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
+
+# 確認
+which gokrax
 ```
 
-## 3. 設定
+## 4. 設定
 
 ```bash
 python3 update_settings.py    # settings.example.py → settings.py を生成
@@ -82,6 +89,7 @@ nano settings.py
 # --- 必須 ---
 GLAB_BIN = "/usr/bin/glab"              # which glab で確認
 PI_BIN = "/usr/bin/pi"                  # which pi で確認
+GOKRAX_CLI = "/home/you/.local/bin/gokrax"  # which gokrax で確認（手順 3 で作成したリンク）
 GITLAB_NAMESPACE = "your-username"      # gitlab.com/YOUR_NAMESPACE/...
 
 DEFAULT_AGENT_BACKEND = "pi"
@@ -112,19 +120,23 @@ REVIEW_MODES = {
 
 最小構成: レビュアー1体 + 実装者1体。
 
-## 4. エージェントの準備
+## 5. エージェントの準備
 
 ```bash
-# 指示のテンプレートをコピー
-mkdir -p agents/reviewer1 agents/impl1
-
+# プロンプトのテンプレートをコピー
+mkdir -p agents/reviewer1
 cp agents/example/INSTRUCTION.md.reviewer agents/reviewer1/INSTRUCTION.md
+
+mkdir -p agents/impl1
 cp agents/example/INSTRUCTION.md.implementer agents/impl1/INSTRUCTION.md
 ```
 
 モデル設定（`agents/config_pi.json`）。`provider` と `model` は `pi --list-models` で表示される名前を使う:
 
 ```bash
+# 有効な provider, model を表示
+pi --list-models
+
 # モデル設定 (Save: Ctrl+O, Exit: Ctrl+X)
 nano agents/config_pi.json
 ```
@@ -145,7 +157,7 @@ nano agents/config_pi.json
 }
 ```
 
-## 5. プロジェクト登録とサンプル Issue
+## 6. プロジェクト登録とサンプル Issue
 
 GitLab にリポジトリがまだない場合:
 
@@ -189,9 +201,10 @@ glab issue create \
 
 GitLab の Issue #1 ページをブラウザで開いておく。設計・レビューのコメントがリアルタイムで追記されていく。
 
-## 6. 実行
+## 7. 実行
 
 ```bash
+cd /path/to/gokrax
 python3 gokrax.py start --project myproject --issue 1 --mode min
 
 # 進捗をリアルタイムで確認

@@ -458,10 +458,11 @@ class TestNoDirectSavePipeline:
 
 # ── TestIsAgentInactive ───────────────────────────────────────────────────────
 
+@patch("engine.backend.resolve_backend", return_value="openclaw")
 class TestIsAgentInactive:
     """_is_agent_inactive() の新機能テスト (Issue #25)"""
 
-    def test_active_when_cc_pid_exists_and_alive(self):
+    def test_active_when_cc_pid_exists_and_alive(self, _mock_backend):
         """cc_pidが存在し、プロセスが生存していればアクティブ"""
         from engine.shared import _is_agent_inactive
 
@@ -471,7 +472,7 @@ class TestIsAgentInactive:
         with patch.object(Path, "exists", return_value=True):
             assert not _is_agent_inactive("implementer1", data)
 
-    def test_inactive_when_cc_pid_exists_but_dead(self):
+    def test_inactive_when_cc_pid_exists_but_dead(self, _mock_backend):
         """cc_pidが存在するがプロセス消滅時、セッション判定へ"""
         from engine.shared import _is_agent_inactive
 
@@ -483,7 +484,7 @@ class TestIsAgentInactive:
             with patch("pathlib.Path.read_text", side_effect=FileNotFoundError):
                 assert _is_agent_inactive("implementer1", data) is True
 
-    def test_inactive_when_no_cc_pid(self):
+    def test_inactive_when_no_cc_pid(self, _mock_backend):
         """cc_pidがない場合、セッション判定へ"""
         from engine.shared import _is_agent_inactive
 
@@ -493,7 +494,7 @@ class TestIsAgentInactive:
         with patch("pathlib.Path.read_text", side_effect=FileNotFoundError):
             assert _is_agent_inactive("implementer1", data) is True
 
-    def test_inactive_when_cc_pid_is_none(self):
+    def test_inactive_when_cc_pid_is_none(self, _mock_backend):
         """cc_pidがNoneの場合、セッション判定へ"""
         from engine.shared import _is_agent_inactive
 
@@ -503,7 +504,7 @@ class TestIsAgentInactive:
         with patch("pathlib.Path.read_text", side_effect=FileNotFoundError):
             assert _is_agent_inactive("implementer1", data) is True
 
-    def test_active_with_valid_session_when_no_cc_pid(self):
+    def test_active_with_valid_session_when_no_cc_pid(self, _mock_backend):
         """cc_pidなし、セッションが最近更新されていればアクティブ"""
         from engine.shared import _is_agent_inactive
         from datetime import datetime
@@ -525,7 +526,7 @@ class TestIsAgentInactive:
         with patch("pathlib.Path.read_text", return_value=json.dumps(session_data)):
             assert not _is_agent_inactive("implementer1", data)
 
-    def test_inactive_with_old_session_when_no_cc_pid(self):
+    def test_inactive_with_old_session_when_no_cc_pid(self, _mock_backend):
         """cc_pidなし、セッションが古ければ非アクティブ"""
         from engine.shared import _is_agent_inactive
         from datetime import datetime
@@ -548,7 +549,7 @@ class TestIsAgentInactive:
         with patch("pathlib.Path.read_text", return_value=json.dumps(session_data)):
             assert _is_agent_inactive("implementer1", data) is True
 
-    def test_pipeline_data_none_uses_session_fallback(self):
+    def test_pipeline_data_none_uses_session_fallback(self, _mock_backend):
         """pipeline_data=None の場合、セッション判定のみ使用"""
         from engine.shared import _is_agent_inactive
 
@@ -556,7 +557,7 @@ class TestIsAgentInactive:
         with patch("pathlib.Path.read_text", side_effect=FileNotFoundError):
             assert _is_agent_inactive("implementer1", None) is True
 
-    def test_is_cc_running_helper(self):
+    def test_is_cc_running_helper(self, _mock_backend):
         """_is_cc_running() ヘルパー関数のテスト"""
         from engine.shared import _is_cc_running
 

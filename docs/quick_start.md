@@ -35,6 +35,8 @@ ssh -T git@gitlab.com
 
 ## 2. 必要なツールのインストール
 
+インストール中に権限エラーが出る場合はコマンドの先頭に `sudo` を付ける。
+
 ```bash
 # gokrax
 git clone https://gitlab.com/atakalive/gokrax.git
@@ -62,9 +64,10 @@ which pi
 エージェントが内部で `gokrax` コマンドを呼び出すため、PATH の通った場所にシンボリックリンクが必要:
 
 ```bash
-chmod +x /path/to/gokrax/gokrax.py
+# gokrax ディレクトリ内で実行すること
+chmod +x gokrax.py
 mkdir -p ~/.local/bin
-ln -s /path/to/gokrax/gokrax.py ~/.local/bin/gokrax
+ln -s "$(realpath gokrax.py)" ~/.local/bin/gokrax
 
 # ~/.local/bin が PATH にない場合:
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
@@ -96,9 +99,9 @@ GITLAB_NAMESPACE = "your-username"      # gitlab.com/YOUR_NAMESPACE/...
 DEFAULT_AGENT_BACKEND = "pi"
 
 DEFAULT_QUEUE_OPTIONS = {
-    "no-cc": True,              # <- Claude Code CLI 無しで動かす
-    "automerge": True,          # no-cc 以外はデフォルトでOK
+    "automerge": True,          # no_cc 以外はデフォルトでOK
     "skip_cc_plan": True,
+    "no_cc": True,              # <- Claude Code CLI 無しで動かす
     "keep_ctx_intra": True,
     "skip_test": True,
     "skip_assess": True,
@@ -185,11 +188,8 @@ git push -u origin HEAD
 GitLab リポジトリ作成後:
 
 ```bash
-# gokrax ディレクトリに戻って実行
-cd /path/to/gokrax
-
 # gokrax にプロジェクトを登録（GitLab リポジトリとローカルパスを指定して実行）
-python3 gokrax.py init --pj myproject --gitlab your-username/myproject --repo-path /path/to/your/project --implementer impl1
+gokrax init --pj myproject --gitlab your-username/myproject --repo-path /path/to/your/project --implementer impl1
 
 # myproject ディレクトリに戻る
 cd /path/to/your/project
@@ -205,8 +205,7 @@ GitLab の Issue #1 ページをブラウザで開いておく。設計・レビ
 ## 7. 実行
 
 ```bash
-cd /path/to/gokrax
-python3 gokrax.py start --project myproject --issue 1 --mode min
+gokrax start --project myproject --issue 1 --mode min
 
 # 進捗をリアルタイムで確認
 tail -f /tmp/gokrax-watchdog.log
@@ -229,7 +228,7 @@ cat /path/to/your/project/hello.py
 テスト用プロジェクトが不要になった場合:
 
 ```bash
-python3 gokrax.py reset --pj myproject                      # パイプライン状態をリセット
+python3 gokrax.py reset --pj myproject           # パイプライン状態をリセット
 glab repo delete your-username/myproject --yes   # GitLab リポジトリを削除
-rm -rf /path/to/myproject                        # ローカルディレクトリを削除
+rm -rf /path/to/your/project                     # ローカルディレクトリを削除
 ```

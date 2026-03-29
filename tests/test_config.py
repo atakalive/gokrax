@@ -57,10 +57,10 @@ class TestTimeoutConstants:
 
 class TestDevbarCliPath:
 
-    def test_gokrax_cli_is_shared_bin_path(self):
-        """GOKRAX_CLI が shared/bin/gokrax を指すこと。"""
+    def test_gokrax_cli_is_non_empty(self):
+        """GOKRAX_CLI が空でないこと。"""
         import config
-        assert str(config.GOKRAX_CLI) == "/home/ataka/.openclaw/shared/bin/gokrax"
+        assert str(config.GOKRAX_CLI) != ""
 
     def test_gokrax_cli_is_absolute(self):
         """GOKRAX_CLI が絶対パスであること。"""

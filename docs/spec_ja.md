@@ -490,10 +490,6 @@ spec_config の詳細は `docs/spec_mode_spec.md` を参照。
 - 外部通信 (Discord, agent 送信) はテストで実行するな。conftest の `_block_external_calls` でモック済み
 - `_reset_reviewers` / `_reset_short_context_reviewers` はテストで実行するな。conftest でモック済み
 
-#### 事故記録
-
-- **2026-02-25**: `_stop_loop_if_idle()` がテスト中に本番の watchdog-loop.sh を殺した。テスト用 tmp_path には disabled PJ しかないため「全 PJ disabled」と誤判定。IMPLEMENTATION 中の gokrax パイプラインが停止した
-
 ## 11. 禁止事項
 
 1. **pipeline JSON の直接編集禁止。** 必ず gokrax CLI または `pipeline_io.update_pipeline()` 経由で操作する
@@ -535,12 +531,13 @@ PROJECT ISSUES [MODE] [OPTIONS...]
 | comment=TEXT | CC への指示コメント |
 | keep-ctx-batch | バッチ間コンテキスト保持 |
 | keep-ctx-intra | バッチ内コンテキスト保持 |
+| keep-ctx-all | バッチ間・バッチ内コンテキスト保持 |
 | p2-fix | P2 修正モード |
 | skip-cc-plan | CC Plan フェーズスキップ |
 | skip-test | CODE_TEST スキップ |
 | skip-assess | ASSESSMENT スキップ |
 | skip-design | DESIGN_PLAN/REVIEW スキップ |
-| no-cc | CC を使わず手動実装 |
+| no-cc | CC を使わず実装者が直接実装 |
 | exclude-high-risk | domain_risk=high の Issue を除外 |
 | exclude-any-risk | domain_risk が none 以外の Issue を除外 |
 

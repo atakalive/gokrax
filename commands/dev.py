@@ -1123,7 +1123,7 @@ def cmd_dispute(args):
     masked = mask_agent_name(args.reviewer, reviewer_number_map=reviewer_map)
     note_body = (
         f"[dispute] #{args.issue}: {masked}'s verdict disputed\n\n"
-        f"Reason: {args.reason.strip()}"
+        f"**Reason:**\n\n{args.reason.strip()}"
     )
     _post_gitlab_note(gitlab, args.issue, note_body)
 

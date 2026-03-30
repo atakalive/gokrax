@@ -62,10 +62,14 @@ def get_status_text(enabled_only: bool = False) -> str:
         batch = data.get("batch", [])
         review_mode = data.get("review_mode", "")
         issues = ", ".join(f"#{i['issue']}" for i in batch) if batch else "none"
-        from engine.fsm import get_phase_config
-        phase = "code" if state.startswith("CODE_") else "design"
-        phase_config = get_phase_config(data, phase)
-        reviewers_str = ", ".join(f'"{r}"' for r in phase_config["members"])
+        has_review_info = "review_config" in data or "review_mode" in data
+        if has_review_info:
+            from engine.fsm import get_phase_config
+            phase = "code" if state.startswith("CODE_") else "design"
+            phase_config = get_phase_config(data, phase)
+            reviewers_str = ", ".join(f'"{r}"' for r in phase_config["members"])
+        else:
+            reviewers_str = ""
         output.write(f"[{enabled}] {pj}: {state}  issues=[{issues}]  ReviewerSize={review_mode}  Reviewers=[{reviewers_str}]\n")
 
         # Show per-issue review progress

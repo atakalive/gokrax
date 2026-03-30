@@ -1056,6 +1056,10 @@ def _apply_spec_action(
             if old_state == "SPEC_DONE" and action2.next_state == "IDLE":
                 data["spec_mode"] = False
                 data["spec_config"] = {}
+                data.pop("excluded_reviewers", None)
+                data.pop("min_reviews_override", None)
+                data.pop("review_config", None)
+                data.pop("reviewer_number_map", None)
 
         # pipeline_updates は常に適用（next_state=None でも）
         if action2.pipeline_updates:

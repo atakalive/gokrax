@@ -340,6 +340,10 @@ def cmd_spec_done(args):
         data["spec_mode"] = False
         data["spec_config"] = {}
         data["enabled"] = False
+        data.pop("excluded_reviewers", None)
+        data.pop("min_reviews_override", None)
+        data.pop("review_config", None)
+        data.pop("reviewer_number_map", None)
 
     update_pipeline(path, do_done)
     from gokrax import _any_pj_enabled, _stop_loop
@@ -368,6 +372,10 @@ def cmd_spec_stop(args):
         data["spec_config"] = {}
         data["enabled"] = False
         add_history(data, old, "IDLE", actor="cli:spec-stop")
+        data.pop("excluded_reviewers", None)
+        data.pop("min_reviews_override", None)
+        data.pop("review_config", None)
+        data.pop("reviewer_number_map", None)
 
     update_pipeline(path, do_stop)
     from gokrax import _any_pj_enabled, _stop_loop

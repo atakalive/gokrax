@@ -1,11 +1,15 @@
 """Tests for get_status_text() — gokrax status command."""
+from __future__ import annotations
 
 import json
+from pathlib import Path
+
+import pytest
 
 from commands.dev import get_status_text
 
 
-def test_status_idle_no_review_mode(tmp_path: "Path", monkeypatch: "MonkeyPatch") -> None:
+def test_status_idle_no_review_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """IDLE pipeline with no review_mode/review_config does not crash."""
     import commands.dev
     monkeypatch.setattr(commands.dev, "PIPELINES_DIR", tmp_path)
@@ -21,7 +25,7 @@ def test_status_idle_no_review_mode(tmp_path: "Path", monkeypatch: "MonkeyPatch"
     assert "Reviewers=[]" in result
 
 
-def test_status_with_review_mode(tmp_path: "Path", monkeypatch: "MonkeyPatch") -> None:
+def test_status_with_review_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Pipeline with review_mode shows reviewer info correctly."""
     import commands.dev
     monkeypatch.setattr(commands.dev, "PIPELINES_DIR", tmp_path)

@@ -73,7 +73,7 @@ def get_status_text(enabled_only: bool = False) -> str:
         output.write(f"[{enabled}] {pj}: {state}  issues=[{issues}]  ReviewerSize={review_mode}  Reviewers=[{reviewers_str}]\n")
 
         # Show per-issue review progress
-        if state in ("DESIGN_REVIEW", "CODE_REVIEW") and batch:
+        if state in ("DESIGN_REVIEW", "CODE_REVIEW") and batch and has_review_info:
             review_key = "design_reviews" if state == "DESIGN_REVIEW" else "code_reviews"
             min_rev = phase_config["min_reviews"]
             for item in batch:

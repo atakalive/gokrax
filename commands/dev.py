@@ -20,7 +20,7 @@ from pipeline_io import (
     clear_pending_notification, merge_pending_notifications,
 )
 from engine.fsm import get_notification_for_state
-from notify import notify_implementer, notify_reviewers, notify_discord, send_to_agent, send_to_agent_queued, post_gitlab_note as _post_gitlab_note, mask_agent_name, resolve_reviewer_arg
+from notify import notify_implementer, notify_reviewers, notify_discord, send_to_agent, send_to_agent_queued, post_gitlab_note as _post_gitlab_note, mask_agent_name, resolve_reviewer_arg, format_review_note_header
 import os
 
 # Verdict severity for dispute resolution (Issue #86)
@@ -1016,6 +1016,7 @@ def cmd_review(args):
     # P0/P1/P2 の指摘は中間パスでも GitLab に投稿（開発者が確認できるようにする）
     issue = find_issue(data.get("batch", []), args.issue)
     skip_note = False
+    entry: dict = {}
     if issue:
         review_key = "code_reviews" if "CODE" in state else "design_reviews"
         entry = issue.get(review_key, {}).get(args.reviewer, {})
@@ -1027,7 +1028,11 @@ def cmd_review(args):
     if not skip_note:
         reviewer_map = data.get("reviewer_number_map")
         masked = mask_agent_name(args.reviewer, reviewer_number_map=reviewer_map)
-        note_body = f"[{masked}] {args.verdict} ({phase} review)\n\n{args.summary or ''}"
+        from pipeline_io import get_current_round
+        round_num = get_current_round(data)
+        target_pass = entry.get("target_pass", 1)
+        header = format_review_note_header(masked, args.verdict, phase, round_num, target_pass)
+        note_body = f"{header}\n\n{args.summary or ''}"
         if _post_gitlab_note(gitlab, args.issue, note_body):
             print("  → GitLab issue note posted")
 

@@ -96,6 +96,13 @@ def test_review_done_note_masked(tmp_pipelines, monkeypatch):
             "grace_period_sec": 0,
         },
     })
+    monkeypatch.setattr("engine.fsm.REVIEW_MODES", {
+        "standard": {
+            "members": ["alice"],
+            "min_reviews": 1,
+            "grace_period_sec": 0,
+        },
+    })
 
     import gokrax
     args = argparse.Namespace(
@@ -117,6 +124,7 @@ def test_review_done_note_masked(tmp_pipelines, monkeypatch):
     note_body = mock_note.call_args[0][2]
     assert note_body.startswith("[Reviewer 1]")
     assert "alice" not in note_body
+    assert "Round 1" in note_body
 
 
 # ---------------------------------------------------------------------------
@@ -294,3 +302,110 @@ def test_save_excluded_does_not_overwrite_reviewer_number_map(tmp_pipelines, mon
 
     # 既存のマップが保持されている
     assert data["reviewer_number_map"] == existing_map
+
+
+# ---------------------------------------------------------------------------
+# 4b. cmd_review Round 2 の note_body に Round が含まれる (Issue #276)
+# ---------------------------------------------------------------------------
+
+def test_review_done_note_round2(tmp_pipelines, monkeypatch):
+    """Round 2 のレビューコメントに 'Round 2' が含まれる"""
+    _make_pipeline(tmp_pipelines, state="CODE_REVIEW",
+                   reviewer_number_map={"alice": 1})
+    # code_revise_count=1 → Round 2
+    pj_file = tmp_pipelines / "test-pj.json"
+    data = json.loads(pj_file.read_text())
+    data["code_revise_count"] = 1
+    pj_file.write_text(json.dumps(data))
+
+    monkeypatch.setattr("config.MASK_AGENT_NAMES", True)
+    monkeypatch.setattr("config.REVIEWERS", ["alice"])
+    monkeypatch.setattr("commands.dev.REVIEWERS", ["alice"])
+    monkeypatch.setattr("config.REVIEW_MODES", {
+        "standard": {
+            "members": ["alice"],
+            "min_reviews": 1,
+            "grace_period_sec": 0,
+        },
+    })
+    monkeypatch.setattr("engine.fsm.REVIEW_MODES", {
+        "standard": {
+            "members": ["alice"],
+            "min_reviews": 1,
+            "grace_period_sec": 0,
+        },
+    })
+
+    import gokrax
+    args = argparse.Namespace(
+        project="test-pj",
+        issue=1,
+        reviewer="alice",
+        verdict="P1",
+        summary="問題あり",
+        force=False,
+        round=None,
+    )
+
+    mock_note = MagicMock(return_value=True)
+    with patch("commands.dev._post_gitlab_note", mock_note), \
+         patch("commands.dev.time.sleep"):
+        gokrax.cmd_review(args)
+
+    mock_note.assert_called_once()
+    note_body = mock_note.call_args[0][2]
+    assert "Round 2" in note_body
+    assert note_body.startswith("[Reviewer 1]")
+
+
+# ---------------------------------------------------------------------------
+# 4c. cmd_review multi-pass の note_body に N-Pass が含まれる (Issue #276)
+# ---------------------------------------------------------------------------
+
+def test_review_done_note_npass(tmp_pipelines, monkeypatch):
+    """2-Pass レビュアーの最終パスで '2-Pass' が note に含まれる"""
+    _make_pipeline(tmp_pipelines, state="CODE_REVIEW",
+                   code_reviews={"alice": {"verdict": "APPROVE", "pass": 1, "target_pass": 2, "at": "2025-01-01T00:00:00+09:00"}},
+                   reviewer_number_map={"alice": 1})
+
+    monkeypatch.setattr("config.MASK_AGENT_NAMES", True)
+    monkeypatch.setattr("config.REVIEWERS", ["alice"])
+    monkeypatch.setattr("commands.dev.REVIEWERS", ["alice"])
+    monkeypatch.setattr("config.REVIEW_MODES", {
+        "standard": {
+            "members": ["alice"],
+            "min_reviews": 1,
+            "grace_period_sec": 0,
+            "n_pass": {"alice": 2},
+        },
+    })
+    monkeypatch.setattr("engine.fsm.REVIEW_MODES", {
+        "standard": {
+            "members": ["alice"],
+            "min_reviews": 1,
+            "grace_period_sec": 0,
+            "n_pass": {"alice": 2},
+        },
+    })
+
+    import gokrax
+    args = argparse.Namespace(
+        project="test-pj",
+        issue=1,
+        reviewer="alice",
+        verdict="APPROVE",
+        summary="LGTM",
+        force=True,
+        round=None,
+    )
+
+    mock_note = MagicMock(return_value=True)
+    with patch("commands.dev._post_gitlab_note", mock_note), \
+         patch("commands.dev.time.sleep"):
+        gokrax.cmd_review(args)
+
+    mock_note.assert_called_once()
+    note_body = mock_note.call_args[0][2]
+    assert "2-Pass" in note_body
+    assert "Round 1" in note_body
+    assert note_body.startswith("[Reviewer 1]")

@@ -386,6 +386,46 @@ def resolve_reviewer_arg(
     return reverse_map[number]
 
 
+def format_review_note_header(
+    masked_reviewer: str,
+    verdict: str,
+    phase: str,
+    round_num: int,
+    target_pass: int,
+) -> str:
+    """Build the header line for a review report comment.
+
+    Parameters
+    ----------
+    masked_reviewer : str
+        Masked reviewer name (e.g. "Reviewer 1").
+    verdict : str
+        Review result (e.g. "APPROVE", "P1").
+    phase : str
+        Review phase ("design" or "code").
+    round_num : int
+        Current round number (1-based). 0 means omit.
+    target_pass : int
+        Total pass count for the target reviewer.
+
+    Returns
+    -------
+    str
+        e.g. "[Reviewer 1] P1 (design review) Round 1"
+        e.g. "[Reviewer 1] P1 (design review) Round 2, 2-Pass"
+        e.g. "[Reviewer 1] APPROVE (code review) Round 1"
+    """
+    header = f"[{masked_reviewer}] {verdict} ({phase} review)"
+    parts: list[str] = []
+    if round_num > 0:
+        parts.append(f"Round {round_num}")
+    if target_pass > 1:
+        parts.append(f"{target_pass}-Pass")
+    if parts:
+        header += " " + ", ".join(parts)
+    return header
+
+
 def post_gitlab_note(gitlab: str, issue_num: int, body: str) -> bool:
     """glab issue note を投稿。失敗時は2回リトライ（間隔3秒）。"""
     for attempt in range(3):

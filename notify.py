@@ -16,6 +16,7 @@ from pathlib import Path
 import requests
 
 import config
+from engine.filter import require_issue_author, UnauthorizedAuthorError
 from config import (
     GOKRAX_CLI, GLAB_BIN, DISCORD_CHANNEL, DISCORD_BOT_TOKEN,
     AGENTS, REVIEW_MODES, MAX_DIFF_CHARS, GLAB_TIMEOUT,
@@ -625,7 +626,11 @@ def fetch_issue_body(issue_num: int, gitlab: str) -> str | None:
                           issue_num, result.returncode, result.stderr.strip())
             return None
         data = json.loads(result.stdout)
+        require_issue_author(data)
         return data.get("description", "")
+    except UnauthorizedAuthorError:
+        logger.error("Unauthorized issue author (issue=%d)", issue_num)
+        raise
     except subprocess.TimeoutExpired:
         logger.warning("glab issue show timed out (issue=%d)", issue_num)
         return None

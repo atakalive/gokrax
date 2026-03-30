@@ -149,6 +149,11 @@ REVIEW_MODES = {
 #    "MyProject": "/home/user/custom/domain_risk.md",
 # }
 # MAX_SKILL_CHARS: int = 30_000
+# GITLAB_NAMESPACE is always allowed (required). Specify additional GitLab usernames to allow.
+# ALLOWED_GITLAB_AUTHORS: tuple[str, ...] = (
+#     "collaborator1",
+#     "collaborator2",
+# )
 # TEST_CONFIG: dict = {
 #     "myproject": {
 #         "test_command": "cd /path/to/project && python3 -m pytest -x --tb=short",

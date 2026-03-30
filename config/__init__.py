@@ -23,6 +23,7 @@ PIPELINES_DIR = Path(os.environ["GOKRAX_PIPELINES_DIR"]) if "GOKRAX_PIPELINES_DI
 GOKRAX_CLI = PurePosixPath("")
 GLAB_BIN: str = "glab"
 GITLAB_NAMESPACE: str = "YOUR_NAMESPACE"  # i.e., gitlab.com/YOUR_NAMESPACE/ProjectName/
+ALLOWED_GITLAB_AUTHORS: tuple[str, ...] = ()
 OPENCLAW_GATEWAY_PORT: int = int(os.environ.get("OPENCLAW_GATEWAY_PORT", "18789"))
 QUEUE_FILE = PROJECT_ROOT / "gokrax-queue.txt"
 EXIT_QUEUE_SKIP = 75

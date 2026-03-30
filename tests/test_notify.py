@@ -353,11 +353,12 @@ class TestNotifyDiscord:
 class TestFetchIssueBody:
     """_fetch_issue_body のテスト（Issue #23）"""
 
-    def test_success_returns_description(self):
+    def test_success_returns_description(self, monkeypatch):
         import notify
+        monkeypatch.setattr("config.GITLAB_NAMESPACE", "owner")
         mock_result = MagicMock()
         mock_result.returncode = 0
-        mock_result.stdout = json.dumps({"description": "Issue body text"})
+        mock_result.stdout = json.dumps({"description": "Issue body text", "author": {"username": "owner"}})
         with patch("notify.subprocess.run", return_value=mock_result):
             result = notify.fetch_issue_body(42, "testns/proj")
         assert result == "Issue body text"
@@ -373,11 +374,12 @@ class TestFetchIssueBody:
         assert result is None
         assert "glab issue show failed" in caplog.text
 
-    def test_empty_description_returns_empty_string(self):
+    def test_empty_description_returns_empty_string(self, monkeypatch):
         import notify
+        monkeypatch.setattr("config.GITLAB_NAMESPACE", "owner")
         mock_result = MagicMock()
         mock_result.returncode = 0
-        mock_result.stdout = json.dumps({"description": ""})
+        mock_result.stdout = json.dumps({"description": "", "author": {"username": "owner"}})
         with patch("notify.subprocess.run", return_value=mock_result):
             result = notify.fetch_issue_body(10, "testns/proj")
         assert result == ""

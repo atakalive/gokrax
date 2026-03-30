@@ -19,6 +19,7 @@ from pipeline_io import (
     add_history, now_iso, get_path, find_issue,
     clear_pending_notification, merge_pending_notifications,
 )
+from engine.filter import require_issue_author, UnauthorizedAuthorError
 from engine.fsm import get_notification_for_state
 from notify import notify_implementer, notify_reviewers, notify_discord, send_to_agent, send_to_agent_queued, post_gitlab_note as _post_gitlab_note, mask_agent_name, resolve_reviewer_arg, format_review_note_header
 import os
@@ -240,6 +241,7 @@ def _fetch_issue_info(issue_num: int, gitlab: str) -> tuple[str, str | None]:
         )
         if result.returncode == 0:
             data = json.loads(result.stdout)
+            require_issue_author(data)
             title = data.get("title", "")
             raw_state = data.get("state")
             if raw_state in ("opened", "closed"):
@@ -255,6 +257,8 @@ def _fetch_issue_info(issue_num: int, gitlab: str) -> tuple[str, str | None]:
         print(f"Warning: glab issue show timed out for #{issue_num}", file=sys.stderr)
     except FileNotFoundError:
         print(f"Warning: glab binary not found: {GLAB_BIN}", file=sys.stderr)
+    except UnauthorizedAuthorError:
+        raise
     except Exception as e:
         print(f"Warning: failed to fetch issue #{issue_num}: {e}", file=sys.stderr)
     return ("", None)

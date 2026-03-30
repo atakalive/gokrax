@@ -223,7 +223,11 @@ agents/
 GitLab の Issue 操作に使用する。
 
 ```bash
-brew install glab        # Homebrew（推奨。apt 版は古く v1.36 程度で動作しない）
+# Homebrew（未インストールの場合 — https://brew.sh）
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+# インストール後、表示される Next steps に従って PATH に追加すること
+
+brew install glab        # apt 版は古く v1.36 程度で動作しない
 glab auth login          # GitLab アカウントで認証
 ```
 

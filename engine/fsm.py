@@ -694,16 +694,6 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
 
             if not reviewer_submitted:
                 all_submitted = False
-                # verdict は提出済み Issue の最初のエントリから取得
-                entry = _get_reviewer_entry(batch, key, reviewer)
-                if entry:
-                    v = entry.get("verdict", "").upper()
-                    if v in ("REJECT", "P0"):
-                        has_p0 = True
-                    elif v == "P1":
-                        has_p1 = True
-                    elif v == "P2":
-                        has_p2 = True
                 continue
 
             # 全 Issue 提出済み — verdict を収集（最初の Issue から取得、均一性前提）

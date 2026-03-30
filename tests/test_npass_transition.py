@@ -324,6 +324,84 @@ class TestNpassCheckTransition:
         action = check_transition("CODE_REVIEW_NPASS", batch, data)
         assert action.new_state == "CODE_REVISE"
 
+    def test_not_submitted_p1_verdict_does_not_cause_revise(self):
+        """前回パスの P1 verdict が NPASS 未提出時に即 REVISE を引き起こさないこと。"""
+        old_time = (datetime.now(JST) - timedelta(minutes=5)).isoformat()
+        entered = self._entered_at(10)
+        batch = [{
+            "issue": 1,
+            "code_reviews": {
+                "alice": {"verdict": "P1", "pass": 1, "target_pass": 2, "at": old_time,
+                          "summary": "naming issue"},
+            },
+        }]
+        data = {
+            "project": "test-pj",
+            "_npass_target_reviewers": ["alice"],
+            "history": [{"from": "CODE_REVIEW", "to": "CODE_REVIEW_NPASS", "at": entered}],
+        }
+        action = check_transition("CODE_REVIEW_NPASS", batch, data)
+        assert action.new_state is None  # 待機（即 REVISE にならない）
+
+    def test_not_submitted_p0_verdict_does_not_cause_revise(self):
+        """前回パスの P0 verdict が NPASS 未提出時に即 REVISE を引き起こさないこと。"""
+        old_time = (datetime.now(JST) - timedelta(minutes=5)).isoformat()
+        entered = self._entered_at(10)
+        batch = [{
+            "issue": 1,
+            "code_reviews": {
+                "alice": {"verdict": "P0", "pass": 1, "target_pass": 2, "at": old_time,
+                          "summary": "critical bug"},
+            },
+        }]
+        data = {
+            "project": "test-pj",
+            "_npass_target_reviewers": ["alice"],
+            "history": [{"from": "CODE_REVIEW", "to": "CODE_REVIEW_NPASS", "at": entered}],
+        }
+        action = check_transition("CODE_REVIEW_NPASS", batch, data)
+        assert action.new_state is None  # 待機（即 REVISE にならない）
+
+    def test_submitted_p1_in_npass_causes_revise(self):
+        """NPASS パスで提出された P1 verdict は即 REVISE を引き起こすこと。"""
+        entered = self._entered_at(10)
+        after_enter = (datetime.now(JST) - timedelta(seconds=5)).isoformat()
+        batch = [{
+            "issue": 1,
+            "code_reviews": {
+                "alice": {"verdict": "P1", "pass": 2, "target_pass": 2, "at": after_enter,
+                          "summary": "found issue in pass 2"},
+            },
+        }]
+        data = {
+            "project": "test-pj",
+            "_npass_target_reviewers": ["alice"],
+            "history": [{"from": "CODE_REVIEW", "to": "CODE_REVIEW_NPASS", "at": entered}],
+        }
+        action = check_transition("CODE_REVIEW_NPASS", batch, data)
+        assert action.new_state == "CODE_REVISE"
+
+    def test_mixed_submitted_not_submitted_only_submitted_verdict_counts(self):
+        """提出済み APPROVE + 未提出 P1(前回パス) → 即 REVISE にならず待機。"""
+        old_time = (datetime.now(JST) - timedelta(minutes=5)).isoformat()
+        entered = self._entered_at(10)
+        after_enter = (datetime.now(JST) - timedelta(seconds=5)).isoformat()
+        batch = [{
+            "issue": 1,
+            "code_reviews": {
+                "alice": {"verdict": "APPROVE", "pass": 2, "target_pass": 2, "at": after_enter},
+                "bob": {"verdict": "P1", "pass": 1, "target_pass": 2, "at": old_time,
+                        "summary": "issue from pass 1"},
+            },
+        }]
+        data = {
+            "project": "test-pj",
+            "_npass_target_reviewers": ["alice", "bob"],
+            "history": [{"from": "CODE_REVIEW", "to": "CODE_REVIEW_NPASS", "at": entered}],
+        }
+        action = check_transition("CODE_REVIEW_NPASS", batch, data)
+        assert action.new_state is None  # bob の未提出分を待機
+
     def test_no_targets_returns_noop(self):
         """_npass_target_reviewers が空 → 何もしない。"""
         data = {

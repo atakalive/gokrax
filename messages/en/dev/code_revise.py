@@ -31,7 +31,7 @@ def transition(
         f"{p2_note}"
         f"[Steps]\n"
         f"1. Read {fix_label} and fix the code\n"
-        f"   View findings: `glab issue view N --comments --per-page 100`\n"
+        f"   View findings: `{GOKRAX_CLI} get-comments --pj {project} --issue N`\n"
         f"2. git commit\n"
         f"3. Report completion to gokrax:\n"
         f"   {GOKRAX_CLI} code-revise --pj {project} --issue N [N...] --hash <commit> --summary \"<brief summary of changes>\"\n\n"

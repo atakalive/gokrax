@@ -27,7 +27,7 @@ def transition(
         f"{p2_note}"
         f"【手順】\n"
         f"1. {fix_label}を読み、Issue本文を修正する（glab issue update）\n"
-        f"   指摘の確認: `glab issue view N --comments --per-page 100`\n"
+        f"   指摘の確認: `{GOKRAX_CLI} get-comments --pj {project} --issue N`\n"
         f"2. gokrax に完了報告:\n"
         f"   {GOKRAX_CLI} design-revise --pj {project} --issue N [N...] --summary \"<変更内容の簡潔なサマリー>\"\n\n"
         f"複数レビュアーから同一のP2/Suggestionがある場合、その指摘は正しい可能性が高いため修正せよ。\n"

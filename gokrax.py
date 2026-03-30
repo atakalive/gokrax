@@ -107,6 +107,7 @@ from commands.dev import (  # noqa: F401 — re-export for backwards compatibili
     cmd_cc_start, cmd_plan_done, cmd_assess_done, cmd_design_revise, cmd_code_revise,
     cmd_review_mode, cmd_exclude, cmd_merge_summary, cmd_ok,
     cmd_qrun, cmd_qstatus, cmd_qadd, cmd_qdel, cmd_qedit,
+    cmd_get_comments,
     get_status_text, get_qstatus_text, _get_running_info,
     _reset_to_idle,
 )
@@ -294,6 +295,11 @@ def main():
     p = sub.add_parser("ok", help="approve merge (manual approval in MERGE_SUMMARY_SENT)")
     p.add_argument("--pj", "--project", dest="project", required=True)
 
+    # get-comments
+    p = sub.add_parser("get-comments", help="get filtered comments for an issue")
+    p.add_argument("--pj", "--project", required=True, dest="project", help="project name")
+    p.add_argument("--issue", required=True, type=int, help="issue number")
+
     # qrun
     p = sub.add_parser("qrun", help="run next batch from queue")
     p.add_argument("--queue", type=Path, help="queue file path (default: gokrax-queue.txt)")
@@ -425,6 +431,7 @@ def main():
         "exclude": cmd_exclude,
         "merge-summary": cmd_merge_summary,
         "ok": cmd_ok,
+        "get-comments": cmd_get_comments,
         "qrun": cmd_qrun,
         "qstatus": cmd_qstatus,
         "qadd": cmd_qadd,

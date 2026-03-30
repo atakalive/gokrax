@@ -8,6 +8,7 @@ import pytest
 from engine.filter import (
     UnauthorizedAuthorError,
     require_issue_author,
+    validate_comment_author,
     validate_issue_author,
 )
 
@@ -120,3 +121,32 @@ def test_fetch_issue_body_allows_authorized(monkeypatch):
     with patch("notify.subprocess.run", return_value=mock_result):
         result = notify.fetch_issue_body(1, "ns/proj")
     assert result == "legit body"
+
+
+# ---------------------------------------------------------------------------
+# validate_comment_author
+# ---------------------------------------------------------------------------
+
+
+def test_validate_comment_author_allowed(monkeypatch):
+    monkeypatch.setattr("config.GITLAB_NAMESPACE", "owner")
+    monkeypatch.setattr("config.ALLOWED_GITLAB_AUTHORS", ())
+    assert validate_comment_author({"author": {"username": "owner"}}) is True
+
+
+def test_validate_comment_author_rejected(monkeypatch):
+    monkeypatch.setattr("config.GITLAB_NAMESPACE", "owner")
+    monkeypatch.setattr("config.ALLOWED_GITLAB_AUTHORS", ())
+    assert validate_comment_author({"author": {"username": "stranger"}}) is False
+
+
+def test_validate_comment_author_none_author(monkeypatch):
+    monkeypatch.setattr("config.GITLAB_NAMESPACE", "owner")
+    monkeypatch.setattr("config.ALLOWED_GITLAB_AUTHORS", ())
+    assert validate_comment_author({"author": None}) is False
+
+
+def test_validate_comment_author_missing_author(monkeypatch):
+    monkeypatch.setattr("config.GITLAB_NAMESPACE", "owner")
+    monkeypatch.setattr("config.ALLOWED_GITLAB_AUTHORS", ())
+    assert validate_comment_author({}) is False

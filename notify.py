@@ -314,7 +314,7 @@ def _build_npass_review_message(
             refresher_cmds = "Re-execute files/commands referenced in the previous pass to verify."
     else:
         view_cmds = [f"`glab issue view {n}{gitlab_ref}`" for n in issue_nums]
-        note_cmds = [f"`glab issue note-list {n}{gitlab_ref}`" for n in issue_nums]
+        note_cmds = [f"`{GOKRAX_CLI} get-comments --pj {project} --issue {n}`" for n in issue_nums]
         refresher_cmds = (
             "Check Issue body: " + ", ".join(view_cmds) + "\n"
             "Check previous review comments: " + ", ".join(note_cmds)

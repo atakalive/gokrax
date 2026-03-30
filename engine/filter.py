@@ -29,6 +29,22 @@ def validate_issue_author(data: dict) -> bool:
     return author.get("username") in _allowed_authors()
 
 
+def validate_comment_author(note: dict) -> bool:
+    """Check whether a note/comment author is in the allowed list.
+
+    Args:
+        note: GitLab API /notes endpoint element.
+              Reads note["author"]["username"].
+
+    Returns:
+        True if the author is allowed, False otherwise.
+    """
+    author = note.get("author")
+    if not isinstance(author, dict):
+        return False
+    return author.get("username") in _allowed_authors()
+
+
 def require_issue_author(data: dict) -> None:
     """Strict version of validate_issue_author. Raises on unauthorized author.
 

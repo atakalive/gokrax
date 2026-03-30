@@ -27,7 +27,7 @@ def transition(
         f"{p2_note}"
         f"【手順】\n"
         f"1. {fix_label}を読み、コードを修正する\n"
-        f"   指摘の確認: `glab issue view N --comments --per-page 100`\n"
+        f"   指摘の確認: `{GOKRAX_CLI} get-comments --pj {project} --issue N`\n"
         f"2. git commit する\n"
         f"3. gokrax に完了報告:\n"
         f"   {GOKRAX_CLI} code-revise --pj {project} --issue N [N...] --hash <commit> --summary \"<変更内容の簡潔なサマリー>\"\n\n"

@@ -31,7 +31,7 @@ def transition(
         f"{p2_note}"
         f"[Steps]\n"
         f"1. Read {fix_label} and update the Issue body (glab issue update)\n"
-        f"   View findings: `glab issue view N --comments --per-page 100`\n"
+        f"   View findings: `{GOKRAX_CLI} get-comments --pj {project} --issue N`\n"
         f"2. Report completion to gokrax:\n"
         f"   {GOKRAX_CLI} design-revise --pj {project} --issue N [N...] --summary \"<brief summary of changes>\"\n\n"
         f"If multiple reviewers raise the same P2/Suggestion, the finding is likely correct — fix it.\n"

@@ -1956,3 +1956,64 @@ def cmd_qedit(args):
         print(get_qstatus_text(entries, running=running))
     else:
         print("Queue empty")
+
+
+# ---------------------------------------------------------------------------
+# get-comments
+# ---------------------------------------------------------------------------
+
+
+def cmd_get_comments(args: argparse.Namespace) -> None:
+    """Retrieve filtered comments for a GitLab issue."""
+    from engine.filter import validate_comment_author
+
+    project = args.project
+    issue_num = args.issue
+
+    path = get_path(project)
+    data = load_pipeline(path)
+    gitlab = data.get("gitlab", "")
+
+    page = 1
+    all_notes: list[dict] = []
+    while True:
+        try:
+            result = subprocess.run(
+                [GLAB_BIN, "api",
+                 f"projects/:id/issues/{issue_num}/notes?per_page=100&sort=asc&page={page}",
+                 "-R", gitlab],
+                capture_output=True, text=True, timeout=GLAB_TIMEOUT, check=False,
+            )
+        except subprocess.TimeoutExpired:
+            print(f"Error: glab api timed out for issue #{issue_num}", file=sys.stderr)
+            sys.exit(1)
+        if result.returncode != 0:
+            print(f"Error: glab api failed (rc={result.returncode}): {result.stderr.strip()}", file=sys.stderr)
+            sys.exit(1)
+        try:
+            notes = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            print(f"Error: invalid JSON from glab api for issue #{issue_num}", file=sys.stderr)
+            sys.exit(1)
+        if not notes:
+            break
+        all_notes.extend(notes)
+        page += 1
+
+    filtered: list[dict] = []
+    for note in all_notes:
+        if note.get("system"):
+            continue
+        if not validate_comment_author(note):
+            continue
+        filtered.append(note)
+
+    for i, note in enumerate(filtered):
+        author = note.get("author")
+        username = author.get("username", "<unknown>") if isinstance(author, dict) else "<unknown>"
+        created_at = note.get("created_at", "<unknown>")
+        body = note.get("body") or ""
+        if i > 0:
+            print()
+        print(f"--- comment by {username} at {created_at} ---")
+        print(body)

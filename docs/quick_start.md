@@ -155,8 +155,8 @@ nano agents/config_pi.json
 ```json
 {
   "reviewer1": {
-    "provider": "google-gemini-cli",
-    "model": "gemini-3.1-pro-preview",
+    "provider": "openai-codex",
+    "model": "gpt-5.4",
     "thinking": "low",
     "tools": "read,bash,grep,find,ls"
   },

@@ -8,7 +8,7 @@ gokrax-queue.txt
 reviews/
 docs/archive/
 settings.py
-messages_custom/**/*.py
+messages_custom/
 TESTING_NOTES.md
 agents/*
 !agents/example/

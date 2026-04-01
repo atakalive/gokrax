@@ -35,6 +35,7 @@ def transition(
         f"2. git commit\n"
         f"3. Report completion to gokrax:\n"
         f"   {GOKRAX_CLI} code-revise --pj {project} --issue N [N...] --hash <commit> --summary \"<brief summary of changes>\"\n\n"
+        f"--summary: Ensure each entry is on a new line. \n"
         f"If multiple reviewers raise the same P2/Suggestion, the finding is likely correct — fix it.\n"
         f"Do not forget to include --hash <commit> when submitting.\n"
         f"If reviewer findings conflict with design decisions, create a new Issue to discuss the design decision.\n"

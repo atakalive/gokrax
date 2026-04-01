@@ -31,6 +31,7 @@ def transition(
         f"2. git commit する\n"
         f"3. gokrax に完了報告:\n"
         f"   {GOKRAX_CLI} code-revise --pj {project} --issue N [N...] --hash <commit> --summary \"<変更内容の簡潔なサマリー>\"\n\n"
+        f"--summary は項目ごとに改行すること。\n"
         f"複数レビュアーから同一のP2/Suggestionがある場合、その指摘は正しい可能性が高いため修正せよ。\n"
         f"--hash <commit> を忘れずに添付して送信すること。\n"
         f"レビュアー指摘と設計判断が相違する場合は、新規Issueを立てて設計判断を議論する場所を用意せよ。\n"

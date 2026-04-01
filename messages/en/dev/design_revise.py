@@ -34,6 +34,7 @@ def transition(
         f"   View findings: `{GOKRAX_CLI} get-comments --pj {project} --issue N`\n"
         f"2. Report completion to gokrax:\n"
         f"   {GOKRAX_CLI} design-revise --pj {project} --issue N [N...] --summary \"<brief summary of changes>\"\n\n"
+        f"--summary: Ensure each entry is on a new line. \n"
         f"If multiple reviewers raise the same P2/Suggestion, the finding is likely correct — fix it.\n"
         f"If reviewer findings conflict with design decisions, create a new Issue to discuss the design decision.\n"
         f"Note: If you are confident that a P0/P1 finding is incorrect, you can file a dispute before completing the revise:\n"

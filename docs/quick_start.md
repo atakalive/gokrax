@@ -44,6 +44,7 @@ cd gokrax
 pip install -r requirements.txt
 # "externally managed" エラーが出る場合:
 # pip install -r requirements.txt --break-system-packages
+# Python3, pip が無い場合: sudo apt update && sudo apt install -y python3.12 && sudo apt install python3-pip
 
 # homebrew (https://brew.sh/ja/)
 # 無ければインストール -> Next steps に従って PATH に追加
@@ -51,7 +52,7 @@ pip install -r requirements.txt
 
 # glab（GitLab CLI — https://gitlab.com/gitlab-org/cli/-/releases）
 brew install glab
-glab auth login  # Host: gitlab.com、接続は SSH を選択
+glab auth login  # Host: gitlab.com、default Git protocol: SSH を選択
 
 # WSL の場合: nvm でインストール
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash
@@ -63,7 +64,7 @@ npm install -g @mariozechner/pi-coding-agent
 # pi にパスが通っているか確認
 which pi
 # 見つからない場合: echo 'export PATH="$(npm -g prefix)/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
-pi    # 起動後、/login でプロバイダを選択してブラウザでログイン
+pi    # 起動後、/login でプロバイダを選択してブラウザでログインし、使用予定のモデルの応答確認する
 ```
 
 ## 3. gokrax コマンドの設定（必須）
@@ -98,8 +99,8 @@ nano settings.py
 
 ```python
 # --- 必須 ---
-GLAB_BIN = "/usr/bin/glab"              # which glab で確認
-PI_BIN = "/usr/bin/pi"                  # which pi で確認
+GLAB_BIN = "/usr/bin/glab"              # which glab で確認 (例: /home/linuxbrew/.linuxbrew/bin/glab)
+PI_BIN = "/usr/bin/pi"                  # which pi で確認 (例: /home/gokrax/.nvm/versions/node/v24.14.1/bin/pi)
 GOKRAX_CLI = "/home/you/.local/bin/gokrax"  # which gokrax で確認（手順 3 で作成したリンク）
 GITLAB_NAMESPACE = "your-username"      # gitlab.com/YOUR_NAMESPACE/...
 
@@ -112,20 +113,6 @@ DEFAULT_QUEUE_OPTIONS = {
     "keep_ctx_intra": True,
     "skip_test": True,
     "skip_assess": True,
-}
-
-# --- エージェント ---
-REVIEWERS = ["reviewer1"]
-IMPLEMENTERS = ["impl1"]
-
-REVIEWER_TIERS = {
-    "regular": ["reviewer1"],
-    "short-context": [],
-    "free": [],
-}
-
-REVIEW_MODES = {
-    "min": {"members": ["reviewer1"]},
 }
 ```
 
@@ -219,7 +206,7 @@ tail -f /tmp/gokrax-watchdog.log
 # DESIGN_PLAN → DESIGN_REVIEW → ... → DONE まで自動で進む
 
 # 完了したら成果物を確認
-cat /path/to/your/project/hello.py
+cat hello.py
 ```
 
 ## 次のステップ

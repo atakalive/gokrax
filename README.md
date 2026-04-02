@@ -103,11 +103,8 @@ gokrax itself is a simple collection of Python scripts — installation consists
 ### Installing gokrax
 
 ```bash
-# GitHub (stable)
+# GitHub
 git clone https://github.com/atakalive/gokrax.git
-
-# GitLab (development)
-git clone https://gitlab.com/atakalive/gokrax.git
 
 cd gokrax
 pip install -r requirements.txt

@@ -213,10 +213,10 @@ cat hello.py
 
 ## 次のステップ
 
-- **Discord 通知を追加** — bot 作成手順は [README: Discord 通知の設定](../README.md#discord-通知の設定) を参照
-- **レビュアーを増やす** — アンサンブルレビューで品質向上（[README: アンサンブルレビュー](../README.md#アンサンブルレビュー)）
+- **Discord 通知を追加** — bot 作成手順は [README: Discord 通知の設定](../README_ja.md#discord-通知の設定) を参照
+- **レビュアーを増やす** — アンサンブルレビューで品質向上（[README: アンサンブルレビュー](../README_ja.md#アンサンブルレビュー)）
 - **バッチ実行** — キューファイルで複数 Issue を連続処理（`gokrax qrun`）
-- **Spec Mode** — 仕様書から Issue 自動分割（[README: Spec Mode](../README.md#spec-mode仕様書パイプライン)）
+- **Spec Mode** — 仕様書から Issue 自動分割（[README: Spec Mode](../README_ja.md#spec-mode仕様書パイプライン)）
 - **ドメインリスク判定** — `DOMAIN_RISK.md` でプロジェクト固有のリスクを定義
 
 ## クリーンアップ

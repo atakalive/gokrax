@@ -1,206 +1,206 @@
 # gokrax
 
-GitLab Issue からマージまでを逐次実行する自動開発パイプライン。
+[English](README.md) | [日本語](README_ja.md)
 
-LLMエージェントによる設計・実装・レビューを状態機械で管理し、Issue を入力として受け取りレビュー済みのコードを出力する。
+An automated development pipeline that drives GitLab Issues through to merge.
 
-現在フィードバック収集中。
+Manages LLM agent-driven design, implementation, and review via a state machine — takes Issues as input and produces reviewed code as output.
 
-**リポジトリ:**
-- **GitHub（安定版）:** <https://github.com/atakalive/gokrax> — GitLab から不定期に同期
-- **GitLab（開発版）:** <https://gitlab.com/atakalive/gokrax> — 開発状況、[gokraxによるgokrax開発のデモ（日本語）](https://gitlab.com/atakalive/gokrax/-/work_items?sort=created_date&state=all&first_page_size=100)
+
+**Repositories:**
+- **GitHub (stable):** <https://github.com/atakalive/gokrax> — Manually synced from GitLab
+- **GitLab (development):** <https://gitlab.com/atakalive/gokrax> — Development activity, [demo of gokrax developing itself (Japanese)](https://gitlab.com/atakalive/gokrax/-/work_items?sort=created_date&state=all&first_page_size=100)
 
 ---
 
 ## Features
 
-- **全自動パイプライン** — Issue → 設計/レビュー → 実装 → レビュー → マージを状態機械で自動実行。複数 Issue の連続自動処理が可能
-- **アンサンブルレビュー** — 複数の LLM レビュアーを並走させ、異なるプロバイダ・モデル・レビュー視点でコード品質を担保
-- **リスク判定と保留** — プロジェクト固有のリスク定義に沿って、高リスク変更を自動で保留可能
-- **Spec Mode** — 仕様書のレビュー・改訂から Issue への分割・キュー自動生成までを一気通貫で実行
-- **Discord 通知・操作** — 進捗通知の受信と基本コマンド操作が場所を選ばず可能
-- **作業履歴の自動蓄積** — 設計議論・レビュー指摘・修正履歴が Issue・コメントとして残る。判断経緯の確認にも、参考資料としても使える
+- **Fully automated pipeline** — Automatically drives Issue → design/review → implementation → review → merge via a state machine. Supports sequential processing of multiple Issues
+- **Ensemble review** — Runs multiple LLM reviewers in parallel across different providers, models, and review perspectives to improve code quality
+- **Risk assessment and hold** — Can automatically hold high-risk changes based on project-specific risk definitions
+- **Spec Mode** — Runs spec review and revision through to Issue decomposition and automatic queue generation in a single pass
+- **Discord notifications and control** — Receive progress notifications and execute basic commands from anywhere
+- **Automatic work history accumulation** — Design discussions, review comments, and revision history are preserved as Issues and comments, serving as both an audit trail and reference material
 
 **→ [Quick Start](docs/quick_start.md)**
 
 ---
 
-## 目次
+## Table of Contents
 
-- [概要](#概要)
-- [前提条件](#前提条件)
-- [セットアップ](#セットアップ)
-- [基本的な使い方](#基本的な使い方)
-- [パイプラインの状態遷移](#パイプラインの状態遷移)
-- [アンサンブルレビュー](#アンサンブルレビュー)
-- [設定](#設定)
-- [Spec Mode（仕様書パイプライン）](#spec-mode仕様書パイプライン)
-- [ディレクトリ構成](#ディレクトリ構成)
-- [アンインストール](#アンインストール)
+- [Overview](#overview)
+- [Requirements](#requirements)
+- [Setup](#setup)
+- [Basic Usage](#basic-usage)
+- [Pipeline State Transitions](#pipeline-state-transitions)
+- [Ensemble Review](#ensemble-review)
+- [Configuration](#configuration)
+- [Spec Mode](#spec-mode)
+- [Directory Structure](#directory-structure)
+- [Uninstallation](#uninstallation)
 - [Limitations](#limitations)
-- [今後の課題](#今後の課題)
-- [ライセンス](#ライセンス)
+- [Future Work](#future-work)
+- [License](#license)
 
 ---
 
-## 概要
+## Overview
 
-gokrax は、自動開発パイプラインによる生成コードの品質にアプローチする。たとえ同じようなバグであっても、その重大さはプロジェクトごとに異なる。そうしたドメイン固有のリスクに応じて、gokrax は許容できない問題を含むコードが導入される頻度を減らすことを目指す。具体的には、複数の専門領域にまたがるプロジェクトを同時に推進する開発者が、すべてのコードを常に自分で把握し続けなくても、致命的なバグの混入を防げるようにするためのツールである。
+gokrax approaches the quality of code produced by automated development pipelines. Even similar bugs can vary in severity across projects. By accounting for such domain-specific risks, gokrax aims to reduce the frequency of unacceptable issues being introduced into the codebase. Specifically, it is a tool designed to prevent critical bugs from slipping through, even when a developer working across multiple specialized domains cannot constantly keep track of all code themselves.
 
-使用者が主にやることは、機能追加等の提起と、その実現の難易度・重要性に対する力加減の調整（投入モデル選択など）の2点である。
+What the user primarily does is raise feature requests and similar proposals, and adjust the effort level for each (e.g., selecting which models to deploy) based on the difficulty and importance of the task.
 
-gokraxは以下のパイプラインを自動で実行する：
+gokrax automates the following pipeline:
 
 ```
-Issue → 設計計画 → 設計レビュー → 実装 → コードレビュー → マージ
+Issue → Design Plan → Design Review → Implementation → Code Review → Merge
 ```
 
-各段階は LLM エージェントが実行し、作業完了報告が集まって遷移条件が満たされると次の段階へ自動で進む。
+Each stage is executed by LLM agents, and the pipeline advances to the next stage automatically once completion reports are collected and transition conditions are met.
 
-レビュー段階で重大な指摘（P0/P1）が出た場合は修正ループに入り、必要数（基本は全員分）の承認を得るまで修正する。修正ループの反復回数が規定数に達した場合にはパイプラインを停止させる。
+If critical issues (P0/P1) are raised during review, the pipeline enters a revision loop, iterating until the required number of approvals (all reviewers by default) is obtained. If the revision loop reaches the maximum number of iterations, the pipeline halts.
 
-## 動作環境
+## Requirements
 
-- **OS**: Linux（WSL2 含む）、macOS
-- **操作**: Discord 経由で OS を問わず可能
-- **Python**: 3.11 以上。外部依存: `requests`, `PyYAML`
-- **エージェント基盤**: [openclaw](https://github.com/openclaw/openclaw) または [pi-coding-agent](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent)。設計・修正・レビューを実行する LLM エージェントの認証・プロンプト送出のために使用
-- **GitLab**: Issue トラッカーおよびコードホスティング。管理下プロジェクトへの git push 権限が必要（SSH 鍵 または HTTPS トークン）
-- **[glab CLI](https://gitlab.com/gitlab-org/cli)**: GitLab 操作（Issue 取得/編集、コメント取得/投稿、Issue close）に使用
-- **[Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code)**: 実装作業エージェントとして内部で呼び出し（推奨）
-- **Discord bot token**: 進捗通知用（推奨）。進捗監視用GUIは [WatcherB](https://gitlab.com/atakalive/WatcherB) を参照
+- **OS**: Linux (including WSL2), macOS
+- **Remote operation**: Possible via Discord regardless of OS
+- **Python**: 3.11 or higher. External dependencies: `requests`, `PyYAML`
+- **Agent framework**: [openclaw](https://github.com/openclaw/openclaw) or [pi-coding-agent](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent). Used for LLM agent authentication and prompt dispatch for design, revision, and review
+- **GitLab**: Issue tracker and code hosting. Requires git push access to managed projects (SSH key or HTTPS token)
+- **[glab CLI](https://gitlab.com/gitlab-org/cli)**: Used for GitLab operations (Issue retrieval/editing, comment retrieval/posting, Issue closing)
+- **[Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code)**: Called internally as the implementation agent (recommended)
+- **Discord bot token**: For progress notifications (recommended). For a progress monitoring GUI, see [WatcherB](https://github.com/atakalive/WatcherB)
 
-### LLM プロバイダ
+### LLM Providers
 
-gokrax は特定の LLM プロバイダに依存せず、openclaw、pi が認証可能なプロバイダは使用可能：
+gokrax is not tied to any specific LLM provider — any provider that openclaw or pi can authenticate with is supported:
 
-- Anthropic（Claude）
-- Google（Gemini）
-- OpenAI（ChatGPT）
-- GitHub（GitHub-Copilot） etc.
-- ローカルモデル（llama.cpp, vLLM 等、設定が必要）
+- Anthropic (Claude)
+- Google (Gemini)
+- OpenAI (ChatGPT)
+- GitHub (GitHub Copilot) etc.
+- Local models (llama.cpp, vLLM, etc. — requires configuration)
 
-実装エージェントとレビュアーエージェントにそれぞれ異なるプロバイダ・モデル・レビュー視点を割り当てられる。
+Different providers, models, and review perspectives can be assigned to implementation agents and reviewer agents independently.
 
-### ハードウェア要件
+### Hardware Requirements
 
-gokrax 自体の計算負荷はほぼ無し（状態管理とプロセス起動のみ）。
+gokrax itself has virtually no computational overhead (state management and process spawning only).
 
-## セットアップ
+## Setup
 
-最小構成で素早く試したい場合は **[Quick Start](docs/quick_start.md)** を参照。
+For a minimal setup to get started quickly, see **[Quick Start](docs/quick_start.md)**.
 
-前提:
-- GitLab アカウントと SSH 鍵の登録（パイプラインが自動で git push するため。手順は [Quick Start](docs/quick_start.md#ssh-鍵の登録gitlab) を参照）
-- いずれかの LLM プロバイダのアカウント
+Prerequisites:
+- A GitLab account with an SSH key registered (required because the pipeline automatically runs git push — see [Quick Start](docs/quick_start.md#registering-an-ssh-key-gitlab) for instructions)
+- An account with any LLM provider
 
-セットアップの各セクションで必要な設定を完了した後、以下を実施することで gokrax が利用可能となる。
+After completing the configuration in each section below, gokrax will be ready to use.
 
-- GitLab のプロジェクト作成とパス設定、ローカルリポジトリのパス設定
-- gokraxへの既存プロジェクト追加
-- Discord 通知先チャンネル設定
-- レビュアー、実装者として使うエージェントの構成
-- watchdog の設定（crontab）
+gokrax itself is a simple collection of Python scripts — installation consists only of `git clone` and installing dependencies. To uninstall, remove the crontab entry used for state transition monitoring (described later).
 
-gokrax 自体はシンプルな Python スクリプト群であり、インストール作業は `git clone` と依存パッケージのインストールのみである。アンインストール時は、状態遷移条件監視用のcrontabを削除する（後述）。
-
-### gokrax のインストール
+### Installing gokrax
 
 ```bash
+# GitHub (stable)
+git clone https://github.com/atakalive/gokrax.git
+
+# GitLab (development)
 git clone https://gitlab.com/atakalive/gokrax.git
+
 cd gokrax
 pip install -r requirements.txt
-# "externally managed" エラーが出る場合: pip install -r requirements.txt --break-system-packages
-python3 update_settings.py   # settings.example.py から settings.py を生成
-# settings.py を編集（agent設定, DISCORD設定等）
+# If you get an "externally managed" error: pip install -r requirements.txt --break-system-packages
+python3 update_settings.py   # Generates settings.py from settings.example.py
+# Edit settings.py (agent config, Discord settings, etc.)
 
-# PATH の通った場所にシンボリックリンクを作成（必須: エージェントが内部で gokrax コマンドを呼び出す）
+# Create a symlink on PATH (required: agents invoke the gokrax command internally)
 chmod +x gokrax.py
 mkdir -p ~/.local/bin
 ln -s "$(realpath gokrax.py)" ~/.local/bin/gokrax
-# ~/.local/bin が PATH にない場合: echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
+# If ~/.local/bin is not on PATH: echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
 ```
 
-`update_settings.py` は初回実行時に `settings.example.py` を `settings.py` にコピーする。アップデート後（`git pull`）に再実行すると、新しいバージョンで追加された設定項目だけを `settings.py` の末尾に追記する（既存の設定は変更しない）。
+`update_settings.py` copies `settings.example.py` to `settings.py` on the first run. When re-run after an update (`git pull`), it appends only newly added settings to the end of `settings.py` (existing settings are not modified).
 
-設定ファイル（`settings.py`）の主要項目については[設定](#設定)セクションを参照。
+For details on key configuration items in `settings.py`, see the [Configuration](#configuration) section.
 
-### エージェント基盤のインストール
+### Installing an Agent Framework
 
-gokrax は、エージェントのプロバイダ認証・プロンプト送出のためのバックエンドを必要とする。下記いずれか、または併用も可能。
+gokrax requires a backend for agent provider authentication and prompt dispatch. Either of the following can be used, or both in combination:
 
 - openclaw
 - pi-coding-agent
 
-ユーザーの環境で既に openclaw が動作しているなら、そのまま openclaw を使用するのが簡単である。そうでなければ pi のほうがセットアップが簡単である。
+If openclaw is already running in your environment, using it directly is the easiest option. Otherwise, pi is simpler to set up.
 
-なお、gokrax に参加するエージェントは最低でも 2体は必要となる（実装者、レビュアー）。
+Note that gokrax requires at least 2 agents (an implementer and a reviewer).
 
-### openclaw の準備
+### Setting Up openclaw
 
-公式ページを参考に、openclaw エージェントの認証を完了する。gokrax 参加エージェントには read, exec 権限を付与する（`gokrax review` などのコマンドを使用するため）。
+Follow the official documentation to complete openclaw agent authentication. Grant read and exec permissions to agents participating in gokrax (required for commands like `gokrax review`).
 
 openclaw: <https://github.com/openclaw/openclaw>
 
-### pi の準備
+### Setting Up pi
 
-pi は認証回りが非常に簡単。軽量であり、gokrax は最小構成となる。ただし現状では作業中のエージェントに直接話しかけて介入できない。
+pi has a very simple authentication process. It is lightweight, making for a minimal gokrax setup. However, it currently does not support direct intervention by talking to agents during their work.
 
-使用可能なプロバイダは、Anthropic, GitHub, Google, OpenAI である。
+Supported providers: Anthropic, GitHub, Google, OpenAI.
 
 pi-coding-agent: <https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent>
 
 ```bash
-# WSL の場合は先に nvm で Node.js をインストールする（Windows 側の npm が使われるのを防ぐ）
+# On WSL, install Node.js via nvm first (to prevent the Windows npm from being used)
 # curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash && source ~/.bashrc && nvm install --lts
 
 npm install -g @mariozechner/pi-coding-agent
 ```
 
-#### LLM プロバイダの認証
+#### LLM Provider Authentication
 
-pi を起動してプロバイダを認証する。
+Launch pi and authenticate with your provider:
 ```bash
 pi
 ```
 
-使用するプロバイダを認証する。
+Authenticate with the provider you want to use:
 ```
 /login
 ```
 
-#### エージェントプロファイルの作成
+#### Creating Agent Profiles
 
-各エージェントのプロファイルを `agents/{name}/` に作成し、`agents/example/` からファイルをコピーする。エージェントの役割や指針はここに記述する：
+Create a profile for each agent under `agents/{name}/`, copying files from `agents/example/`. Agent roles and guidelines are defined here:
 
 ```
 agents/
 ├── reviewer1/
-│   ├── IDENTITY.md       # 名前など
-│   ├── INSTRUCTION.md    # 役割・ルール・レビュー指針
-│   ├── MEMORY.md         # 教訓・既知の問題
-│   ├── AGENTS.md         # IDENTITY + INSTRUCTION + MEMORY で自動生成
-│   └── .agents_hash      # ファイル内容更新の検出用（自動生成）
+│   ├── IDENTITY.md       # Name, etc.
+│   ├── INSTRUCTION.md    # Role, rules, review guidelines
+│   ├── MEMORY.md         # Lessons learned, known issues
+│   ├── AGENTS.md         # Auto-generated from IDENTITY + INSTRUCTION + MEMORY
+│   └── .agents_hash      # Used to detect content changes (auto-generated)
 ├── reviewer2/
 │   └── ...
 └── impl1/
     └── ...
 ```
 
-`IDENTITY.md`, `INSTRUCTION.md`, `MEMORY.md` から `AGENTS.md` が自動生成される（内容更新時のみ）。`AGENTS.md` を直接編集する必要はない。
+`AGENTS.md` is auto-generated from `IDENTITY.md`, `INSTRUCTION.md`, and `MEMORY.md` (only when content changes). There is no need to edit `AGENTS.md` directly.
 
-#### エージェントごとのモデル設定
+#### Per-Agent Model Configuration
 
-`agents/config_pi.json` でエージェントごとにプロバイダ・モデル・thinking レベル・使用ツールを設定する。レビュアーも gokrax に完了報告を行うため、`bash` が必要（`INSTRUCTION.md` で書き込み禁止の指示はしてある）。実装者の使用ツール指定は不要（=> 全て許可）。
+Configure the provider, model, thinking level, and available tools for each agent in `agents/config_pi.json`. Reviewers also need `bash` to report completion to gokrax (`INSTRUCTION.md` instructs them not to write to the repository). No tool specification is needed for implementers (all tools are permitted).
 
-`pi --list-models` で現在有効なプロバイダ・モデルの一覧を出せる。
+Run `pi --list-models` to list currently available providers and models.
 
-設定例:
+Example configuration:
 ```json
 {
   "reviewer1": {
     "provider": "google-gemini-cli",
-    "model": "gemini-3.1-pro-preview",
+    "model": "gemini-2.5-pro",
     "thinking": "low",
     "tools": "read,bash,grep,find,ls"
   },
@@ -218,101 +218,101 @@ agents/
 }
 ```
 
-### glab CLI のインストール
+### Installing glab CLI
 
-GitLab の Issue 操作に使用する。
+Used for GitLab Issue operations.
 
 ```bash
-# Homebrew（未インストールの場合 — https://brew.sh）
+# Homebrew (if not installed — https://brew.sh)
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-# インストール後、表示される Next steps に従って PATH に追加すること
+# After installation, follow the displayed Next steps to add it to PATH
 
-brew install glab        # apt install の glab はバージョンが古く動作しない
-glab auth login          # GitLab アカウントで認証
+brew install glab        # apt install glab installs an outdated version that does not work
+glab auth login          # Authenticate with your GitLab account
 ```
 
-詳細: <https://gitlab.com/gitlab-org/cli>
+Details: <https://gitlab.com/gitlab-org/cli>
 
-### Claude Code CLI のインストール（推奨）
+### Installing Claude Code CLI (Recommended)
 
-実装フェーズで Claude Code CLI を使用する。バッチ実行時のオプションで ``--no-cc`` 指定すれば実装者が直接実装するので Claude Code 不使用での動作も可能。
+Claude Code CLI is used during the implementation phase. If you specify `--no-cc` in batch execution options, the implementer agent handles implementation directly, so operation without Claude Code is possible.
 
 ```bash
 npm install -g @anthropic-ai/claude-code
-claude /login   # Anthropic アカウントで認証
+claude /login   # Authenticate with your Anthropic account
 ```
 
-詳細: <https://docs.anthropic.com/en/docs/claude-code>
+Details: <https://docs.anthropic.com/en/docs/claude-code>
 
-### Discord 通知の設定（推奨）
+### Discord Notification Setup (Recommended)
 
-gokrax は進捗通知を Discord チャンネルに投稿する（Discord API を直接使用）。Discord を使用しない最小構成では、ログファイルの表示で進捗確認する（`tail -f /tmp/gokrax-watchdog.log`）。
+gokrax posts progress notifications to a Discord channel (using the Discord API directly). For a minimal setup without Discord, monitor progress via log files (`tail -f /tmp/gokrax-watchdog.log`).
 
-1. Discord サーバーに通知用チャンネルを作成する。  
-   サーバーがまだない場合: [Discord](https://discord.com/) を開き、左サイドバーの「+」→「オリジナルを作成」→「自分と友達のため」→ サーバー名を入力して作成。  
-   サーバー内にテキストチャンネル（例: `#gokrax`）を作成する。チャンネル一覧の「+」または右クリック →「チャンネルを作成」→ テキストチャンネルを選択。
-2. 通知用の Discord bot を作成する（既存の bot を流用してもよい）。  
-   新規作成の場合: [Discord Developer Portal](https://discord.com/developers/applications) を開き、「New Application」→ 任意の名前（例: `gokrax-notify`）で作成。  
-   - 左メニュー「Bot」→「Privileged Gateway Intents」セクションで **Message Content Intent** をオンにする（マージ承認時にユーザーの返信内容を読み取るために必要）。  
-   - 同じ「Bot」ページで「Reset Token」→ bot token を取得 → `settings.py` の `DISCORD_BOT_TOKEN` に設定する。
-   - 左メニュー「OAuth2」→「OAuth2 URL Generator」→ SCOPES で `bot` にチェック → BOT PERMISSIONS で `Send Messages`、`Read Message History` にチェック → 生成された URL をブラウザで開き、bot をサーバーに招待する。
-3. bot のユーザー ID を取得する。
-   - ID コピーには Discord の開発者モードが必要なので、画面左下のユーザー設定 →「詳細設定」→「開発者モード」をオンにする。
-   - サーバーのメンバー一覧から bot 名を右クリック →「ユーザー ID をコピー」→ `settings.py` の `ANNOUNCE_BOT_USER_ID` に設定する。
-4. 通知先チャンネルの ID をチャンネル名の右クリックからコピーして、`settings.py` の `DISCORD_CHANNEL` に設定する。
+1. Create a notification channel in your Discord server.
+   If you don't have a server yet: Open [Discord](https://discord.com/), click "+" in the left sidebar → "Create My Own" → "For me and my friends" → enter a server name and create it.
+   Create a text channel (e.g., `#gokrax`) in the server. Click "+" in the channel list or right-click → "Create Channel" → select Text Channel.
+2. Create a Discord bot for notifications (you can also reuse an existing bot).
+   To create a new one: Open the [Discord Developer Portal](https://discord.com/developers/applications), click "New Application" → name it (e.g., `gokrax-notify`).
+   - In the left menu, go to "Bot" → under "Privileged Gateway Intents", enable **Message Content Intent** (required for reading user replies during merge approval).
+   - On the same "Bot" page, click "Reset Token" → copy the bot token → set it as `DISCORD_BOT_TOKEN` in `settings.py`.
+   - In the left menu, go to "OAuth2" → "OAuth2 URL Generator" → under SCOPES check `bot` → under BOT PERMISSIONS check `Send Messages` and `Read Message History` → open the generated URL in your browser to invite the bot to your server.
+3. Get the bot's user ID.
+   - Copying IDs requires Discord Developer Mode: go to User Settings (bottom-left gear icon) → "Advanced" → enable "Developer Mode".
+   - Right-click the bot's name in the server member list → "Copy User ID" → set it as `ANNOUNCE_BOT_USER_ID` in `settings.py`.
+4. Right-click the notification channel name to copy its ID, and set it as `DISCORD_CHANNEL` in `settings.py`.
 
-### 進捗監視用のdiscord通信ソフトのインストール（オプション）
+### Installing a Discord Communication Tool for Progress Monitoring (Optional)
 
-discord #gokrax channel を読み書きするための簡素な常駐ツール。gokrax 状況確認・操作のために discord 画面を切り替える必要が無くなる。
+A lightweight resident tool for reading and writing to the Discord #gokrax channel. Eliminates the need to switch to the Discord window for checking gokrax status and issuing commands.
 
-WatcherB: <https://gitlab.com/atakalive/WatcherB>
+WatcherB: <https://github.com/atakalive/WatcherB>
 
-1. WatcherB の説明に従ってインストールし、上記の通知用とは別の discord bot を作成する。
-2. WatcherB から discord チャンネルへ gokrax コマンドを投稿する場合、bot user IDを`settings.py` COMMAND_BOT_USER_ID に張り付ける。  
+1. Install WatcherB following its instructions, and create a separate Discord bot from the notification bot above.
+2. If you want to post gokrax commands to the Discord channel from WatcherB, set the bot's user ID as `COMMAND_BOT_USER_ID` in `settings.py`.
 
 
-## 基本的な使い方
+## Basic Usage
 
-### 1. GitLab Issue を作成
+### 1. Create a GitLab Issue
 
-Issue 本文に実装したい内容を記述する。担当エージェントが Issue 本文を読み、設計計画を詳細化する。
+Describe what you want implemented in the Issue body. The assigned agent reads the Issue body and elaborates a design plan.
 
-### 2. バッチ開始
+### 2. Start a Batch
 
 ```bash
-# Issue 番号を指定して開始
-python3 gokrax.py start --project MyProject --issue 1 2 3 --mode standard
+# Start with specific Issue numbers
+gokrax start --project MyProject --issue 1 2 3 --mode lite
 
-# GitLab の open Issue 全件を自動取得して開始
-python3 gokrax.py start --project MyProject --mode standard
+# Automatically fetch all open Issues from GitLab and start
+gokrax start --project MyProject --mode lite
 ```
 
-`start` は以下を一括実行する：
-- 指定 Issue のトリアージ（バッチへの投入）
-- `DESIGN_PLAN` 状態への遷移
-- watchdog の有効化
-- 実際には、毎回コマンド実行は煩雑なのでキューファイルを作成してキュー実行させるのが簡単（後述）。
+`start` executes the following in sequence:
+- Triage of specified Issues (submission to the batch)
+- Transition to `DESIGN_PLAN` state
+- Enabling the watchdog
+- In practice, running commands each time is cumbersome, so creating a queue file and using queue execution is simpler (described below).
 
-### 3. 以降は自動
+### 3. Everything After Is Automatic
 
-watchdog が以下を自動で駆動する：
+The watchdog automatically drives the following:
 
-1. `IDLE` → `INITIALIZE`（エージェント初期化等）
-2. `DESIGN_PLAN` → `DESIGN_REVIEW`（レビュアーに自動通知）
-3. レビュー結果に応じて `DESIGN_APPROVED` or `DESIGN_REVISE`
-4. `DESIGN_APPROVED` → `IMPLEMENTATION`（実装エージェントが自動起動）
-5. `IMPLEMENTATION` → `CODE_REVIEW`（レビュアーに自動通知）
-6. レビュー結果に応じて `CODE_APPROVED` or `CODE_REVISE`
-7. `CODE_APPROVED` → `MERGE_SUMMARY_SENT`（Discord にサマリー投稿）
-8. 人間が「OK」とリプライ or 自動マージ → `DONE`（git push + Issue close）
-9. キュー実行中は (1) に戻る。
+1. `IDLE` → `INITIALIZE` (agent initialization, etc.)
+2. `DESIGN_PLAN` → `DESIGN_REVIEW` (reviewers are notified automatically)
+3. Based on review results: `DESIGN_APPROVED` or `DESIGN_REVISE`
+4. `DESIGN_APPROVED` → `IMPLEMENTATION` (implementation agent starts automatically)
+5. `IMPLEMENTATION` → `CODE_REVIEW` (reviewers are notified automatically)
+6. Based on review results: `CODE_APPROVED` or `CODE_REVISE`
+7. `CODE_APPROVED` → `MERGE_SUMMARY_SENT` (summary posted to Discord)
+8. Human replies "OK" or auto-merge → `DONE` (git push + Issue close)
+9. During queue execution, returns to (1).
 
-各エージェントは ``gokrax plan-done ...`` とか ``gokrax review ...`` などのコマンドを実行することでシステムに作業完了報告する。完了報告により遷移条件が整えば状態遷移する。特に問題がなければ、1件あたり30分程度で完了する。
+Each agent reports completion by running commands like `gokrax plan-done ...` or `gokrax review ...`. State transitions occur when completion reports satisfy the transition conditions. Under normal circumstances, each Issue takes about 30 minutes to complete.
 
-コンテキストのリセット判定は、INITIALIZE, IMPLEMENTATION で行われる。実行時の設定により、実行バッチ内で継続、バッチ間で継続を指定できる。
+Context reset decisions are made at `INITIALIZE` and `IMPLEMENTATION`. Execution settings allow specifying whether to maintain context within a batch and/or across batches.
 
 
-## パイプラインの状態遷移
+## Pipeline State Transitions
 
 ```
 IDLE → INITIALIZE → DESIGN_PLAN → DESIGN_REVIEW ⇄ DESIGN_REVISE
@@ -327,218 +327,217 @@ IDLE → INITIALIZE → DESIGN_PLAN → DESIGN_REVIEW ⇄ DESIGN_REVISE
 ```
 [State Diagram (png)](docs/state-diagram.png)
 
-設計の詳細は [docs/architecture.md](docs/architecture.md) を参照。
+For design details, see [docs/architecture.md](docs/architecture.md).
 
-- `ASSESSMENT` は設計承認後の判定ステートで、5段階のコード複雑性判定と、3段階のドメインリスク判定を行う。`--exclude-high-risk` / `--exclude-any-risk` 指定時はリスク判定結果に従って Issue をスキップする。（デフォルト: `skip-assess: True`）
-- `CODE_TEST` は現在実験段階。テストをパスするように修正してから `CODE_REVIEW` に遷移する。`CODE_REVISE` 後も、テストをパスしてから再レビューに遷移する。（デフォルト: `skip_test: True`）
-- `DONE` → `IDLE` 遷移後、キュー実行時は自動的に次バッチへ進む。
+- `ASSESSMENT` is a judgment state after design approval that performs a 5-level code complexity assessment and a 3-level domain risk assessment. When `--exclude-high-risk` / `--exclude-any-risk` is specified, Issues are skipped based on the risk assessment result. (Default: `skip-assess: True`)
+- `CODE_TEST` is currently experimental. It ensures tests pass before transitioning to `CODE_REVIEW`. After `CODE_REVISE`, tests must also pass before returning to review. (Default: `skip_test: True`)
+- After `DONE` → `IDLE` transition, queue execution automatically proceeds to the next batch.
 
-各状態にはタイムアウトが設定されている（`settings.py` の `BLOCK_TIMERS`）：
+Each state has a timeout configured in `settings.py` (`BLOCK_TIMERS`):
 
-| 状態 | タイムアウト初期値 |
-|------|----------------------|
-| `DESIGN_PLAN` | 30 分 |
-| `DESIGN_REVIEW` | 60 分 |
-| `DESIGN_REVISE` | 30 分 |
-| `ASSESSMENT` | 20 分 |
-| `IMPLEMENTATION` | 120 分 |
-| `CODE_TEST` | 10 分 |
-| `CODE_TEST_FIX` | 60 分 |
-| `CODE_REVIEW` | 60 分 |
-| `CODE_REVISE` | 30 分 |
+| State | Default Timeout |
+|-------|-----------------|
+| `DESIGN_PLAN` | 30 min |
+| `DESIGN_REVIEW` | 60 min |
+| `DESIGN_REVISE` | 30 min |
+| `ASSESSMENT` | 20 min |
+| `IMPLEMENTATION` | 120 min |
+| `CODE_TEST` | 10 min |
+| `CODE_TEST_FIX` | 60 min |
+| `CODE_REVIEW` | 60 min |
+| `CODE_REVISE` | 30 min |
 
-初期値でほぼタイムアウトしないが、`extend` コマンドで期限の延長も可能（最大2回）。
+These defaults rarely trigger timeouts, but the `extend` command can extend deadlines (up to 2 times).
 
-修正ループ（REVISE → REVIEW）の最大回数は `MAX_REVISE_CYCLES`（初期値: 4）で制限される。
+The maximum number of revision loops (REVISE → REVIEW) is limited by `MAX_REVISE_CYCLES` (default: 4).
 
-### BLOCKED 状態への遷移と復帰
+### Transition to BLOCKED State and Recovery
 
-以下の場合、パイプラインは `BLOCKED` 状態に遷移して停止する：
+The pipeline transitions to `BLOCKED` and halts in the following cases:
 
-- **タイムアウト超過**: 各状態の `BLOCK_TIMERS` を超えても完了報告が集まりきらない場合。
-- **修正ループ上限到達**: レビューで P0 または P1 指摘が出て修正を繰り返し、`MAX_REVISE_CYCLES`（初期値: 4）に達した場合。設計レビュー・コードレビューの両方に適用。
-- **テスト修正上限到達**: `CODE_TEST_FIX` が `MAX_TEST_RETRY`（初期値: 4）に達した場合。
+- **Timeout exceeded**: When completion reports are not fully collected within the `BLOCK_TIMERS` for a given state.
+- **Revision loop limit reached**: When P0 or P1 issues are raised in review and revisions reach `MAX_REVISE_CYCLES` (default: 4). Applies to both design review and code review.
+- **Test fix limit reached**: When `CODE_TEST_FIX` reaches `MAX_TEST_RETRY` (default: 4).
 
-`BLOCKED` からの復帰手順（`DESIGN_REVIEW` -> `BLOCKED` を想定）：
-
-```bash
-# 1. 状態を戻す (問題なければ DESIGN_APPROVED 遷移も可)
-python3 gokrax.py transition --to DESIGN_REVIEW --pj MyProject --force
-
-# 2. Watchdog再起動
-python3 gokrax.py enable --pj MyProject
-```
-
-全プロジェクトの状態を `IDLE` にする場合は、
-```bash
-python3 gokrax.py reset
-```
-
-### レビュアーが応答不能となった場合の対応
-
-レートリミット等でレビュアーが作業継続できなくなった場合は、``exclude`` コマンドで除外することができる。
+Recovery from `BLOCKED` (assuming `DESIGN_REVIEW` → `BLOCKED`):
 
 ```bash
-# 実行中バッチから reviewer1 を除外
-python3 gokrax.py exclude --pj MyProject --add reviewer1
+# 1. Restore the state (can also transition to DESIGN_APPROVED if appropriate)
+gokrax transition --to DESIGN_REVIEW --pj MyProject --force
+
+# 2. Restart the watchdog
+gokrax enable --pj MyProject
+```
+
+To reset all projects to `IDLE`:
+```bash
+gokrax reset
+```
+
+### Handling Unresponsive Reviewers
+
+If a reviewer becomes unavailable (e.g., due to rate limits), it can be excluded using the `exclude` command:
+
+```bash
+# Exclude reviewer1 from the current batch
+gokrax exclude --pj MyProject --add reviewer1
 ```
 
 
-## アンサンブルレビュー
+## Ensemble Review
 
-gokrax のレビューは、複数の LLM レビュアーを並走させるアンサンブル方式を採用している。
+gokrax employs an ensemble approach to review, running multiple LLM reviewers in parallel.
 
-### レビュー戦略
+### Review Strategy
 
-開発目的に沿ってレビューの網羅性を高めるため、3つの方法を使用できる。
+Three methods are available to increase review coverage in line with development goals:
 
-1. 異なるモデル使用により、各モデルの癖や盲点を補完する  
-   → 複数プロバイダの LLM を併用
+1. Use different models to compensate for each model's biases and blind spots
+   → Combine LLMs from multiple providers
 
-2. レビュー観点を直交させる（使用者が設定）  
-   → エージェントごと、プロジェクトごとの注入スキル切り替え。LLM エージェントのメモリ調整（バックエンド側）
+2. Orthogonalize review perspectives (user-configured)
+   → Per-agent and per-project skill injection, LLM agent memory tuning (backend-side)
 
-3. 反復レビューにより見落としを減らす  
-   → N-pass レビュー機能
-
-
-### 小規模・ローカルモデルの活用
-
-レビュアー枠では、大規模汎用モデルではなく、ドメイン知識偏重・外部知識を参照する小規模モデルであっても有用である可能性がある。gokraxは特定目的のレビューシステムへの組み込みという小規模モデルの応用先を提示する。
+3. Reduce oversights through iterative review
+   → N-pass review feature
 
 
-## Spec Mode（仕様書パイプライン）
+### Leveraging Small and Local Models
 
-新規プロジェクトの開始や、大きな機能の実装にあたって仕様書をレビュー・改訂するモード。仕様書の品質を担保してから Issue への分割・タスクキュー作成（力加減の調整）に進む。
+In the reviewer role, even small models that are biased toward domain knowledge or that reference external knowledge — rather than large general-purpose models — may prove useful. gokrax presents an application of small models: integration into purpose-specific review systems.
+
+
+## Spec Mode
+
+A mode for reviewing and revising specifications when starting a new project or implementing a large feature. Ensures specification quality before proceeding to Issue decomposition and task queue creation (effort calibration).
 
 ```
-仕様書投入 → SPEC_REVIEW ⇄ SPEC_REVISE → SPEC_APPROVED
+Spec input → SPEC_REVIEW ⇄ SPEC_REVISE → SPEC_APPROVED
   → ISSUE_SUGGESTION → ISSUE_PLAN → QUEUE_PLAN → SPEC_DONE
 ```
 
 ```bash
-python3 gokrax.py spec start \
+gokrax spec start \
   --project MyProject \
   --spec docs/feature-spec.md \
   --implementer agent-name \
-  --review-mode standard
+  --review-mode full
 ```
 
-仕様書はレビュアーのフィードバックを受けて改訂を繰り返し、全員が承認すると Issue 分割フェーズに入る。Issue 分割案の生成、実装順序の決定、キュー生成までを自動で行う。
+The specification undergoes iterative revision based on reviewer feedback. Once all reviewers approve, it enters the Issue decomposition phase, where Issue breakdown proposals, implementation ordering, and queue generation are performed automatically.
 
-`--auto-continue` を指定すると、承認後の人間確認ステップをスキップできる。
+Use `--auto-continue` to skip human confirmation steps after approval.
 
-`--auto-qrun` を指定すると、キュー生成後に開発パイプラインへ自動進行する。
+Use `--auto-qrun` to automatically proceed to the development pipeline after queue generation.
 
+For details, see [docs/spec_mode_spec.md](docs/spec_mode_spec.md).
 
-詳細は [docs/spec_mode_spec_ja.md](docs/spec_ja.md) を参照。
+## Directory Structure
 
-## ディレクトリ構成
-
-デフォルトのパイプラインディレクトリ（`settings.py` の `PIPELINES_DIR` で変更可能）：
+Default pipeline directory (configurable via `PIPELINES_DIR` in `settings.py`):
 
 ```
-~/.openclaw/shared/
+~/.gokrax/
 ├── pipelines/
-│   ├── MyProject.json       # プロジェクトごとのパイプライン状態
-│   ├── MyProject.lock       # ファイルロック
-│   └── gokrax-state.json    # グローバル状態（PJ間セッション管理）
-└── gokrax-metrics.jsonl     # メトリクス（レビュアー評価に向けたレビュー記録。ローカル記録のみ）
+│   ├── MyProject.json       # Per-project pipeline state
+│   ├── MyProject.lock       # File lock
+│   └── gokrax-state.json    # Global state (cross-project session management)
+└── gokrax-metrics.jsonl     # Metrics (review records for reviewer evaluation — local only)
 ```
 
 ```
 /tmp/
-├── gokrax-watchdog.log          # watchdog ログ
-├── gokrax-watchdog-loop.pid     # watchdog PID
-└── gokrax-review/               # レビューデータ外部化ディレクトリ
-    └── MyProject_reviewer1.md   # 大規模レビュー依頼のファイル
+├── gokrax-watchdog.log          # Watchdog log
+├── gokrax-watchdog-loop.pid     # Watchdog PID
+└── gokrax-review/               # Review data externalization directory
+    └── MyProject_reviewer1.md   # File for large review requests
 ```
 
-## CLI コマンド
+## CLI Commands
 
-詳細は [CLI.md](CLI.md) を参照。  
+For details, see [CLI.md](CLI.md).
 
-| コマンド | 説明 |
-|---------|------|
-| `init` | 新規プロジェクト作成（**初回必須**、下記例を参照） |
-| `status` | 全プロジェクトの状態表示 |
-| `start` | バッチ開始（triage + 設計計画遷移 + watchdog 有効化） |
-| `enable` / `disable` | watchdog 有効化・無効化（主にBLOCKEDからの復帰） |
-| `transition` | 手動状態遷移（`--force` で強制） |
-| `review-mode` | レビューモード変更（full, lite, etc.） |
+| Command | Description |
+|---------|-------------|
+| `init` | Create a new project (**required on first use**, see example below) |
+| `status` | Display status of all projects |
+| `start` | Start a batch (triage + design plan transition + enable watchdog) |
+| `enable` / `disable` | Enable/disable the watchdog (primarily for recovery from BLOCKED) |
+| `transition` | Manual state transition (`--force` to force) |
+| `review-mode` | Change review mode (full, lite, etc.) |
 
-### プロジェクトの初期化
+### Project Initialization
 
 ```bash
-# 基本（GitLabパスとローカルリポジトリを指定）
+# Basic (specify GitLab path and local repository)
 gokrax init --pj myproject --gitlab user/myproject --repo-path /path/to/repo --implementer my_agent
 ```
 
-`init` はプロジェクトごとに1回だけ実行する。パイプライン管理ファイル（`pipeline.json`）が生成され、以降の全コマンドはこのファイルを参照する。
+`init` is run once per project. It generates a pipeline management file (`pipeline.json`), which all subsequent commands reference.
 
-| Queueコマンド（動作確認後はこちらがおすすめ） | 説明 |
-|---------|------|
-| `qstatus` | キュー内容の表示。キュー番号[0...N]の表示 |
-| `qrun` | キューモードでバッチ開始（合図が検知され次第開始） |
-| `qadd ...` | キューファイルにアイテムを追加 |
-| `qdel N` | キューファイルのN番目アイテムを削除（qstatus表示番号に対応） |
+| Queue Commands (recommended after initial testing) | Description |
+|---------|-------------|
+| `qrun` | Start batch in queue mode (starts as soon as the signal is detected) |
+| `qstatus` | Display queue contents with queue numbers [0...N] |
+| `qadd ...` | Add an item to the queue file |
+| `qdel N` | Delete the Nth item from the queue file (corresponds to qstatus numbers) |
 
 
-## 設定
+## Configuration
 
-主要な設定項目（`settings.py`）：
+Key configuration items in `settings.py`:
 
-### エージェント定義
+### Agent Definitions
 
-openclaw agentsのIDを登録する。以降は、ここで設定されたエージェント名を使用する。
+Register openclaw agent IDs. These agent names are used throughout subsequent configuration.
 
 ```python
-# レビュアー名
+# Reviewer names
 REVIEWERS = ["rev1", "rev2", "rev3", "rev4"]
-# 実装者名
+# Implementer names
 IMPLEMENTERS = ["impl1"]
 ```
 
-### パス設定
+### Path Settings
 
 ```python
-GLAB_BIN = "/usr/bin/glab"                      # which glab で確認
-PI_BIN = "/home/you/.nvm/.../bin/pi"            # which pi で確認（nvm 環境ではパスに注意）
-GOKRAX_CLI = "/home/you/.local/bin/gokrax"      # which gokrax で確認（シンボリックリンク先）
+GLAB_BIN = "/usr/bin/glab"                      # Check with: which glab
+PI_BIN = "/home/you/.nvm/.../bin/pi"            # Check with: which pi (note the path in nvm environments)
+GOKRAX_CLI = "/home/you/.local/bin/gokrax"      # Check with: which gokrax (symlink destination)
 GITLAB_NAMESPACE = "your-username"              # gitlab.com/YOUR_NAMESPACE/...
 ```
 
-### バックエンド設定
+### Backend Settings
 
 ```python
-# 全エージェントを openclaw で動かす場合
+# Run all agents with openclaw
 DEFAULT_AGENT_BACKEND = "openclaw"
 
-# エージェントごとに混在させる場合
+# Mix backends per agent
 DEFAULT_AGENT_BACKEND = "pi"
 AGENT_BACKEND_OVERRIDE = {"impl1": "openclaw"}
 ```
 
-### レビュアーティア
+### Reviewer Tiers
 
-レビュアーはインフラの安定性に応じてティアに分類される：
+Reviewers are classified into tiers based on infrastructure stability:
 
 ```python
 REVIEWER_TIERS = {
-    "regular":       ["rev1", "rev2"],  # 安定接続、十分なコンテキスト長
-    "short-context": ["rev3"],          # コンテキスト長に制約あり（頻繁に新セッション化して対応）
-    "free":          ["rev4"],          # 日次トークン上限あり、不安定、扱いが難しい
+    "regular":       ["rev1", "rev2"],  # Stable connection, sufficient context length
+    "short-context": ["rev3"],          # Limited context length (handled by frequent session resets)
+    "free":          ["rev4"],          # Daily token limits, unstable, difficult to manage
 }
 ```
 
-### レビューモード
+### Review Modes
 
-解きたい問題に応じてレビューコストを調整するために、モード切替できるようにしておく。
+Modes allow adjusting review cost according to the problem at hand.
 
 ```python
 REVIEW_MODES = {
-    "full":     {"members": ["rev1", "rev2", "rev3"],},
-                 "min_reviews": 3, "grace_period_sec": 0},  # 省略可: min_reviews, grace_period_sec
+    "full":     {"members": ["rev1", "rev2", "rev3"],
+                 "min_reviews": 3, "grace_period_sec": 0},  # Optional: min_reviews, grace_period_sec
     "lite":     {"members": ["rev1", "rev2"],},
     "min":      {"members": ["rev1"],},
     "skip":     {"members": [],},
@@ -550,13 +549,13 @@ REVIEW_MODES = {
 }
 ```
 
-- `min_reviews` 件の承認が集まった時点で次の状態に遷移する（デフォルト: 全員）。`min_reviews` の数が `members` より少ない場合（例: `lite3` は3人中2人）、`min_reviews` 到達後に `grace_period_sec` だけ追加レビューを待つ。猶予時間内に残りのレビュアーが応答すればそれも反映され、猶予を過ぎれば集まった分で遷移する。応答の遅いレビュアーや不安定なレビュアーを含めつつ、パイプラインを止めない運用ができる。
+- The pipeline transitions to the next state once `min_reviews` approvals are collected (default: all members). When `min_reviews` is less than the number of `members` (e.g., `lite3` requires 2 of 3), the pipeline waits an additional `grace_period_sec` after reaching `min_reviews`. If remaining reviewers respond within the grace period, their reviews are included; if not, the pipeline proceeds with what has been collected. This allows including slow or unstable reviewers without blocking the pipeline.
 
-- `n_pass` の設定により、指定レビュアーが N回の見直しを行う。（指定なし = 1）
+- The `n_pass` setting causes the specified reviewer to perform N review passes. (Default if unspecified: 1)
 
-- 存在しないレビュアー名が設定されていると警告が出るので、予め削除しておくかコメントアウトで対処する。
+- A warning is issued if non-existent reviewer names are configured — remove them or comment them out.
 
-- **フェーズ上書き**: モード定義内に `"design"` / `"code"` キーでフェーズ固有の設定を追加できる。上書き可能なフィールドは `members`, `min_reviews`, `n_pass`, `grace_period_sec`。上書きされないフィールドはモードのデフォルト値を継承する。`min_reviews` は自動的に `len(members)` でキャップされ、メンバー数を超えることはない。
+- **Phase overrides**: Within a mode definition, phase-specific settings can be added under `"design"` / `"code"` keys. Fields that can be overridden are `members`, `min_reviews`, `n_pass`, and `grace_period_sec`. Fields not overridden inherit the mode's default values. `min_reviews` is automatically capped at `len(members)` and cannot exceed the member count.
 
 ```python
 "full_x2": {
@@ -569,80 +568,80 @@ REVIEW_MODES = {
 },
 ```
 
-## プロンプトのカスタマイズ
+## Prompt Customization
 
-gokrax がエージェントに送るプロンプトは `messages/{lang}/` 以下のテンプレートで定義されている。変更したいテンプレートだけを `messages_custom/` にコピーすると、デフォルトを上書きできる：
+Prompts that gokrax sends to agents are defined in templates under `messages/{lang}/`. To override, copy only the templates you want to change into `messages_custom/`:
 
 ```bash
-# 例: 設計レビューのプロンプトを変更
-cp messages/ja/dev/design_review.py messages_custom/ja/dev/
-# messages_custom/ja/dev/design_review.py を編集
+# Example: Customize the design review prompt
+cp messages/{lang}/dev/design_review.py messages_custom/{lang}/dev/
+# Edit messages_custom/{lang}/dev/design_review.py
 ```
 
-`messages_custom/` は `.gitignore` に含まれているため、`git pull` で上書きされない。コピーしていないテンプレートはデフォルト（`messages/`）が使われる。
+`messages_custom/` is included in `.gitignore`, so it won't be overwritten by `git pull`. Templates not copied to `messages_custom/` fall back to the defaults in `messages/`.
 
-## アンインストール
+## Uninstallation
 
-gokrax を停止・削除するには以下を実行する：
+To stop and remove gokrax:
 
 ```bash
-# 1. 全プロジェクトを IDLE にリセット
+# 1. Reset all projects to IDLE
 python3 gokrax.py reset
 
-# 2. crontab エントリを手動で削除（gokrax は常駐用の crontab エントリを登録する）
+# 2. Manually remove crontab entries (gokrax registers crontab entries for the resident watchdog)
 crontab -e
-# gokrax-watchdog-loop と書かれた行を削除
+# Delete the line containing gokrax-watchdog-loop
 
-# 3. 残存プロセスとファイルの削除
+# 3. Remove residual processes and files
 rm -f /tmp/gokrax-watchdog-loop.pid /tmp/gokrax-watchdog-loop.lock /tmp/gokrax-cron-spawn.lock /tmp/gokrax-watchdog.log
 rm -rf /tmp/gokrax-review/
 
-# 4. パイプライン状態ファイルの削除（必要に応じて）
+# 4. Remove pipeline state files (if desired)
 rm -rf ~/.openclaw/shared/pipelines/
 
-# 5. gokraxリポジトリの削除
+# 5. Remove the gokrax repository
 rm -rf /path/to/gokrax
 ```
 
-**注意:** `gokrax enable` を実行すると、watchdog の自動復旧のために crontab にエントリが追加される。`reset` はパイプライン状態のみリセットし、crontab エントリは削除しない。完全に停止するには手順 2 の crontab 手動削除が必要。
+**Note:** Running `gokrax enable` adds a crontab entry for automatic watchdog recovery. `reset` only resets pipeline state and does not remove the crontab entry. For a complete shutdown, the manual crontab removal in step 2 is required.
 
 
 ## Limitations
 
-### アンサンブルレビューの有効性が未定量
+### Effectiveness of Ensemble Review Is Not Yet Quantified
 
-gokrax のアンサンブルレビューが最終的なコード品質を、どの程度、どのような指標に基づいて改善できるかは、現時点で定量的に評価できていない。
+The extent to which gokrax's ensemble review improves final code quality — and by what metrics — has not been quantitatively evaluated at this point.
 
-必要な評価は、現在広く用いられている**Claude Code Opusへの丸投げをベースラインとした end-to-end 比較**となる。同一の題材を「レビューなしの Claude Code 単体」と「gokrax パイプライン」で実装し、最終コードの品質を開発者の目的に沿った指標で第三者レビュアーが比較すればよいと考えられる。
+The evaluation needed would be an **end-to-end comparison against the widely used baseline of delegating to Claude Code Opus**. This would involve implementing the same task with both "Claude Code standalone without review" and "the gokrax pipeline," then having third-party reviewers compare the final code quality using metrics aligned with the developer's objectives.
 
-### コードレビューの限界
+### Limitations of Code Review
 
-gokrax のレビューは静的なコードレビューであり、実機でしか発現しないバグなどは検出できない。
+gokrax performs static code review and cannot detect bugs that only manifest on actual hardware or in runtime environments.
 
-### 並列化
+### Parallelization
 
-現在、パイプラインは1プロジェクトずつ逐次実行される。パイプライン状態管理は並列化を想定した設計だが、主にエラーハンドリングの複雑化を考慮し、現在、初期段階では逐次実行に限定している。
+Currently, the pipeline executes one project at a time sequentially. While the pipeline state management is designed with parallelization in mind, sequential execution is currently enforced in this early stage, primarily due to the complexity of error handling in parallel scenarios.
 
-### 対応プラットフォーム
+### Supported Platforms
 
-現時点で GitLab のみ対応（無料でprivate repositoryを利用できるため）。GitHub 対応は未実装。
-
-
-## 今後の課題
-
-### 操作・監視用のGUI
-
-エージェントを介在させることでCLIの操作が簡単に行える一方で、パイプライン開始や状況に応じたレビューモードの設定は使用者が手動で行う必要がある。この部分の操作を簡略化するため、discord監視GUIツールの拡張を検討している（マウス操作でIssueとパラメータを選択して「キューに追加」「実行」ボタンを押すような形）。
-
-### タスクキュー自動生成時のパラメータ調整
-
-仕様書から一気通貫に実装する spec mode 手順において、分割済みの各作業バッチに対するモデル選択などの自動調整は難しく、使用者の意図通りになりにくい。キュー生成提案を依頼する際のプロンプト調整と、モデル使用量の測定（未実装）を行うことにより改善の可能性がある。
-
-### テスト (CODE_TEST state)
-
-CODE_TEST は実装済みだが動作検証が不十分であるため、現状では実験的機能の扱いである（デフォルト: --skip-test: True）。
+Currently supports GitLab only (chosen because it offers free private repositories). GitHub support is not yet implemented.
 
 
-## ライセンス
+## Future Work
+
+### GUI for Operation and Monitoring
+
+While agent mediation makes CLI operations straightforward, users still need to manually start pipelines and configure review modes based on the situation. To simplify this, an extension of the Discord monitoring GUI tool is under consideration (a form where users select Issues and parameters with the mouse, then press "Add to Queue" and "Run" buttons).
+
+### Parameter Tuning for Automatic Task Queue Generation
+
+In the spec mode workflow that drives implementation end-to-end from a specification, automatic tuning of model selection and similar parameters for each decomposed task batch is difficult and often does not match user intent. Improvements may be possible through prompt tuning when requesting queue generation proposals and through measuring model usage (not yet implemented).
+
+### Testing (CODE_TEST State)
+
+CODE_TEST is implemented but insufficiently validated, so it is currently treated as an experimental feature (default: `--skip-test: True`).
+
+
+## License
 
 MIT License

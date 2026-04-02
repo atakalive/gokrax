@@ -40,6 +40,7 @@ Manages LLM agent-driven design, implementation, and review via a state machine 
 - [Uninstallation](#uninstallation)
 - [Limitations](#limitations)
 - [Future Work](#future-work)
+- [Name](#name)
 - [License](#license)
 
 ---
@@ -281,10 +282,7 @@ Describe what you want implemented in the Issue body. The assigned agent reads t
 
 ```bash
 # Start with specific Issue numbers
-gokrax start --project MyProject --issue 1 2 3 --mode lite
-
-# Automatically fetch all open Issues from GitLab and start
-gokrax start --project MyProject --mode lite
+gokrax start --pj MyProject --issue 1 2 --mode lite
 ```
 
 `start` executes the following in sequence:
@@ -586,7 +584,7 @@ To stop and remove gokrax:
 
 ```bash
 # 1. Reset all projects to IDLE
-python3 gokrax.py reset
+gokrax reset
 
 # 2. Manually remove crontab entries (gokrax registers crontab entries for the resident watchdog)
 crontab -e
@@ -597,7 +595,7 @@ rm -f /tmp/gokrax-watchdog-loop.pid /tmp/gokrax-watchdog-loop.lock /tmp/gokrax-c
 rm -rf /tmp/gokrax-review/
 
 # 4. Remove pipeline state files (if desired)
-rm -rf ~/.openclaw/shared/pipelines/
+rm -rf ~/.gokrax/pipelines/
 
 # 5. Remove the gokrax repository
 rm -rf /path/to/gokrax
@@ -640,6 +638,11 @@ In the spec mode workflow that drives implementation end-to-end from a specifica
 ### Testing (CODE_TEST State)
 
 CODE_TEST is implemented but insufficiently validated, so it is currently treated as an experimental feature (default: `--skip-test: True`).
+
+
+## Name
+
+*gokrax* derives from *gokuraku* (極楽) — Japanese for paradise. Developer's paradise.
 
 
 ## License

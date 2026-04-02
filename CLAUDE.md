@@ -1,129 +1,147 @@
 # CLAUDE.md — gokrax
 
-## プロジェクト概要
+## Overview
 
-開発パイプライン自動化ツール。Issue の起票→設計レビュー→実装→コードレビュー→マージのサイクルを自動化する。CLI + watchdog デーモン構成。
+Development pipeline automation tool. Automates the cycle of Issue creation → design review → implementation → code review → merge. CLI + watchdog daemon architecture.
 
-### アーキテクチャ
+### Architecture
 
 ```
 # === CLI ===
-gokrax.py              # CLI エントリポイント（全コマンド定義）
-commands/spec.py       # spec mode CLI サブコマンド群
+gokrax.py              # CLI entry point (all command definitions)
+commands/dev.py        # Dev mode CLI subcommands
+commands/spec.py       # Spec mode CLI subcommands
 
-# === watchdog デーモン ===
-watchdog.py            # メインループ(process)、Discord handler、キュー管理
-                       # ※ #127-#129 で大部分を engine/ へ切り出し済み
+# === Watchdog daemon ===
+watchdog.py            # Main loop (process), Discord handler, queue management
+                       # Most logic extracted to engine/
 
-# === engine/ — watchdog から分離されたコアロジック ===
-engine/shared.py       # watchdog/gokrax 共通ユーティリティ (#127)
-engine/reviewer.py     # レビュー管理（レビュアー選定・リセット等）(#128)
-engine/cc.py           # CC CLI 自動化（plan/impl 起動、pytest baseline）(#129)
-engine/fsm.py          # 通常モード状態遷移（check_transition 等）(#131 で追加予定)
-engine/fsm_spec.py     # spec mode 状態遷移（check_transition_spec 等）
+# === engine/ — Core logic extracted from watchdog ===
+engine/shared.py       # Shared utilities for watchdog/gokrax
+engine/reviewer.py     # Reviewer management (selection, reset, etc.)
+engine/cc.py           # CC CLI automation (plan/impl launch, pytest baseline)
+engine/fsm.py          # Dev mode state transitions (check_transition, etc.)
+engine/fsm_spec.py     # Spec mode state transitions (check_transition_spec, etc.)
+engine/backend.py      # Backend abstraction layer (dispatch)
+engine/backend_openclaw.py  # OpenClaw backend implementation
+engine/backend_pi.py   # PI (Project Interpreter) backend implementation
+engine/cleanup.py      # Batch state cleanup
+engine/filter.py       # Project/author filtering
 
-# === 基盤 ===
-config.py              # 状態定義、遷移テーブル、定数、パス
-notify.py              # 通知（Discord 投稿、エージェント間通信）
-pipeline_io.py         # パイプライン JSON の読み書き（flock 排他）
-task_queue.py          # タスクキュー管理
+# === Foundation ===
+config/                # Configuration package
+  __init__.py          # Main config (dynamically loads settings.py)
+  states.py            # State definitions, transition tables, constants
+  paths.py             # File paths and directory constants
+notify.py              # Notifications (Discord posts, inter-agent messaging)
+pipeline_io.py         # Pipeline JSON read/write (flock exclusive lock)
+task_queue.py          # Task queue management
+settings.py            # User settings (.gitignore'd)
+update_settings.py     # settings.py update utility
 
-# === spec mode ===
-spec_issue.py          # spec mode: Issue 自動起票
-spec_review.py         # spec mode: 仕様レビュー
-spec_revise.py         # spec mode: 仕様修正
+# === Spec mode ===
+spec_issue.py          # Spec mode: automatic Issue creation
+spec_review.py         # Spec mode: spec review
+spec_revise.py         # Spec mode: spec revision
 
-# === メッセージ外部化 ===
-messages/              # プロンプト・通知テンプレート
-  __init__.py          # render() エントリポイント
-  ja/dev/              # 通常モード（design_plan, code_review 等）
-  ja/spec/             # spec mode（review, revise, approved 等）
+# === Externalized messages ===
+messages/              # Prompt and notification templates
+  __init__.py          # render() entry point
+  ja/dev/              # Dev mode Japanese (design_plan, code_review, etc.)
+  ja/spec/             # Spec mode Japanese (review, revise, approved, etc.)
+  en/dev/              # Dev mode English
+  en/spec/             # Spec mode English
+messages_custom/       # User-customized prompts (same structure as messages/, overrides)
 
-# === その他 ===
-scripts/               # 検証スクリプト（verify_spec_messages.py 等）
-reviews/               # レビュー依頼の外部化ファイル置き場
-tests/                 # pytest テスト
-docs/                  # ドキュメント
+# === Agents ===
+agents/                # Agent profiles (IDENTITY/INSTRUCTION/MEMORY)
+  config_pi.json       # PI backend configuration
+
+# === Other ===
+scripts/               # Ops scripts (check-reviewer-health.sh, etc.)
+reviews/               # Externalized review request files
+tests/                 # pytest tests (100+ files)
+docs/                  # Documentation (architecture, quick_start, spec, etc.)
 ```
 
-## コーディング規約
+## Coding Conventions
 
-### Python スタイル
-- **リンター:** ruff
-- **型ヒント必須:** 全ての関数に引数・戻り値の型ヒントを書く
-  - `list[str]` / `dict[str, Any]`（PEP 585）
-  - `X | None`（PEP 604）
-- **テスト:** pytest。`tests/` ディレクトリに配置
-- **明示的 > 暗黙的**
-- **出力テキストは英語:** log, print, raise, Discord通知等の文字列リテラルは英語で書く。日本語を直書きしない
+### Python Style
+- **Linter:** ruff
+- **Type hints required:** All functions must have parameter and return type hints
+  - `list[str]` / `dict[str, Any]` (PEP 585)
+  - `X | None` (PEP 604)
+- **Tests:** pytest. Place in `tests/` directory
+- **Explicit > implicit**
+- **Output text in English:** String literals in log, print, raise, Discord notifications, etc. must be in English. Do not hardcode Japanese
 
-### コミット規約
-- **1 issue = 1 commit** を基本とする
-- コミットメッセージ形式: `fix: <description>. Closes #N`
+### Commit Conventions
+- **1 issue = 1 commit** as a rule
+- Commit message format: `fix: <description>. Closes #N`
   - type: `fix`, `feat`, `refactor`, `test`, `docs`
-- **⚠️ `Closes #N` を必ず含めること。**
-- **⚠️ 実装が終わったら必ず `git add` → `git commit` すること。コミットせずに終了するな。**
-- main ブランチに直接 push
+- **Always include `Closes #N`.**
+- **Always `git add` → `git commit` when implementation is done. Never exit without committing.**
+- Push directly to main branch
 
-### 改行コード
-- **LF 統一。CRLF は使わない。**
+### Line Endings
+- **LF only. Do not use CRLF.**
 
-## テスト
+## Testing
 
 ```bash
-# テスト実行
+# Run tests
 pytest tests/ -v
 
-# リンター
-ruff check *.py tests/
+# Linter
+ruff check *.py engine/ config/ commands/ messages/ tests/
 ```
 
-### テストの禁止事項
-- 本プロジェクトはLinux上で開発している。テストをWindows仕様に変更してはならない。
-- **`time.sleep()` をテストコードで直接呼ぶな。** conftest で `time.sleep` はグローバルにモック済み。プロダクションコードの sleep がテスト中に走ると累積して timeout する
-- sleep の動作を検証したい場合は `patch("time.sleep") as mock_sleep` で呼び出し回数・引数を assert する
-- **外部通信（Discord, agent 送信）はテストで実行するな。** conftest の `_block_external_calls` でモック済み。新しい外部通信関数を追加したら conftest にもモックを追加すること
-- **mock の patch 先は `from ... import` 後の束縛先を指定しろ。** `watchdog.py` が `from engine.cc import _start_cc` している場合、`patch("engine.cc._start_cc")` は無効。`patch("watchdog._start_cc")` が正解。`from X import Y` はモジュールロード時に束縛されるため、元モジュールを patch しても既存の束縛には影響しない
-- **`_reset_reviewers` / `_reset_short_context_reviewers` はテストで実行するな。** conftest でモック済み。直接テストする場合は `test_short_context.py` のように個別にモックを構成する
+### Testing Rules
+- This project is developed on Linux. Do not modify tests for Windows compatibility.
+- **Do not call `time.sleep()` directly in test code.** `time.sleep` is globally mocked in conftest. Production code sleep calls accumulate during tests and cause timeouts.
+- To verify sleep behavior, use `patch("time.sleep") as mock_sleep` and assert call count/arguments.
+- **Do not make external calls (Discord, agent send) in tests.** Mocked globally in conftest via `_block_external_calls`. When adding new external call functions, add corresponding mocks to conftest.
+- **Patch the binding target after `from ... import`, not the source module.** If `watchdog.py` does `from engine.cc import _start_cc`, then `patch("engine.cc._start_cc")` is ineffective. Use `patch("watchdog._start_cc")` instead. `from X import Y` binds at module load time, so patching the source module does not affect existing bindings.
+- **Do not call `_reset_reviewers` / `_reset_short_context_reviewers` in tests.** Mocked in conftest. For direct testing, configure mocks individually as in `test_short_context.py`.
 
-## 設計上の注意
+## Design Notes
 
-### パイプライン JSON
-- **パイプライン JSON を直接編集するな。** 必ず `pipeline_io.py` の `update_pipeline()` 経由で操作する
-- `update_pipeline()` は flock(LOCK_EX) でブロッキング排他ロック。LOCK_NB は使わない
-- pipeline JSON のパス: `~/.openclaw/shared/pipelines/<project>.json`
+### Pipeline JSON
+- **Do not edit pipeline JSON directly.** Always use `update_pipeline()` in `pipeline_io.py`.
+- `update_pipeline()` uses flock(LOCK_EX) blocking exclusive lock. Do not use LOCK_NB.
+- Pipeline JSON path: `~/.openclaw/shared/pipelines/<project>.json`
 
-### 状態遷移
-- 有効な状態と遷移は `config.py` の `VALID_STATES` / `VALID_TRANSITIONS` に定義
-- 遷移は `gokrax transition` CLI コマンド or watchdog の `check_transition()` で実行
-- spec mode は別系統: `SPEC_STATES` / `SPEC_TRANSITIONS` / `check_transition_spec()`
+### State Transitions
+- Valid states and transitions are defined in `config/states.py` (`VALID_STATES` / `VALID_TRANSITIONS`)
+- Transitions are executed via `gokrax transition` CLI command or watchdog's `check_transition()`
+- Spec mode is a separate system: `SPEC_STATES` / `SPEC_TRANSITIONS` / `check_transition_spec()`
 
-### watchdog
-- `watchdog-loop.sh` で5秒おきにポーリング
-- 各プロジェクトの状態をチェックし、条件を満たせば自動遷移
-- CC 起動は `_start_cc()` で bash スクリプトを生成→バックグラウンド実行
+### Watchdog
+- `watchdog-loop.sh` polls every 5 seconds
+- Checks each project's state and auto-transitions when conditions are met
+- CC launch via `_start_cc()`: generates a bash script and runs it in the background
 
-### 触ってはいけないもの
-- `pipeline_io.py` のロック方式（flock LOCK_EX ブロッキング）
-- 通知フォーマットのうち、他エージェントがパースに依存している部分
-- `settings.py` の既存状態名・遷移テーブル（追加は OK、変更・削除は慎重に）
-- `messages_custom/` — ユーザーがカスタマイズしたプロンプト。編集・削除するな
+### Do Not Touch
+- Locking mechanism in `pipeline_io.py` (flock LOCK_EX blocking)
+- Notification formats that other agents depend on for parsing
+- Existing values in `settings.py` (additions OK, changes/deletions require caution)
+- `messages_custom/` — User-customized prompts. Do not edit or delete
   - Exception: #280 allows editing `messages_custom/ja/dev/code_revise.py` and `messages_custom/ja/dev/design_revise.py` (glab→gokrax get-comments replacement only)
-- `config/states.py` の遷移テーブル（`VALID_TRANSITIONS`, `SPEC_TRANSITIONS`, `STATE_PHASE_MAP`, `BLOCK_TIMERS` 等）は文字列のまま維持する。可読性のため `State.XX` 参照に変換するな
+- Transition tables in `config/states.py` (`VALID_TRANSITIONS`, `SPEC_TRANSITIONS`, `STATE_PHASE_MAP`, `BLOCK_TIMERS`, etc.) must remain as plain strings. Do not convert to `State.XX` references for readability
 
-### 絶対に実行してはいけないコマンド
-以下の gokrax CLI コマンドはパイプラインの停止・状態破壊を引き起こす。実装・テスト中に絶対に実行するな：
-- `gokrax reset` — 全プロジェクトを IDLE に強制リセット
-- `gokrax transition` — パイプライン状態を手動遷移
-- `gokrax disable` — watchdog を停止
-- `gokrax enable` — watchdog を起動
-- `gokrax start` / `gokrax qrun` — 新しいバッチを開始
+### Forbidden Commands
+The following gokrax CLI commands cause pipeline halt or state corruption. Never run them during development or testing:
+- `gokrax reset` — Force-resets all projects to IDLE
+- `gokrax transition` — Manually transitions pipeline state
+- `gokrax disable` — Stops watchdog
+- `gokrax enable` — Starts watchdog
+- `gokrax start` / `gokrax qrun` — Starts a new batch
 
-### 既知の癖
-- `gokrax.py` の `cmd_transition`（CLI 経路）と `watchdog.py` の `do_transition`（watchdog 経路）は別パス。片方だけ修正すると主経路に乗らないことがある
-- `cmd_qrun`（CLI）と `_handle_qrun`（Discord）も同様の2経路問題がある
+### Known Quirks
+- `cmd_transition` in `gokrax.py` (CLI path) and `do_transition` in `watchdog.py` (watchdog path) are separate code paths. Fixing only one may not affect the primary path.
+- `cmd_qrun` (CLI) and `_handle_qrun` (Discord) have the same dual-path issue.
 
-## GitLab 操作
+## GitLab
 
-- **このプロジェクトは GitLab。`gh` (GitHub CLI) は使わない。**
-- `glab` CLI を使う
+- **This project uses GitLab. Do not use `gh` (GitHub CLI).**
+- Use `glab` CLI

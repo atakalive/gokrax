@@ -1,127 +1,129 @@
 # Quick Start
 
-gokrax を最短で動かすためのガイド。所要時間: 30―60分。
+[English](quick_start.md) | [日本語](quick_start_ja.md)
 
-## 1. 前提
+Get gokrax running as fast as possible. Estimated time: 30–60 minutes.
 
-- Linux または macOS（WSL2 含む）
+## 1. Prerequisites
+
+- Linux or macOS (including WSL2)
 - Python 3.11+
-- [GitLab](https://gitlab.com/) アカウント（無料で private repository を利用可能）
-- GitLab に SSH 鍵を登録済みであること（下記参照）
-- いずれかの LLM プロバイダのアカウント（[pi が対応するプロバイダ](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/providers.md): Anthropic, GitHub Copilot, Google Gemini CLI, OpenAI Codex, Antigravity 等）
+- A [GitLab](https://gitlab.com/) account (free tier supports private repositories)
+- An SSH key registered with GitLab (see below)
+- An account with any LLM provider [supported by pi](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/providers.md): Anthropic, GitHub Copilot, Google Gemini CLI, OpenAI Codex, Antigravity, etc.
 
-### SSH 鍵の登録（GitLab）
+### Registering an SSH Key (GitLab)
 
-gokrax のパイプラインは自動で git push するため、SSH 鍵が必要。
+gokrax automatically runs `git push` during the pipeline, so an SSH key is required.
 
 ```bash
-# 既存の鍵を確認
+# Check for an existing key
 ls ~/.ssh/id_ed25519.pub
-# "No such file or directory" と出たら鍵がないので作成する:
+# If "No such file or directory", generate one:
 ssh-keygen -t ed25519 -C "you@example.com"
-# Enter で全てデフォルト（パスフレーズは空でも可）
+# Press Enter for all defaults (passphrase can be empty)
 
-# 公開鍵を表示してコピー
+# Display the public key and copy it
 cat ~/.ssh/id_ed25519.pub
 ```
 
-表示された内容を [GitLab SSH Keys 設定ページ](https://gitlab.com/-/user_settings/ssh_keys) に貼り付けて登録する。
+Paste the output into the [GitLab SSH Keys settings page](https://gitlab.com/-/user_settings/ssh_keys).
 
 ```bash
-# 接続確認
+# Verify the connection
 ssh -T git@gitlab.com
-# "Welcome to GitLab, @your-username!" と出れば成功
+# Expected: "Welcome to GitLab, @your-username!"
 ```
 
-## 2. 必要なツールのインストール
+## 2. Install Dependencies
 
-インストール中に権限エラーが出る場合はコマンドの先頭に `sudo` を付ける。
+If you get permission errors, prefix commands with `sudo`.
 
 ```bash
 # gokrax
-git clone https://gitlab.com/atakalive/gokrax.git
+git clone https://github.com/atakalive/gokrax.git
 cd gokrax
 pip install -r requirements.txt
-# "externally managed" エラーが出る場合:
+# If you get an "externally managed" error:
 # pip install -r requirements.txt --break-system-packages
-# Python3, pip が無い場合: sudo apt update && sudo apt install -y python3.12 && sudo apt install python3-pip
+# If python3/pip are missing: sudo apt update && sudo apt install -y python3.12 python3-pip
 
-# homebrew (https://brew.sh/ja/)
-# 無ければインストール -> Next steps に従って PATH に追加
+# Homebrew (https://brew.sh/)
+# Install if not present, then follow the "Next steps" to add it to PATH
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
-# glab（GitLab CLI — https://gitlab.com/gitlab-org/cli/-/releases）
+# glab (GitLab CLI — https://gitlab.com/gitlab-org/cli/-/releases)
 brew install glab
-glab auth login  # Host: gitlab.com、default Git protocol: SSH を選択
+glab auth login  # Host: gitlab.com, default Git protocol: SSH
 
-# WSL の場合: nvm でインストール
+# Node.js (WSL: install via nvm)
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash
 source ~/.bashrc
 nvm install --lts
 
-# pi（エージェント基盤 https://github.com/badlogic/pi-mono/tree/main/packages/agent）
+# pi (agent framework — https://github.com/badlogic/pi-mono/tree/main/packages/agent)
 npm install -g @mariozechner/pi-coding-agent
-# pi にパスが通っているか確認
+# Verify pi is on PATH
 which pi
-# 見つからない場合: echo 'export PATH="$(npm -g prefix)/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
-pi    # 起動後、/login でプロバイダを選択してブラウザでログインし、使用予定のモデルの応答確認する
+# If not found: echo 'export PATH="$(npm -g prefix)/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
+pi    # After launching, run /login to authenticate with your provider and confirm the model responds
 ```
 
-## 3. gokrax コマンドの設定（必須）
+## 3. Set Up the gokrax Command (Required)
 
-エージェントが内部で `gokrax` コマンドを呼び出すため、PATH の通った場所にシンボリックリンクが必要:
+Agents invoke the `gokrax` command internally, so a symlink must be on PATH:
 
 ```bash
-# gokrax ディレクトリ内で実行すること
+# Run this inside the gokrax directory
 chmod +x gokrax.py
 mkdir -p ~/.local/bin
 ln -s "$(realpath gokrax.py)" ~/.local/bin/gokrax
 
-# ~/.local/bin が PATH にない場合:
+# If ~/.local/bin is not on PATH:
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
 
-# 確認
+# Verify
 which gokrax
 ```
 
-## 4. 設定
+## 4. Configuration
 
 ```bash
-python3 update_settings.py    # settings.example.py → settings.py を生成
+python3 update_settings.py    # Generates settings.py from settings.example.py
 ```
 
-`settings.py` を編集:
+Edit `settings.py`:
 
 ```bash
-# 設定 (Save: Ctrl+O, Exit: Ctrl+X)
+# Edit (Save: Ctrl+O, Exit: Ctrl+X)
 nano settings.py
 ```
 
 ```python
-# --- 必須 ---
-GLAB_BIN = "/usr/bin/glab"              # which glab で確認 (例: /home/linuxbrew/.linuxbrew/bin/glab)
-PI_BIN = "/usr/bin/pi"                  # which pi で確認 (例: /home/gokrax/.nvm/versions/node/v24.14.1/bin/pi)
-GOKRAX_CLI = "/home/you/.local/bin/gokrax"  # which gokrax で確認（手順 3 で作成したリンク）
+# --- Required ---
+GLAB_BIN = "/usr/bin/glab"              # Run: which glab (e.g. /home/linuxbrew/.linuxbrew/bin/glab)
+PI_BIN = "/usr/bin/pi"                  # Run: which pi (e.g. /home/gokrax/.nvm/versions/node/v24.14.1/bin/pi)
+GOKRAX_CLI = "/home/you/.local/bin/gokrax"  # Run: which gokrax (symlink created in step 3)
 GITLAB_NAMESPACE = "your-username"      # gitlab.com/YOUR_NAMESPACE/...
 
 DEFAULT_AGENT_BACKEND = "pi"
 
 DEFAULT_QUEUE_OPTIONS = {
-    "automerge": True,          # no_cc 以外はデフォルトでOK
+    "automerge": True,          # Defaults are fine except no_cc
     "skip_cc_plan": True,
-    "no_cc": True,              # <- Claude Code CLI 無しで動かす
+    "no_cc": True,              # <- Run without Claude Code CLI
     "keep_ctx_intra": True,
     "skip_test": True,
     "skip_assess": True,
 }
 ```
 
-最小構成: レビュアー1体 + 実装者1体。
+Minimum setup: 1 reviewer + 1 implementer.
 
-## 5. エージェントの準備
+## 5. Prepare Agents
 
 ```bash
-# プロンプトのテンプレートをコピー
+# Copy prompt templates
 mkdir -p agents/reviewer1
 cp agents/example/INSTRUCTION.md.reviewer agents/reviewer1/INSTRUCTION.md
 
@@ -129,13 +131,13 @@ mkdir -p agents/impl1
 cp agents/example/INSTRUCTION.md.implementer agents/impl1/INSTRUCTION.md
 ```
 
-モデル設定（`agents/config_pi.json`）。`provider` と `model` は `pi --list-models` で表示される名前を使う:
+Configure models in `agents/config_pi.json`. Use provider and model names from `pi --list-models`:
 
 ```bash
-# 有効な provider, model を表示
+# List available providers and models
 pi --list-models
 
-# モデル設定 (Save: Ctrl+O, Exit: Ctrl+X)
+# Edit (Save: Ctrl+O, Exit: Ctrl+X)
 nano agents/config_pi.json
 ```
 
@@ -155,74 +157,74 @@ nano agents/config_pi.json
 }
 ```
 
-## 6. プロジェクト登録とサンプル Issue
+## 6. Register a Project and Create a Sample Issue
 
-GitLab にリポジトリがまだない場合:
+If you don't have a GitLab repository yet:
 
 ```bash
-# gokrax ディレクトリの外に移動してからプロジェクトを作成
+# Move outside the gokrax directory before creating a project
 cd ~
 
-# GitLab にリポジトリを作成
+# Create a GitLab repository
 glab repo create myproject --private
 
-mkdir myproject  # リポジトリ作成時に実行済みなら不要
-git init         # リポジトリ作成時に実行済みなら不要
+mkdir myproject  # Skip if already created by glab
+git init         # Skip if already created by glab
 
 cd myproject
 git config user.email "you@example.com"
 git config user.name "Your Name"
 git remote add origin git@gitlab.com:your-username/myproject.git
-# 修正したい場合: git remote set-url origin git@gitlab.com:correct-username/myproject.git
+# To fix the URL: git remote set-url origin git@gitlab.com:correct-username/myproject.git
 
-# 初回コミットとプッシュ
+# Initial commit and push
 echo "# myproject" > README.md
 git add README.md
 git commit -m "init"
 git push -u origin HEAD
 ```
 
-GitLab リポジトリ作成後:
+After the GitLab repository is ready:
 
 ```bash
-# gokrax にプロジェクトを登録（GitLab リポジトリとローカルパスを指定して実行）
+# Register the project with gokrax (specify the GitLab repo and local path)
 gokrax init --pj myproject --gitlab your-username/myproject --repo-path /fullpath/to/your/project --implementer impl1
 
-# サンプル Issue を作成
+# Create a sample Issue
 glab issue create \
   --title "Add hello.py" \
   --description "Create hello.py that prints 'Hello, gokrax.' to stdout."
 ```
 
-## 7. 実行
+## 7. Run
 
-ブラウザで GitLab の Issue #1 ページを開いておく。本文更新・設計・レビューのコメントがリアルタイムで反映されていく。
+Open the GitLab Issue #1 page in your browser. The issue description, design plan, and review comments will update in real time.
 
 ```bash
 gokrax start --project myproject --issue 1 --mode min
 
-# 進捗をリアルタイムで確認
+# Watch progress in real time
 tail -f /tmp/gokrax-watchdog.log
-# DESIGN_PLAN → DESIGN_REVIEW → ... → DONE まで自動で進む
+# The pipeline progresses automatically: DESIGN_PLAN → DESIGN_REVIEW → ... → DONE
 
-# 完了したら成果物を確認
+# Once complete, check the result
 cat hello.py
 ```
 
-## 次のステップ
+## Next Steps
 
-- **Discord 通知を追加** — bot 作成手順は [README: Discord 通知の設定](../README.md#discord-通知の設定) を参照
-- **レビュアーを増やす** — アンサンブルレビューで品質向上（[README: アンサンブルレビュー](../README.md#アンサンブルレビュー)）
-- **バッチ実行** — キューファイルで複数 Issue を連続処理（`gokrax qrun`）
-- **Spec Mode** — 仕様書から Issue 自動分割（[README: Spec Mode](../README.md#spec-mode仕様書パイプライン)）
-- **ドメインリスク判定** — `DOMAIN_RISK.md` でプロジェクト固有のリスクを定義
+- **Add Discord notifications** — See [README: Discord Notification Setup](../README.md#discord-notification-setup) for bot creation steps
+- **Add more reviewers** — Ensemble review improves quality ([README: Ensemble Review](../README.md#ensemble-review))
+- **Batch execution** — Process multiple Issues in sequence with queue files (`gokrax qrun`)
+- **Spec Mode** — Automatically split a spec document into Issues ([README: Spec Mode](../README.md#spec-mode))
+- **Domain risk assessment** — Define project-specific risks in `DOMAIN_RISK.md`
 
-## クリーンアップ
+## Cleanup
 
-テスト用プロジェクトが不要になった場合:
+To remove a test project:
 
 ```bash
-python3 gokrax.py reset --pj myproject           # パイプライン状態をリセット
-glab repo delete your-username/myproject --yes   # GitLab リポジトリを削除
-rm -rf /path/to/your/project                     # ローカルディレクトリを削除
+python3 gokrax.py reset --pj myproject           # Reset pipeline state
+glab repo delete your-username/myproject --yes   # Delete the GitLab repository
+rm -rf /path/to/your/project                     # Delete the local directory
 ```

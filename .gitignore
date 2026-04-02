@@ -15,4 +15,3 @@ agents/*
 !agents/config_pi.example.json
 .pi-sessions/
 .claude/
-experimental/

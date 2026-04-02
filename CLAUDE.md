@@ -58,7 +58,6 @@ agents/                # Agent profiles (IDENTITY/INSTRUCTION/MEMORY)
   config_pi.json       # PI backend configuration
 
 # === Other ===
-scripts/               # Ops scripts
 reviews/               # Externalized review request files
 tests/                 # pytest tests (100+ files)
 docs/                  # Documentation (architecture, quick_start, spec, etc.)

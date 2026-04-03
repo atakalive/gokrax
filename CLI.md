@@ -9,7 +9,8 @@
 
 ```bash
 # 1. Start batch (triage + transition to DESIGN_PLAN + enable watchdog)
-gokrax start --pj myproject --issue 17 18 19 --mode full
+gokrax start --pj myproject --issue 17,18,19 --mode full   # comma-separated
+gokrax start --pj myproject --issue 17 18 19 --mode full    # space-separated
 
 # 2. [Implementer] Review/edit issue descriptions, then report design plan done
 gokrax plan-done --pj myproject --issue 17 18 19
@@ -94,7 +95,7 @@ gokrax start --pj myproject --mode standard
 | Option | Required | Description |
 |--------|----------|-------------|
 | `--pj` | Yes | project name |
-| `--issue N [N ...]` | No | issue numbers (omit to fetch all open issues from GitLab) |
+| `--issue N[,N...] [N...]` | No | issue numbers; comma/space-separated both accepted (omit to fetch all open from GitLab) |
 | `--mode {full,standard,lite,min,skip}` | No | review mode (omit to keep current setting) |
 | `--keep-ctx-batch` | No | keep context within the batch |
 | `--keep-ctx-intra` | No | keep context within intra-issue steps |
@@ -224,7 +225,7 @@ gokrax commit --pj myproject --issue 17 18 19 --hash abc1234
 | Option | Required | Description |
 |--------|----------|-------------|
 | `--pj` | Yes | project name |
-| `--issue N [N ...]` | Yes | issue numbers (multiple allowed) |
+| `--issue N[,N...] [N...]` | Yes | issue numbers; comma/space-separated both accepted |
 | `--hash HASH` | Yes | git commit hash |
 | `--session-id SESSION_ID` | No | CC session ID |
 
@@ -239,7 +240,7 @@ gokrax plan-done --pj myproject --issue 17 18 19
 | Option | Required | Description |
 |--------|----------|-------------|
 | `--pj` | Yes | project name |
-| `--issue N [N ...]` | Yes | issue numbers (multiple allowed) |
+| `--issue N[,N...] [N...]` | Yes | issue numbers; comma/space-separated both accepted |
 
 Only valid in DESIGN_PLAN state. Run after the implementer has reviewed and edited issue descriptions.
 
@@ -267,6 +268,7 @@ Title update failure is a warning only — it does not block assessment recordin
 
 ```bash
 gokrax design-revise --pj myproject --issue 17
+gokrax design-revise --pj myproject --issue 17,18
 gokrax design-revise --pj myproject --issue 17 18
 gokrax design-revise --pj myproject --issue 17 --summary "Fixed P0: added input validation"
 ```
@@ -274,7 +276,7 @@ gokrax design-revise --pj myproject --issue 17 --summary "Fixed P0: added input 
 | Option | Required | Description |
 |--------|----------|-------------|
 | `--pj` | Yes | project name |
-| `--issue N [N ...]` | Yes | issue numbers (multiple allowed) |
+| `--issue N[,N...] [N...]` | Yes | issue numbers; comma/space-separated both accepted |
 | `--summary SUMMARY` | No | revise summary to post as GitLab issue note (optional) |
 
 Only valid in DESIGN_REVISE state.
@@ -283,6 +285,7 @@ Only valid in DESIGN_REVISE state.
 
 ```bash
 gokrax code-revise --pj myproject --issue 17 --hash f8f7c30
+gokrax code-revise --pj myproject --issue 17,18,19 --hash f8f7c30
 gokrax code-revise --pj myproject --issue 17 18 19 --hash f8f7c30
 gokrax code-revise --pj myproject --issue 17 --hash f8f7c30 --summary "Added zero-division guard"
 ```
@@ -290,7 +293,7 @@ gokrax code-revise --pj myproject --issue 17 --hash f8f7c30 --summary "Added zer
 | Option | Required | Description |
 |--------|----------|-------------|
 | `--pj` | Yes | project name |
-| `--issue N [N ...]` | Yes | issue numbers (multiple allowed) |
+| `--issue N[,N...] [N...]` | Yes | issue numbers; comma/space-separated both accepted |
 | `--hash HASH` | Yes | git commit hash |
 | `--summary SUMMARY` | No | revise summary to post as GitLab issue note (optional) |
 

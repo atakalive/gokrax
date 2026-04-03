@@ -144,7 +144,7 @@ def main():
     # start
     p = sub.add_parser("start", help="start batch: triage + transition to DESIGN_PLAN + enable watchdog")
     p.add_argument("--pj", "--project", dest="project", required=True)
-    p.add_argument("--issue", type=int, nargs="+",
+    p.add_argument("--issue", type=str, nargs="+",
                    help="issue numbers (omit to fetch all open issues from GitLab)")
     p.add_argument("--mode", choices=list(REVIEW_MODES.keys()),
                    help="review mode (omit to keep current setting)")
@@ -231,7 +231,7 @@ def main():
     # commit
     p = sub.add_parser("commit", help="record commit hash for completed implementation")
     p.add_argument("--pj", "--project", dest="project", required=True)
-    p.add_argument("--issue", type=int, nargs="+", required=True, help="issue numbers (multiple allowed)")
+    p.add_argument("--issue", type=str, nargs="+", required=True, help="issue numbers (multiple allowed)")
     p.add_argument("--hash", required=True, help="git commit hash")
     p.add_argument("--session-id", default=None, help="CC session ID")
 
@@ -243,7 +243,7 @@ def main():
     # plan-done
     p = sub.add_parser("plan-done", help="mark design plan as done: set design_ready flag on issues")
     p.add_argument("--pj", "--project", dest="project", required=True)
-    p.add_argument("--issue", type=int, nargs="+", required=True, help="issue numbers (multiple allowed)")
+    p.add_argument("--issue", type=str, nargs="+", required=True, help="issue numbers (multiple allowed)")
 
     # assess-done
     p = sub.add_parser("assess-done", help="record assessment result and transition to IMPLEMENTATION")
@@ -260,13 +260,13 @@ def main():
     # design-revise
     p = sub.add_parser("design-revise", help="mark design revision as done: set design_revised flag")
     p.add_argument("--pj", "--project", dest="project", required=True)
-    p.add_argument("--issue", type=int, nargs="+", required=True, help="issue numbers (multiple allowed)")
+    p.add_argument("--issue", type=str, nargs="+", required=True, help="issue numbers (multiple allowed)")
     p.add_argument("--summary", default=None, help="revise summary to post as GitLab issue note (optional)")
 
     # code-revise
     p = sub.add_parser("code-revise", help="mark code revision as done: record commit hash + set code_revised flag")
     p.add_argument("--pj", "--project", dest="project", required=True)
-    p.add_argument("--issue", type=int, nargs="+", required=True, help="issue numbers (multiple allowed)")
+    p.add_argument("--issue", type=str, nargs="+", required=True, help="issue numbers (multiple allowed)")
     p.add_argument("--hash", required=True, help="git commit hash")
     p.add_argument("--summary", default=None, help="revise summary to post as GitLab issue note (optional)")
 

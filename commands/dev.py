@@ -31,6 +31,32 @@ VERDICT_SEVERITY = {"REJECT": 3, "P0": 3, "P1": 2, "P2": 1, "APPROVE": 0}
 RISK_DISPLAY = {"n/a": "", "none": "No Risk", "low": "Low Risk", "high": "High Risk"}
 
 
+def parse_issue_args(raw: list[str]) -> list[int]:
+    """Flatten comma-separated and/or space-separated issue args into int list.
+
+    Examples:
+        parse_issue_args(["33,34"]) -> [33, 34]
+        parse_issue_args(["33", "34"]) -> [33, 34]
+        parse_issue_args(["33,34", "35"]) -> [33, 34, 35]
+        parse_issue_args(["33"]) -> [33]
+
+    Raises:
+        SystemExit: on non-numeric element
+    """
+    result: list[int] = []
+    for item in raw:
+        for part in str(item).split(","):
+            part = part.strip()
+            if part:
+                try:
+                    result.append(int(part))
+                except ValueError:
+                    raise SystemExit(f"Invalid issue number: {part!r}")
+    if not result:
+        raise SystemExit("No issue numbers provided")
+    return result
+
+
 def get_status_text(enabled_only: bool = False) -> str:
     """全PJの状態を文字列として取得。
 
@@ -373,6 +399,7 @@ def cmd_start(args):
     triage + DESIGN_PLAN遷移 + watchdog有効化を一括実行。
     --issue省略時はGitLab APIでopen issue全件取得。
     """
+    args.issue = parse_issue_args(args.issue) if args.issue else args.issue
     from gokrax import _start_loop
     from config import NONE_TO_FALSE_KEYS, resolve_queue_options
 
@@ -1204,6 +1231,7 @@ def cmd_flag(args):
 
 def cmd_commit(args):
     """commit hash を記録"""
+    args.issue = parse_issue_args(args.issue)
     path = get_path(args.project)
 
     def do_commit(data):
@@ -1234,6 +1262,7 @@ def cmd_cc_start(args):
 
 def cmd_plan_done(args):
     """設計完了フラグを設定"""
+    args.issue = parse_issue_args(args.issue)
     path = get_path(args.project)
 
     def do_plan_done(data):
@@ -1295,6 +1324,7 @@ def cmd_assess_done(args):
 
 def cmd_design_revise(args):
     """DESIGN_REVISE: design_revised フラグを設定"""
+    args.issue = parse_issue_args(args.issue)
     path = get_path(args.project)
 
     if args.summary:
@@ -1322,6 +1352,7 @@ def cmd_design_revise(args):
 
 def cmd_code_revise(args):
     """CODE_REVISE: commit 記録 + code_revised フラグを一発で設定"""
+    args.issue = parse_issue_args(args.issue)
     path = get_path(args.project)
 
     if args.summary:

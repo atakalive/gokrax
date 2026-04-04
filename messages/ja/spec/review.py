@@ -60,9 +60,8 @@ items:
 
 
 def revision(
-    project: str, spec_path: str, current_rev: str, GOKRAX_CLI: str,
-    changelog: str, added: str, removed: str, last_commit: str,
-    reviewer: str = "",
+    project: str, spec_path: str, current_rev: str, GOKRAX_CLI: str, reviewer: str = "",
+    changelog: str = "", added: str = "", removed: str = "", last_commit: str = "",
     **_kw,
 ) -> str:
     """rev2以降のレビュー依頼プロンプト（§5.1）。"""

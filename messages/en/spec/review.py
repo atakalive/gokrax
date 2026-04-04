@@ -60,9 +60,8 @@ The file can be raw YAML or Markdown containing a ```yaml ... ``` block matching
 
 
 def revision(
-    project: str, spec_path: str, current_rev: str, GOKRAX_CLI: str,
-    changelog: str, added: str, removed: str, last_commit: str,
-    reviewer: str = "",
+    project: str, spec_path: str, current_rev: str, GOKRAX_CLI: str, reviewer: str = "",
+    changelog: str = "", added: str = "", removed: str = "", last_commit: str = "",
     **_kw,
 ) -> str:
     """Review prompt for rev2+ (§5.1)."""

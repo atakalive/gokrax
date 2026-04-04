@@ -323,7 +323,8 @@ class TestCheckIssueSuggestion:
         }
         action = _check_issue_suggestion(sc, _now(), {"project": "gokrax"})
         assert action.next_state == "ISSUE_PLAN"
-        assert "[Spec] Issue split suggestions collected" in action.discord_notify
+        assert "[Spec][gokrax]" in action.discord_notify
+        assert "ISSUE_PLAN" in action.discord_notify
         # review_requests 完全リセット確認
         reset = action.pipeline_updates["review_requests_patch"]["reviewer2"]
         assert reset["status"] == "pending"

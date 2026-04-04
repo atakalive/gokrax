@@ -75,4 +75,4 @@ queue_file: "{queue_file_path}"
 
 def notify_done(project: str, batch_count: int, **_kw) -> str:
     """QUEUE_PLAN完了。"""
-    return f"[Spec] {project}: {batch_count}バッチ キュー生成完了"
+    return f"[Spec][{project}] {batch_count}バッチ キュー生成完了"

@@ -66,4 +66,4 @@ created_issues:
 
 def notify_done(project: str, issue_count: int, **_kw) -> str:
     """ISSUE_PLAN完了。"""
-    return f"[Spec] {project}: {issue_count}件 Issue起票完了"
+    return f"[Spec][{project}] {issue_count}件 Issue起票完了"

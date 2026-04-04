@@ -75,4 +75,4 @@ Save the completion report to a YAML file and submit with the following command:
 
 def notify_done(project: str, batch_count: int, **_kw) -> str:
     """QUEUE_PLAN completed."""
-    return f"[Spec] {project}: {batch_count} batches queued"
+    return f"[Spec][{project}] {batch_count} batches queued"

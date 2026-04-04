@@ -66,4 +66,4 @@ Save the completion report to a YAML file and submit with the following command:
 
 def notify_done(project: str, issue_count: int, **_kw) -> str:
     """ISSUE_PLAN completed."""
-    return f"[Spec] {project}: {issue_count} issues created"
+    return f"[Spec][{project}] {issue_count} issues created"

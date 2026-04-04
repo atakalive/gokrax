@@ -31,7 +31,8 @@ def revise(
 1. 現行仕様書 `{spec_path}` をコピーして `{new_spec_path}` を作成
 2. `{new_spec_path}` を編集（改訂内容を反映）
 3. `{new_spec_path}` を git add + commit
-4. 完了報告を投入
+4. 下記「完了報告フォーマット」に従って YAML ファイルを作成し、次のコマンドで投入:
+   `{GOKRAX_CLI} spec revise-submit --pj {project} --file <YAMLファイルパス>`
 
 ## レビュー統合レポート
 {merged_report_md}
@@ -54,12 +55,6 @@ changes:
   deferred_items: ["dijkstra:m-4", ...]
   deferred_reasons:
     "dijkstra:m-4": "理由"
-```
-
-## 提出方法
-完了報告を YAML ファイルに保存し、以下のコマンドで投入してください:
-```
-{GOKRAX_CLI} spec revise-submit --pj {project} --file <YAMLファイルパス>
 ```
 
 【重要】改訂・コミット・完了報告の提出まで、中断せず一気に完了すること。"""
@@ -119,19 +114,19 @@ def nudge(project: str, current_rev: str, GOKRAX_CLI: str, **_kw) -> str:
 
 def notify_done(project: str, rev: str | int, commit: str, **_kw) -> str:
     """REVISE完了（commit hashあり）。"""
-    return f"[Spec] {project}: rev{rev} 改訂完了 ({commit[:7]})"
+    return f"[Spec][{project}] rev{rev} 改訂完了 ({commit[:7]})"
 
 
 def notify_commit_failed(project: str, rev: str | int, **_kw) -> str:
     """REVISE完了（git commit失敗）。"""
-    return f"[Spec] ⚠️ {project}: rev{rev} git commit失敗"
+    return f"[Spec][{project}] ⚠️ rev{rev} git commit失敗"
 
 
 def notify_no_changes(project: str, rev: str | int, **_kw) -> str:
     """REVISE完了（差分0）→ SPEC_PAUSED。"""
-    return f"[Spec] ⚠️ {project}: rev{rev} 変更なし（改訂が空）"
+    return f"[Spec][{project}] ⚠️ rev{rev} 変更なし（改訂が空）"
 
 
 def notify_self_review_failed(project: str, failed_count: int, **_kw) -> str:
     """セルフレビュー差し戻し通知。"""
-    return f"🔁 [{project}] セルフレビュー: {failed_count}件の問題検出。implementer に差し戻し"
+    return f"[Spec][{project}] 🔁 セルフレビュー: {failed_count}件の問題検出。implementer に差し戻し"

@@ -120,7 +120,7 @@ def nudge(project: str, current_rev: str, spec_path: str, reviewer: str, GOKRAX_
 
 def notify_start(project: str, rev: str | int, reviewer_count: int, **_kw) -> str:
     """SPEC_REVIEW started."""
-    return f"[Spec] {project}: rev{rev} review started ({reviewer_count} reviewers)"
+    return f"[Spec][{project}] rev{rev} review started ({reviewer_count} reviewers)"
 
 
 def notify_complete(
@@ -129,9 +129,9 @@ def notify_complete(
     **_kw,
 ) -> str:
     """Transition to SPEC_REVISE."""
-    return f"[Spec] {project}: rev{rev} review completed — C:{critical} M:{major} m:{minor} s:{suggestion}"
+    return f"[Spec][{project}] rev{rev} review completed — C:{critical} M:{major} m:{minor} s:{suggestion}"
 
 
 def notify_failed(project: str, rev: str | int, **_kw) -> str:
     """Transition to SPEC_REVIEW_FAILED."""
-    return f"[Spec] ❌ {project}: insufficient valid reviews"
+    return f"[Spec][{project}] ❌ insufficient valid reviews"

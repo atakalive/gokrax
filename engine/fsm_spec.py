@@ -716,7 +716,7 @@ def _check_issue_suggestion(
             # issue_suggestions は上で逐次永続化済み
             return SpecTransitionAction(
                 next_state="ISSUE_PLAN",
-                discord_notify="[Spec] Issue split suggestions collected → ISSUE_PLAN",
+                discord_notify=render("spec.issue_suggestion", "notify_collected", project=project),
                 pipeline_updates=updates,
                 send_to=send_to if send_to else None,
             )

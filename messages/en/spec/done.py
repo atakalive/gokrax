@@ -3,4 +3,4 @@
 
 def notify_done(project: str, **_kw) -> str:
     """Spec mode completed."""
-    return f"[Spec] ✅ {project}: spec mode completed"
+    return f"[Spec][{project}] ✅ spec mode completed"

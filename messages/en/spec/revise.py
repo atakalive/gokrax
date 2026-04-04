@@ -31,7 +31,8 @@ Revision target file: {new_spec_path} (rev{next_rev})
 1. Copy the current spec `{spec_path}` to create `{new_spec_path}`
 2. Edit `{new_spec_path}` (apply revision changes)
 3. git add + commit `{new_spec_path}`
-4. Submit the completion report
+4. Create a YAML file following the "Completion Report Format" below and submit with:
+   `{GOKRAX_CLI} spec revise-submit --pj {project} --file <YAML file path>`
 
 ## Merged Review Report
 {merged_report_md}
@@ -54,12 +55,6 @@ changes:
   deferred_items: ["dijkstra:m-4", ...]
   deferred_reasons:
     "dijkstra:m-4": "Reason"
-```
-
-## Submission Method
-Save the completion report to a YAML file and submit with the following command:
-```
-{GOKRAX_CLI} spec revise-submit --pj {project} --file <YAML file path>
 ```
 
 [IMPORTANT] Complete the revision, commit, and submission without interruption."""
@@ -119,19 +114,19 @@ def nudge(project: str, current_rev: str, GOKRAX_CLI: str, **_kw) -> str:
 
 def notify_done(project: str, rev: str | int, commit: str, **_kw) -> str:
     """REVISE completed (with commit hash)."""
-    return f"[Spec] {project}: rev{rev} revision completed ({commit[:7]})"
+    return f"[Spec][{project}] rev{rev} revision completed ({commit[:7]})"
 
 
 def notify_commit_failed(project: str, rev: str | int, **_kw) -> str:
     """REVISE completed (git commit failed)."""
-    return f"[Spec] ⚠️ {project}: rev{rev} git commit failed"
+    return f"[Spec][{project}] ⚠️ rev{rev} git commit failed"
 
 
 def notify_no_changes(project: str, rev: str | int, **_kw) -> str:
     """REVISE completed (zero diff) — SPEC_PAUSED."""
-    return f"[Spec] ⚠️ {project}: rev{rev} no changes (empty revision)"
+    return f"[Spec][{project}] ⚠️ rev{rev} no changes (empty revision)"
 
 
 def notify_self_review_failed(project: str, failed_count: int, **_kw) -> str:
     """Self-review sent back notification."""
-    return f"🔁 [{project}] self-review: {failed_count} issues found. Sent back to implementer"
+    return f"[Spec][{project}] 🔁 self-review: {failed_count} issues found. Sent back to implementer"

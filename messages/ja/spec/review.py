@@ -120,7 +120,7 @@ def nudge(project: str, current_rev: str, spec_path: str, reviewer: str, GOKRAX_
 
 def notify_start(project: str, rev: str | int, reviewer_count: int, **_kw) -> str:
     """→ SPEC_REVIEW開始。"""
-    return f"[Spec] {project}: rev{rev} レビュー開始 ({reviewer_count}人)"
+    return f"[Spec][{project}] rev{rev} レビュー開始 ({reviewer_count}人)"
 
 
 def notify_complete(
@@ -129,9 +129,9 @@ def notify_complete(
     **_kw,
 ) -> str:
     """→ SPEC_REVISE遷移時。"""
-    return f"[Spec] {project}: rev{rev} レビュー完了 — C:{critical} M:{major} m:{minor} s:{suggestion}"
+    return f"[Spec][{project}] rev{rev} レビュー完了 — C:{critical} M:{major} m:{minor} s:{suggestion}"
 
 
 def notify_failed(project: str, rev: str | int, **_kw) -> str:
     """→ SPEC_REVIEW_FAILED。"""
-    return f"[Spec] ❌ {project}: 有効レビュー不足"
+    return f"[Spec][{project}] ❌ 有効レビュー不足"

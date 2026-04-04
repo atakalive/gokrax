@@ -73,3 +73,12 @@ Save the proposal to a YAML file and submit with the following command:
 ```
 
 [IMPORTANT] Complete proposal creation and submission without interruption."""
+
+
+# ---------------------------------------------------------------------------
+# Discord notifications (short)
+# ---------------------------------------------------------------------------
+
+def notify_collected(project: str, **_kw) -> str:
+    """Issue split suggestions collected."""
+    return f"[Spec][{project}] Issue split suggestions collected → ISSUE_PLAN"

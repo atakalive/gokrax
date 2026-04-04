@@ -7,7 +7,8 @@ from datetime import datetime
 
 import yaml  # PyYAML (already in deps)
 
-from config import MIN_VALID_REVIEWS_BY_MODE
+from config import REVIEW_MODES
+from engine.fsm import get_min_reviews
 
 # ---------------------------------------------------------------------------
 # 1-A. 定数: VERDICT_ALIASES, SEVERITY_ALIASES, SEVERITY_ORDER
@@ -18,6 +19,7 @@ VERDICT_ALIASES: dict[str, str] = {
     "p0": "P0",
     "reject": "P0",
     "p1": "P1",
+    "p2": "P2",
 }
 
 SEVERITY_ALIASES: dict[str, str] = {
@@ -206,9 +208,9 @@ def should_continue_review(
             parsed_fail[k] = v
         # timeout は received にも parsed_fail にも含まれない
 
-    if review_mode not in MIN_VALID_REVIEWS_BY_MODE:
+    if review_mode not in REVIEW_MODES:
         raise ValueError(f"Unknown review_mode: {review_mode!r}")
-    min_valid = min_reviews_override if min_reviews_override is not None else MIN_VALID_REVIEWS_BY_MODE[review_mode]
+    min_valid = min_reviews_override if min_reviews_override is not None else get_min_reviews(REVIEW_MODES[review_mode])
 
     # 1. 全員タイムアウト（received=0, parsed_fail=0）
     if len(received) == 0 and len(parsed_fail) == 0:

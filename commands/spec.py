@@ -5,10 +5,11 @@ from pathlib import Path
 
 from config import (
     PIPELINES_DIR, LOCAL_TZ, REVIEW_MODES, OWNER_NAME,
-    MAX_SPEC_REVISE_CYCLES, MIN_VALID_REVIEWS_BY_MODE,
+    MAX_SPEC_REVISE_CYCLES,
     SPEC_BLOCK_TIMERS,
     MAX_SPEC_RETRIES, GITLAB_NAMESPACE, IMPLEMENTERS,
 )
+from engine.fsm import get_min_reviews
 from pipeline_io import (
     load_pipeline, update_pipeline, save_pipeline,
     add_history, now_iso, get_path, default_spec_config,
@@ -215,7 +216,7 @@ def cmd_spec_start(args):
             for r in excluded_reviewers_only:
                 rr.pop(r, None)
             effective_count = len(mode_config["members"]) - len(excluded_reviewers_only)
-            min_reviews = mode_config["min_reviews"]
+            min_reviews = get_min_reviews(mode_config)
             if effective_count < min_reviews:
                 data["min_reviews_override"] = max(1, effective_count)
 
@@ -506,7 +507,8 @@ def cmd_spec_status(args):
     print(f"  reviewers: {', '.join(reviewer_parts)}")
 
     review_mode = data.get("review_mode", "")
-    min_valid = MIN_VALID_REVIEWS_BY_MODE.get(review_mode, 0)
+    mode_cfg = REVIEW_MODES.get(review_mode)
+    min_valid = get_min_reviews(mode_cfg) if mode_cfg else 0
     print(f"  min_valid: {min_valid} ({review_mode} mode)")
     print(f"  auto_qrun: {sc.get('auto_qrun', False)}")
     print(f"  pipelines_dir: {sc.get('pipelines_dir', '?')}")

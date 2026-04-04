@@ -60,7 +60,7 @@ __all__ = [
     "BLOCK_TIMERS", "MAX_TIMEOUT_EXTENSION", "EXTENDABLE_STATES",
     "NUDGE_GRACE_SEC", "EXTEND_NOTICE_THRESHOLD",
     "SPEC_STATES", "SPEC_TRANSITIONS",
-    "MAX_SPEC_REVISE_CYCLES", "MIN_VALID_REVIEWS_BY_MODE",
+    "MAX_SPEC_REVISE_CYCLES",
     "SPEC_BLOCK_TIMERS",
     "SPEC_REVISE_SELF_REVIEW_PASSES", "MAX_SPEC_RETRIES",
     "SPEC_REVIEW_RAW_RETENTION_DAYS",
@@ -183,9 +183,6 @@ SPEC_TRANSITIONS: dict[str, list[str]] = {
 
 # 1-E. spec mode 定数（§3.2）
 MAX_SPEC_REVISE_CYCLES: int = 10
-MIN_VALID_REVIEWS_BY_MODE: dict[str, int] = {
-    "full": 4, "standard": 3, "lite": 2, "min": 1, "lite3": 3, "lite3_woGoogle": 3, "skip": 0,
-}
 SPEC_BLOCK_TIMERS: dict[str, int] = {
     "SPEC_REVIEW":       1800,  # 30 min
     "SPEC_REVISE":       1800,  # 30 min

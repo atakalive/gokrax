@@ -302,6 +302,25 @@ class TestShouldContinueReview:
         }
         assert should_continue_review(self._config(entries), "full") == "approved"
 
+    def test_mode_without_explicit_min_reviews(self):
+        """min_reviews キー未定義のモード (standard) でも動的に len(members) で判定できる (#286)"""
+        entries = {
+            "reviewer1": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
+            "reviewer2": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
+            "reviewer3": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
+        }
+        # standard: members=["pascal", "euler", "dijkstra"], no min_reviews key → len(members)=3
+        assert should_continue_review(self._config(entries), "standard") == "approved"
+
+    def test_mode_without_explicit_min_reviews_insufficient(self):
+        """min_reviews キー未定義のモードで received < len(members) → failed (#286)"""
+        entries = {
+            "reviewer1": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
+            "reviewer2": {"status": "received", "verdict": "APPROVE", "items": [], "parse_success": True},
+        }
+        # standard: len(members)=3, received=2 < 3 → failed
+        assert should_continue_review(self._config(entries), "standard") == "failed"
+
     def test_missing_rev_index_raises(self):
         """rev_index 欠落 → KeyError（Dijkstra P1-2）"""
         entries = self._full_approve_entries()

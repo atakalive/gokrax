@@ -19,7 +19,6 @@ VERDICT_ALIASES: dict[str, str] = {
     "p0": "P0",
     "reject": "P0",
     "p1": "P1",
-    "p2": "P2",
 }
 
 SEVERITY_ALIASES: dict[str, str] = {

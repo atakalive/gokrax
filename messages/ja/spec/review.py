@@ -5,16 +5,20 @@ Variables (common):
     spec_path: str     - 仕様書ファイルパス
     current_rev: str   - 現在のリビジョン番号
     GOKRAX_CLI: str    - gokrax CLIパス
+    reviewer: str      - レビュアー名（ファイルパス生成用）
 """
 
+import re
 
 
 # ---------------------------------------------------------------------------
 # エージェント向けプロンプト
 # ---------------------------------------------------------------------------
 
-def initial(project: str, spec_path: str, current_rev: str, GOKRAX_CLI: str, **_kw) -> str:
+def initial(project: str, spec_path: str, current_rev: str, GOKRAX_CLI: str, reviewer: str = "", **_kw) -> str:
     """初回レビュー依頼プロンプト（§5.1）。"""
+    sanitized = re.sub(r'[/\\\s]', '-', project)
+    save_path = f"/tmp/gokrax-review/{sanitized}--spec-{reviewer}-rev{current_rev}.yaml" if reviewer else f"/tmp/gokrax-review/{sanitized}--spec-<YOUR_NAME>-rev{current_rev}.yaml"
     return f"""【指示】このタスクは中断せず最後まで一気に完了してください。途中で確認を求めないこと。
 
 以下の仕様書をレビューしてください。**やりすぎレビュー**を依頼します。
@@ -44,10 +48,10 @@ items:
 ```
 
 ## レビュー結果の投入手順
-1. ワークスペース内にYAMLファイルを保存（パスは任意）
+1. YAMLファイルを以下に保存: {save_path}
 2. 以下のコマンドで投入:
 ```bash
-{GOKRAX_CLI} spec review-submit --pj {project} --reviewer <YOUR_NAME> --file <保存したファイルのパス>
+{GOKRAX_CLI} spec review-submit --pj {project} --reviewer {reviewer or "<YOUR_NAME>"} --file {save_path}
 ```
 
 ファイルは素のYAMLでも、上記「出力フォーマット」の ```yaml ... ``` ブロックを含むMarkdownでも可。
@@ -58,9 +62,12 @@ items:
 def revision(
     project: str, spec_path: str, current_rev: str, GOKRAX_CLI: str,
     changelog: str, added: str, removed: str, last_commit: str,
+    reviewer: str = "",
     **_kw,
 ) -> str:
     """rev2以降のレビュー依頼プロンプト（§5.1）。"""
+    sanitized = re.sub(r'[/\\\s]', '-', project)
+    save_path = f"/tmp/gokrax-review/{sanitized}--spec-{reviewer}-rev{current_rev}.yaml" if reviewer else f"/tmp/gokrax-review/{sanitized}--spec-<YOUR_NAME>-rev{current_rev}.yaml"
     return f"""【指示】このタスクは中断せず最後まで一気に完了してください。途中で確認を求めないこと。
 
 以下の仕様書の改訂版をレビューしてください。
@@ -81,10 +88,10 @@ def revision(
 - verdict の選び方: critical → P0, major → P1, minor/suggestion → P2。指摘ゼロの場合のみ APPROVE
 
 ## レビュー結果の投入手順
-1. ワークスペース内にYAMLファイルを保存（パスは任意）
+1. YAMLファイルを以下に保存: {save_path}
 2. 以下のコマンドで投入:
 ```bash
-{GOKRAX_CLI} spec review-submit --pj {project} --reviewer <YOUR_NAME> --file <保存したファイルのパス>
+{GOKRAX_CLI} spec review-submit --pj {project} --reviewer {reviewer or "<YOUR_NAME>"} --file {save_path}
 ```
 
 ファイルは素のYAMLでも、上記「出力フォーマット」の ```yaml ... ``` ブロックを含むMarkdownでも可。
@@ -98,11 +105,13 @@ def revision(
 
 def nudge(project: str, current_rev: str, spec_path: str, reviewer: str, GOKRAX_CLI: str, **_kw) -> str:
     """specレビュー催促メッセージ。"""
+    sanitized = re.sub(r'[/\\\s]', '-', project)
+    save_path = f"/tmp/gokrax-review/{sanitized}--spec-{reviewer}-rev{current_rev}.yaml"
     return (
         f"[Remind] {project} spec rev{current_rev} のレビューが未完了です。\n"
         f"仕様書: {spec_path}\n"
         f"以下のコマンドでレビュー結果を提出してください:\n"
-        f"{GOKRAX_CLI} spec review-submit --pj {project} --reviewer {reviewer} --file <YAMLファイルパス>"
+        f"{GOKRAX_CLI} spec review-submit --pj {project} --reviewer {reviewer} --file {save_path}"
     )
 
 

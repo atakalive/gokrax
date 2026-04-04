@@ -156,40 +156,43 @@ def _old_build_spec_revise_nudge_msg(project: str, current_rev: str) -> str:
 # ---------------------------------------------------------------------------
 
 class TestBuildSpecReviewPromptInitialParity:
-    """_build_spec_review_prompt_initial vs render("spec.review", "initial", ...)"""
+    """render("spec.review", "initial", ...) の挙動テスト。
 
-    def test_parity_basic(self):
-        project = "MyProject"
-        spec_path = "/docs/spec.md"
-        current_rev = "1"
-        spec_config = {}
-        old = _old_build_spec_review_prompt_initial(project, spec_path, current_rev, spec_config)
-        new = render("spec.review", "initial",
-            project=project, spec_path=spec_path,
-            current_rev=current_rev, GOKRAX_CLI=GOKRAX_CLI,
-        )
-        assert old == new
+    #283 で reviewer 引数追加・ファイルパス指定に変更したため、
+    旧実装との比較は廃止し、新挙動のテストに置き換え。
+    """
 
-    def test_parity_with_spec_config(self):
-        project = "AnotherProj"
-        spec_path = "/home/user/docs/design-spec.md"
-        current_rev = "2"
-        spec_config = {"pipelines_dir": "/tmp/pipelines", "some_key": "value"}
-        old = _old_build_spec_review_prompt_initial(project, spec_path, current_rev, spec_config)
-        new = render("spec.review", "initial",
-            project=project, spec_path=spec_path,
-            current_rev=current_rev, GOKRAX_CLI=GOKRAX_CLI,
-        )
-        assert old == new
-
-    def test_parity_project_embedded(self):
-        project = "TestPJ"
-        spec_path = "/path/to/spec.md"
-        current_rev = "3"
-        spec_config = {}
+    def test_with_reviewer(self):
+        """reviewer 指定時、具体的なファイルパスがプロンプトに含まれる。"""
         result = render("spec.review", "initial",
-            project=project, spec_path=spec_path,
-            current_rev=current_rev, GOKRAX_CLI=GOKRAX_CLI,
+            project="MyProject", spec_path="/docs/spec.md",
+            current_rev="1", GOKRAX_CLI=GOKRAX_CLI,
+            reviewer="basho",
+        )
+        assert "/tmp/gokrax-review/MyProject--spec-basho-rev1.yaml" in result
+        assert "<YOUR_NAME>" not in result
+
+    def test_without_reviewer(self):
+        """reviewer 未指定時、<YOUR_NAME> プレースホルダにフォールバック。"""
+        result = render("spec.review", "initial",
+            project="MyProject", spec_path="/docs/spec.md",
+            current_rev="1", GOKRAX_CLI=GOKRAX_CLI,
+        )
+        assert "/tmp/gokrax-review/MyProject--spec-<YOUR_NAME>-rev1.yaml" in result
+
+    def test_sanitizes_project_name(self):
+        """プロジェクト名のスラッシュ・空白がハイフンに置換される。"""
+        result = render("spec.review", "initial",
+            project="foo/bar baz", spec_path="/docs/spec.md",
+            current_rev="1", GOKRAX_CLI=GOKRAX_CLI,
+            reviewer="pascal",
+        )
+        assert "/tmp/gokrax-review/foo-bar-baz--spec-pascal-rev1.yaml" in result
+
+    def test_project_embedded(self):
+        result = render("spec.review", "initial",
+            project="TestPJ", spec_path="/path/to/spec.md",
+            current_rev="3", GOKRAX_CLI=GOKRAX_CLI,
         )
         assert "TestPJ" in result
         assert "/path/to/spec.md" in result
@@ -198,71 +201,58 @@ class TestBuildSpecReviewPromptInitialParity:
 
 
 class TestBuildSpecReviewPromptRevisionParity:
-    """_build_spec_review_prompt_revision vs render("spec.review", "revision", ...)"""
+    """render("spec.review", "revision", ...) の挙動テスト。
 
-    def test_parity_basic(self):
-        project = "MyProject"
-        spec_path = "/docs/spec-rev2.md"
-        current_rev = "2"
-        spec_config = {
-            "last_commit": "abc1234",
-            "last_changes": {
-                "added_lines": 10,
-                "removed_lines": 5,
-                "changelog_summary": "- 修正A\n- 修正B",
-            },
-        }
-        data = {"project": project}
-        old = _old_build_spec_review_prompt_revision(project, spec_path, current_rev, spec_config, data)
-        last_changes = spec_config.get("last_changes") or {}
-        new = render("spec.review", "revision",
-            project=project, spec_path=spec_path,
-            current_rev=current_rev, GOKRAX_CLI=GOKRAX_CLI,
-            changelog=last_changes.get("changelog_summary", "変更履歴なし"),
-            added=str(last_changes.get("added_lines", "?")),
-            removed=str(last_changes.get("removed_lines", "?")),
-            last_commit=spec_config.get("last_commit") or "unknown",
+    #283 で reviewer 引数追加・ファイルパス指定に変更したため、
+    旧実装との比較は廃止し、新挙動のテストに置き換え。
+    """
+
+    def test_with_reviewer(self):
+        """reviewer 指定時、具体的なファイルパスがプロンプトに含まれる。"""
+        result = render("spec.review", "revision",
+            project="MyProject", spec_path="/docs/spec-rev2.md",
+            current_rev="2", GOKRAX_CLI=GOKRAX_CLI,
+            reviewer="euler",
+            changelog="- fix A", added="10", removed="5",
+            last_commit="abc1234",
         )
-        assert old == new
+        assert "/tmp/gokrax-review/MyProject--spec-euler-rev2.yaml" in result
+        assert "<YOUR_NAME>" not in result
 
-    def test_parity_missing_last_changes(self):
-        project = "MyProject"
-        spec_path = "/docs/spec-rev2.md"
-        current_rev = "2"
-        spec_config = {}
-        data = {"project": project}
-        old = _old_build_spec_review_prompt_revision(project, spec_path, current_rev, spec_config, data)
-        last_changes = spec_config.get("last_changes") or {}
-        new = render("spec.review", "revision",
-            project=project, spec_path=spec_path,
-            current_rev=current_rev, GOKRAX_CLI=GOKRAX_CLI,
-            changelog=last_changes.get("changelog_summary", "変更履歴なし"),
-            added=str(last_changes.get("added_lines", "?")),
-            removed=str(last_changes.get("removed_lines", "?")),
-            last_commit=spec_config.get("last_commit") or "unknown",
+    def test_without_reviewer(self):
+        """reviewer 未指定時、<YOUR_NAME> プレースホルダにフォールバック。"""
+        result = render("spec.review", "revision",
+            project="MyProject", spec_path="/docs/spec-rev2.md",
+            current_rev="2", GOKRAX_CLI=GOKRAX_CLI,
+            changelog="- fix A", added="10", removed="5",
+            last_commit="abc1234",
         )
-        assert old == new
+        assert "/tmp/gokrax-review/MyProject--spec-<YOUR_NAME>-rev2.yaml" in result
 
-    def test_parity_defaults_applied(self):
+    def test_sanitizes_project_name(self):
+        """プロジェクト名のスラッシュ・空白がハイフンに置換される。"""
+        result = render("spec.review", "revision",
+            project="foo/bar baz", spec_path="/docs/spec.md",
+            current_rev="1", GOKRAX_CLI=GOKRAX_CLI,
+            reviewer="dijkstra",
+            changelog="changes", added="1", removed="0",
+            last_commit="def5678",
+        )
+        assert "/tmp/gokrax-review/foo-bar-baz--spec-dijkstra-rev1.yaml" in result
+
+    def test_defaults_applied(self):
         """last_changes が空の場合、デフォルト値が埋め込まれること。"""
-        project = "P"
-        spec_path = "/s.md"
-        current_rev = "3"
-        spec_config = {}
-        data = {}
-        last_changes = spec_config.get("last_changes") or {}
-        new = render("spec.review", "revision",
-            project=project, spec_path=spec_path,
-            current_rev=current_rev, GOKRAX_CLI=GOKRAX_CLI,
-            changelog=last_changes.get("changelog_summary", "変更履歴なし"),
-            added=str(last_changes.get("added_lines", "?")),
-            removed=str(last_changes.get("removed_lines", "?")),
-            last_commit=spec_config.get("last_commit") or "unknown",
+        result = render("spec.review", "revision",
+            project="P", spec_path="/s.md",
+            current_rev="3", GOKRAX_CLI=GOKRAX_CLI,
+            changelog="変更履歴なし",
+            added="?", removed="?",
+            last_commit="unknown",
         )
-        assert "変更履歴なし" in new
-        assert "+?行" in new
-        assert "-?行" in new
-        assert "unknown" in new
+        assert "変更履歴なし" in result
+        assert "+?行" in result
+        assert "-?行" in result
+        assert "unknown" in result
 
 
 # ---------------------------------------------------------------------------
@@ -270,32 +260,41 @@ class TestBuildSpecReviewPromptRevisionParity:
 # ---------------------------------------------------------------------------
 
 class TestSpecReviewNudgeParity:
-    """_build_spec_review_nudge_msg vs render("spec.review", "nudge", ...)"""
+    """render("spec.review", "nudge", ...) の挙動テスト。
 
-    def test_parity_basic(self):
-        project = "MyProject"
-        current_rev = "2"
-        spec_path = "/docs/spec.md"
-        reviewer = "reviewer1"
-        old = _old_build_spec_review_nudge_msg(project, current_rev, spec_path, reviewer)
-        new = render("spec.review", "nudge",
-            project=project, current_rev=current_rev,
-            spec_path=spec_path, reviewer=reviewer,
+    #283 で nudge にもファイルパス指定を追加したため、
+    旧実装との比較は廃止し、新挙動のテストに置き換え。
+    """
+
+    def test_includes_save_path(self):
+        """nudge に具体的なファイルパスが含まれる。"""
+        result = render("spec.review", "nudge",
+            project="MyProject", current_rev="2",
+            spec_path="/docs/spec.md", reviewer="reviewer1",
             GOKRAX_CLI=GOKRAX_CLI,
         )
-        assert old == new
+        assert "/tmp/gokrax-review/MyProject--spec-reviewer1-rev2.yaml" in result
 
-    def test_parity_content(self):
-        new = render("spec.review", "nudge",
+    def test_sanitizes_project_name(self):
+        """nudge でもプロジェクト名がサニタイズされる。"""
+        result = render("spec.review", "nudge",
+            project="foo/bar", current_rev="1",
+            spec_path="/path.md", reviewer="reviewer3",
+            GOKRAX_CLI=GOKRAX_CLI,
+        )
+        assert "/tmp/gokrax-review/foo-bar--spec-reviewer3-rev1.yaml" in result
+
+    def test_content(self):
+        result = render("spec.review", "nudge",
             project="Proj", current_rev="1",
             spec_path="/path.md", reviewer="reviewer3",
             GOKRAX_CLI=GOKRAX_CLI,
         )
-        assert "Proj" in new
-        assert "rev1" in new
-        assert "/path.md" in new
-        assert "reviewer3" in new
-        assert str(GOKRAX_CLI) in new
+        assert "Proj" in result
+        assert "rev1" in result
+        assert "/path.md" in result
+        assert "reviewer3" in result
+        assert str(GOKRAX_CLI) in result
 
 
 class TestSpecReviseNudgeParity:

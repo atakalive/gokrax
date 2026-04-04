@@ -83,12 +83,14 @@ def _check_spec_review(
                 prompt = render("spec.review", "initial",
                     project=project, spec_path=spec_path,
                     current_rev=current_rev, GOKRAX_CLI=GOKRAX_CLI,
+                    reviewer=reviewer,
                 )
             else:
                 last_changes = spec_config.get("last_changes") or {}
                 prompt = render("spec.review", "revision",
                     project=project, spec_path=spec_path,
                     current_rev=current_rev, GOKRAX_CLI=GOKRAX_CLI,
+                    reviewer=reviewer,
                     changelog=last_changes.get("changelog_summary", "no changelog"),
                     added=str(last_changes.get("added_lines", "?")),
                     removed=str(last_changes.get("removed_lines", "?")),

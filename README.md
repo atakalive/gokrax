@@ -396,6 +396,12 @@ Three methods are available to increase review coverage in line with development
 3. Reduce oversights through iterative review
    → N-pass review feature
 
+### Effectiveness
+
+Regarding strategy (1) above, an experiment was conducted in which code generated from identical initial conditions (specification, Issue decomposition, and batch structure) was evaluated by multiple LLMs. The results showed a reduction in detected Critical and Major issues compared with Claude Code alone, indicating improved code quality.
+
+Details: [260407_report](reports/260407_report_chortal.md)
+
 
 ### Leveraging Small and Local Models
 
@@ -602,12 +608,6 @@ rm -rf /path/to/gokrax
 
 
 ## Limitations
-
-### Effectiveness of Ensemble Review Is Not Yet Quantified
-
-The extent to which gokrax's ensemble review improves final code quality — and by what metrics — has not been quantitatively evaluated at this point.
-
-The evaluation needed would be an **end-to-end comparison against the widely used baseline of delegating to Claude Code Opus**. This would involve implementing the same task with both "Claude Code standalone without review" and "the gokrax pipeline," then having third-party reviewers compare the final code quality using metrics aligned with the developer's objectives.
 
 ### Limitations of Code Review
 

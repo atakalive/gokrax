@@ -4016,8 +4016,8 @@ class TestCCModelOverride:
         with open(script_path) as f:
             script_content = f.read()
 
-        assert '--model "opus"' in script_content
-        assert '--model "haiku"' in script_content
+        assert "--model opus" in script_content
+        assert "--model haiku" in script_content
 
     def test_cc_model_defaults(self, tmp_path, monkeypatch):
         """cc_plan_model / cc_impl_model 未指定 → デフォルト値を使用"""
@@ -4049,8 +4049,8 @@ class TestCCModelOverride:
         with open(script_path) as f:
             script_content = f.read()
 
-        assert f'--model "{CC_MODEL_PLAN}"' in script_content
-        assert f'--model "{CC_MODEL_IMPL}"' in script_content
+        assert f"--model {CC_MODEL_PLAN}" in script_content
+        assert f"--model {CC_MODEL_IMPL}" in script_content
 
 
 class TestQueueFieldLifecycle:

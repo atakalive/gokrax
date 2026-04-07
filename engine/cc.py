@@ -26,6 +26,7 @@ def _start_cc(project: str, batch: list, gitlab: str, repo_path: str, pipeline_p
     import uuid as _uuid
     import os
     import tempfile
+    import shlex
     from notify import fetch_issue_body
 
     if not repo_path:
@@ -158,16 +159,22 @@ def _start_cc(project: str, batch: list, gitlab: str, repo_path: str, pipeline_p
             project=project, q_tag=q_tag)
         msg_impl_start_skip = render("dev.implementation", "notify_cc_impl_start_skip_plan",
             project=project, impl_model=impl_model, q_tag=q_tag)
+        _RETRY_MARKER = "@@RETRY@@"
         msg_no_commit_retry = render("dev.implementation", "notify_cc_no_commit_retry",
-            project=project, retry="$RETRY/2", q_tag=q_tag)
+            project=project, retry=_RETRY_MARKER, q_tag=q_tag)
+        # Split to isolate bash $RETRY from shlex-quotable parts
+        _retry_parts = msg_no_commit_retry.split(_RETRY_MARKER)
+        # Bash concatenation: 'static_before'"$RETRY/2"'static_after'
+        notify_retry_arg = (
+            shlex.quote(_retry_parts[0]) + '"$RETRY/2"' + shlex.quote(_retry_parts[1])
+            if len(_retry_parts) == 2
+            else shlex.quote(msg_no_commit_retry)
+        )
         msg_no_commit_blocked = render("dev.implementation", "notify_cc_no_commit_blocked",
             project=project, q_tag=q_tag)
 
         # --- echo 用（1箇所: CCへのリトライ指示プロンプト） ---
         msg_commit_retry = render("dev.implementation", "cc_commit_retry", closes=closes)
-        # cc_commit_retry の戻り値には " が含まれる（git commit -m "feat(...)"）
-        # bash の echo "..." 内に埋め込むため、" をエスケープする
-        msg_commit_retry_escaped = msg_commit_retry.replace('"', '\\"')
 
         # コミット検証+リトライブロック（skip_plan/通常 共通）
         commit_verify_block = f'''
@@ -176,64 +183,68 @@ HASH=$(git rev-parse --short HEAD)
 RETRY=0
 while [ "$HASH" = "$BEFORE_HASH" ] && [ "$RETRY" -lt 2 ]; do
     RETRY=$((RETRY + 1))
-    _notify "{msg_no_commit_retry}"
-    echo "{msg_commit_retry_escaped}" | \\
-    claude -p --model "{impl_model}" --resume "{session_id}" \\
+    _notify {notify_retry_arg}
+    echo {shlex.quote(msg_commit_retry)} | \\
+    claude -p --model {shlex.quote(impl_model)} --resume {shlex.quote(session_id)} \\
       --permission-mode bypassPermissions --output-format json
     HASH=$(git rev-parse --short HEAD)
 done
 
 if [ "$HASH" = "$BEFORE_HASH" ]; then
-    _notify "{msg_no_commit_blocked}"
-    "{GOKRAX_CLI}" transition --project "{project}" --to BLOCKED --force
+    _notify {shlex.quote(msg_no_commit_blocked)}
+    {shlex.quote(str(GOKRAX_CLI))} transition --project {shlex.quote(project)} --to BLOCKED --force
     exit 1
 fi
 
 # gokrax commit
-"{GOKRAX_CLI}" commit --project "{project}" --issue {issue_args} --hash "$HASH" --session-id "{session_id}"
+{shlex.quote(str(GOKRAX_CLI))} commit --project {shlex.quote(project)} --issue {issue_args} --hash "$HASH" --session-id {shlex.quote(session_id)}
 '''
 
         if skip_plan:
+            _gokrax_parent_q = shlex.quote(str(Path(GOKRAX_CLI).resolve().parent))
             script_content = f'''#!/bin/bash
 set -e
-cleanup() {{ rm -f "{script_path}" "{impl_path}"; }}
+cleanup() {{ rm -f {shlex.quote(script_path)} {shlex.quote(impl_path)}; }}
 trap cleanup EXIT
 
-cd "{repo_path}"
+cd {shlex.quote(repo_path)}
 
-_notify() {{ local ts=$(date +"%m/%d %H:%M"); python3 -c "import sys; sys.path.insert(0,'{Path(GOKRAX_CLI).resolve().parent}'); from notify import notify_discord; notify_discord(sys.argv[1])" "$1 ($ts)" 2>/dev/null || true; }}
+_GOKRAX_PARENT={_gokrax_parent_q}
+_notify() {{ local ts=$(date +"%m/%d %H:%M"); python3 -c "import sys; sys.path.insert(0,sys.argv[2]); from notify import notify_discord; notify_discord(sys.argv[1])" "$1 ($ts)" "$_GOKRAX_PARENT" 2>/dev/null || true; }}
 
 BEFORE_HASH=$(git rev-parse --short HEAD)
 
 # Plan フェーズなし — 直接 Impl
-_notify "{msg_impl_start_skip}"
-claude -p --model "{impl_model}" {"--resume" if prev_session else "--session-id"} "{session_id}" \
-  --permission-mode bypassPermissions --output-format json < "{impl_path}"
-_notify "{msg_impl_done}"
+_notify {shlex.quote(msg_impl_start_skip)}
+claude -p --model {shlex.quote(impl_model)} {"--resume" if prev_session else "--session-id"} {shlex.quote(session_id)} \\
+  --permission-mode bypassPermissions --output-format json < {shlex.quote(impl_path)}
+_notify {shlex.quote(msg_impl_done)}
 {commit_verify_block}'''
         else:
+            _gokrax_parent_q = shlex.quote(str(Path(GOKRAX_CLI).resolve().parent))
             script_content = f'''#!/bin/bash
 set -e
-cleanup() {{ rm -f "{script_path}" "{plan_path}" "{impl_path}"; }}
+cleanup() {{ rm -f {shlex.quote(script_path)} {shlex.quote(plan_path)} {shlex.quote(impl_path)}; }}
 trap cleanup EXIT
 
-cd "{repo_path}"
+cd {shlex.quote(repo_path)}
 
-_notify() {{ local ts=$(date +"%m/%d %H:%M"); python3 -c "import sys; sys.path.insert(0,'{Path(GOKRAX_CLI).resolve().parent}'); from notify import notify_discord; notify_discord(sys.argv[1])" "$1 ($ts)" 2>/dev/null || true; }}
+_GOKRAX_PARENT={_gokrax_parent_q}
+_notify() {{ local ts=$(date +"%m/%d %H:%M"); python3 -c "import sys; sys.path.insert(0,sys.argv[2]); from notify import notify_discord; notify_discord(sys.argv[1])" "$1 ($ts)" "$_GOKRAX_PARENT" 2>/dev/null || true; }}
 
 BEFORE_HASH=$(git rev-parse --short HEAD)
 
 # Phase 1: Plan
-_notify "{msg_plan_start}"
-claude -p --model "{plan_model}" {"--resume" if prev_session else "--session-id"} "{session_id}" \
-  --permission-mode plan --output-format json < "{plan_path}"
-_notify "{msg_plan_done}"
+_notify {shlex.quote(msg_plan_start)}
+claude -p --model {shlex.quote(plan_model)} {"--resume" if prev_session else "--session-id"} {shlex.quote(session_id)} \\
+  --permission-mode plan --output-format json < {shlex.quote(plan_path)}
+_notify {shlex.quote(msg_plan_done)}
 
 # Phase 2: Impl
-_notify "{msg_impl_start}"
-claude -p --model "{impl_model}" --resume "{session_id}" \
-  --permission-mode bypassPermissions --output-format json < "{impl_path}"
-_notify "{msg_impl_done}"
+_notify {shlex.quote(msg_impl_start)}
+claude -p --model {shlex.quote(impl_model)} --resume {shlex.quote(session_id)} \\
+  --permission-mode bypassPermissions --output-format json < {shlex.quote(impl_path)}
+_notify {shlex.quote(msg_impl_done)}
 {commit_verify_block}'''
         os.write(fd_script, script_content.encode())
         os.close(fd_script)
@@ -449,6 +460,7 @@ def _start_code_test(project: str, data: dict, pipeline_path: Path) -> None:
     """CODE_TEST 進入時にテストを非同期実行する。"""
     import subprocess as _sub
     import tempfile
+    import shlex
 
     from config import TEST_CONFIG
 
@@ -477,10 +489,10 @@ def _start_code_test(project: str, data: dict, pipeline_path: Path) -> None:
 
     script_content = (
         f"#!/bin/bash\n"
-        f'cd "{repo_path_str}"\n'
-        f"{test_command} > {output_path} 2>&1\n"
-        f"echo $? > {exit_code_path}\n"
-        f"rm -f {script_path}\n"
+        f"cd {shlex.quote(repo_path_str)}\n"
+        f"{test_command} > {shlex.quote(output_path)} 2>&1\n"
+        f"echo $? > {shlex.quote(exit_code_path)}\n"
+        f"rm -f {shlex.quote(script_path)}\n"
     )
 
     try:
@@ -662,6 +674,7 @@ def _start_cc_test_fix(project: str, batch: list, data: dict, pipeline_path: Pat
     import subprocess as _sub
     import uuid as _uuid
     import tempfile
+    import shlex
 
     from config import CC_MODEL_IMPL
     from messages import render as _render
@@ -688,11 +701,11 @@ def _start_cc_test_fix(project: str, batch: list, data: dict, pipeline_path: Pat
         script_content = (
             f'#!/bin/bash\n'
             f'set -e\n'
-            f'cleanup() {{ rm -f "{script_path}" "{prompt_path}"; }}\n'
+            f'cleanup() {{ rm -f {shlex.quote(script_path)} {shlex.quote(prompt_path)}; }}\n'
             f'trap cleanup EXIT\n'
-            f'cd "{repo_path}"\n'
-            f'claude -p --model "{impl_model}" --resume "{session_id}" \\\n'
-            f'  --permission-mode bypassPermissions --output-format json < "{prompt_path}"\n'
+            f'cd {shlex.quote(repo_path)}\n'
+            f'claude -p --model {shlex.quote(impl_model)} --resume {shlex.quote(session_id)} \\\n'
+            f'  --permission-mode bypassPermissions --output-format json < {shlex.quote(prompt_path)}\n'
         )
 
         os.write(fd_script, script_content.encode())

@@ -61,4 +61,4 @@ class TestStartCodeTestScriptContainsCd:
             _start_code_test("testpj", data, Path("/tmp/dummy.json"))
 
         script = written_content["data"].decode()
-        assert 'cd "/some/repo/path"' in script
+        assert "cd /some/repo/path" in script

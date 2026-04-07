@@ -1,7 +1,6 @@
 """tests/test_implementers_guard.py — IMPLEMENTERS 空リストガードと argparse default テスト"""
 
 import importlib
-import os
 import re
 import sys
 from pathlib import Path
@@ -31,8 +30,18 @@ class TestImplementersEmptyGuard:
         monkeypatch.delenv("GOKRAX_SKIP_USER_SETTINGS", raising=False)
 
         import config
-        with pytest.raises(RuntimeError, match="IMPLEMENTERS is empty"):
-            importlib.reload(config)
+        # Save original config attribute values before reload corrupts them.
+        # A second importlib.reload would create new dict/list objects, breaking
+        # module-level bindings in engine.reviewer and others.
+        _saved = {k: v for k, v in vars(config).items() if k.isupper()}
+        try:
+            with pytest.raises(RuntimeError, match="IMPLEMENTERS is empty"):
+                importlib.reload(config)
+        finally:
+            # Restore original objects directly so module-level imports elsewhere
+            # (e.g. engine.reviewer.AGENTS) remain in sync with config.AGENTS.
+            for k, v in _saved.items():
+                setattr(config, k, v)
 
     def test_guard_exists_in_config_source(self):
         """config/__init__.py にガードコードが存在することをソースで確認する。"""

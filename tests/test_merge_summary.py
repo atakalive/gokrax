@@ -4,7 +4,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import pytest
 
@@ -60,6 +60,8 @@ class TestCmdMergeSummary:
         from gokrax import cmd_merge_summary
         args = argparse.Namespace(project="test-pj")
         with patch("notify.post_discord", return_value="1234567890") as mock_post, \
+             patch("notify.get_bot_token", return_value="fake-token"), \
+             patch("config.DISCORD_CHANNEL", "fake-channel"), \
              patch("notify.send_to_agent", return_value=True):
             cmd_merge_summary(args)
         with open(path) as f:
@@ -101,6 +103,8 @@ class TestCmdMergeSummary:
             posted_content.append(content)
             return "msg-id-999"
         with patch("notify.post_discord", side_effect=mock_post), \
+             patch("notify.get_bot_token", return_value="fake-token"), \
+             patch("config.DISCORD_CHANNEL", "fake-channel"), \
              patch("notify.send_to_agent", return_value=True):
             cmd_merge_summary(args)
         assert posted_content
@@ -122,6 +126,8 @@ class TestCmdMergeSummary:
             posted_content.append(content)
             return "msg-id-999"
         with patch("notify.post_discord", side_effect=mock_post), \
+             patch("notify.get_bot_token", return_value="fake-token"), \
+             patch("config.DISCORD_CHANNEL", "fake-channel"), \
              patch("notify.send_to_agent", return_value=True):
             cmd_merge_summary(args)
         assert MERGE_SUMMARY_FOOTER.strip() in posted_content[0]
@@ -143,6 +149,8 @@ class TestCmdMergeSummary:
             posted_content.append(content)
             return "msg-id-999"
         with patch("notify.post_discord", side_effect=mock_post), \
+             patch("notify.get_bot_token", return_value="fake-token"), \
+             patch("config.DISCORD_CHANNEL", "fake-channel"), \
              patch("notify.send_to_agent", return_value=True):
             cmd_merge_summary(args)
         content = posted_content[0]

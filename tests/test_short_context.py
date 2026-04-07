@@ -39,7 +39,6 @@ class TestShortContextTier:
         import config
         from engine.reviewer import _validate_reviewer_tiers
 
-        original = dict(config.REVIEWER_TIERS)
         monkeypatch.setattr(config, "REVIEWER_TIERS", {
             "regular": ["dup_reviewer"],
             "free": [],
@@ -176,7 +175,7 @@ class TestNotifyReviewersShortContext:
         import notify
         import config
 
-        reviewer = self._setup_short_ctx_reviewer(monkeypatch)
+        self._setup_short_ctx_reviewer(monkeypatch)
         monkeypatch.setattr(config, "DRY_RUN", True)
 
         with patch("notify.send_to_agent_queued", return_value=True), \
@@ -216,6 +215,9 @@ class TestResetShortContextReviewers:
             "min_reviews": 1,
             "grace_period_sec": 0,
         })
+        # Ensure openclaw backend so send_to_agent_queued path is exercised
+        # (project settings may set DEFAULT_AGENT_BACKEND="pi")
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "openclaw")
         return mode_name
 
     def test_keep_ctx_sends_new_to_short_context(self, monkeypatch):

@@ -1592,7 +1592,7 @@ def cmd_qrun(args):
             done = " [DONE]" if e.get("done") else ""
             mode = f" mode={e['mode']}" if e.get("mode") else ""
             opts = []
-            if not e.get("automerge", True):
+            if "automerge" in e.get("_explicit_keys", set()) and not e.get("automerge", False):
                 opts.append("no-automerge")
             if e.get("p2_fix"):
                 opts.append("p2-fix")
@@ -1815,7 +1815,7 @@ def get_qstatus_text(entries: list[dict], running: "dict | None" = None) -> str:
         parts = [e["project"], e["issues"]]
         if e.get("mode"):
             parts.append(e["mode"])
-        if not e.get("automerge", True):
+        if "automerge" in e.get("_explicit_keys", set()) and not e.get("automerge", False):
             parts.append("no-automerge")
         if e.get("p2_fix"):
             parts.append("p2-fix")

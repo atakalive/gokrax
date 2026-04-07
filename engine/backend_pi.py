@@ -262,6 +262,20 @@ def is_inactive(agent_id: str, pipeline_data: dict | None = None,
 def _rebuild_agents_md(agent_id: str) -> None:
     """Rebuild AGENTS.md from IDENTITY.md + INSTRUCTION.md + MEMORY.md (on source change only)."""
     try:
+        # Check compile-agents-md setting (default: True)
+        config_data = _load_config()
+        agent_profile = config_data.get(agent_id, {})
+        compile_flag = agent_profile.get("compile-agents-md", True)
+        if not isinstance(compile_flag, bool):
+            logger.warning(
+                "_rebuild_agents_md: compile-agents-md for %s has non-bool value %r; "
+                "treating as True",
+                agent_id, compile_flag,
+            )
+            compile_flag = True
+        if not compile_flag:
+            return
+
         profile_dir = AGENT_PROFILES_DIR / agent_id
         if not profile_dir.is_dir():
             return

@@ -691,6 +691,54 @@ class TestRebuildAgentsMd:
         backend_pi._rebuild_agents_md("agent1")
         assert (d / "AGENTS.md").read_text() == "updated identity\n\n---\n\ninstruction\n"
 
+    def test_compile_false_skips_generation(self, tmp_profiles, monkeypatch):
+        monkeypatch.setattr(backend_pi, "_agent_config_cache", {"agent1": {"compile-agents-md": False}})
+        d = tmp_profiles / "agent1"
+        d.mkdir()
+        (d / "IDENTITY.md").write_text("identity")
+        (d / "INSTRUCTION.md").write_text("instruction")
+        backend_pi._rebuild_agents_md("agent1")
+        assert not (d / "AGENTS.md").exists()
+        assert not (d / ".agents_hash").exists()
+
+    def test_compile_true_explicit_compiles(self, tmp_profiles, monkeypatch):
+        monkeypatch.setattr(backend_pi, "_agent_config_cache", {"agent1": {"compile-agents-md": True}})
+        d = tmp_profiles / "agent1"
+        d.mkdir()
+        (d / "IDENTITY.md").write_text("identity")
+        (d / "INSTRUCTION.md").write_text("instruction")
+        backend_pi._rebuild_agents_md("agent1")
+        assert (d / "AGENTS.md").read_text() == "identity\n\n---\n\ninstruction\n"
+
+    def test_compile_key_absent_defaults_to_true(self, tmp_profiles, monkeypatch):
+        monkeypatch.setattr(backend_pi, "_agent_config_cache", {"agent1": {}})
+        d = tmp_profiles / "agent1"
+        d.mkdir()
+        (d / "IDENTITY.md").write_text("identity")
+        backend_pi._rebuild_agents_md("agent1")
+        assert (d / "AGENTS.md").exists()
+
+    def test_compile_false_preserves_existing_files(self, tmp_profiles, monkeypatch):
+        monkeypatch.setattr(backend_pi, "_agent_config_cache", {"agent1": {"compile-agents-md": False}})
+        d = tmp_profiles / "agent1"
+        d.mkdir()
+        (d / "AGENTS.md").write_text("# Custom AGENTS.md\n")
+        (d / ".agents_hash").write_text("customhash\n")
+        backend_pi._rebuild_agents_md("agent1")
+        assert (d / "AGENTS.md").read_text() == "# Custom AGENTS.md\n"
+        assert (d / ".agents_hash").read_text() == "customhash\n"
+
+    def test_compile_non_bool_warns_and_compiles(self, tmp_profiles, monkeypatch, caplog):
+        import logging
+        monkeypatch.setattr(backend_pi, "_agent_config_cache", {"agent1": {"compile-agents-md": "false"}})
+        d = tmp_profiles / "agent1"
+        d.mkdir()
+        (d / "IDENTITY.md").write_text("identity")
+        with caplog.at_level(logging.WARNING, logger="engine.backend_pi"):
+            backend_pi._rebuild_agents_md("agent1")
+        assert (d / "AGENTS.md").exists()
+        assert "non-bool value" in caplog.text
+
 
 # ===========================================================================
 # reset_session

@@ -6321,3 +6321,117 @@ class TestNudgeRateLimitThreshold:
 
         # DESIGN_REVISE は INACTIVE_THRESHOLD_SEC=303 を使う → 400秒 > 303 → 催促が送信される
         assert mock_send.called, "Non-DESIGN_PLAN states should use INACTIVE_THRESHOLD_SEC"
+
+
+class TestGitPullOnInitialize:
+    """INITIALIZE→DESIGN_PLAN/DESIGN_APPROVED 遷移時に git pull が実行されることのテスト (Issue #289)"""
+
+    @pytest.mark.parametrize("target_state", ["DESIGN_PLAN", "DESIGN_APPROVED"])
+    def test_git_pull_called_on_initialize_transition(self, tmp_pipelines, monkeypatch, target_state):
+        """INITIALIZE→DESIGN_PLAN/DESIGN_APPROVED 遷移時に git pull --ff-only が実行されること"""
+        import json as _json
+        import subprocess
+        from subprocess import CompletedProcess
+        from watchdog import process
+        from engine.fsm import TransitionAction
+
+        path = tmp_pipelines / "pj.json"
+        data = {
+            "project": "pj", "gitlab": "testns/pj",
+            "state": "INITIALIZE", "enabled": True,
+            "review_mode": "standard",
+            "batch": [{"issue": 1}],
+            "history": [],
+            "repo_path": "/fake/repo",
+        }
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(_json.dumps(data))
+        monkeypatch.setattr("watchdog.PIPELINES_DIR", tmp_pipelines)
+
+        _original_run = subprocess.run
+        calls: list[tuple[str, list, dict]] = []
+
+        def _mock_run(cmd, **kwargs):
+            if isinstance(cmd, list) and len(cmd) >= 4 and cmd[0] == "git":
+                if cmd[3] == "pull":
+                    calls.append(("pull", cmd, kwargs))
+                    return CompletedProcess(cmd, 0, stdout="", stderr="")
+                if cmd[3] == "log":
+                    calls.append(("log", cmd, kwargs))
+                    return CompletedProcess(cmd, 0, stdout="abc123def456\n", stderr="")
+            return _original_run(cmd, **kwargs)
+
+        with patch("watchdog.check_transition", return_value=TransitionAction(new_state=target_state)), \
+             patch("watchdog._has_pytest", return_value=False), \
+             patch("subprocess.run", side_effect=_mock_run), \
+             patch("watchdog.notify_implementer"), \
+             patch("watchdog._poll_pytest_baseline"):
+            process(path)
+
+        # pull が log の前に呼ばれること
+        assert len(calls) >= 2, f"Expected at least 2 git calls, got {len(calls)}"
+        assert calls[0][0] == "pull"
+        assert calls[1][0] == "log"
+
+        # pull コマンドの引数を検証
+        pull_cmd = calls[0][1]
+        assert pull_cmd == ["git", "-C", "/fake/repo", "pull", "--ff-only"]
+
+        # pull の env に認証プロンプト抑止が設定されていること
+        pull_env = calls[0][2].get("env", {})
+        assert pull_env.get("GIT_TERMINAL_PROMPT") == "0"
+        assert pull_env.get("GIT_SSH_COMMAND") == "ssh -o BatchMode=yes"
+
+        # base_commit が pull 後の HEAD で記録されること
+        saved = _json.loads(path.read_text())
+        assert saved["base_commit"] == "abc123def456"
+
+    @pytest.mark.parametrize("target_state", ["DESIGN_PLAN", "DESIGN_APPROVED"])
+    def test_git_pull_failure_continues_pipeline(self, tmp_pipelines, monkeypatch, target_state):
+        """git pull 失敗時もパイプラインが継続すること"""
+        import json as _json
+        import subprocess
+        from subprocess import CompletedProcess
+        from watchdog import process
+        from engine.fsm import TransitionAction
+
+        path = tmp_pipelines / "pj.json"
+        data = {
+            "project": "pj", "gitlab": "testns/pj",
+            "state": "INITIALIZE", "enabled": True,
+            "review_mode": "standard",
+            "batch": [{"issue": 1}],
+            "history": [],
+            "repo_path": "/fake/repo",
+        }
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(_json.dumps(data))
+        monkeypatch.setattr("watchdog.PIPELINES_DIR", tmp_pipelines)
+
+        _original_run = subprocess.run
+        calls: list[tuple[str, list, dict]] = []
+
+        def _mock_run(cmd, **kwargs):
+            if isinstance(cmd, list) and len(cmd) >= 4 and cmd[0] == "git":
+                if cmd[3] == "pull":
+                    calls.append(("pull", cmd, kwargs))
+                    return CompletedProcess(cmd, 1, stdout="", stderr="fatal: Not possible to fast-forward")
+                if cmd[3] == "log":
+                    calls.append(("log", cmd, kwargs))
+                    return CompletedProcess(cmd, 0, stdout="def456abc789\n", stderr="")
+            return _original_run(cmd, **kwargs)
+
+        with patch("watchdog.check_transition", return_value=TransitionAction(new_state=target_state)), \
+             patch("watchdog._has_pytest", return_value=False), \
+             patch("subprocess.run", side_effect=_mock_run), \
+             patch("watchdog.notify_implementer"), \
+             patch("watchdog._poll_pytest_baseline"):
+            process(path)
+
+        # pull が失敗しても base_commit が記録されること
+        assert len(calls) >= 2
+        assert calls[0][0] == "pull"
+        assert calls[1][0] == "log"
+
+        saved = _json.loads(path.read_text())
+        assert saved["base_commit"] == "def456abc789"

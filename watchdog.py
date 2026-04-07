@@ -329,9 +329,28 @@ def process(path: Path):
             data.pop("design_revise_count", None)
             data.pop("code_revise_count", None)
             _cleanup_review_files(pj)
+            repo = data.get("repo_path", "")
+
+            # Issue #289: remote の最新を pull してから base_commit を記録
+            if repo:
+                try:
+                    import subprocess as _sub_pull
+                    import os as _os_pull
+                    _pull_env = {**_os_pull.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_SSH_COMMAND": "ssh -o BatchMode=yes"}
+                    _pull_result = _sub_pull.run(
+                        ["git", "-C", repo, "pull", "--ff-only"],
+                        capture_output=True, text=True, timeout=60, check=False,
+                        env=_pull_env,
+                    )
+                    if _pull_result.returncode == 0:
+                        log(f"[{pj}] git pull succeeded")
+                    else:
+                        log(f"[{pj}] WARNING: git pull failed (rc={_pull_result.returncode}): {_pull_result.stderr.strip()}")
+                except Exception as e:
+                    log(f"[{pj}] WARNING: git pull error: {e}")
+
             # base_commit: バッチ開始時点の HEAD を full SHA で記録
             data.pop("base_commit", None)
-            repo = data.get("repo_path", "")
             if repo:
                 try:
                     import subprocess as _sub_bc

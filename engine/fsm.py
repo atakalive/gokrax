@@ -583,7 +583,13 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
 
             # Case 2: Grace period check
             elif min_rev < effective_count and grace_sec > 0 and met_at_exists:
-                met_at = datetime.fromisoformat(data[met_key])
+                try:
+                    met_at = datetime.fromisoformat(data[met_key])
+                    if met_at.tzinfo is None:
+                        raise ValueError("naive datetime")
+                except (ValueError, TypeError):
+                    log(f"[GRACE] WARNING: corrupt {met_key}={data.get(met_key)!r}, resetting grace timer")
+                    return TransitionAction(save_grace_met_at=met_key)
                 elapsed = (datetime.now(LOCAL_TZ) - met_at).total_seconds()
                 if elapsed >= grace_sec:
                     log(f"[GRACE] grace period expired ({elapsed:.1f}s >= {grace_sec}s), transitioning")

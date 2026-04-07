@@ -217,7 +217,21 @@ def process(path: Path):
                     f"save_grace_met_at conflicts with side-effect flags: {_unexpected}"
                 )
             key = action.save_grace_met_at
-            if not data.get(key):
+            existing = data.get(key)
+            should_write = False
+
+            if not existing:
+                should_write = True
+            else:
+                try:
+                    parsed = _datetime.fromisoformat(existing)
+                    if parsed.tzinfo is None:
+                        raise ValueError("naive datetime")
+                except (ValueError, TypeError):
+                    should_write = True
+                    log(f"[{data.get('project', path.stem)}] WARNING: corrupt {key}={existing!r}, overwriting")
+
+            if should_write:
                 data[key] = _datetime.now(LOCAL_TZ).isoformat()
                 pj = data.get("project", path.stem)
                 log(f"[{pj}] {key} saved: {data[key]}")

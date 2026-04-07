@@ -185,6 +185,50 @@ def test_save_and_new_state_mutually_exclusive(
     )
 
 
+def test_check_transition_corrupt_grace_met_at_resets(monkeypatch):
+    """Corrupt grace timestamp is treated as 'not started' and requests a reset."""
+    monkeypatch.setattr("engine.fsm.REVIEW_MODES", {"standard": _mode_config(["r1", "r2", "r3"], 2, 300)})
+    monkeypatch.setattr("engine.fsm.BLOCK_TIMERS", {})
+
+    data = {
+        "review_mode": "standard",
+        "review_config": build_review_config(_mode_config(["r1", "r2", "r3"], 2, 300)),
+        "design_min_reviews_met_at": "not-a-date",
+    }
+    batch = [{"issue": 1, "design_reviews": {
+        "r1": {"verdict": "APPROVE", "at": "2026-03-26T00:00:00+09:00"},
+        "r2": {"verdict": "APPROVE", "at": "2026-03-26T00:01:00+09:00"},
+    }}]
+
+    with patch("engine.fsm.log"):
+        action = check_transition("DESIGN_REVIEW", batch, data)
+
+    assert action.save_grace_met_at == "design_min_reviews_met_at"
+    assert action.new_state is None
+
+
+def test_check_transition_naive_grace_met_at_resets(monkeypatch):
+    """Naive datetime (no timezone) is treated as corrupt and requests a reset."""
+    monkeypatch.setattr("engine.fsm.REVIEW_MODES", {"standard": _mode_config(["r1", "r2", "r3"], 2, 300)})
+    monkeypatch.setattr("engine.fsm.BLOCK_TIMERS", {})
+
+    data = {
+        "review_mode": "standard",
+        "review_config": build_review_config(_mode_config(["r1", "r2", "r3"], 2, 300)),
+        "design_min_reviews_met_at": "2026-03-26T00:00:00",
+    }
+    batch = [{"issue": 1, "design_reviews": {
+        "r1": {"verdict": "APPROVE", "at": "2026-03-26T00:00:00+09:00"},
+        "r2": {"verdict": "APPROVE", "at": "2026-03-26T00:01:00+09:00"},
+    }}]
+
+    with patch("engine.fsm.log"):
+        action = check_transition("DESIGN_REVIEW", batch, data)
+
+    assert action.save_grace_met_at == "design_min_reviews_met_at"
+    assert action.new_state is None
+
+
 def _write_pipeline(path, data: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as f:
@@ -296,3 +340,70 @@ def test_save_grace_met_at_rejects_unexpected_flags(tmp_path, monkeypatch):
         with patch("watchdog.check_transition", return_value=mock_action), \
              patch("watchdog.update_pipeline", side_effect=fake_update):
             process(path)
+
+
+def _do_transition_overwrite_test(tmp_path, monkeypatch, corrupt_value: object) -> dict:
+    """Helper: run process() with a corrupt grace met_at value and return resulting data."""
+    import config
+    import pipeline_io
+    monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+    monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+    path = tmp_path / "test-pj.json"
+    data = {
+        "project": "test-pj", "state": "DESIGN_REVIEW",
+        "enabled": True, "batch": [{"issue": 1, "design_reviews": {}}],
+        "design_min_reviews_met_at": corrupt_value,
+        "history": [], "created_at": "", "updated_at": "",
+    }
+    _write_pipeline(path, data)
+
+    mock_action = TransitionAction(save_grace_met_at="design_min_reviews_met_at")
+
+    from watchdog import process
+
+    def fake_update(p, cb):
+        cb(data)
+        return data
+
+    with patch("watchdog.check_transition", return_value=mock_action), \
+         patch("watchdog.update_pipeline", side_effect=fake_update):
+        process(path)
+
+    return data
+
+
+def test_do_transition_overwrites_corrupt_grace_met_at(tmp_path, monkeypatch):
+    """Watchdog overwrites corrupt string grace timestamp with a valid aware one."""
+    from datetime import datetime as _dt
+
+    data = _do_transition_overwrite_test(tmp_path, monkeypatch, "corrupt-value")
+
+    val = data["design_min_reviews_met_at"]
+    assert val != "corrupt-value"
+    parsed = _dt.fromisoformat(val)
+    assert parsed.tzinfo is not None
+
+
+def test_do_transition_overwrites_numeric_grace_met_at(tmp_path, monkeypatch):
+    """Watchdog overwrites non-string (numeric) grace timestamp with a valid aware one."""
+    from datetime import datetime as _dt
+
+    data = _do_transition_overwrite_test(tmp_path, monkeypatch, 12345)
+
+    val = data["design_min_reviews_met_at"]
+    assert val != 12345
+    parsed = _dt.fromisoformat(val)
+    assert parsed.tzinfo is not None
+
+
+def test_do_transition_overwrites_naive_grace_met_at(tmp_path, monkeypatch):
+    """Watchdog overwrites naive datetime grace timestamp with a valid aware one."""
+    from datetime import datetime as _dt
+
+    data = _do_transition_overwrite_test(tmp_path, monkeypatch, "2026-03-26T00:00:00")
+
+    val = data["design_min_reviews_met_at"]
+    assert val != "2026-03-26T00:00:00"
+    parsed = _dt.fromisoformat(val)
+    assert parsed.tzinfo is not None

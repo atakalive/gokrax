@@ -132,6 +132,10 @@ class TestStartCcSkipPlanQuotesModel:
         assert "'model$(id)'" in script
         # Must NOT appear double-quoted
         assert '"model$(id)"' not in script
+        # repo_path without metacharacters is unquoted by shlex.quote
+        assert "cd /safe/repo" in script
+        # session_id (UUID format, safe chars) appears unquoted
+        assert "--resume" in script
 
 
 # ===========================================================================

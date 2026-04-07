@@ -3,13 +3,13 @@
     "provider": "anthropic",
     "model": "claude-opus-4-6",
     "thinking": "low",
-    "compile-agents-md": true
+    "compile-agents-md": false
   },
   "example_reviewer": {
     "provider": "google",
     "model": "gemini-3.1-pro-preview",
     "thinking": "low",
     "tools": "read,bash,grep,find,ls",
-    "compile-agents-md": true
+    "compile-agents-md": false
   }
 }

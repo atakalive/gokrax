@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from collections import defaultdict
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -528,11 +529,40 @@ class TestIsInactive:
 # _rebuild_agents_md
 # ===========================================================================
 
+class _DefaultGetDict(defaultdict):
+    """defaultdict whose .get() also invokes default_factory for missing keys.
+
+    Plain ``defaultdict.get()`` delegates to ``dict.get()`` which does NOT call
+    ``__missing__``/``default_factory``.  The production code uses
+    ``config_data.get(agent_id, {})``, so a vanilla ``defaultdict`` would never
+    supply the factory value.  This thin subclass fixes that.
+    """
+
+    def get(self, key, default=None):  # type: ignore[override]
+        if key in self:
+            return self[key]
+        if self.default_factory is not None:
+            return self.default_factory()
+        return default
+
+
 @pytest.fixture
 def tmp_profiles(tmp_path, monkeypatch):
-    """Redirect AGENT_PROFILES_DIR to a temporary directory."""
+    """Redirect AGENT_PROFILES_DIR to a temporary directory.
+
+    Also injects compile-agents-md=True into the config cache via
+    defaultdict so that compilation tests exercise the normal code path
+    regardless of the agent name used.  Tests that need to verify specific
+    compile-agents-md behaviour override this via their own
+    monkeypatch.setattr call with a plain dict.
+    """
     monkeypatch.setattr("config.AGENT_PROFILES_DIR", tmp_path)
     monkeypatch.setattr("engine.backend_pi.AGENT_PROFILES_DIR", tmp_path)
+    monkeypatch.setattr(
+        backend_pi,
+        "_agent_config_cache",
+        _DefaultGetDict(lambda: {"compile-agents-md": True}),
+    )
     return tmp_path
 
 
@@ -710,13 +740,13 @@ class TestRebuildAgentsMd:
         backend_pi._rebuild_agents_md("agent1")
         assert (d / "AGENTS.md").read_text() == "identity\n\n---\n\ninstruction\n"
 
-    def test_compile_key_absent_defaults_to_true(self, tmp_profiles, monkeypatch):
+    def test_compile_key_absent_defaults_to_false(self, tmp_profiles, monkeypatch):
         monkeypatch.setattr(backend_pi, "_agent_config_cache", {"agent1": {}})
         d = tmp_profiles / "agent1"
         d.mkdir()
         (d / "IDENTITY.md").write_text("identity")
         backend_pi._rebuild_agents_md("agent1")
-        assert (d / "AGENTS.md").exists()
+        assert not (d / "AGENTS.md").exists()
 
     def test_compile_false_preserves_existing_files(self, tmp_profiles, monkeypatch):
         monkeypatch.setattr(backend_pi, "_agent_config_cache", {"agent1": {"compile-agents-md": False}})
@@ -728,7 +758,7 @@ class TestRebuildAgentsMd:
         assert (d / "AGENTS.md").read_text() == "# Custom AGENTS.md\n"
         assert (d / ".agents_hash").read_text() == "customhash\n"
 
-    def test_compile_non_bool_warns_and_compiles(self, tmp_profiles, monkeypatch, caplog):
+    def test_compile_non_bool_warns_and_skips(self, tmp_profiles, monkeypatch, caplog):
         import logging
         monkeypatch.setattr(backend_pi, "_agent_config_cache", {"agent1": {"compile-agents-md": "false"}})
         d = tmp_profiles / "agent1"
@@ -736,7 +766,7 @@ class TestRebuildAgentsMd:
         (d / "IDENTITY.md").write_text("identity")
         with caplog.at_level(logging.WARNING, logger="engine.backend_pi"):
             backend_pi._rebuild_agents_md("agent1")
-        assert (d / "AGENTS.md").exists()
+        assert not (d / "AGENTS.md").exists()
         assert "non-bool value" in caplog.text
 
 

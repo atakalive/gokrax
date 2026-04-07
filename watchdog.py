@@ -85,6 +85,10 @@ from engine.fsm_spec import (
 )
 
 
+_ERROR_COUNTS_PATH = Path("/tmp/gokrax-error-counts.json")
+_ERROR_NOTIFY_THRESHOLD = 3
+
+
 def _check_queue():
     """キューから次のタスクを起動 (DONE→IDLE後、または SPEC_DONE→IDLE後に呼ばれる)。
 
@@ -1608,6 +1612,29 @@ def check_discord_commands():
         log(f"Processed Discord {cmd_word} command (msg_id={msg_id})")
 
 
+def _load_error_counts() -> dict[str, int]:
+    """Load persistent error counts from /tmp. Best-effort.
+
+    Returns {} on any failure (missing file, corrupt JSON, non-dict content,
+    non-int values). This ensures watchdog never crashes due to state file issues.
+    """
+    try:
+        data = json.loads(_ERROR_COUNTS_PATH.read_text())
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {k: v for k, v in data.items() if isinstance(k, str) and isinstance(v, int) and v >= 0}
+
+
+def _save_error_counts(counts: dict[str, int]) -> None:
+    """Save error counts to /tmp. Best-effort — failure must not break watchdog."""
+    try:
+        _ERROR_COUNTS_PATH.write_text(json.dumps(counts))
+    except OSError:
+        pass
+
+
 def main():
     logging.basicConfig(
         level=logging.INFO,
@@ -1628,11 +1655,30 @@ def main():
         return
 
     # Process pipelines
+    error_counts = _load_error_counts()
+    active_stems = set()
     for path in sorted(PIPELINES_DIR.glob("*.json")):
+        active_stems.add(path.stem)
         try:
             process(path)
+            error_counts.pop(path.stem, None)  # reset on success
         except Exception as e:
+            error_counts[path.stem] = error_counts.get(path.stem, 0) + 1
             log(f"[{path.stem}] ERROR: {e}")
+            if error_counts[path.stem] == _ERROR_NOTIFY_THRESHOLD:
+                try:
+                    notify_discord(
+                        f"[{path.stem}] pipeline processing failed "
+                        f"{_ERROR_NOTIFY_THRESHOLD} consecutive times: {e}"
+                    )
+                except Exception:
+                    error_counts[path.stem] -= 1  # retry next cycle
+                    log(f"[{path.stem}] failed to send error notification to Discord")
+    # Remove counts for deleted pipelines
+    for stem in list(error_counts):
+        if stem not in active_stems:
+            del error_counts[stem]
+    _save_error_counts(error_counts)
 
 
 if __name__ == "__main__":

@@ -6487,3 +6487,149 @@ class TestGitPullOnInitialize:
         saved = _json.loads(path.read_text())
         assert saved["base_commit"] == "timeout789abc"
         assert saved["state"] == target_state
+
+
+# ── TestMainErrorCounting ─────────────────────────────────────────────────────
+
+
+class TestMainErrorCounting:
+    """Tests for persistent error counting and Discord notification in main()."""
+
+    def _setup(self, monkeypatch, tmp_path):
+        """Common setup: isolate PIPELINES_DIR, _ERROR_COUNTS_PATH, and mock externals."""
+        import watchdog
+
+        pipelines_dir = tmp_path / "pipelines"
+        pipelines_dir.mkdir()
+        monkeypatch.setattr("watchdog.PIPELINES_DIR", pipelines_dir)
+        monkeypatch.setattr("watchdog._ERROR_COUNTS_PATH", tmp_path / "error-counts.json")
+        monkeypatch.setattr("watchdog.check_discord_commands", lambda: None)
+
+        # Create a single pipeline file
+        pipeline = pipelines_dir / "test-project.json"
+        pipeline.write_text("{}")
+        return watchdog
+
+    def test_no_notification_below_threshold(self, monkeypatch, tmp_path):
+        wd = self._setup(monkeypatch, tmp_path)
+        discord_calls = []
+        monkeypatch.setattr("watchdog.process", MagicMock(side_effect=RuntimeError("boom")))
+        monkeypatch.setattr("watchdog.notify_discord", lambda msg: discord_calls.append(msg))
+
+        for _ in range(wd._ERROR_NOTIFY_THRESHOLD - 1):
+            wd.main()
+
+        assert discord_calls == []
+
+    def test_notification_at_threshold(self, monkeypatch, tmp_path):
+        wd = self._setup(monkeypatch, tmp_path)
+        discord_calls = []
+        monkeypatch.setattr("watchdog.process", MagicMock(side_effect=RuntimeError("boom")))
+        monkeypatch.setattr("watchdog.notify_discord", lambda msg: discord_calls.append(msg))
+
+        for _ in range(wd._ERROR_NOTIFY_THRESHOLD):
+            wd.main()
+
+        assert len(discord_calls) == 1
+        assert "test-project" in discord_calls[0]
+        assert "boom" in discord_calls[0]
+
+    def test_no_repeat_notification_after_threshold(self, monkeypatch, tmp_path):
+        wd = self._setup(monkeypatch, tmp_path)
+        discord_calls = []
+        monkeypatch.setattr("watchdog.process", MagicMock(side_effect=RuntimeError("boom")))
+        monkeypatch.setattr("watchdog.notify_discord", lambda msg: discord_calls.append(msg))
+
+        for _ in range(wd._ERROR_NOTIFY_THRESHOLD + 2):
+            wd.main()
+
+        assert len(discord_calls) == 1
+
+    def test_counter_resets_on_success(self, monkeypatch, tmp_path):
+        wd = self._setup(monkeypatch, tmp_path)
+        discord_calls = []
+        call_count = 0
+
+        def process_side_effect(_path):
+            nonlocal call_count
+            call_count += 1
+            # First N-1 calls fail, then 1 success, then N more failures
+            threshold = wd._ERROR_NOTIFY_THRESHOLD
+            if call_count <= threshold - 1:
+                raise RuntimeError("boom")
+            elif call_count == threshold:
+                return  # success
+            else:
+                raise RuntimeError("boom again")
+
+        monkeypatch.setattr("watchdog.process", process_side_effect)
+        monkeypatch.setattr("watchdog.notify_discord", lambda msg: discord_calls.append(msg))
+
+        # threshold - 1 failures
+        for _ in range(wd._ERROR_NOTIFY_THRESHOLD - 1):
+            wd.main()
+        assert discord_calls == []
+
+        # 1 success — resets counter
+        wd.main()
+        assert discord_calls == []
+
+        # threshold more failures — triggers notification again
+        for _ in range(wd._ERROR_NOTIFY_THRESHOLD):
+            wd.main()
+        assert len(discord_calls) == 1
+
+    def test_corrupt_error_counts_file_recovery(self, monkeypatch, tmp_path):
+        wd = self._setup(monkeypatch, tmp_path)
+        discord_calls = []
+        process_calls = []
+
+        # Write corrupt data to error counts file
+        (tmp_path / "error-counts.json").write_text("not json at all")
+
+        monkeypatch.setattr("watchdog.process", lambda path: process_calls.append(path))
+        monkeypatch.setattr("watchdog.notify_discord", lambda msg: discord_calls.append(msg))
+
+        wd.main()
+
+        assert len(process_calls) == 1
+        assert discord_calls == []
+
+    def test_non_dict_error_counts_file_recovery(self, monkeypatch, tmp_path):
+        wd = self._setup(monkeypatch, tmp_path)
+        discord_calls = []
+        process_calls = []
+
+        # Write valid JSON but non-dict
+        (tmp_path / "error-counts.json").write_text("[1, 2, 3]")
+
+        monkeypatch.setattr("watchdog.process", lambda path: process_calls.append(path))
+        monkeypatch.setattr("watchdog.notify_discord", lambda msg: discord_calls.append(msg))
+
+        wd.main()
+
+        assert len(process_calls) == 1
+        assert discord_calls == []
+
+    def test_notification_retry_on_discord_failure(self, monkeypatch, tmp_path):
+        wd = self._setup(monkeypatch, tmp_path)
+        discord_calls = []
+        discord_should_fail = True
+
+        def mock_notify(msg):
+            if discord_should_fail:
+                raise RuntimeError("Discord API error")
+            discord_calls.append(msg)
+
+        monkeypatch.setattr("watchdog.process", MagicMock(side_effect=RuntimeError("boom")))
+        monkeypatch.setattr("watchdog.notify_discord", mock_notify)
+
+        # Run threshold times — notification will fail
+        for _ in range(wd._ERROR_NOTIFY_THRESHOLD):
+            wd.main()
+        assert discord_calls == []
+
+        # Fix Discord, run once more — notification should succeed
+        discord_should_fail = False
+        wd.main()
+        assert len(discord_calls) == 1

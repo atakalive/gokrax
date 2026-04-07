@@ -1536,9 +1536,12 @@ def cmd_merge_summary(args):
     )
 
     if DISCORD_CHANNEL:
-        message_id = post_discord(DISCORD_CHANNEL, content)
-        if not message_id:
+        result = post_discord(DISCORD_CHANNEL, content)
+        if not result:
             raise SystemExit("Failed to post to Discord")
+        if result.is_partial:
+            logger.warning("Partial delivery: some notification chunks failed")
+        message_id = result.message_id
     else:
         message_id = ""
         logger.warning("Discord not configured; skipping merge-summary post")

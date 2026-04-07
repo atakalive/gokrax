@@ -11,6 +11,8 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from notify import DiscordPostResult
+
 
 def write_pipeline(path: Path, data: dict):
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -59,7 +61,7 @@ class TestCmdMergeSummary:
         write_pipeline(path, _make_pipeline())
         from gokrax import cmd_merge_summary
         args = argparse.Namespace(project="test-pj")
-        with patch("notify.post_discord", return_value="1234567890") as mock_post, \
+        with patch("notify.post_discord", return_value=DiscordPostResult("1234567890")) as mock_post, \
              patch("notify.get_bot_token", return_value="fake-token"), \
              patch("config.DISCORD_CHANNEL", "fake-channel"), \
              patch("notify.send_to_agent", return_value=True):
@@ -85,7 +87,7 @@ class TestCmdMergeSummary:
         write_pipeline(path, _make_pipeline())
         from gokrax import cmd_merge_summary
         args = argparse.Namespace(project="test-pj")
-        with patch("notify.post_discord", return_value=None), \
+        with patch("notify.post_discord", return_value=DiscordPostResult(None)), \
              patch("notify.get_bot_token", return_value="fake-token"), \
              patch("config.DISCORD_CHANNEL", "fake-channel"), \
              patch("notify.send_to_agent", return_value=True):
@@ -101,7 +103,7 @@ class TestCmdMergeSummary:
         posted_content = []
         def mock_post(channel_id, content):
             posted_content.append(content)
-            return "msg-id-999"
+            return DiscordPostResult("msg-id-999")
         with patch("notify.post_discord", side_effect=mock_post), \
              patch("notify.get_bot_token", return_value="fake-token"), \
              patch("config.DISCORD_CHANNEL", "fake-channel"), \
@@ -124,7 +126,7 @@ class TestCmdMergeSummary:
         posted_content = []
         def mock_post(channel_id, content):
             posted_content.append(content)
-            return "msg-id-999"
+            return DiscordPostResult("msg-id-999")
         with patch("notify.post_discord", side_effect=mock_post), \
              patch("notify.get_bot_token", return_value="fake-token"), \
              patch("config.DISCORD_CHANNEL", "fake-channel"), \
@@ -147,7 +149,7 @@ class TestCmdMergeSummary:
         posted_content = []
         def mock_post(channel_id, content):
             posted_content.append(content)
-            return "msg-id-999"
+            return DiscordPostResult("msg-id-999")
         with patch("notify.post_discord", side_effect=mock_post), \
              patch("notify.get_bot_token", return_value="fake-token"), \
              patch("config.DISCORD_CHANNEL", "fake-channel"), \
@@ -165,7 +167,7 @@ class TestCmdMergeSummary:
         from gokrax import cmd_merge_summary
         args = argparse.Namespace(project="test-pj")
 
-        with patch("notify.post_discord", return_value="1234567890"), \
+        with patch("notify.post_discord", return_value=DiscordPostResult("1234567890")), \
              patch("notify.send_to_agent", return_value=True) as mock_send:
             cmd_merge_summary(args)
 
@@ -192,7 +194,7 @@ class TestCmdMergeSummary:
         from gokrax import cmd_merge_summary
         args = argparse.Namespace(project="test-pj")
 
-        with patch("notify.post_discord", return_value="1234567890"), \
+        with patch("notify.post_discord", return_value=DiscordPostResult("1234567890")), \
              patch("notify.send_to_agent", return_value=True) as mock_send:
             cmd_merge_summary(args)
 
@@ -207,7 +209,7 @@ class TestCmdMergeSummary:
         from gokrax import cmd_merge_summary
         args = argparse.Namespace(project="test-pj")
 
-        with patch("notify.post_discord", return_value="1234567890"), \
+        with patch("notify.post_discord", return_value=DiscordPostResult("1234567890")), \
              patch("notify.send_to_agent", return_value=False):
             # Should not raise exception
             cmd_merge_summary(args)
@@ -242,7 +244,7 @@ class TestCmdMergeSummary:
         from gokrax import cmd_merge_summary
         args = argparse.Namespace(project="test-pj")
 
-        with patch("notify.post_discord", return_value="1234567890"), \
+        with patch("notify.post_discord", return_value=DiscordPostResult("1234567890")), \
              patch("notify.send_to_agent", side_effect=RuntimeError("Network error")):
             # Should not raise exception
             cmd_merge_summary(args)
@@ -277,7 +279,7 @@ class TestWatchdogCodeApprovedPostsSummary:
         posted = []
         def mock_post(channel_id, content):
             posted.append(content)
-            return "summary-msg-42"
+            return DiscordPostResult("summary-msg-42")
 
         with patch("watchdog.notify_discord"), \
              patch("watchdog.notify_implementer"), \
@@ -331,7 +333,7 @@ class TestWatchdogCodeApprovedPostsSummary:
         with patch("watchdog.notify_discord"), \
              patch("notify.get_bot_token", return_value="fake-token"), \
              patch("config.DISCORD_CHANNEL", "123456"), \
-             patch("notify.post_discord", return_value=None):
+             patch("notify.post_discord", return_value=DiscordPostResult(None)):
             from watchdog import process
             process(path)
 

@@ -11,6 +11,7 @@ import subprocess
 import json
 import time
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 
 import requests
@@ -555,22 +556,41 @@ def get_bot_token() -> str | None:
     return DISCORD_BOT_TOKEN
 
 
-def post_discord(channel_id: str, content: str, retries: int = 3) -> str | None:
+@dataclass(frozen=True, slots=True)
+class DiscordPostResult:
+    """Result of a Discord message post operation.
+
+    Attributes:
+        message_id: ID of the last successfully posted chunk, or None if all failed.
+        is_partial: True if some chunks were posted but not all.
+    """
+    message_id: str | None
+    is_partial: bool = False
+
+    def __bool__(self) -> bool:
+        return self.message_id is not None
+
+
+def post_discord(channel_id: str, content: str, retries: int = 3) -> DiscordPostResult:
     """Discord APIでメッセージ投稿。2000文字超は自動分割。失敗時はリトライ。
 
-    成功時は最後のmessage_id、全リトライ失敗時はNone。
+    Returns:
+        DiscordPostResult:
+            message_id — 最後に成功したチャンクの ID。全失敗時は None。
+            is_partial — True なら一部チャンクのみ投稿成功（末尾欠落）。
+            bool(result) は message_id is not None と同値。
     """
     if config.DRY_RUN:
         logger.info("[dry-run] post_discord skipped (channel=%s)", channel_id)
-        return None
+        return DiscordPostResult(None)
     token = get_bot_token()
     if not token:
-        return None
+        return DiscordPostResult(None)
 
     import time as _time
     chunks = _split_message(content, 2000)
     last_id = None
-    for chunk in chunks:
+    for idx, chunk in enumerate(chunks):
         chunk_id = None
         for attempt in range(retries):
             try:
@@ -590,10 +610,13 @@ def post_discord(channel_id: str, content: str, retries: int = 3) -> str | None:
             if attempt < retries - 1:
                 _time.sleep(2)
         if chunk_id is None:
-            logger.error("Discord post failed after %d attempts", retries)
-            return None
+            logger.error(
+                "Discord post failed after %d attempts (chunk %d/%d)",
+                retries, idx + 1, len(chunks),
+            )
+            return DiscordPostResult(last_id, is_partial=last_id is not None)
         last_id = chunk_id
-    return last_id
+    return DiscordPostResult(last_id)
 
 
 def _split_message(text: str, limit: int = 2000) -> list[str]:

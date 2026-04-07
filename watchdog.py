@@ -923,7 +923,10 @@ def process(path: Path):
             )
             discord_available = bool(DISCORD_CHANNEL and get_bot_token())
             if discord_available:
-                message_id = post_discord(DISCORD_CHANNEL, content)
+                result = post_discord(DISCORD_CHANNEL, content)
+                message_id = result.message_id
+                if result.is_partial:
+                    log(f"[{pj}] WARNING: partial delivery — some notification chunks failed")
             else:
                 message_id = None
                 log(f"[{pj}] Discord not configured; skipping merge-summary post")

@@ -122,7 +122,8 @@ class TestPostDiscord:
         import notify
         with patch.object(notify, "get_bot_token", return_value=None):
             result = notify.post_discord("123456", "test message")
-        assert result is None
+        assert result.message_id is None
+        assert not result
 
     def test_4xx_response(self, caplog):
         import notify
@@ -133,7 +134,8 @@ class TestPostDiscord:
             with patch("notify.requests.post", return_value=mock_resp):
                 with caplog.at_level(logging.WARNING, logger="gokrax.notify"):
                     result = notify.post_discord("123456", "test message")
-        assert result is None
+        assert result.message_id is None
+        assert not result
         assert "Discord post failed" in caplog.text
 
     def test_request_exception(self, caplog):
@@ -143,7 +145,8 @@ class TestPostDiscord:
             with patch("notify.requests.post", side_effect=requests.ConnectionError("refused")):
                 with caplog.at_level(logging.WARNING, logger="gokrax.notify"):
                     result = notify.post_discord("123456", "test message")
-        assert result is None
+        assert result.message_id is None
+        assert not result
         assert "Discord post error" in caplog.text
 
     def test_success_returns_message_id(self):
@@ -154,7 +157,39 @@ class TestPostDiscord:
         with patch.object(notify, "get_bot_token", return_value="fake-token"):
             with patch("notify.requests.post", return_value=mock_resp):
                 result = notify.post_discord("123456", "test message")
-        assert result == "9999000111222333"
+        assert result.message_id == "9999000111222333"
+        assert not result.is_partial
+        assert result
+
+    def test_partial_chunk_failure_returns_last_successful_id(self, caplog):
+        import notify
+        ok1 = MagicMock(status_code=200)
+        ok1.json.return_value = {"id": "first-id"}
+        ok2 = MagicMock(status_code=200)
+        ok2.json.return_value = {"id": "second-id"}
+        fail = MagicMock(status_code=500, text="Server Error")
+        with patch.object(notify, "get_bot_token", return_value="fake-token"), \
+             patch("notify._split_message", return_value=["chunk1", "chunk2", "chunk3"]), \
+             patch("notify.requests.post", side_effect=[ok1, ok2, fail, fail, fail]), \
+             caplog.at_level(logging.ERROR, logger="gokrax.notify"):
+            result = notify.post_discord("123456", "long message")
+        assert result.message_id == "second-id"
+        assert result.is_partial is True
+        assert bool(result) is True
+        assert "chunk 3/3" in caplog.text
+
+    def test_first_chunk_failure_returns_none(self, caplog):
+        import notify
+        fail = MagicMock(status_code=500, text="Server Error")
+        with patch.object(notify, "get_bot_token", return_value="fake-token"), \
+             patch("notify._split_message", return_value=["chunk1", "chunk2"]), \
+             patch("notify.requests.post", return_value=fail), \
+             caplog.at_level(logging.ERROR, logger="gokrax.notify"):
+            result = notify.post_discord("123456", "long message")
+        assert result.message_id is None
+        assert result.is_partial is False
+        assert bool(result) is False
+        assert "chunk 1/2" in caplog.text
 
 
 class TestFormatReviewRequest:

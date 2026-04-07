@@ -6,6 +6,8 @@ import pytest
 from pathlib import Path
 from unittest.mock import patch
 
+from notify import DiscordPostResult
+
 
 @pytest.fixture(autouse=True)
 def _block_external_calls(request, tmp_path):
@@ -27,7 +29,7 @@ def _block_external_calls(request, tmp_path):
         config.LOG_FILE = orig_config
         watchdog.LOG_FILE = orig_watchdog
         return
-    with patch("notify.post_discord", return_value="mock-msg-id"), \
+    with patch("notify.post_discord", return_value=DiscordPostResult("mock-msg-id")), \
          patch("notify.send_to_agent", return_value=True), \
          patch("notify.send_to_agent_queued", return_value=True), \
          patch("notify.ping_agent", return_value=True), \

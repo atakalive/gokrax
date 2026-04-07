@@ -2,12 +2,14 @@
   "example_implementer": {
     "provider": "anthropic",
     "model": "claude-opus-4-6",
-    "thinking": "low"
+    "thinking": "low",
+    "compile-agents-md": true
   },
   "example_reviewer": {
     "provider": "google",
     "model": "gemini-3.1-pro-preview",
     "thinking": "low",
-    "tools": "read,bash,grep,find,ls"
+    "tools": "read,bash,grep,find,ls",
+    "compile-agents-md": true
   }
 }

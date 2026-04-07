@@ -67,6 +67,8 @@ class TestCmdReset:
             batch=[{"issue": 1}],
             design_revise_count=2,
             code_revise_count=1,
+            max_design_revise_cycles=8,
+            max_code_revise_cycles=12,
             automerge=True,
             p2_fix=True,
             cc_plan_model="opus",
@@ -91,7 +93,9 @@ class TestCmdReset:
         assert saved["state"] == "IDLE"
         assert saved["batch"] == []
         assert saved["enabled"] is False
-        for key in ("design_revise_count", "code_revise_count", "automerge", "p2_fix",
+        for key in ("design_revise_count", "code_revise_count",
+                    "max_design_revise_cycles", "max_code_revise_cycles",
+                    "automerge", "p2_fix",
                     "cc_plan_model", "cc_impl_model", "keep_context",
                     "keep_ctx_batch", "keep_ctx_intra", "comment", "skip_cc_plan", "skip_test"):
             assert key not in saved, f"key {key!r} should be removed"
@@ -161,6 +165,8 @@ class TestCmdReset:
             "enabled": True,
             "design_revise_count": 3,
             "code_revise_count": 2,
+            "max_design_revise_cycles": 8,
+            "max_code_revise_cycles": 12,
             "automerge": True,
             "p2_fix": True,
             "cc_plan_model": "opus",
@@ -187,7 +193,9 @@ class TestCmdReset:
 
         assert data["batch"] == []
         assert data["enabled"] is False
-        for key in ("design_revise_count", "code_revise_count", "automerge", "p2_fix",
+        for key in ("design_revise_count", "code_revise_count",
+                    "max_design_revise_cycles", "max_code_revise_cycles",
+                    "automerge", "p2_fix",
                     "cc_plan_model", "cc_impl_model", "keep_context",
                     "keep_ctx_batch", "keep_ctx_intra", "comment", "skip_cc_plan", "skip_test"):
             assert key not in data, f"key {key!r} should be removed"

@@ -385,6 +385,10 @@ def _resolve_review_outcome(
     - P1: 常に義務。max cycles → BLOCKED。
     - P2: p2_fix 有効時のみ義務。max cycles → APPROVE フォールバック（免除）。
     """
+    if "DESIGN" not in state and "CODE" not in state:
+        raise ValueError(
+            f"_resolve_review_outcome() requires DESIGN or CODE state, got: {state}"
+        )
     appr = "DESIGN_APPROVED" if "DESIGN" in state else "CODE_APPROVED"
     revise_state = "DESIGN_REVISE" if "DESIGN" in state else "CODE_REVISE"
     pj = data.get("project", "") if data else ""
@@ -397,13 +401,17 @@ def _resolve_review_outcome(
         counter_key = "design_revise_count" if "DESIGN" in state else "code_revise_count"
         current_count = data.get(counter_key, 0) if data else 0
 
-        if current_count >= MAX_REVISE_CYCLES:
+        max_key = "max_design_revise_cycles" if "DESIGN" in state else "max_code_revise_cycles"
+        val = data.get(max_key) if data else None
+        effective_max = val if val is not None else MAX_REVISE_CYCLES
+
+        if current_count >= effective_max:
             severity = "P0" if has_p0 else "P1"
             # P0/P1 あり → BLOCKED（いずれも免除しない）
             return TransitionAction(
                 new_state="BLOCKED",
                 impl_msg=render("dev.blocked", "blocked_max_cycles",
-                    state=state, MAX_REVISE_CYCLES=MAX_REVISE_CYCLES,
+                    state=state, MAX_REVISE_CYCLES=effective_max,
                     OWNER_NAME=OWNER_NAME, severity=severity,
                 ),
             )
@@ -419,7 +427,11 @@ def _resolve_review_outcome(
         counter_key = "design_revise_count" if "DESIGN" in state else "code_revise_count"
         current_count = data.get(counter_key, 0) if data else 0
 
-        if current_count >= MAX_REVISE_CYCLES:
+        max_key = "max_design_revise_cycles" if "DESIGN" in state else "max_code_revise_cycles"
+        val = data.get(max_key) if data else None
+        effective_max = val if val is not None else MAX_REVISE_CYCLES
+
+        if current_count >= effective_max:
             # フォールバック: P0/P1 がないので APPROVE する
             return TransitionAction(
                 new_state=appr,

@@ -31,6 +31,8 @@ def _cleanup_batch_state(data: dict, pj: str) -> None:
     # REVISE counters
     data.pop("design_revise_count", None)
     data.pop("code_revise_count", None)
+    data.pop("max_design_revise_cycles", None)
+    data.pop("max_code_revise_cycles", None)
     # Queue options
     data.pop("automerge", None)
     data.pop("p2_fix", None)

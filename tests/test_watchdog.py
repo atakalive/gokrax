@@ -4545,6 +4545,39 @@ class TestVerdictObligation:
         with pytest.raises(TypeError):
             _resolve_review_outcome("DESIGN_REVIEW", data, batch, has_p0=False)
 
+    # --- pipeline-specific max テスト (Issue #288) ---
+
+    def test_resolve_review_uses_pipeline_max(self):
+        """max_design_revise_cycles=8 設定時、count=5 でも BLOCKED にならず REVISE"""
+        from engine.fsm import _resolve_review_outcome
+        from config import MAX_REVISE_CYCLES
+
+        batch = [{"issue": 1, "design_reviews": {"a": {"verdict": "P1"}}}]
+        data = {"project": "Foo", "design_revise_count": 5, "max_design_revise_cycles": 8}
+        # global max=4, count=5 → normally BLOCKED, but pipeline max=8 → REVISE
+        action = _resolve_review_outcome("DESIGN_REVIEW", data, batch, has_p0=False, has_p1=True, has_p2=False)
+        assert action.new_state == "DESIGN_REVISE"
+
+    def test_resolve_review_falls_back_to_global_max(self):
+        """max_design_revise_cycles 未設定時はグローバル MAX_REVISE_CYCLES にフォールバック"""
+        from engine.fsm import _resolve_review_outcome
+        from config import MAX_REVISE_CYCLES
+
+        batch = [{"issue": 1, "design_reviews": {"a": {"verdict": "P1"}}}]
+        data = {"project": "Foo", "design_revise_count": MAX_REVISE_CYCLES}
+        action = _resolve_review_outcome("DESIGN_REVIEW", data, batch, has_p0=False, has_p1=True, has_p2=False)
+        assert action.new_state == "BLOCKED"
+
+    def test_resolve_review_outcome_rejects_non_design_code_state(self):
+        """対象外 state (SPEC_REVIEW 等) を渡すと ValueError"""
+        from engine.fsm import _resolve_review_outcome
+        import pytest
+
+        batch = [{"issue": 1}]
+        data = {"project": "Foo"}
+        with pytest.raises(ValueError, match="requires DESIGN or CODE state"):
+            _resolve_review_outcome("SPEC_REVIEW", data, batch, has_p0=False, has_p1=True, has_p2=False)
+
     # --- REVISE 完了判定テスト ---
 
     def test_revise_gate_requires_p1_revised(self):

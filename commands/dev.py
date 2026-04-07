@@ -628,6 +628,14 @@ def cmd_transition(args):
             counter_key = "design_revise_count" if "DESIGN" in target else "code_revise_count"
             data.pop(counter_key, None)
             print(f"[FORCE] Resetting {counter_key} for {current} → {target} transition")
+        elif resume and current == "BLOCKED" and target in ("DESIGN_REVISE", "CODE_REVISE"):
+            from config import MAX_REVISE_CYCLES
+            max_key = "max_design_revise_cycles" if "DESIGN" in target else "max_code_revise_cycles"
+            val = data.get(max_key)
+            current_max = val if val is not None else MAX_REVISE_CYCLES
+            data[max_key] = current_max + MAX_REVISE_CYCLES
+            data["enabled"] = True  # BLOCKED時にFalseになっているのでTrueに戻す
+            print(f"[RESUME] {max_key}: {current_max} → {data[max_key]} for {current} → {target} transition")
         elif target == "BLOCKED":
             # Disable watchdog when manually transitioning to BLOCKED (Issue #29)
             data["enabled"] = False

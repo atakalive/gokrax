@@ -23,6 +23,8 @@ def _make_full_data() -> dict:
         # REVISE counters
         "design_revise_count": 3,
         "code_revise_count": 2,
+        "max_design_revise_cycles": 8,
+        "max_code_revise_cycles": 12,
         # Queue options
         "automerge": True,
         "p2_fix": True,
@@ -87,6 +89,7 @@ def _make_full_data() -> dict:
 # クリーンアップ対象として期待される全キー
 _CLEANUP_KEYS = {
     "design_revise_count", "code_revise_count",
+    "max_design_revise_cycles", "max_code_revise_cycles",
     "automerge", "p2_fix", "cc_plan_model", "cc_impl_model",
     "keep_context", "keep_ctx_batch", "keep_ctx_intra",
     "comment", "skip_cc_plan", "skip_test", "skip_assess", "skip_design",

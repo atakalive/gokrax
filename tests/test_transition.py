@@ -522,3 +522,123 @@ class TestKeepCtx:
         with open(path) as f:
             data = json.load(f)
         assert "skip_test" not in data
+
+
+class TestResumeFromBlocked:
+    """--resume で BLOCKED → REVISE に遷移した際の max_*_revise_cycles 加算テスト (Issue #288)"""
+
+    _BATCH_ITEM = {
+        "issue": 1, "title": "T", "commit": None, "cc_session_id": None,
+        "design_reviews": {}, "code_reviews": {},
+        "added_at": "2025-01-01T00:00:00+09:00",
+    }
+
+    def test_resume_from_blocked_to_design_revise_increments_max_cycles(self, tmp_pipelines, sample_pipeline):
+        """BLOCKED → --resume DESIGN_REVISE: max_design_revise_cycles が 4+4=8 になる"""
+        from config import MAX_REVISE_CYCLES
+        sample_pipeline["state"] = "BLOCKED"
+        sample_pipeline["enabled"] = False
+        sample_pipeline["design_revise_count"] = 4
+        sample_pipeline["batch"] = [dict(self._BATCH_ITEM)]
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, sample_pipeline)
+        from gokrax import cmd_transition
+        args = argparse.Namespace(
+            project="test-pj", to="DESIGN_REVISE", actor="cli", force=False, resume=True,
+        )
+        with patch("commands.dev.notify_implementer"), patch("commands.dev.notify_reviewers"):
+            cmd_transition(args)
+        with open(path) as f:
+            data = json.load(f)
+        assert data["state"] == "DESIGN_REVISE"
+        assert data["max_design_revise_cycles"] == MAX_REVISE_CYCLES * 2
+        assert data["design_revise_count"] == 4  # not reset
+        assert data["enabled"] is True
+
+    def test_resume_from_blocked_to_code_revise_increments_max_cycles(self, tmp_pipelines, sample_pipeline):
+        """BLOCKED → --resume CODE_REVISE: max_code_revise_cycles が 4+4=8 になる"""
+        from config import MAX_REVISE_CYCLES
+        sample_pipeline["state"] = "BLOCKED"
+        sample_pipeline["enabled"] = False
+        sample_pipeline["code_revise_count"] = 4
+        sample_pipeline["batch"] = [dict(self._BATCH_ITEM)]
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, sample_pipeline)
+        from gokrax import cmd_transition
+        args = argparse.Namespace(
+            project="test-pj", to="CODE_REVISE", actor="cli", force=False, resume=True,
+        )
+        with patch("commands.dev.notify_implementer"), patch("commands.dev.notify_reviewers"):
+            cmd_transition(args)
+        with open(path) as f:
+            data = json.load(f)
+        assert data["state"] == "CODE_REVISE"
+        assert data["max_code_revise_cycles"] == MAX_REVISE_CYCLES * 2
+        assert data["code_revise_count"] == 4  # not reset
+        assert data["enabled"] is True
+
+    def test_resume_stacks_max_cycles(self, tmp_pipelines, sample_pipeline):
+        """2回連続 BLOCKED → --resume → DESIGN_REVISE: max が 4+4+4=12 になる"""
+        from config import MAX_REVISE_CYCLES
+        sample_pipeline["state"] = "BLOCKED"
+        sample_pipeline["enabled"] = False
+        sample_pipeline["design_revise_count"] = 4
+        sample_pipeline["batch"] = [dict(self._BATCH_ITEM)]
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, sample_pipeline)
+        from gokrax import cmd_transition
+        args = argparse.Namespace(
+            project="test-pj", to="DESIGN_REVISE", actor="cli", force=False, resume=True,
+        )
+        with patch("commands.dev.notify_implementer"), patch("commands.dev.notify_reviewers"):
+            cmd_transition(args)
+        # 1回目: max = 4 + 4 = 8
+        with open(path) as f:
+            data = json.load(f)
+        assert data["max_design_revise_cycles"] == MAX_REVISE_CYCLES * 2
+
+        # 再度 BLOCKED にして 2回目の resume
+        data["state"] = "BLOCKED"
+        data["enabled"] = False
+        with open(path, "w") as f:
+            json.dump(data, f)
+        with patch("commands.dev.notify_implementer"), patch("commands.dev.notify_reviewers"):
+            cmd_transition(args)
+        with open(path) as f:
+            data = json.load(f)
+        assert data["max_design_revise_cycles"] == MAX_REVISE_CYCLES * 3
+
+    def test_resume_max_persists_after_force(self, tmp_pipelines, sample_pipeline):
+        """--resume で max=8 にした後、--force で DESIGN_REVIEW に遷移しても max は維持される"""
+        from config import MAX_REVISE_CYCLES
+        sample_pipeline["state"] = "BLOCKED"
+        sample_pipeline["enabled"] = False
+        sample_pipeline["design_revise_count"] = 4
+        sample_pipeline["batch"] = [dict(self._BATCH_ITEM)]
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, sample_pipeline)
+        from gokrax import cmd_transition
+        # 1. --resume で max 加算
+        args_resume = argparse.Namespace(
+            project="test-pj", to="DESIGN_REVISE", actor="cli", force=False, resume=True,
+        )
+        with patch("commands.dev.notify_implementer"), patch("commands.dev.notify_reviewers"):
+            cmd_transition(args_resume)
+        with open(path) as f:
+            data = json.load(f)
+        assert data["max_design_revise_cycles"] == MAX_REVISE_CYCLES * 2
+
+        # 2. 再度 BLOCKED にして --force で DESIGN_REVIEW に遷移
+        data["state"] = "BLOCKED"
+        with open(path, "w") as f:
+            json.dump(data, f)
+        args_force = argparse.Namespace(
+            project="test-pj", to="DESIGN_REVIEW", actor="cli", force=True, resume=False,
+        )
+        with patch("commands.dev.notify_implementer"), patch("commands.dev.notify_reviewers"):
+            cmd_transition(args_force)
+        with open(path) as f:
+            data = json.load(f)
+        # --force resets counter but NOT max
+        assert data["max_design_revise_cycles"] == MAX_REVISE_CYCLES * 2
+        assert "design_revise_count" not in data  # reset by --force

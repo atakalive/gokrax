@@ -6435,3 +6435,55 @@ class TestGitPullOnInitialize:
 
         saved = _json.loads(path.read_text())
         assert saved["base_commit"] == "def456abc789"
+
+    @pytest.mark.parametrize("target_state", ["DESIGN_PLAN", "DESIGN_APPROVED"])
+    def test_git_pull_exception_continues_pipeline(self, tmp_pipelines, monkeypatch, target_state):
+        """git pull で例外（TimeoutExpired等）が発生しても遷移と base_commit 記録が継続すること"""
+        import json as _json
+        import subprocess
+        from subprocess import CompletedProcess, TimeoutExpired
+        from watchdog import process
+        from engine.fsm import TransitionAction
+
+        path = tmp_pipelines / "pj.json"
+        data = {
+            "project": "pj", "gitlab": "testns/pj",
+            "state": "INITIALIZE", "enabled": True,
+            "review_mode": "standard",
+            "batch": [{"issue": 1}],
+            "history": [],
+            "repo_path": "/fake/repo",
+        }
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(_json.dumps(data))
+        monkeypatch.setattr("watchdog.PIPELINES_DIR", tmp_pipelines)
+
+        _original_run = subprocess.run
+        calls: list[tuple[str, list, dict]] = []
+
+        def _mock_run(cmd, **kwargs):
+            if isinstance(cmd, list) and len(cmd) >= 4 and cmd[0] == "git":
+                if cmd[3] == "pull":
+                    calls.append(("pull", cmd, kwargs))
+                    raise TimeoutExpired(cmd, 60)
+                if cmd[3] == "log":
+                    calls.append(("log", cmd, kwargs))
+                    return CompletedProcess(cmd, 0, stdout="timeout789abc\n", stderr="")
+            return _original_run(cmd, **kwargs)
+
+        with patch("watchdog.check_transition", return_value=TransitionAction(new_state=target_state)), \
+             patch("watchdog._has_pytest", return_value=False), \
+             patch("subprocess.run", side_effect=_mock_run), \
+             patch("watchdog.notify_implementer"), \
+             patch("watchdog._poll_pytest_baseline"):
+            process(path)
+
+        # pull で例外が発生しても log（base_commit 記録）に進むこと
+        assert len(calls) >= 2
+        assert calls[0][0] == "pull"
+        assert calls[1][0] == "log"
+
+        # 遷移が完了し base_commit が記録されること
+        saved = _json.loads(path.read_text())
+        assert saved["base_commit"] == "timeout789abc"
+        assert saved["state"] == target_state

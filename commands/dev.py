@@ -1507,7 +1507,7 @@ def cmd_merge_summary(args):
     import logging
     logger = logging.getLogger(__name__)
     from config import DISCORD_CHANNEL
-    from notify import post_discord, notify_implementer, get_bot_token
+    from notify import post_discord, notify_implementer
     from config import MERGE_SUMMARY_FOOTER
     from messages import render
 
@@ -1527,8 +1527,7 @@ def cmd_merge_summary(args):
         MERGE_SUMMARY_FOOTER=MERGE_SUMMARY_FOOTER,
     )
 
-    discord_available = bool(DISCORD_CHANNEL and get_bot_token())
-    if discord_available:
+    if DISCORD_CHANNEL:
         message_id = post_discord(DISCORD_CHANNEL, content)
         if not message_id:
             raise SystemExit("Failed to post to Discord")

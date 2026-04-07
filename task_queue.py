@@ -104,7 +104,7 @@ def parse_queue_line(line: str) -> dict:
         "project": project,
         "issues": issues,
         "mode": None,
-        "automerge": True,
+        "automerge": False,
         "keep_ctx_batch": False,
         "keep_ctx_intra": False,
         "p2_fix": False,

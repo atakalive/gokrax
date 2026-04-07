@@ -1711,7 +1711,7 @@ def cmd_qrun(args):
         _rollback_pipeline()
         raise
 
-    automerge_flag = entry.get("automerge", True)
+    automerge_flag = entry.get("automerge", False)
     print(f"[qrun] {project}: started (automerge={automerge_flag})")
 
 

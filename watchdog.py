@@ -1278,7 +1278,7 @@ def _handle_qrun(msg_id: str):
         update_pipeline(path, _save_queue_options)
 
         # Post success to Discord (スキップがあれば一緒に報告)
-        automerge_flag = entry.get("automerge", True)
+        automerge_flag = entry.get("automerge", False)
         parts: list[str] = []
         if skipped_entries:
             parts.append(f"skipped {len(skipped_entries)}: {', '.join(skipped_entries)}")

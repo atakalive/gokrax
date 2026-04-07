@@ -43,7 +43,7 @@ class TestParseQueueLine:
         assert result["project"] == "ProjectGamma"
         assert result["issues"] == "all"
         assert result["mode"] is None
-        assert result["automerge"] is True
+        assert result["automerge"] is False
         assert result["keep_ctx_batch"] is False
         assert result["keep_ctx_intra"] is False
         assert result["cc_plan_model"] is None
@@ -1788,7 +1788,7 @@ class TestCmdQrunRollback:
         # 最初の update_pipeline は queue_mode=True の早期設定
         assert captured_data[0] == {"queue_mode": True}
         # 2番目の update_pipeline は save_queue_options_to_pipeline 経由
-        assert captured_data[1]["automerge"] is True
+        assert captured_data[1]["automerge"] is False
         assert "queue_mode" not in captured_data[1]
 
 

@@ -200,11 +200,14 @@ def test_check_transition_corrupt_grace_met_at_resets(monkeypatch):
         "r2": {"verdict": "APPROVE", "at": "2026-03-26T00:01:00+09:00"},
     }}]
 
-    with patch("engine.fsm.log"):
+    with patch("engine.fsm.log") as mock_log:
         action = check_transition("DESIGN_REVIEW", batch, data)
 
     assert action.save_grace_met_at == "design_min_reviews_met_at"
     assert action.new_state is None
+    mock_log.assert_any_call(
+        "[GRACE] WARNING: corrupt design_min_reviews_met_at='not-a-date', resetting grace timer"
+    )
 
 
 def test_check_transition_naive_grace_met_at_resets(monkeypatch):
@@ -222,11 +225,14 @@ def test_check_transition_naive_grace_met_at_resets(monkeypatch):
         "r2": {"verdict": "APPROVE", "at": "2026-03-26T00:01:00+09:00"},
     }}]
 
-    with patch("engine.fsm.log"):
+    with patch("engine.fsm.log") as mock_log:
         action = check_transition("DESIGN_REVIEW", batch, data)
 
     assert action.save_grace_met_at == "design_min_reviews_met_at"
     assert action.new_state is None
+    mock_log.assert_any_call(
+        "[GRACE] WARNING: corrupt design_min_reviews_met_at='2026-03-26T00:00:00', resetting grace timer"
+    )
 
 
 def _write_pipeline(path, data: dict) -> None:

@@ -256,6 +256,7 @@ def parse_queue_line(line: str) -> dict:
             if internal_key in explicit:
                 continue
             result[internal_key] = default_val
+    result["_explicit_keys"] = explicit
     return result
 
 

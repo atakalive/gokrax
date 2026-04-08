@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import subprocess
 import time
 import uuid
 from collections import defaultdict
@@ -429,6 +430,22 @@ class TestSend:
         with patch("subprocess.Popen", return_value=mock_proc):
             backend_cc.send("reviewer1", "hello", timeout=30)
         mock_proc.terminate.assert_called_once()
+
+    def test_write_failure_kills_and_reaps_if_terminate_times_out(self, tmp_sessions, monkeypatch):
+        monkeypatch.setattr(config, "DRY_RUN", False)
+        monkeypatch.setattr(backend_cc, "_agent_config_cache", {})
+        mock_proc = MagicMock()
+        mock_proc.stdin.write.side_effect = BrokenPipeError("pipe broken")
+        mock_proc.pid = 12345
+        mock_proc.wait.side_effect = [
+            subprocess.TimeoutExpired(cmd="claude", timeout=2),
+            None,
+        ]
+        with patch("subprocess.Popen", return_value=mock_proc):
+            backend_cc.send("reviewer1", "hello", timeout=30)
+        mock_proc.terminate.assert_called_once()
+        mock_proc.kill.assert_called_once()
+        assert mock_proc.wait.call_count == 2
 
     def test_persist_failure_rolls_back(self, tmp_sessions, monkeypatch):
         monkeypatch.setattr(config, "DRY_RUN", False)

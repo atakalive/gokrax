@@ -405,11 +405,17 @@ def _cleanup_proc(proc: subprocess.Popen) -> None:
         proc.terminate()
         try:
             proc.wait(timeout=2)
+            return
         except subprocess.TimeoutExpired:
             try:
                 proc.kill()
-            except OSError:
-                pass
+            except OSError as e:
+                logger.warning("cc proc cleanup failed: %s", e)
+                return
+            try:
+                proc.wait(timeout=2)
+            except (subprocess.TimeoutExpired, OSError) as e:
+                logger.warning("cc proc cleanup failed: %s", e)
     except OSError as e:
         logger.warning("cc proc cleanup failed: %s", e)
 

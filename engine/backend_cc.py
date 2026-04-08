@@ -25,6 +25,7 @@ import logging
 import subprocess
 import time
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 
 import config
@@ -168,6 +169,105 @@ def _read_session_id(agent_id: str) -> str | None:
 
 
 # ---------------------------------------------------------------------------
+# Persisted-state snapshot & session ownership
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class PersistedCcState:
+    session_id: str | None
+    pid_text: str | None
+
+
+@dataclass(frozen=True)
+class SessionOwnership:
+    state: PersistedCcState
+    has_valid_session: bool
+    has_live_owner: bool
+
+
+def _read_persisted_state(agent_id: str) -> PersistedCcState:
+    """Read session_id and pid files atomically into a single snapshot.
+
+    Returns:
+        PersistedCcState with validated session_id (UUID string or None)
+        and raw pid_text (stripped string or None).
+    """
+    # Read session_id
+    try:
+        sid_text = _session_id_path(agent_id).read_text(encoding="utf-8").strip()
+    except (OSError, FileNotFoundError):
+        sid_text = ""
+    session_id: str | None = None
+    if sid_text:
+        try:
+            uuid.UUID(sid_text)
+            session_id = sid_text
+        except ValueError:
+            pass
+
+    # Read pid
+    try:
+        pid_text_raw = _pid_path(agent_id).read_text(encoding="utf-8").strip()
+    except (OSError, FileNotFoundError):
+        pid_text_raw = ""
+    pid_text: str | None = pid_text_raw if pid_text_raw else None
+
+    return PersistedCcState(session_id=session_id, pid_text=pid_text)
+
+
+def _check_session_ownership(state: PersistedCcState) -> SessionOwnership:
+    """Determine whether a live process owns the recorded session.
+
+    This helper never re-reads persisted files from disk.
+    """
+    if state.session_id is None:
+        return SessionOwnership(state=state, has_valid_session=False, has_live_owner=False)
+
+    if state.pid_text is None:
+        return SessionOwnership(state=state, has_valid_session=True, has_live_owner=False)
+
+    try:
+        pid = int(state.pid_text)
+    except ValueError:
+        return SessionOwnership(state=state, has_valid_session=True, has_live_owner=False)
+
+    proc_dir = Path(f"/proc/{pid}")
+    if not proc_dir.exists():
+        return SessionOwnership(state=state, has_valid_session=True, has_live_owner=False)
+
+    cmdline_path = proc_dir / "cmdline"
+    try:
+        cmdline_bytes = cmdline_path.read_bytes()
+    except (OSError, FileNotFoundError):
+        return SessionOwnership(state=state, has_valid_session=True, has_live_owner=False)
+
+    tokens = cmdline_bytes.split(b"\0")
+    str_tokens: list[str] = []
+    for t in tokens:
+        try:
+            str_tokens.append(t.decode("utf-8"))
+        except UnicodeDecodeError:
+            str_tokens.append("")
+
+    has_claude = any(
+        t == "claude" or t.endswith("/claude")
+        for t in str_tokens
+    )
+    if not has_claude:
+        return SessionOwnership(state=state, has_valid_session=True, has_live_owner=False)
+
+    has_session_match = False
+    for i in range(len(str_tokens) - 1):
+        if str_tokens[i] in ("--resume", "--session-id") and str_tokens[i + 1] == state.session_id:
+            has_session_match = True
+            break
+
+    return SessionOwnership(
+        state=state, has_valid_session=True, has_live_owner=has_session_match,
+    )
+
+
+# ---------------------------------------------------------------------------
 # _rebuild_claude_md
 # ---------------------------------------------------------------------------
 
@@ -295,10 +395,22 @@ def send(agent_id: str, message: str, timeout: int) -> bool:
 
     _rebuild_claude_md(agent_id)
 
+    # Read one persisted-state snapshot for this call
+    state = _read_persisted_state(agent_id)
+    ownership = _check_session_ownership(state)
+
+    # Enforce single-writer invariant
+    if ownership.has_live_owner:
+        logger.warning(
+            "cc send refused for %s session %s: live owner still active; "
+            "refusing spawn to avoid multi-writer Claude session access",
+            agent_id, ownership.state.session_id,
+        )
+        return False
+
     # Determine session_id: resume existing or create new
-    existing_session_id = _read_session_id(agent_id)
-    is_resume = existing_session_id is not None
-    session_id = existing_session_id if is_resume else str(uuid.uuid4())
+    is_resume = ownership.has_valid_session
+    session_id = ownership.state.session_id if is_resume else str(uuid.uuid4())
 
     config_data = _load_config()
     profile = config_data.get(agent_id, {})
@@ -458,11 +570,11 @@ def is_inactive(agent_id: str, pipeline_data: dict | None = None,
         elapsed_since_start = time.time() - started_at
         if elapsed_since_start < config.CC_START_GRACE_SEC:
             # Check if session jsonl mtime has caught up
-            session_id = _read_session_id(agent_id)
-            if session_id:
+            grace_state = _read_persisted_state(agent_id)
+            if grace_state.session_id:
                 profile_dir = AGENT_PROFILES_DIR / agent_id
                 cwd = profile_dir if profile_dir.is_dir() else PROJECT_ROOT
-                jsonl_path = _claude_session_jsonl_path(cwd, session_id)
+                jsonl_path = _claude_session_jsonl_path(cwd, grace_state.session_id)
                 try:
                     mtime = jsonl_path.stat().st_mtime
                 except (OSError, FileNotFoundError):
@@ -479,65 +591,20 @@ def is_inactive(agent_id: str, pipeline_data: dict | None = None,
             # Grace window expired; clear marker
             del _starting_markers[agent_id]
 
-    # Read session_id
-    session_id = _read_session_id(agent_id)
-    if session_id is None:
+    # Read one persisted-state snapshot for this call
+    state = _read_persisted_state(agent_id)
+    ownership = _check_session_ownership(state)
+
+    if not ownership.has_valid_session:
         return True
 
-    # Read pid file
-    pid_p = _pid_path(agent_id)
-    try:
-        pid_text = pid_p.read_text(encoding="utf-8").strip()
-    except (OSError, FileNotFoundError):
-        return True
-    if not pid_text:
-        return True
-    try:
-        pid = int(pid_text)
-    except ValueError:
-        return True
+    if ownership.has_live_owner:
+        return False
 
-    # Check /proc/<pid> existence
-    proc_dir = Path(f"/proc/{pid}")
-    if not proc_dir.exists():
-        return True
-
-    # Verify cmdline to prevent PID reuse false positives
-    cmdline_path = proc_dir / "cmdline"
-    try:
-        cmdline_bytes = cmdline_path.read_bytes()
-    except (OSError, FileNotFoundError):
-        return True
-
-    tokens = cmdline_bytes.split(b"\0")
-    str_tokens = []
-    for t in tokens:
-        try:
-            str_tokens.append(t.decode("utf-8"))
-        except UnicodeDecodeError:
-            str_tokens.append("")
-
-    # Check: at least one token is "claude" (or ends with /claude)
-    has_claude = any(
-        t == "claude" or t.endswith("/claude")
-        for t in str_tokens
-    )
-    if not has_claude:
-        return True
-
-    # Check: adjacent pair --resume <session_id> or --session-id <session_id>
-    has_session_match = False
-    for i in range(len(str_tokens) - 1):
-        if str_tokens[i] in ("--resume", "--session-id") and str_tokens[i + 1] == session_id:
-            has_session_match = True
-            break
-    if not has_session_match:
-        return True
-
-    # Check session JSONL mtime
+    # No live owner — fall back to jsonl mtime freshness
     profile_dir = AGENT_PROFILES_DIR / agent_id
     cwd = profile_dir if profile_dir.is_dir() else PROJECT_ROOT
-    jsonl_path = _claude_session_jsonl_path(cwd, session_id)
+    jsonl_path = _claude_session_jsonl_path(cwd, ownership.state.session_id)  # type: ignore[arg-type]
     try:
         mtime = jsonl_path.stat().st_mtime
     except (OSError, FileNotFoundError):

@@ -697,7 +697,8 @@ class TestIsInactive:
             result = backend_cc.is_inactive("reviewer1")
         assert result is False
 
-    def test_alive_pid_stale_mtime_returns_true(self, tmp_sessions, monkeypatch, tmp_path):
+    def test_alive_matching_pid_stale_mtime_returns_false(self, tmp_sessions, monkeypatch, tmp_path):
+        """Key regression test for #299: live matching PID + stale mtime => active."""
         monkeypatch.setattr(config, "INACTIVE_THRESHOLD_SEC", 300)
         monkeypatch.setattr("engine.backend_cc.AGENT_PROFILES_DIR", tmp_path / "agents")
         d = tmp_sessions / "reviewer1"
@@ -732,9 +733,10 @@ class TestIsInactive:
         with patch.object(Path, "exists", mock_exists), \
              patch.object(Path, "read_bytes", mock_read_bytes):
             result = backend_cc.is_inactive("reviewer1")
-        assert result is True
+        assert result is False
 
-    def test_alive_pid_missing_jsonl_returns_true(self, tmp_sessions, monkeypatch, tmp_path):
+    def test_alive_matching_pid_missing_jsonl_returns_false(self, tmp_sessions, monkeypatch, tmp_path):
+        """Live matching PID => active even without jsonl."""
         monkeypatch.setattr("engine.backend_cc.AGENT_PROFILES_DIR", tmp_path / "agents")
         d = tmp_sessions / "reviewer1"
         d.mkdir(parents=True)
@@ -758,7 +760,503 @@ class TestIsInactive:
         with patch.object(Path, "exists", mock_exists), \
              patch.object(Path, "read_bytes", mock_read_bytes):
             result = backend_cc.is_inactive("reviewer1")
+        assert result is False
+
+    def test_dead_pid_fresh_mtime_returns_false(self, tmp_sessions, monkeypatch, tmp_path):
+        """Dead PID + fresh jsonl mtime => active (mtime path still works)."""
+        monkeypatch.setattr(config, "INACTIVE_THRESHOLD_SEC", 300)
+        monkeypatch.setattr("engine.backend_cc.AGENT_PROFILES_DIR", tmp_path / "agents")
+        d = tmp_sessions / "reviewer1"
+        d.mkdir(parents=True)
+        sid = str(uuid.uuid4())
+        (d / "session_id").write_text(sid)
+        (d / "pid").write_text("999999")
+
+        cwd = PROJECT_ROOT
+        jsonl_dir = backend_cc._claude_project_dir(cwd)
+        jsonl_dir.mkdir(parents=True, exist_ok=True)
+        jsonl_path = jsonl_dir / f"{sid}.jsonl"
+        jsonl_path.write_text("{}")
+
+        orig_exists = Path.exists
+
+        def mock_exists(self):
+            if str(self) == "/proc/999999":
+                return False
+            return orig_exists(self)
+
+        with patch.object(Path, "exists", mock_exists):
+            result = backend_cc.is_inactive("reviewer1")
+        assert result is False
+
+    def test_dead_pid_stale_mtime_returns_true(self, tmp_sessions, monkeypatch, tmp_path):
+        """Dead PID + stale jsonl mtime => inactive."""
+        monkeypatch.setattr(config, "INACTIVE_THRESHOLD_SEC", 300)
+        monkeypatch.setattr("engine.backend_cc.AGENT_PROFILES_DIR", tmp_path / "agents")
+        d = tmp_sessions / "reviewer1"
+        d.mkdir(parents=True)
+        sid = str(uuid.uuid4())
+        (d / "session_id").write_text(sid)
+        (d / "pid").write_text("999999")
+
+        cwd = PROJECT_ROOT
+        jsonl_dir = backend_cc._claude_project_dir(cwd)
+        jsonl_dir.mkdir(parents=True, exist_ok=True)
+        jsonl_path = jsonl_dir / f"{sid}.jsonl"
+        jsonl_path.write_text("{}")
+        import os
+        old_time = time.time() - 600
+        os.utime(jsonl_path, (old_time, old_time))
+
+        orig_exists = Path.exists
+
+        def mock_exists(self):
+            if str(self) == "/proc/999999":
+                return False
+            return orig_exists(self)
+
+        with patch.object(Path, "exists", mock_exists):
+            result = backend_cc.is_inactive("reviewer1")
         assert result is True
+
+    def test_live_mismatched_session_pid_fresh_mtime_returns_false(self, tmp_sessions, monkeypatch, tmp_path):
+        """Live PID with mismatched session + fresh mtime => active (mtime path)."""
+        monkeypatch.setattr(config, "INACTIVE_THRESHOLD_SEC", 300)
+        monkeypatch.setattr("engine.backend_cc.AGENT_PROFILES_DIR", tmp_path / "agents")
+        d = tmp_sessions / "reviewer1"
+        d.mkdir(parents=True)
+        sid = str(uuid.uuid4())
+        other_sid = str(uuid.uuid4())
+        (d / "session_id").write_text(sid)
+        (d / "pid").write_text("12345")
+
+        cwd = PROJECT_ROOT
+        jsonl_dir = backend_cc._claude_project_dir(cwd)
+        jsonl_dir.mkdir(parents=True, exist_ok=True)
+        jsonl_path = jsonl_dir / f"{sid}.jsonl"
+        jsonl_path.write_text("{}")
+
+        orig_exists = Path.exists
+        orig_read_bytes = Path.read_bytes
+
+        def mock_exists(self):
+            if str(self) == "/proc/12345":
+                return True
+            return orig_exists(self)
+
+        def mock_read_bytes(self):
+            if str(self) == "/proc/12345/cmdline":
+                # Different session_id in cmdline
+                return f"claude\0-p\0--session-id\0{other_sid}\0".encode()
+            return orig_read_bytes(self)
+
+        with patch.object(Path, "exists", mock_exists), \
+             patch.object(Path, "read_bytes", mock_read_bytes):
+            result = backend_cc.is_inactive("reviewer1")
+        assert result is False
+
+    def test_grace_active_live_matching_pid_missing_jsonl_returns_false(
+        self, tmp_sessions, monkeypatch, tmp_path,
+    ):
+        """Grace active + live matching PID + missing jsonl => active (preserve fail-safe)."""
+        monkeypatch.setattr(config, "CC_START_GRACE_SEC", 60)
+        monkeypatch.setattr("engine.backend_cc.AGENT_PROFILES_DIR", tmp_path / "agents")
+        backend_cc._starting_markers["reviewer1"] = time.time()
+
+        d = tmp_sessions / "reviewer1"
+        d.mkdir(parents=True)
+        sid = str(uuid.uuid4())
+        (d / "session_id").write_text(sid)
+        (d / "pid").write_text("12345")
+
+        orig_exists = Path.exists
+        orig_read_bytes = Path.read_bytes
+
+        def mock_exists(self):
+            if str(self) == "/proc/12345":
+                return True
+            return orig_exists(self)
+
+        def mock_read_bytes(self):
+            if str(self) == "/proc/12345/cmdline":
+                return f"claude\0-p\0--session-id\0{sid}\0".encode()
+            return orig_read_bytes(self)
+
+        with patch.object(Path, "exists", mock_exists), \
+             patch.object(Path, "read_bytes", mock_read_bytes):
+            result = backend_cc.is_inactive("reviewer1")
+        assert result is False
+
+
+# ===========================================================================
+# _read_persisted_state / _check_session_ownership
+# ===========================================================================
+
+class TestReadPersistedState:
+    def test_returns_expected_snapshot(self, tmp_sessions):
+        d = tmp_sessions / "agent1"
+        d.mkdir(parents=True)
+        sid = str(uuid.uuid4())
+        (d / "session_id").write_text(sid)
+        (d / "pid").write_text("12345")
+        state = backend_cc._read_persisted_state("agent1")
+        assert state == backend_cc.PersistedCcState(session_id=sid, pid_text="12345")
+
+    def test_missing_files_returns_none(self, tmp_sessions):
+        state = backend_cc._read_persisted_state("nonexistent")
+        assert state == backend_cc.PersistedCcState(session_id=None, pid_text=None)
+
+    def test_invalid_uuid_returns_none_session(self, tmp_sessions):
+        d = tmp_sessions / "agent1"
+        d.mkdir(parents=True)
+        (d / "session_id").write_text("not-a-uuid")
+        (d / "pid").write_text("12345")
+        state = backend_cc._read_persisted_state("agent1")
+        assert state.session_id is None
+        assert state.pid_text == "12345"
+
+    def test_empty_pid_returns_none(self, tmp_sessions):
+        d = tmp_sessions / "agent1"
+        d.mkdir(parents=True)
+        sid = str(uuid.uuid4())
+        (d / "session_id").write_text(sid)
+        (d / "pid").write_text("")
+        state = backend_cc._read_persisted_state("agent1")
+        assert state.session_id == sid
+        assert state.pid_text is None
+
+
+class TestCheckSessionOwnership:
+    def test_live_pid_claude_resume_match(self):
+        sid = str(uuid.uuid4())
+        state = backend_cc.PersistedCcState(session_id=sid, pid_text="12345")
+        orig_exists = Path.exists
+        orig_read_bytes = Path.read_bytes
+
+        def mock_exists(self):
+            if str(self) == "/proc/12345":
+                return True
+            return orig_exists(self)
+
+        def mock_read_bytes(self):
+            if str(self) == "/proc/12345/cmdline":
+                return f"claude\0-p\0--resume\0{sid}\0".encode()
+            return orig_read_bytes(self)
+
+        with patch.object(Path, "exists", mock_exists), \
+             patch.object(Path, "read_bytes", mock_read_bytes):
+            ownership = backend_cc._check_session_ownership(state)
+        assert ownership.has_valid_session is True
+        assert ownership.has_live_owner is True
+
+    def test_live_pid_claude_session_id_match(self):
+        sid = str(uuid.uuid4())
+        state = backend_cc.PersistedCcState(session_id=sid, pid_text="12345")
+        orig_exists = Path.exists
+        orig_read_bytes = Path.read_bytes
+
+        def mock_exists(self):
+            if str(self) == "/proc/12345":
+                return True
+            return orig_exists(self)
+
+        def mock_read_bytes(self):
+            if str(self) == "/proc/12345/cmdline":
+                return f"claude\0-p\0--session-id\0{sid}\0".encode()
+            return orig_read_bytes(self)
+
+        with patch.object(Path, "exists", mock_exists), \
+             patch.object(Path, "read_bytes", mock_read_bytes):
+            ownership = backend_cc._check_session_ownership(state)
+        assert ownership.has_valid_session is True
+        assert ownership.has_live_owner is True
+
+    def test_live_pid_non_claude_cmdline(self):
+        sid = str(uuid.uuid4())
+        state = backend_cc.PersistedCcState(session_id=sid, pid_text="12345")
+        orig_exists = Path.exists
+        orig_read_bytes = Path.read_bytes
+
+        def mock_exists(self):
+            if str(self) == "/proc/12345":
+                return True
+            return orig_exists(self)
+
+        def mock_read_bytes(self):
+            if str(self) == "/proc/12345/cmdline":
+                return b"python3\0some_script.py\0"
+            return orig_read_bytes(self)
+
+        with patch.object(Path, "exists", mock_exists), \
+             patch.object(Path, "read_bytes", mock_read_bytes):
+            ownership = backend_cc._check_session_ownership(state)
+        assert ownership.has_live_owner is False
+
+    def test_live_pid_claude_different_session_id(self):
+        sid = str(uuid.uuid4())
+        other_sid = str(uuid.uuid4())
+        state = backend_cc.PersistedCcState(session_id=sid, pid_text="12345")
+        orig_exists = Path.exists
+        orig_read_bytes = Path.read_bytes
+
+        def mock_exists(self):
+            if str(self) == "/proc/12345":
+                return True
+            return orig_exists(self)
+
+        def mock_read_bytes(self):
+            if str(self) == "/proc/12345/cmdline":
+                return f"claude\0-p\0--session-id\0{other_sid}\0".encode()
+            return orig_read_bytes(self)
+
+        with patch.object(Path, "exists", mock_exists), \
+             patch.object(Path, "read_bytes", mock_read_bytes):
+            ownership = backend_cc._check_session_ownership(state)
+        assert ownership.has_live_owner is False
+
+    def test_unreadable_cmdline(self):
+        sid = str(uuid.uuid4())
+        state = backend_cc.PersistedCcState(session_id=sid, pid_text="12345")
+        orig_exists = Path.exists
+        orig_read_bytes = Path.read_bytes
+
+        def mock_exists(self):
+            if str(self) == "/proc/12345":
+                return True
+            return orig_exists(self)
+
+        def mock_read_bytes(self):
+            if str(self) == "/proc/12345/cmdline":
+                raise OSError("Permission denied")
+            return orig_read_bytes(self)
+
+        with patch.object(Path, "exists", mock_exists), \
+             patch.object(Path, "read_bytes", mock_read_bytes):
+            ownership = backend_cc._check_session_ownership(state)
+        assert ownership.has_live_owner is False
+
+    def test_invalid_pid_text(self):
+        sid = str(uuid.uuid4())
+        state = backend_cc.PersistedCcState(session_id=sid, pid_text="not-a-number")
+        ownership = backend_cc._check_session_ownership(state)
+        assert ownership.has_valid_session is True
+        assert ownership.has_live_owner is False
+
+    def test_invalid_session_id(self):
+        state = backend_cc.PersistedCcState(session_id=None, pid_text="12345")
+        ownership = backend_cc._check_session_ownership(state)
+        assert ownership.has_valid_session is False
+        assert ownership.has_live_owner is False
+
+    def test_none_pid_text(self):
+        sid = str(uuid.uuid4())
+        state = backend_cc.PersistedCcState(session_id=sid, pid_text=None)
+        ownership = backend_cc._check_session_ownership(state)
+        assert ownership.has_valid_session is True
+        assert ownership.has_live_owner is False
+
+    def test_snapshot_consistency_is_inactive(self, tmp_sessions, monkeypatch, tmp_path):
+        """Regression guard: is_inactive uses one snapshot for ownership + mtime."""
+        monkeypatch.setattr(config, "INACTIVE_THRESHOLD_SEC", 300)
+        monkeypatch.setattr("engine.backend_cc.AGENT_PROFILES_DIR", tmp_path / "agents")
+
+        d = tmp_sessions / "reviewer1"
+        d.mkdir(parents=True)
+        sid = str(uuid.uuid4())
+        (d / "session_id").write_text(sid)
+        (d / "pid").write_text("999999")
+
+        cwd = PROJECT_ROOT
+        jsonl_dir = backend_cc._claude_project_dir(cwd)
+        jsonl_dir.mkdir(parents=True, exist_ok=True)
+        jsonl_path = jsonl_dir / f"{sid}.jsonl"
+        jsonl_path.write_text("{}")
+
+        orig_exists = Path.exists
+
+        def mock_exists(self):
+            if str(self) == "/proc/999999":
+                return False
+            return orig_exists(self)
+
+        read_calls = []
+        orig_read = backend_cc._read_persisted_state
+
+        def tracking_read(agent_id: str) -> backend_cc.PersistedCcState:
+            result = orig_read(agent_id)
+            read_calls.append(result)
+            return result
+
+        with patch.object(Path, "exists", mock_exists), \
+             patch("engine.backend_cc._read_persisted_state", side_effect=tracking_read):
+            backend_cc.is_inactive("reviewer1")
+
+        # Should be called exactly once (outside grace path)
+        assert len(read_calls) == 1
+
+
+# ===========================================================================
+# send — single-writer invariant tests
+# ===========================================================================
+
+class TestSendSingleWriter:
+    def test_live_owner_returns_false_no_popen(self, tmp_sessions, monkeypatch, caplog):
+        monkeypatch.setattr(config, "DRY_RUN", False)
+        monkeypatch.setattr(backend_cc, "_agent_config_cache", {})
+        d = tmp_sessions / "reviewer1"
+        d.mkdir(parents=True)
+        sid = str(uuid.uuid4())
+        (d / "session_id").write_text(sid)
+        (d / "pid").write_text("12345")
+
+        orig_exists = Path.exists
+        orig_read_bytes = Path.read_bytes
+
+        def mock_exists(self):
+            if str(self) == "/proc/12345":
+                return True
+            return orig_exists(self)
+
+        def mock_read_bytes(self):
+            if str(self) == "/proc/12345/cmdline":
+                return f"claude\0-p\0--resume\0{sid}\0".encode()
+            return orig_read_bytes(self)
+
+        with patch.object(Path, "exists", mock_exists), \
+             patch.object(Path, "read_bytes", mock_read_bytes), \
+             patch("subprocess.Popen") as mock_popen, \
+             caplog.at_level(logging.WARNING):
+            result = backend_cc.send("reviewer1", "hello", timeout=30)
+
+        assert result is False
+        mock_popen.assert_not_called()
+        # Files unchanged
+        assert (d / "session_id").read_text() == sid
+        assert (d / "pid").read_text() == "12345"
+        # Starting markers untouched
+        assert "reviewer1" not in backend_cc._starting_markers
+        # Log message assertions
+        assert any(
+            "reviewer1" in r.message
+            and sid in r.message
+            and "live owner still active" in r.message
+            and "refusing spawn" in r.message
+            and "multi-writer Claude session access" in r.message
+            for r in caplog.records
+        )
+
+    def test_dead_pid_uses_resume(self, tmp_sessions, monkeypatch):
+        monkeypatch.setattr(config, "DRY_RUN", False)
+        monkeypatch.setattr(backend_cc, "_agent_config_cache", {})
+        d = tmp_sessions / "reviewer1"
+        d.mkdir(parents=True)
+        sid = str(uuid.uuid4())
+        (d / "session_id").write_text(sid)
+        (d / "pid").write_text("999999")
+
+        orig_exists = Path.exists
+
+        def mock_exists(self):
+            if str(self) == "/proc/999999":
+                return False
+            return orig_exists(self)
+
+        mock_proc = MagicMock()
+        mock_proc.stdin = MagicMock()
+        mock_proc.pid = 54321
+        with patch.object(Path, "exists", mock_exists), \
+             patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
+            result = backend_cc.send("reviewer1", "hello", timeout=30)
+        assert result is True
+        cmd = mock_popen.call_args[0][0]
+        assert "--resume" in cmd
+        idx = cmd.index("--resume")
+        assert cmd[idx + 1] == sid
+
+    def test_mismatched_live_pid_uses_resume(self, tmp_sessions, monkeypatch):
+        monkeypatch.setattr(config, "DRY_RUN", False)
+        monkeypatch.setattr(backend_cc, "_agent_config_cache", {})
+        d = tmp_sessions / "reviewer1"
+        d.mkdir(parents=True)
+        sid = str(uuid.uuid4())
+        other_sid = str(uuid.uuid4())
+        (d / "session_id").write_text(sid)
+        (d / "pid").write_text("12345")
+
+        orig_exists = Path.exists
+        orig_read_bytes = Path.read_bytes
+
+        def mock_exists(self):
+            if str(self) == "/proc/12345":
+                return True
+            return orig_exists(self)
+
+        def mock_read_bytes(self):
+            if str(self) == "/proc/12345/cmdline":
+                return f"claude\0-p\0--session-id\0{other_sid}\0".encode()
+            return orig_read_bytes(self)
+
+        mock_proc = MagicMock()
+        mock_proc.stdin = MagicMock()
+        mock_proc.pid = 54321
+        with patch.object(Path, "exists", mock_exists), \
+             patch.object(Path, "read_bytes", mock_read_bytes), \
+             patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
+            result = backend_cc.send("reviewer1", "hello", timeout=30)
+        assert result is True
+        cmd = mock_popen.call_args[0][0]
+        assert "--resume" in cmd
+        idx = cmd.index("--resume")
+        assert cmd[idx + 1] == sid
+
+    def test_no_valid_session_creates_new_uuid(self, tmp_sessions, monkeypatch):
+        monkeypatch.setattr(config, "DRY_RUN", False)
+        monkeypatch.setattr(backend_cc, "_agent_config_cache", {})
+        mock_proc = MagicMock()
+        mock_proc.stdin = MagicMock()
+        mock_proc.pid = 12345
+        with patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
+            result = backend_cc.send("reviewer1", "hello", timeout=30)
+        assert result is True
+        cmd = mock_popen.call_args[0][0]
+        assert "--session-id" in cmd
+        assert "--resume" not in cmd
+
+    def test_send_uses_same_snapshot(self, tmp_sessions, monkeypatch):
+        """send() uses one persisted snapshot for ownership and spawn decision."""
+        monkeypatch.setattr(config, "DRY_RUN", False)
+        monkeypatch.setattr(backend_cc, "_agent_config_cache", {})
+
+        d = tmp_sessions / "reviewer1"
+        d.mkdir(parents=True)
+        sid = str(uuid.uuid4())
+        (d / "session_id").write_text(sid)
+        (d / "pid").write_text("999999")
+
+        orig_exists = Path.exists
+
+        def mock_exists(self):
+            if str(self) == "/proc/999999":
+                return False
+            return orig_exists(self)
+
+        read_calls = []
+        orig_read = backend_cc._read_persisted_state
+
+        def tracking_read(agent_id: str) -> backend_cc.PersistedCcState:
+            result = orig_read(agent_id)
+            read_calls.append(result)
+            return result
+
+        mock_proc = MagicMock()
+        mock_proc.stdin = MagicMock()
+        mock_proc.pid = 54321
+        with patch.object(Path, "exists", mock_exists), \
+             patch("engine.backend_cc._read_persisted_state", side_effect=tracking_read), \
+             patch("subprocess.Popen", return_value=mock_proc):
+            backend_cc.send("reviewer1", "hello", timeout=30)
+
+        assert len(read_calls) == 1
 
 
 # ===========================================================================

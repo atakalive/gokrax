@@ -14,16 +14,13 @@ ANNOUNCE_BOT_USER_ID = ""  # Discord bot user ID of the bot (can be obtained by 
 MERGE_APPROVER_DISCORD_ID = ""  # Your Discord user ID for approving merges
 COMMAND_BOT_USER_ID = ""        # If you send commands via 3rd-party Discord tool (WatcherB etc.), include its bot user ID here
 
-GLAB_BIN = "/usr/bin/glab"                         # "which glab" to locate GitLab CLI binary
+GLAB_BIN = "glab"    # Uses PATH by default. Override with absolute path if needed (e.g. "/usr/bin/glab")
 GITLAB_NAMESPACE: str = "YOUR_NAMESPACE"           # i.e., gitlab.com/YOUR_NAMESPACE/ProjectName/
 GOKRAX_CLI = Path.home() / ".local/bin/gokrax"     # must be symbolic link to gokrax.py
 PIPELINES_DIR = Path.home() / ".gokrax/pipelines"  # myproject.json pipeline files are stored here
 
 DEFAULT_AGENT_BACKEND = "pi"    # "openclaw" or "pi" or "cc"
 AGENT_BACKEND_OVERRIDE = {}     # per-agent override, e.g. {"impl1": "openclaw", "reviewer1": "cc"}
-
-# pi settings (if using pi backend)
-PI_BIN = "/usr/bin/pi"          # "which pi" to locate pi CLI binary
 
 # openclaw settings (if using openclaw backend)
 OPENCLAW_GATEWAY_PORT = int(os.environ.get("OPENCLAW_GATEWAY_PORT", "18789"))  # openclaw gateway port (localhost)
@@ -116,20 +113,19 @@ REVIEW_MODES = {
 # ===========================================================================
 # Advanced — uncomment and edit if needed
 #            Other settings in config directory can be overridden in settings.py
-# DEFAULT_AGENT_BACKEND = "openclaw"    # "openclaw" (default) or "pi" or "cc"
-# AGENT_BACKEND_OVERRIDE = {}           # per-agent override, e.g. {"reviewer1": "pi", "impl1": "cc"}
-# PI_BIN = "pi"                 # path to pi CLI binary
-# PI_START_GRACE_SEC = 30       # seconds to treat a just-spawned pi agent as active
-# CC_BIN = "claude"             # path to claude CLI binary
-# CC_START_GRACE_SEC = 30       # seconds to treat a just-spawned cc agent as active
+# ===========================================================================
 # AGENT_PROFILES_DIR = Path("/path/to/agents")  # agent profile directory (default: gokrax/agents/)
+# PI_BIN = "pi"        # Uses PATH by default. Override with absolute path if needed (e.g. "/usr/bin/pi")
 # PI_AGENT_CONFIG = AGENT_PROFILES_DIR / "config_pi.json"  # pi backend per-agent config
+# PI_START_GRACE_SEC = 30       # seconds to treat a just-spawned pi agent as active
+# CC_BIN = "claude"    # Uses PATH by default. Override with absolute path if needed (e.g. "/home/user/.local/bin/claude")
 # CC_AGENT_CONFIG = AGENT_PROFILES_DIR / "config_cc.json"  # cc backend per-agent config
+# CC_START_GRACE_SEC = 30       # seconds to treat a just-spawned cc agent as active
 # AGENT_SEND_TIMEOUT = 30
 # DISCORD_POST_TIMEOUT = 10
 # GLAB_TIMEOUT = 15
 # INACTIVE_THRESHOLD_SEC = 303
-# INACTIVE_THRESHOLD_PLAN_SEC = 600   # DESIGN_PLAN での実装者催促間隔
+# INACTIVE_THRESHOLD_PLAN_SEC = 600
 # POST_NEW_COMMAND_WAIT_SEC = 30
 # MAX_TEST_RETRY: int = 4
 # MAX_DIFF_CHARS: int = 5_000_000

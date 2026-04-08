@@ -744,6 +744,45 @@ class TestIsInactive:
             result = backend_cc.is_inactive("reviewer1")
         assert result is False
 
+    def test_live_resume_owner_stale_jsonl_returns_false(self, tmp_sessions, monkeypatch, tmp_path):
+        """End-to-end regression: live --resume owner keeps agent active despite stale jsonl."""
+        monkeypatch.setattr(config, "INACTIVE_THRESHOLD_SEC", 300)
+        monkeypatch.setattr("engine.backend_cc.AGENT_PROFILES_DIR", tmp_path / "agents")
+        d = tmp_sessions / "reviewer1"
+        d.mkdir(parents=True)
+        sid = str(uuid.uuid4())
+        (d / "session_id").write_text(sid)
+        (d / "pid").write_text("12345")
+
+        cwd = PROJECT_ROOT
+        jsonl_dir = backend_cc._claude_project_dir(cwd)
+        jsonl_dir.mkdir(parents=True, exist_ok=True)
+        jsonl_path = jsonl_dir / f"{sid}.jsonl"
+        jsonl_path.write_text("{}")
+
+        import os
+        old_time = time.time() - 600
+        os.utime(jsonl_path, (old_time, old_time))
+
+        orig_exists = Path.exists
+        orig_read_bytes = Path.read_bytes
+
+        def mock_exists(self):
+            if str(self) == "/proc/12345":
+                return True
+            return orig_exists(self)
+
+        def mock_read_bytes(self):
+            if str(self) == "/proc/12345/cmdline":
+                return f"claude\0-p\0--resume\0{sid}\0".encode()
+            return orig_read_bytes(self)
+
+        with patch.object(Path, "exists", mock_exists), \
+             patch.object(Path, "read_bytes", mock_read_bytes):
+            result = backend_cc.is_inactive("reviewer1")
+
+        assert result is False
+
     def test_alive_matching_pid_missing_jsonl_returns_false(self, tmp_sessions, monkeypatch, tmp_path):
         """Live matching PID => active even without jsonl."""
         monkeypatch.setattr("engine.backend_cc.AGENT_PROFILES_DIR", tmp_path / "agents")
@@ -1261,6 +1300,47 @@ class TestSendSingleWriter:
             and "multi-writer Claude session access" in r.message
             for r in caplog.records
         )
+
+    def test_live_owner_session_id_returns_false_no_popen_files_unchanged_and_exact_warning(
+        self, tmp_sessions, monkeypatch, caplog,
+    ):
+        """End-to-end regression: persisted session + live owner => refuse spawn."""
+        monkeypatch.setattr(config, "DRY_RUN", False)
+        monkeypatch.setattr(backend_cc, "_agent_config_cache", {})
+        d = tmp_sessions / "reviewer1"
+        d.mkdir(parents=True)
+        sid = str(uuid.uuid4())
+        (d / "session_id").write_text(sid)
+        (d / "pid").write_text("12345")
+
+        orig_exists = Path.exists
+        orig_read_bytes = Path.read_bytes
+
+        def mock_exists(self):
+            if str(self) == "/proc/12345":
+                return True
+            return orig_exists(self)
+
+        def mock_read_bytes(self):
+            if str(self) == "/proc/12345/cmdline":
+                return f"claude\0-p\0--session-id\0{sid}\0".encode()
+            return orig_read_bytes(self)
+
+        with patch.object(Path, "exists", mock_exists), \
+             patch.object(Path, "read_bytes", mock_read_bytes), \
+             patch("subprocess.Popen") as mock_popen, \
+             caplog.at_level(logging.WARNING):
+            result = backend_cc.send("reviewer1", "hello", timeout=30)
+
+        assert result is False
+        mock_popen.assert_not_called()
+        assert (d / "session_id").read_text() == sid
+        assert (d / "pid").read_text() == "12345"
+        assert "reviewer1" not in backend_cc._starting_markers
+        assert [r.message for r in caplog.records if r.levelno == logging.WARNING] == [
+            "cc send refused for reviewer1 session "
+            f"{sid}: live owner still active; refusing spawn to avoid multi-writer Claude session access"
+        ]
 
     def test_dead_pid_uses_resume(self, tmp_sessions, monkeypatch):
         monkeypatch.setattr(config, "DRY_RUN", False)

@@ -140,7 +140,7 @@ gokrax transition --pj myproject --to DESIGN_PLAN --resume
 | `--to TO` | Yes | target state |
 | `--actor ACTOR` | No | transition actor (default: `cli`) |
 | `--force` | No | skip transition validation |
-| `--resume` | No | skip validation and prefix notifications with (resumed) |
+| `--resume` | No | skip validation, prefix notifications with (resumed), and when transitioning from BLOCKED to a REVISE state, increment per-pipeline max revise cycles by `MAX_REVISE_CYCLES` |
 | `--dry-run` | No | apply transition only, skip notifications (for testing) |
 
 ### `reset` -- Reset all projects to IDLE
@@ -361,6 +361,19 @@ gokrax ok --pj myproject
 
 Only valid in MERGE_SUMMARY_SENT state. Alternative to replying "ok" on Discord.
 
+### `get-comments` -- Get filtered comments for an issue
+
+```bash
+gokrax get-comments --pj myproject --issue 17
+```
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--pj` | Yes | project name |
+| `--issue N` | Yes | issue number |
+
+Retrieves all non-system comments for the specified GitLab issue, filtered by allowed authors (`ALLOWED_GITLAB_AUTHORS` + `GITLAB_NAMESPACE`). Comments are printed in chronological order with author and timestamp headers.
+
 ### `cc-start` -- Record CC process PID
 
 ```bash
@@ -515,7 +528,7 @@ When both `AGENT_SKILLS` and `PROJECT_SKILLS` specify the same skill name, it is
 tail -f /tmp/gokrax-watchdog.log
 
 # pipeline JSON
-cat ~/.openclaw/shared/pipelines/<project>.json | python3 -m json.tool
+cat ~/.gokrax/pipelines/<project>.json | python3 -m json.tool
 ```
 
 ---

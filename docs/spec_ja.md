@@ -27,6 +27,7 @@ engine/
   backend_openclaw.py  -- openclaw バックエンド (Gateway CLI 経由)
   backend_pi.py        -- pi バックエンド (pi CLI 経由)
   cleanup.py           -- バッチ状態クリーンアップ共通関数
+  filter.py            -- プロジェクト/著者フィルタリング (許可著者、Issue/コメント検証)
 watchdog.py           -- watchdog ループ + Discord コマンド処理
 notify.py             -- エージェント通知 + Discord 投稿 (CLI 経由)
 pipeline_io.py        -- JSON 読み書き (排他ロック + atomic write)
@@ -44,7 +45,7 @@ settings.py           -- ユーザー設定 (config override)
 ```
 
 - **エージェント通信**: `engine/backend.py` がルーターとして機能し、エージェントごとに `openclaw` または `pi` バックエンドに振り分ける。`settings.py` の `DEFAULT_AGENT_BACKEND` と `AGENT_BACKEND_OVERRIDE` で制御。
-- **pipeline JSON**: `~/.openclaw/shared/pipelines/<project>.json`
+- **pipeline JSON**: `~/.gokrax/pipelines/<project>.json`
 - **watchdog**: `watchdog-loop.sh` で 20 秒おきにポーリング (後述 7 章)
 - **Discord 通知先**: Discord 通知チャンネル（`settings.py` の `DISCORD_CHANNEL` で設定）
 
@@ -259,6 +260,7 @@ IDLE -> INITIALIZE -> DESIGN_PLAN -> DESIGN_REVIEW -> DESIGN_APPROVED -> ASSESSM
 | DESIGN_PLAN | 1800 秒 (30 分) | yes |
 | DESIGN_REVIEW | 3600 秒 (60 分) | no |
 | DESIGN_REVISE | 1800 秒 (30 分) | yes |
+| ASSESSMENT | 1200 秒 (20 分) | yes |
 | IMPLEMENTATION | 7200 秒 (120 分) | yes |
 | CODE_TEST | 600 秒 (10 分) | no |
 | CODE_TEST_FIX | 3600 秒 (60 分) | yes |
@@ -272,6 +274,7 @@ IDLE -> INITIALIZE -> DESIGN_PLAN -> DESIGN_REVIEW -> DESIGN_APPROVED -> ASSESSM
 | NUDGE_GRACE_SEC | 300 秒 | 遷移直後はこの期間催促しない |
 | EXTEND_NOTICE_THRESHOLD | 300 秒 | 残り時間がこの値未満で延長案内を催促に付加 |
 | INACTIVE_THRESHOLD_SEC | 303 秒 | この秒数更新がなければ非アクティブ扱い |
+| INACTIVE_THRESHOLD_PLAN_SEC | 600 秒 | DESIGN_PLAN での実装者催促間隔 |
 
 ### timeout_extension
 
@@ -393,6 +396,8 @@ pipeline JSON のフィールドは 3 カテゴリに分類される。
 | test_output | str \| null | テスト出力 |
 | test_retry_count | int | テストリトライ回数 |
 | test_baseline | dict \| null | pytest ベースラインデータ |
+| max_design_revise_cycles | int \| null | パイプライン固有の設計 revise サイクル上限 (--resume で加算) |
+| max_code_revise_cycles | int \| null | パイプライン固有のコード revise サイクル上限 (--resume で加算) |
 
 ### 8.3 spec mode フィールド
 

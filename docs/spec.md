@@ -27,6 +27,7 @@ engine/
   backend_openclaw.py  -- openclaw backend (via Gateway CLI)
   backend_pi.py        -- pi backend (via pi CLI)
   cleanup.py           -- Batch state cleanup shared functions
+  filter.py            -- Project/author filtering (allowed authors, issue/comment validation)
 watchdog.py           -- Watchdog loop + Discord command handling
 notify.py             -- Agent notifications + Discord posting (via CLI)
 pipeline_io.py        -- JSON read/write (exclusive lock + atomic write)
@@ -44,7 +45,7 @@ settings.py           -- User settings (config override)
 ```
 
 - **Agent communication**: `engine/backend.py` acts as a router, dispatching to either the `openclaw` or `pi` backend per agent. Controlled by `DEFAULT_AGENT_BACKEND` and `AGENT_BACKEND_OVERRIDE` in `settings.py`.
-- **pipeline JSON**: `~/.openclaw/shared/pipelines/<project>.json`
+- **pipeline JSON**: `~/.gokrax/pipelines/<project>.json`
 - **watchdog**: Polls every 20 seconds via `watchdog-loop.sh` (see Chapter 7)
 - **Discord notification channel**: Configured via `DISCORD_CHANNEL` in `settings.py`
 
@@ -259,6 +260,7 @@ Review modes are defined in `REVIEW_MODES` in `settings.py`. See `settings.examp
 | DESIGN_PLAN | 1800 sec (30 min) | yes |
 | DESIGN_REVIEW | 3600 sec (60 min) | no |
 | DESIGN_REVISE | 1800 sec (30 min) | yes |
+| ASSESSMENT | 1200 sec (20 min) | yes |
 | IMPLEMENTATION | 7200 sec (120 min) | yes |
 | CODE_TEST | 600 sec (10 min) | no |
 | CODE_TEST_FIX | 3600 sec (60 min) | yes |
@@ -272,6 +274,7 @@ Review modes are defined in `REVIEW_MODES` in `settings.py`. See `settings.examp
 | NUDGE_GRACE_SEC | 300 sec | No nudges within this period after a transition |
 | EXTEND_NOTICE_THRESHOLD | 300 sec | When remaining time is below this value, extension instructions are appended to nudges |
 | INACTIVE_THRESHOLD_SEC | 303 sec | Considered inactive if no updates for this many seconds |
+| INACTIVE_THRESHOLD_PLAN_SEC | 600 sec | Nudge interval for implementer during DESIGN_PLAN |
 
 ### timeout_extension
 
@@ -393,6 +396,8 @@ Pipeline JSON fields are classified into 3 categories.
 | test_output | str \| null | Test output |
 | test_retry_count | int | Test retry count |
 | test_baseline | dict \| null | pytest baseline data |
+| max_design_revise_cycles | int \| null | Per-pipeline design revise cycle limit (incremented by --resume) |
+| max_code_revise_cycles | int \| null | Per-pipeline code revise cycle limit (incremented by --resume) |
 
 ### 8.3 Spec Mode Fields
 

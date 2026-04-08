@@ -464,7 +464,7 @@ gokrax [SPEC_REVIEW] rev2 (cycle 1/10, retries: REVISE=0/3)
   reviewers: reviewer1(✅ P0×1), reviewer5(⏳), reviewer2(⏳)
   min_valid: 4 (full mode)
   auto_qrun: false
-  pipelines_dir: ~/.openclaw/shared/pipelines/<project>/spec-reviews/
+  pipelines_dir: ~/.gokrax/pipelines/<project>/spec-reviews/
 ```
 
 ### 4.5 gokrax spec retry
@@ -1128,7 +1128,7 @@ All spec mode features are implemented. Below is the actual file structure and o
 | File | Contents |
 |---|---|
 | `config/states.py` | SPEC_STATES, SPEC_TRANSITIONS, constants (MAX_SPEC_REVISE_CYCLES, MIN_VALID_REVIEWS_BY_MODE, timeout constants, etc.) |
-| `commands/spec.py` | spec CLI 14 commands: start, stop, approve, continue, done, retry, resume, extend, status, review-submit, revise-submit, self-review-submit, issue-submit, queue-submit, suggestion-submit |
+| `commands/spec.py` | spec CLI 15 commands: start, stop, approve, continue, done, retry, resume, extend, status, review-submit, revise-submit, self-review-submit, issue-submit, queue-submit, suggestion-submit |
 | `engine/fsm_spec.py` | check_transition_spec(), _apply_spec_action(), state-specific decision functions |
 | `spec_review.py` | parse_review_yaml(), should_continue_review(), merge_reviews(), build_review_history_entry(), format_merged_report() |
 | `spec_revise.py` | parse_revise_response(), parse_self_review_response(), extract_rev_from_path() |

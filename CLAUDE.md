@@ -108,7 +108,7 @@ ruff check *.py engine/ config/ commands/ messages/ tests/
 ### Pipeline JSON
 - **Do not edit pipeline JSON directly.** Always use `update_pipeline()` in `pipeline_io.py`.
 - `update_pipeline()` uses flock(LOCK_EX) blocking exclusive lock. Do not use LOCK_NB.
-- Pipeline JSON path: `~/.openclaw/shared/pipelines/<project>.json`
+- Pipeline JSON path: `~/.gokrax/pipelines/<project>.json`
 
 ### State Transitions
 - Valid states and transitions are defined in `config/states.py` (`VALID_STATES` / `VALID_TRANSITIONS`)
@@ -116,7 +116,7 @@ ruff check *.py engine/ config/ commands/ messages/ tests/
 - Spec mode is a separate system: `SPEC_STATES` / `SPEC_TRANSITIONS` / `check_transition_spec()`
 
 ### Watchdog
-- `watchdog-loop.sh` polls every 5 seconds
+- `watchdog-loop.sh` polls every 20 seconds
 - Checks each project's state and auto-transitions when conditions are met
 - CC launch via `_start_cc()`: generates a bash script and runs it in the background
 

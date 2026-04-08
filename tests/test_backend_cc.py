@@ -896,6 +896,51 @@ class TestIsInactive:
             result = backend_cc.is_inactive("reviewer1")
         assert result is False
 
+    def test_grace_caught_up_live_owner_returns_false_and_clears_marker(
+        self, tmp_sessions, monkeypatch, tmp_path,
+    ):
+        """Grace path explicitly honors live owner after jsonl catches up."""
+        monkeypatch.setattr(config, "CC_START_GRACE_SEC", 60)
+        started = time.time() - 5
+        backend_cc._starting_markers["reviewer1"] = started
+        monkeypatch.setattr("engine.backend_cc.AGENT_PROFILES_DIR", tmp_path / "agents")
+
+        d = tmp_sessions / "reviewer1"
+        d.mkdir(parents=True)
+        sid = str(uuid.uuid4())
+        (d / "session_id").write_text(sid)
+        (d / "pid").write_text("12345")
+
+        cwd = PROJECT_ROOT
+        jsonl_dir = backend_cc._claude_project_dir(cwd)
+        jsonl_dir.mkdir(parents=True, exist_ok=True)
+        jsonl_path = jsonl_dir / f"{sid}.jsonl"
+        jsonl_path.write_text("{}")
+
+        import os
+        now = time.time()
+        os.utime(jsonl_path, (now, now))
+
+        orig_exists = Path.exists
+        orig_read_bytes = Path.read_bytes
+
+        def mock_exists(self):
+            if str(self) == "/proc/12345":
+                return True
+            return orig_exists(self)
+
+        def mock_read_bytes(self):
+            if str(self) == "/proc/12345/cmdline":
+                return f"claude\0-p\0--session-id\0{sid}\0".encode()
+            return orig_read_bytes(self)
+
+        with patch.object(Path, "exists", mock_exists), \
+             patch.object(Path, "read_bytes", mock_read_bytes):
+            result = backend_cc.is_inactive("reviewer1")
+
+        assert result is False
+        assert "reviewer1" not in backend_cc._starting_markers
+
 
 # ===========================================================================
 # _read_persisted_state / _check_session_ownership

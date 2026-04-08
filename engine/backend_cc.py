@@ -589,6 +589,8 @@ def is_inactive(agent_id: str, pipeline_data: dict | None = None,
 
             if mtime >= started_at:
                 del _starting_markers[agent_id]
+                if grace_ownership.has_live_owner:
+                    return False
                 # Fall through to normal judgment
             else:
                 return False  # still within grace period

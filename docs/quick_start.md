@@ -101,8 +101,6 @@ nano settings.py
 
 ```python
 # --- Required ---
-GLAB_BIN = "/usr/bin/glab"              # Run: which glab (e.g. /home/linuxbrew/.linuxbrew/bin/glab)
-PI_BIN = "/usr/bin/pi"                  # Run: which pi (e.g. /home/gokrax/.nvm/versions/node/v24.14.1/bin/pi)
 GOKRAX_CLI = "/home/you/.local/bin/gokrax"  # Run: which gokrax (symlink created in step 3)
 GITLAB_NAMESPACE = "your-username"      # gitlab.com/YOUR_NAMESPACE/...
 

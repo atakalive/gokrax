@@ -502,8 +502,6 @@ IMPLEMENTERS = ["impl1"]
 ### パス設定
 
 ```python
-GLAB_BIN = "/usr/bin/glab"                      # which glab で確認
-PI_BIN = "/home/you/.nvm/.../bin/pi"            # which pi で確認（nvm 環境ではパスに注意）
 GOKRAX_CLI = "/home/you/.local/bin/gokrax"      # which gokrax で確認（シンボリックリンク先）
 GITLAB_NAMESPACE = "your-username"              # gitlab.com/YOUR_NAMESPACE/...
 ```

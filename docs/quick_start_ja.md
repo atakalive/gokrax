@@ -101,8 +101,6 @@ nano settings.py
 
 ```python
 # --- 必須 ---
-GLAB_BIN = "/usr/bin/glab"              # which glab で確認 (例: /home/linuxbrew/.linuxbrew/bin/glab)
-PI_BIN = "/usr/bin/pi"                  # which pi で確認 (例: /home/gokrax/.nvm/versions/node/v24.14.1/bin/pi)
 GOKRAX_CLI = "/home/you/.local/bin/gokrax"  # which gokrax で確認（手順 3 で作成したリンク）
 GITLAB_NAMESPACE = "your-username"      # gitlab.com/YOUR_NAMESPACE/...
 

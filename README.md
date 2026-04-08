@@ -503,8 +503,6 @@ IMPLEMENTERS = ["impl1"]
 ### Path Settings
 
 ```python
-GLAB_BIN = "/usr/bin/glab"                      # Check with: which glab
-PI_BIN = "/home/you/.nvm/.../bin/pi"            # Check with: which pi (note the path in nvm environments)
 GOKRAX_CLI = "/home/you/.local/bin/gokrax"      # Check with: which gokrax (symlink destination)
 GITLAB_NAMESPACE = "your-username"              # gitlab.com/YOUR_NAMESPACE/...
 ```

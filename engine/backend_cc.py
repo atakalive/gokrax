@@ -410,7 +410,8 @@ def send(agent_id: str, message: str, timeout: int) -> bool:
 
     # Determine session_id: resume existing or create new
     is_resume = ownership.has_valid_session
-    session_id = ownership.state.session_id if is_resume else str(uuid.uuid4())
+    assert state.session_id is not None or not is_resume
+    session_id = state.session_id if is_resume else str(uuid.uuid4())
 
     config_data = _load_config()
     profile = config_data.get(agent_id, {})
@@ -569,24 +570,28 @@ def is_inactive(agent_id: str, pipeline_data: dict | None = None,
     if started_at is not None:
         elapsed_since_start = time.time() - started_at
         if elapsed_since_start < config.CC_START_GRACE_SEC:
-            # Check if session jsonl mtime has caught up
+            # During grace, stay fail-safe active until the jsonl mtime catches up.
+            # Also evaluate ownership from the same persisted snapshot so the
+            # grace-path decision does not bypass the shared ownership helper.
             grace_state = _read_persisted_state(agent_id)
-            if grace_state.session_id:
-                profile_dir = AGENT_PROFILES_DIR / agent_id
-                cwd = profile_dir if profile_dir.is_dir() else PROJECT_ROOT
-                jsonl_path = _claude_session_jsonl_path(cwd, grace_state.session_id)
-                try:
-                    mtime = jsonl_path.stat().st_mtime
-                except (OSError, FileNotFoundError):
-                    return False  # grace period active, fail-safe to active
+            grace_ownership = _check_session_ownership(grace_state)
+            if not grace_ownership.has_valid_session:
+                return False  # grace period active, no valid session yet
 
-                if mtime >= started_at:
-                    del _starting_markers[agent_id]
-                    # Fall through to normal judgment
-                else:
-                    return False  # still within grace period
+            assert grace_state.session_id is not None
+            profile_dir = AGENT_PROFILES_DIR / agent_id
+            cwd = profile_dir if profile_dir.is_dir() else PROJECT_ROOT
+            jsonl_path = _claude_session_jsonl_path(cwd, grace_state.session_id)
+            try:
+                mtime = jsonl_path.stat().st_mtime
+            except (OSError, FileNotFoundError):
+                return False  # grace period active, fail-safe to active
+
+            if mtime >= started_at:
+                del _starting_markers[agent_id]
+                # Fall through to normal judgment
             else:
-                return False  # grace period active, no session_id yet
+                return False  # still within grace period
         else:
             # Grace window expired; clear marker
             del _starting_markers[agent_id]
@@ -602,9 +607,10 @@ def is_inactive(agent_id: str, pipeline_data: dict | None = None,
         return False
 
     # No live owner — fall back to jsonl mtime freshness
+    assert state.session_id is not None
     profile_dir = AGENT_PROFILES_DIR / agent_id
     cwd = profile_dir if profile_dir.is_dir() else PROJECT_ROOT
-    jsonl_path = _claude_session_jsonl_path(cwd, ownership.state.session_id)  # type: ignore[arg-type]
+    jsonl_path = _claude_session_jsonl_path(cwd, state.session_id)
     try:
         mtime = jsonl_path.stat().st_mtime
     except (OSError, FileNotFoundError):

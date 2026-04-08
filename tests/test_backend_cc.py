@@ -47,6 +47,15 @@ def tmp_sessions(tmp_path, monkeypatch):
     return tmp_path
 
 
+@pytest.fixture(autouse=True)
+def _tmp_claude_home(tmp_path, monkeypatch):
+    """Redirect Path.home() so Claude jsonl paths stay inside tmp_path."""
+    home_dir = tmp_path / "home"
+    home_dir.mkdir()
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home_dir))
+    return home_dir
+
+
 # ===========================================================================
 # _load_config
 # ===========================================================================
@@ -1028,6 +1037,69 @@ class TestCheckSessionOwnership:
         def mock_read_bytes(self):
             if str(self) == "/proc/12345/cmdline":
                 raise OSError("Permission denied")
+            return orig_read_bytes(self)
+
+        with patch.object(Path, "exists", mock_exists), \
+             patch.object(Path, "read_bytes", mock_read_bytes):
+            ownership = backend_cc._check_session_ownership(state)
+        assert ownership.has_live_owner is False
+
+    def test_missing_cmdline_file(self):
+        sid = str(uuid.uuid4())
+        state = backend_cc.PersistedCcState(session_id=sid, pid_text="12345")
+        orig_exists = Path.exists
+        orig_read_bytes = Path.read_bytes
+
+        def mock_exists(self):
+            if str(self) == "/proc/12345":
+                return True
+            return orig_exists(self)
+
+        def mock_read_bytes(self):
+            if str(self) == "/proc/12345/cmdline":
+                raise FileNotFoundError
+            return orig_read_bytes(self)
+
+        with patch.object(Path, "exists", mock_exists), \
+             patch.object(Path, "read_bytes", mock_read_bytes):
+            ownership = backend_cc._check_session_ownership(state)
+        assert ownership.has_live_owner is False
+
+    def test_empty_cmdline_bytes(self):
+        sid = str(uuid.uuid4())
+        state = backend_cc.PersistedCcState(session_id=sid, pid_text="12345")
+        orig_exists = Path.exists
+        orig_read_bytes = Path.read_bytes
+
+        def mock_exists(self):
+            if str(self) == "/proc/12345":
+                return True
+            return orig_exists(self)
+
+        def mock_read_bytes(self):
+            if str(self) == "/proc/12345/cmdline":
+                return b""
+            return orig_read_bytes(self)
+
+        with patch.object(Path, "exists", mock_exists), \
+             patch.object(Path, "read_bytes", mock_read_bytes):
+            ownership = backend_cc._check_session_ownership(state)
+        assert ownership.has_live_owner is False
+
+    def test_truncated_resume_token_pair(self):
+        sid = str(uuid.uuid4())
+        state = backend_cc.PersistedCcState(session_id=sid, pid_text="12345")
+        orig_exists = Path.exists
+        orig_read_bytes = Path.read_bytes
+
+        def mock_exists(self):
+            if str(self) == "/proc/12345":
+                return True
+            return orig_exists(self)
+
+        def mock_read_bytes(self):
+            if str(self) == "/proc/12345/cmdline":
+                return b"claude\0--resume"
             return orig_read_bytes(self)
 
         with patch.object(Path, "exists", mock_exists), \

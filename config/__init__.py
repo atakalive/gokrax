@@ -130,6 +130,8 @@ DEFAULT_AGENT_BACKEND: str = "openclaw"
 AGENT_BACKEND_OVERRIDE: dict[str, str] = {}
 PI_BIN: str = "pi"
 PI_START_GRACE_SEC: int = 30
+CC_BIN: str = "claude"
+CC_START_GRACE_SEC: int = 30
 
 # 非アクティブ判定 (秒)
 INACTIVE_THRESHOLD_SEC = 303

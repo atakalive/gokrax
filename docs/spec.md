@@ -23,9 +23,10 @@ engine/
   cc.py                -- Claude Code auto-launch & test execution
   reviewer.py          -- Reviewer management (tier, pending, revise decisions)
   shared.py            -- Shared utilities (log, is_cc_running, is_ok_reply)
-  backend.py           -- Backend dispatch (openclaw/pi routing)
+  backend.py           -- Backend dispatch (openclaw/pi/cc routing)
   backend_openclaw.py  -- openclaw backend (via Gateway CLI)
   backend_pi.py        -- pi backend (via pi CLI)
+  backend_cc.py        -- cc backend (via claude CLI)
   cleanup.py           -- Batch state cleanup shared functions
   filter.py            -- Project/author filtering (allowed authors, issue/comment validation)
 watchdog.py           -- Watchdog loop + Discord command handling
@@ -44,7 +45,7 @@ messages/             -- Template messages (via render())
 settings.py           -- User settings (config override)
 ```
 
-- **Agent communication**: `engine/backend.py` acts as a router, dispatching to either the `openclaw` or `pi` backend per agent. Controlled by `DEFAULT_AGENT_BACKEND` and `AGENT_BACKEND_OVERRIDE` in `settings.py`.
+- **Agent communication**: `engine/backend.py` acts as a router, dispatching to the `openclaw`, `pi`, or `cc` backend per agent. Controlled by `DEFAULT_AGENT_BACKEND` and `AGENT_BACKEND_OVERRIDE` in `settings.py`.
 - **pipeline JSON**: `~/.gokrax/pipelines/<project>.json`
 - **watchdog**: Polls every 20 seconds via `watchdog-loop.sh` (see Chapter 7)
 - **Discord notification channel**: Configured via `DISCORD_CHANNEL` in `settings.py`
@@ -304,8 +305,9 @@ Review modes are defined in `REVIEW_MODES` in `settings.py`. See `settings.examp
 Agent sending goes through `send()` / `ping()` in `engine/backend.py`. The backend is determined per agent via `resolve_backend()`:
 - **openclaw**: `engine/backend_openclaw.py` — sends to Gateway via `openclaw gateway call` CLI
 - **pi**: `engine/backend_pi.py` — sends via `pi` CLI. Activity is determined by session file mtime
+- **cc**: `engine/backend_cc.py` — sends via `claude -p` CLI. Activity is determined by PID validity and session JSONL mtime
 
-The backend is set via `DEFAULT_AGENT_BACKEND` in `settings.py` (config default: `"openclaw"`, `settings.example.py` recommended: `"pi"`), with per-agent override via `AGENT_BACKEND_OVERRIDE`.
+The backend is set via `DEFAULT_AGENT_BACKEND` in `settings.py` (config default: `"openclaw"`, `settings.example.py` recommended: `"pi"`; 3 backends available: openclaw, pi, cc), with per-agent override via `AGENT_BACKEND_OVERRIDE`.
 
 `send_to_agent()` and `send_to_agent_queued()` are the same function (the latter is an alias).
 Sends `chat.send` to Gateway via `openclaw gateway call` CLI.

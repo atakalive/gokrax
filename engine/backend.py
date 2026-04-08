@@ -1,8 +1,8 @@
 """engine/backend.py - backend dispatch layer for agent communication.
 
-Thin router that delegates to the selected backend (openclaw or pi).
+Thin router that delegates to the selected backend (openclaw, pi, or cc).
 Backend is resolved per-agent: AGENT_BACKEND_OVERRIDE[agent_id] takes
-precedence over DEFAULT_AGENT_BACKEND.  Backend-specific state (e.g. pi
+precedence over DEFAULT_AGENT_BACKEND.  Backend-specific state (e.g. pi/cc
 starting markers) lives in the backend module, not here.
 """
 
@@ -48,6 +48,9 @@ def send(agent_id: str, message: str, timeout: int) -> bool:
     if backend == "pi":
         from engine.backend_pi import send as pi_send
         return pi_send(agent_id, message, timeout)
+    elif backend == "cc":
+        from engine.backend_cc import send as cc_send
+        return cc_send(agent_id, message, timeout)
     # openclaw: delegate to the openclaw-specific implementation
     from engine.backend_openclaw import send as oc_send
     return oc_send(agent_id, message, timeout)
@@ -59,6 +62,9 @@ def ping(agent_id: str, timeout: int) -> bool:
     if backend == "pi":
         from engine.backend_pi import ping as pi_ping
         return pi_ping(agent_id, timeout)
+    elif backend == "cc":
+        from engine.backend_cc import ping as cc_ping
+        return cc_ping(agent_id, timeout)
     from engine.backend_openclaw import ping as oc_ping
     return oc_ping(agent_id, timeout)
 
@@ -79,6 +85,9 @@ def is_inactive(agent_id: str, pipeline_data: dict | None = None) -> bool:
     if backend == "pi":
         from engine.backend_pi import is_inactive as pi_is_inactive
         return pi_is_inactive(agent_id, pipeline_data, cc_running=cc_running)
+    elif backend == "cc":
+        from engine.backend_cc import is_inactive as cc_is_inactive
+        return cc_is_inactive(agent_id, pipeline_data, cc_running=cc_running)
 
     # openclaw: preserve original semantics
     if cc_running:
@@ -101,3 +110,6 @@ def reset_session(agent_id: str) -> None:
     if backend == "pi":
         from engine.backend_pi import reset_session as pi_reset
         pi_reset(agent_id)
+    elif backend == "cc":
+        from engine.backend_cc import reset_session as cc_reset
+        cc_reset(agent_id)

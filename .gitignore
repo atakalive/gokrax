@@ -14,5 +14,7 @@ agents/*
 !agents/example/
 !agents/config_pi.example.json
 .pi-sessions/
+.cc-sessions/
 .claude/
+!agents/config_cc.example.json
 reports/drafts/

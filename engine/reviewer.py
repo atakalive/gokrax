@@ -19,7 +19,7 @@ def _reset_reviewers(review_mode: str, implementer: str = "") -> list[str]:
     """Reset reviewer/implementer sessions before a review cycle.
 
     For openclaw backend: sends /new to each target, waits, then pings free tier.
-    For pi backend: calls reset_session() for each target (no /new, no wait).
+    For pi/cc backend: calls reset_session() for each target (no /new, no wait).
 
     Args:
         review_mode: Review mode to determine member list
@@ -50,8 +50,8 @@ def _reset_reviewers(review_mode: str, implementer: str = "") -> list[str]:
             log(f"[/new] ERROR: invalid backend for {r}, skipping")
             excluded.append(r)
             continue
-        if agent_backend == "pi":
-            log(f"[/new] reset_session for {r} (pi backend)")
+        if agent_backend in ("pi", "cc"):
+            log(f"[/new] reset_session for {r} ({agent_backend} backend)")
             _dispatch_reset(r)
         else:
             log(f"[/new] sending /new to {r}")
@@ -88,7 +88,7 @@ def _reset_short_context_reviewers(review_mode: str) -> None:
     """Reset short-context tier reviewers before a review cycle.
 
     For openclaw backend: sends /new and waits POST_NEW_COMMAND_WAIT_SEC.
-    For pi backend: calls reset_session() (no /new, no wait).
+    For pi/cc backend: calls reset_session() (no /new, no wait).
     """
     from engine.backend import reset_session as _dispatch_reset
     from engine.backend import resolve_backend
@@ -106,8 +106,8 @@ def _reset_short_context_reviewers(review_mode: str) -> None:
         except ValueError:
             log(f"[/new] ERROR: invalid backend for {r} (short-context), skipping")
             continue
-        if agent_backend == "pi":
-            log(f"[/new] reset_session for {r} (short-context, pi backend)")
+        if agent_backend in ("pi", "cc"):
+            log(f"[/new] reset_session for {r} (short-context, {agent_backend} backend)")
             _dispatch_reset(r)
         else:
             log(f"[/new] sending /new to {r} (short-context, forced)")

@@ -10,7 +10,7 @@ import pytest
 
 import config
 import notify
-from engine import backend, backend_openclaw, backend_pi, reviewer as _reviewer_mod
+from engine import backend, backend_cc, backend_openclaw, backend_pi, reviewer as _reviewer_mod
 
 # Save real function references before conftest's autouse fixtures replace them
 # with mocks. Module-level imports execute before per-test fixtures.
@@ -36,8 +36,10 @@ def _reset_backend(monkeypatch):
 @pytest.fixture(autouse=True)
 def _reset_starting_markers():
     backend_pi._starting_markers.clear()
+    backend_cc._starting_markers.clear()
     yield
     backend_pi._starting_markers.clear()
+    backend_cc._starting_markers.clear()
 
 
 # ===========================================================================
@@ -147,6 +149,13 @@ class TestBackendSendDispatch:
         assert result is True
         mock_pi.assert_called_once_with("reviewer1", "hello", 30)
 
+    def test_cc_calls_cc_send(self, monkeypatch):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "cc")
+        with patch("engine.backend_cc.send", return_value=True) as mock_cc:
+            result = backend.send("reviewer1", "hello", 30)
+        assert result is True
+        mock_cc.assert_called_once_with("reviewer1", "hello", 30)
+
 
 # ===========================================================================
 # backend.ping dispatch
@@ -166,6 +175,13 @@ class TestBackendPingDispatch:
             result = backend.ping("reviewer1", 20)
         assert result is True
         mock_pi.assert_called_once_with("reviewer1", 20)
+
+    def test_cc_calls_cc_ping(self, monkeypatch):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "cc")
+        with patch("engine.backend_cc.ping", return_value=True) as mock_cc:
+            result = backend.ping("reviewer1", 20)
+        assert result is True
+        mock_cc.assert_called_once_with("reviewer1", 20)
 
 
 # ===========================================================================
@@ -191,6 +207,25 @@ class TestBackendIsInactiveDispatch:
         with patch("engine.backend_pi.is_inactive", return_value=False):
             result = backend.is_inactive("reviewer1")
         assert result is False
+
+    def test_cc_dispatches(self, monkeypatch):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "cc")
+        with patch("engine.backend_cc.is_inactive", return_value=True) as mock_cc:
+            result = backend.is_inactive("reviewer1", {"some": "data"})
+        assert result is True
+        mock_cc.assert_called_once()
+        # Verify cc_running kwarg is passed
+        _, kwargs = mock_cc.call_args
+        assert "cc_running" in kwargs
+
+    def test_cc_cc_running_passed(self, monkeypatch):
+        """cc backend receives cc_running=True when _is_cc_running returns True."""
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "cc")
+        with patch("engine.shared._is_cc_running", return_value=True), \
+             patch("engine.backend_cc.is_inactive", return_value=False) as mock_cc:
+            backend.is_inactive("reviewer1", {"cc_pid": 12345})
+        _, kwargs = mock_cc.call_args
+        assert kwargs["cc_running"] is True
 
     def test_regression_openclaw_inactive_path_unchanged(self, monkeypatch, tmp_path):
         """Regression: openclaw inactivity check uses sessions.json as before."""
@@ -281,6 +316,21 @@ class TestReviewerResetDispatch:
             excluded = _real_reset_reviewers(review_mode="standard")
         assert excluded == []
 
+    def test_cc_calls_reset_session_not_new(self, monkeypatch):
+        """cc backend calls reset_session, not /new."""
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "cc")
+        with patch("engine.backend.reset_session") as mock_reset, \
+             patch.object(_reviewer_mod, "send_to_agent_queued") as mock_send:
+            _real_reset_reviewers(review_mode="standard")
+        assert mock_reset.call_count > 0
+        mock_send.assert_not_called()
+
+    def test_cc_reset_returns_empty_excluded(self, monkeypatch):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "cc")
+        with patch("engine.backend.reset_session"):
+            excluded = _real_reset_reviewers(review_mode="standard")
+        assert excluded == []
+
     def test_openclaw_reset_waits(self, monkeypatch):
         """Regression: openclaw reset path includes POST_NEW_COMMAND_WAIT_SEC sleep."""
         monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "openclaw")
@@ -330,6 +380,25 @@ class TestShortContextResetDispatch:
         mock_send.assert_not_called()
         mock_sleep.assert_not_called()
         # Assert reset_session call targets and count
+        assert mock_reset.call_count == len(expected_targets)
+        actual_targets = sorted(c[0][0] for c in mock_reset.call_args_list)
+        assert actual_targets == expected_targets
+
+    def test_cc_calls_reset_session_no_sleep(self, monkeypatch):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "cc")
+        from engine.reviewer import get_tier
+        mode_config = config.REVIEW_MODES["full"]
+        expected_targets = sorted(
+            m for m in mode_config["members"]
+            if get_tier(m) == "short-context" and m in config.AGENTS
+        )
+        assert len(expected_targets) > 0, "Test prerequisite failed: empty target set"
+        with patch("engine.backend.reset_session") as mock_reset, \
+             patch.object(_reviewer_mod, "send_to_agent_queued") as mock_send, \
+             patch("time.sleep") as mock_sleep:
+            _real_reset_short_context("full")
+        mock_send.assert_not_called()
+        mock_sleep.assert_not_called()
         assert mock_reset.call_count == len(expected_targets)
         actual_targets = sorted(c[0][0] for c in mock_reset.call_args_list)
         assert actual_targets == expected_targets
@@ -436,6 +505,29 @@ class TestMixedBackendReset:
 # Architecture guard
 # ===========================================================================
 
+class TestBackendResetSessionDispatch:
+    def test_cc_calls_cc_reset_session(self, monkeypatch):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "cc")
+        with patch("engine.backend_cc.reset_session") as mock_cc:
+            backend.reset_session("reviewer1")
+        mock_cc.assert_called_once_with("reviewer1")
+
+    def test_pi_calls_pi_reset_session(self, monkeypatch):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "pi")
+        with patch("engine.backend_pi.reset_session") as mock_pi:
+            backend.reset_session("reviewer1")
+        mock_pi.assert_called_once_with("reviewer1")
+
+    def test_openclaw_is_noop(self, monkeypatch):
+        """openclaw reset_session does not raise."""
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "openclaw")
+        backend.reset_session("reviewer1")  # should not raise
+
+
+# ===========================================================================
+# Architecture guard
+# ===========================================================================
+
 class TestArchitectureGuard:
     def test_backend_pi_does_not_import_engine_shared(self):
         """engine.backend_pi must not import engine.shared to avoid cycles."""
@@ -451,6 +543,34 @@ class TestArchitectureGuard:
                     pytest.fail(
                         f"engine.backend_pi imports from {node.module}"
                     )
+
+    def test_backend_cc_does_not_import_engine_shared(self):
+        """engine.backend_cc must not import engine.shared to avoid cycles."""
+        source = Path(backend_cc.__file__).read_text()
+        tree = ast.parse(source)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    assert not alias.name.startswith("engine.shared"), \
+                        f"engine.backend_cc imports {alias.name}"
+            elif isinstance(node, ast.ImportFrom):
+                if node.module and node.module.startswith("engine.shared"):
+                    pytest.fail(
+                        f"engine.backend_cc imports from {node.module}"
+                    )
+
+    def test_backend_cc_exposes_send_and_ping(self):
+        """engine/backend_cc.py must expose send and ping as public API."""
+        source = Path(backend_cc.__file__).read_text()
+        tree = ast.parse(source)
+        top_level_funcs = set()
+        for node in ast.iter_child_nodes(tree):
+            if isinstance(node, ast.FunctionDef) and not node.name.startswith("_"):
+                top_level_funcs.add(node.name)
+        assert "send" in top_level_funcs, "backend_cc missing public send()"
+        assert "ping" in top_level_funcs, "backend_cc missing public ping()"
+        assert "is_inactive" in top_level_funcs, "backend_cc missing public is_inactive()"
+        assert "reset_session" in top_level_funcs, "backend_cc missing public reset_session()"
 
     def test_backend_does_not_import_notify(self):
         """engine/backend.py must not import notify (acyclic goal)."""

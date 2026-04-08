@@ -66,7 +66,7 @@ If critical issues (P0/P1) are raised during review, the pipeline enters a revis
 - **OS**: Linux (including WSL2), macOS
 - **Remote operation**: Possible via Discord regardless of OS
 - **Python**: 3.11 or higher. External dependencies: `requests`, `PyYAML`
-- **Agent framework**: [openclaw](https://github.com/openclaw/openclaw) or [pi-coding-agent](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent). Used for LLM agent authentication and prompt dispatch for design, revision, and review
+- **Agent framework**: [openclaw](https://github.com/openclaw/openclaw), [pi-coding-agent](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent), or [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code). Used for LLM agent authentication and prompt dispatch for design, revision, and review
 - **GitLab**: Issue tracker and code hosting. Requires git push access to managed projects (SSH key or HTTPS token)
 - **[glab CLI](https://gitlab.com/gitlab-org/cli)**: Used for GitLab operations (Issue retrieval/editing, comment retrieval/posting, Issue closing)
 - **[Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code)**: Called internally as the implementation agent (recommended)
@@ -74,7 +74,7 @@ If critical issues (P0/P1) are raised during review, the pipeline enters a revis
 
 ### LLM Providers
 
-gokrax is not tied to any specific LLM provider — any provider that openclaw or pi can authenticate with is supported:
+gokrax is not tied to any specific LLM provider — any provider that openclaw, pi, or cc can authenticate with is supported:
 
 - Anthropic (Claude)
 - Google (Gemini)
@@ -125,12 +125,13 @@ For details on key configuration items in `settings.py`, see the [Configuration]
 
 ### Installing an Agent Framework
 
-gokrax requires a backend for agent provider authentication and prompt dispatch. Either of the following can be used, or both in combination:
+gokrax requires a backend for agent provider authentication and prompt dispatch. Any of the following can be used, or in combination:
 
 - openclaw
 - pi-coding-agent
+- Claude Code CLI (cc backend)
 
-If openclaw is already running in your environment, using it directly is the easiest option. Otherwise, pi is simpler to set up.
+If openclaw is already running in your environment, using it directly is the easiest option. Otherwise, pi is simpler to set up. Claude Code CLI can also be used as a backend for all agent roles, not just implementation.
 
 Note that gokrax requires at least 2 agents (an implementer and a reviewer).
 
@@ -513,6 +514,9 @@ GITLAB_NAMESPACE = "your-username"              # gitlab.com/YOUR_NAMESPACE/...
 ```python
 # Run all agents with openclaw
 DEFAULT_AGENT_BACKEND = "openclaw"
+
+# Run agents with Claude Code backend
+DEFAULT_AGENT_BACKEND = "cc"
 
 # Mix backends per agent
 DEFAULT_AGENT_BACKEND = "pi"

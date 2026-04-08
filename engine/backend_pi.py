@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Supported backend values (centralized domain)
 # ---------------------------------------------------------------------------
-SUPPORTED_BACKENDS: frozenset[str] = frozenset({"openclaw", "pi"})
+SUPPORTED_BACKENDS: frozenset[str] = frozenset({"openclaw", "pi", "cc"})
 
 # ---------------------------------------------------------------------------
 # Process-local starting-state marker

@@ -1,0 +1,14 @@
+{
+  "example_implementer": {
+    "model": "opus",
+    "thinking": true,
+    "effort": "medium",
+    "compile-startup-md": false
+  },
+  "example_reviewer": {
+    "model": "opus",
+    "thinking": true,
+    "effort": "medium",
+    "compile-startup-md": false
+  }
+}

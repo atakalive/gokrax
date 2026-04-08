@@ -262,13 +262,13 @@ def is_inactive(agent_id: str, pipeline_data: dict | None = None,
 def _rebuild_agents_md(agent_id: str) -> None:
     """Rebuild AGENTS.md from IDENTITY.md + INSTRUCTION.md + MEMORY.md (on source change only)."""
     try:
-        # Check compile-agents-md setting (default: False)
+        # Check compile-startup-md setting (default: False)
         config_data = _load_config()
         agent_profile = config_data.get(agent_id, {})
-        compile_flag = agent_profile.get("compile-agents-md", False)
+        compile_flag = agent_profile.get("compile-startup-md", False)
         if not isinstance(compile_flag, bool):
             logger.warning(
-                "_rebuild_agents_md: compile-agents-md for %s has non-bool value %r; "
+                "_rebuild_agents_md: compile-startup-md for %s has non-bool value %r; "
                 "treating as False",
                 agent_id, compile_flag,
             )

@@ -550,10 +550,10 @@ class _DefaultGetDict(defaultdict):
 def tmp_profiles(tmp_path, monkeypatch):
     """Redirect AGENT_PROFILES_DIR to a temporary directory.
 
-    Also injects compile-agents-md=True into the config cache via
+    Also injects compile-startup-md=True into the config cache via
     defaultdict so that compilation tests exercise the normal code path
     regardless of the agent name used.  Tests that need to verify specific
-    compile-agents-md behaviour override this via their own
+    compile-startup-md behaviour override this via their own
     monkeypatch.setattr call with a plain dict.
     """
     monkeypatch.setattr("config.AGENT_PROFILES_DIR", tmp_path)
@@ -561,7 +561,7 @@ def tmp_profiles(tmp_path, monkeypatch):
     monkeypatch.setattr(
         backend_pi,
         "_agent_config_cache",
-        _DefaultGetDict(lambda: {"compile-agents-md": True}),
+        _DefaultGetDict(lambda: {"compile-startup-md": True}),
     )
     return tmp_path
 
@@ -722,7 +722,7 @@ class TestRebuildAgentsMd:
         assert (d / "AGENTS.md").read_text() == "updated identity\n\n---\n\ninstruction\n"
 
     def test_compile_false_skips_generation(self, tmp_profiles, monkeypatch):
-        monkeypatch.setattr(backend_pi, "_agent_config_cache", {"agent1": {"compile-agents-md": False}})
+        monkeypatch.setattr(backend_pi, "_agent_config_cache", {"agent1": {"compile-startup-md": False}})
         d = tmp_profiles / "agent1"
         d.mkdir()
         (d / "IDENTITY.md").write_text("identity")
@@ -732,7 +732,7 @@ class TestRebuildAgentsMd:
         assert not (d / ".agents_hash").exists()
 
     def test_compile_true_explicit_compiles(self, tmp_profiles, monkeypatch):
-        monkeypatch.setattr(backend_pi, "_agent_config_cache", {"agent1": {"compile-agents-md": True}})
+        monkeypatch.setattr(backend_pi, "_agent_config_cache", {"agent1": {"compile-startup-md": True}})
         d = tmp_profiles / "agent1"
         d.mkdir()
         (d / "IDENTITY.md").write_text("identity")
@@ -749,7 +749,7 @@ class TestRebuildAgentsMd:
         assert not (d / "AGENTS.md").exists()
 
     def test_compile_false_preserves_existing_files(self, tmp_profiles, monkeypatch):
-        monkeypatch.setattr(backend_pi, "_agent_config_cache", {"agent1": {"compile-agents-md": False}})
+        monkeypatch.setattr(backend_pi, "_agent_config_cache", {"agent1": {"compile-startup-md": False}})
         d = tmp_profiles / "agent1"
         d.mkdir()
         (d / "AGENTS.md").write_text("# Custom AGENTS.md\n")
@@ -760,7 +760,7 @@ class TestRebuildAgentsMd:
 
     def test_compile_non_bool_warns_and_skips(self, tmp_profiles, monkeypatch, caplog):
         import logging
-        monkeypatch.setattr(backend_pi, "_agent_config_cache", {"agent1": {"compile-agents-md": "false"}})
+        monkeypatch.setattr(backend_pi, "_agent_config_cache", {"agent1": {"compile-startup-md": "false"}})
         d = tmp_profiles / "agent1"
         d.mkdir()
         (d / "IDENTITY.md").write_text("identity")

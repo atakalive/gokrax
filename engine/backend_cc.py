@@ -434,16 +434,20 @@ def send(agent_id: str, message: str, timeout: int) -> bool:
     if model_val and isinstance(model_val, str) and model_val.strip():
         cmd.extend(["--model", model_val])
 
-    # --thinking (bool flag only)
+    # --thinking <mode>  (enabled | adaptive | disabled)
+    # bool fallback: True → "enabled", False → "disabled"
+    _THINKING_MODES = {"enabled", "adaptive", "disabled"}
     thinking_val = profile.get("thinking")
     if thinking_val is not None:
         if isinstance(thinking_val, bool):
-            if thinking_val:
-                cmd.append("--thinking")
+            thinking_val = "enabled" if thinking_val else "disabled"
+        if isinstance(thinking_val, str) and thinking_val in _THINKING_MODES:
+            cmd.extend(["--thinking", thinking_val])
         else:
             logger.warning(
-                "Agent %s: 'thinking' has non-bool value %r in config_cc.json; ignoring",
-                agent_id, thinking_val,
+                "Agent %s: 'thinking' has invalid value %r in config_cc.json; "
+                "expected one of %s; ignoring",
+                agent_id, thinking_val, sorted(_THINKING_MODES),
             )
 
     # --effort

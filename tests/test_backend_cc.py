@@ -267,7 +267,64 @@ class TestSend:
         idx = cmd.index("--model")
         assert cmd[idx + 1] == "opus"
 
-    def test_thinking_true_adds_flag(self, tmp_sessions, monkeypatch):
+    def test_thinking_enabled_adds_flag_with_mode(self, tmp_sessions, monkeypatch):
+        monkeypatch.setattr(config, "DRY_RUN", False)
+        monkeypatch.setattr(backend_cc, "_agent_config_cache", {
+            "reviewer1": {"thinking": "enabled"},
+        })
+        mock_proc = MagicMock()
+        mock_proc.stdin = MagicMock()
+        mock_proc.pid = 12345
+        with patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
+            backend_cc.send("reviewer1", "hello", timeout=30)
+        cmd = mock_popen.call_args[0][0]
+        idx = cmd.index("--thinking")
+        assert cmd[idx + 1] == "enabled"
+
+    def test_thinking_disabled_adds_flag_with_mode(self, tmp_sessions, monkeypatch):
+        monkeypatch.setattr(config, "DRY_RUN", False)
+        monkeypatch.setattr(backend_cc, "_agent_config_cache", {
+            "reviewer1": {"thinking": "disabled"},
+        })
+        mock_proc = MagicMock()
+        mock_proc.stdin = MagicMock()
+        mock_proc.pid = 12345
+        with patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
+            backend_cc.send("reviewer1", "hello", timeout=30)
+        cmd = mock_popen.call_args[0][0]
+        idx = cmd.index("--thinking")
+        assert cmd[idx + 1] == "disabled"
+
+    def test_thinking_adaptive_adds_flag_with_mode(self, tmp_sessions, monkeypatch):
+        monkeypatch.setattr(config, "DRY_RUN", False)
+        monkeypatch.setattr(backend_cc, "_agent_config_cache", {
+            "reviewer1": {"thinking": "adaptive"},
+        })
+        mock_proc = MagicMock()
+        mock_proc.stdin = MagicMock()
+        mock_proc.pid = 12345
+        with patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
+            backend_cc.send("reviewer1", "hello", timeout=30)
+        cmd = mock_popen.call_args[0][0]
+        idx = cmd.index("--thinking")
+        assert cmd[idx + 1] == "adaptive"
+
+    def test_thinking_invalid_value_warning(self, tmp_sessions, monkeypatch, caplog):
+        monkeypatch.setattr(config, "DRY_RUN", False)
+        monkeypatch.setattr(backend_cc, "_agent_config_cache", {
+            "reviewer1": {"thinking": "bogus"},
+        })
+        mock_proc = MagicMock()
+        mock_proc.stdin = MagicMock()
+        mock_proc.pid = 12345
+        with caplog.at_level(logging.WARNING):
+            with patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
+                backend_cc.send("reviewer1", "hello", timeout=30)
+        cmd = mock_popen.call_args[0][0]
+        assert "--thinking" not in cmd
+        assert any("invalid value" in r.message for r in caplog.records)
+
+    def test_thinking_bool_true_fallback_to_enabled(self, tmp_sessions, monkeypatch):
         monkeypatch.setattr(config, "DRY_RUN", False)
         monkeypatch.setattr(backend_cc, "_agent_config_cache", {
             "reviewer1": {"thinking": True},
@@ -278,9 +335,10 @@ class TestSend:
         with patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
             backend_cc.send("reviewer1", "hello", timeout=30)
         cmd = mock_popen.call_args[0][0]
-        assert "--thinking" in cmd
+        idx = cmd.index("--thinking")
+        assert cmd[idx + 1] == "enabled"
 
-    def test_thinking_false_no_flag(self, tmp_sessions, monkeypatch):
+    def test_thinking_bool_false_fallback_to_disabled(self, tmp_sessions, monkeypatch):
         monkeypatch.setattr(config, "DRY_RUN", False)
         monkeypatch.setattr(backend_cc, "_agent_config_cache", {
             "reviewer1": {"thinking": False},
@@ -291,22 +349,8 @@ class TestSend:
         with patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
             backend_cc.send("reviewer1", "hello", timeout=30)
         cmd = mock_popen.call_args[0][0]
-        assert "--thinking" not in cmd
-
-    def test_thinking_non_bool_warning(self, tmp_sessions, monkeypatch, caplog):
-        monkeypatch.setattr(config, "DRY_RUN", False)
-        monkeypatch.setattr(backend_cc, "_agent_config_cache", {
-            "reviewer1": {"thinking": "high"},
-        })
-        mock_proc = MagicMock()
-        mock_proc.stdin = MagicMock()
-        mock_proc.pid = 12345
-        with caplog.at_level(logging.WARNING):
-            with patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
-                backend_cc.send("reviewer1", "hello", timeout=30)
-        cmd = mock_popen.call_args[0][0]
-        assert "--thinking" not in cmd
-        assert any("non-bool" in r.message for r in caplog.records)
+        idx = cmd.index("--thinking")
+        assert cmd[idx + 1] == "disabled"
 
     def test_effort_flag(self, tmp_sessions, monkeypatch):
         monkeypatch.setattr(config, "DRY_RUN", False)

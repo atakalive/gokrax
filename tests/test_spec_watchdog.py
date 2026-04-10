@@ -535,6 +535,41 @@ class TestApplySpecActionCleanup:
         data = json.loads(pj_path.read_text())
         assert data["enabled"] is False
 
+    def test_spec_done_to_idle_auto_qrun_toctou_no_false_disable(self, tmp_path):
+        """AC4: _check_queue 失敗後に別操作で state が IDLE 以外に遷移した場合、
+        _disable_if_idle の callback 内 state チェックにより enabled は変更されない。"""
+        import json
+        pd_str = str(tmp_path / "pd")
+        pj_path = tmp_path / "test-pj.json"
+        pj_data = {
+            "project": "test-pj", "state": "SPEC_DONE",
+            "enabled": True, "batch": [],
+            "spec_mode": True,
+            "spec_config": {"pipelines_dir": pd_str, "auto_qrun": True},
+            "history": [],
+        }
+        pj_path.write_text(json.dumps(pj_data))
+        action = SpecTransitionAction(next_state="IDLE", expected_state="SPEC_DONE")
+        mocked_action = SpecTransitionAction(next_state="IDLE")
+
+        def fake_check_queue_then_external_start() -> None:
+            # _check_queue fails (noop), then a CLI operation starts a new batch
+            # before _disable_if_idle callback runs
+            d = json.loads(pj_path.read_text())
+            d["state"] = "PLANNING"
+            pj_path.write_text(json.dumps(d))
+
+        with patch("engine.fsm_spec.check_transition_spec", return_value=mocked_action), \
+             patch("engine.fsm_spec.send_to_agent_queued"), \
+             patch("engine.fsm_spec.notify_discord"), \
+             patch("engine.fsm_spec._cleanup_expired_spec_files"), \
+             patch("watchdog._check_queue", side_effect=fake_check_queue_then_external_start):
+            _apply_spec_action(pj_path, action, _now(),
+                               {"spec_config": {"pipelines_dir": pd_str, "auto_qrun": True}})
+        data = json.loads(pj_path.read_text())
+        assert data["enabled"] is True, "enabled must NOT be disabled when state is no longer IDLE"
+        assert data["state"] == "PLANNING"
+
     def test_cleanup_not_called_on_non_terminal(self, tmp_path):
         """非終端状態遷移では cleanup が呼ばれない。"""
         pd_str = str(tmp_path / "pd")

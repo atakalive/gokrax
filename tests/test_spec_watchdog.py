@@ -458,6 +458,83 @@ class TestApplySpecActionCleanup:
         assert mock_cleanup.call_count == 1
         assert mock_cleanup.call_args[0][0] == pd_str
 
+    # --- SPEC_DONE → IDLE: enabled フラグテスト (#301) ---
+
+    def test_spec_done_to_idle_sets_enabled_false(self, tmp_path):
+        """SPEC_DONE → IDLE (auto_qrun=False) で enabled=False になる。"""
+        import json
+        pd_str = str(tmp_path / "pd")
+        pj_path = self._make_pipeline(tmp_path, "SPEC_DONE", pd_str)
+        action = SpecTransitionAction(next_state="IDLE", expected_state="SPEC_DONE")
+        mocked_action = SpecTransitionAction(next_state="IDLE")
+        with patch("engine.fsm_spec.check_transition_spec", return_value=mocked_action), \
+             patch("engine.fsm_spec.send_to_agent_queued"), \
+             patch("engine.fsm_spec.notify_discord"), \
+             patch("engine.fsm_spec._cleanup_expired_spec_files"):
+            _apply_spec_action(pj_path, action, _now(), {"spec_config": {"pipelines_dir": pd_str}})
+        data = json.loads(pj_path.read_text())
+        assert data["enabled"] is False
+
+    def test_spec_done_to_idle_auto_qrun_keeps_enabled_on_queue_success(self, tmp_path):
+        """SPEC_DONE → IDLE (auto_qrun=True) でキュー起動成功時に enabled=True が維持される。"""
+        import json
+        pd_str = str(tmp_path / "pd")
+        pj_path = tmp_path / "test-pj.json"
+        pj_data = {
+            "project": "test-pj", "state": "SPEC_DONE",
+            "enabled": True, "batch": [],
+            "spec_mode": True,
+            "spec_config": {"pipelines_dir": pd_str, "auto_qrun": True},
+            "history": [],
+        }
+        pj_path.write_text(json.dumps(pj_data))
+        action = SpecTransitionAction(next_state="IDLE", expected_state="SPEC_DONE")
+        mocked_action = SpecTransitionAction(next_state="IDLE")
+
+        def fake_check_queue() -> None:
+            # Simulate queue success: state moves beyond IDLE
+            d = json.loads(pj_path.read_text())
+            d["state"] = "PLANNING"
+            pj_path.write_text(json.dumps(d))
+
+        with patch("engine.fsm_spec.check_transition_spec", return_value=mocked_action), \
+             patch("engine.fsm_spec.send_to_agent_queued"), \
+             patch("engine.fsm_spec.notify_discord"), \
+             patch("engine.fsm_spec._cleanup_expired_spec_files"), \
+             patch("watchdog._check_queue", side_effect=fake_check_queue):
+            _apply_spec_action(pj_path, action, _now(),
+                               {"spec_config": {"pipelines_dir": pd_str, "auto_qrun": True}})
+        data = json.loads(pj_path.read_text())
+        assert data["enabled"] is True
+        assert data["state"] == "PLANNING"
+
+    def test_spec_done_to_idle_auto_qrun_fallback_disables_on_queue_failure(self, tmp_path):
+        """SPEC_DONE → IDLE (auto_qrun=True) でキュー起動失敗時に enabled=False にフォールバック。"""
+        import json
+        pd_str = str(tmp_path / "pd")
+        pj_path = tmp_path / "test-pj.json"
+        pj_data = {
+            "project": "test-pj", "state": "SPEC_DONE",
+            "enabled": True, "batch": [],
+            "spec_mode": True,
+            "spec_config": {"pipelines_dir": pd_str, "auto_qrun": True},
+            "history": [],
+        }
+        pj_path.write_text(json.dumps(pj_data))
+        action = SpecTransitionAction(next_state="IDLE", expected_state="SPEC_DONE")
+        mocked_action = SpecTransitionAction(next_state="IDLE")
+
+        # _check_queue does nothing (failure case) — state stays IDLE
+        with patch("engine.fsm_spec.check_transition_spec", return_value=mocked_action), \
+             patch("engine.fsm_spec.send_to_agent_queued"), \
+             patch("engine.fsm_spec.notify_discord"), \
+             patch("engine.fsm_spec._cleanup_expired_spec_files"), \
+             patch("watchdog._check_queue"):
+            _apply_spec_action(pj_path, action, _now(),
+                               {"spec_config": {"pipelines_dir": pd_str, "auto_qrun": True}})
+        data = json.loads(pj_path.read_text())
+        assert data["enabled"] is False
+
     def test_cleanup_not_called_on_non_terminal(self, tmp_path):
         """非終端状態遷移では cleanup が呼ばれない。"""
         pd_str = str(tmp_path / "pd")

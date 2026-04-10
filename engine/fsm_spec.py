@@ -1056,12 +1056,15 @@ def _apply_spec_action(
             add_history(data, old_state, action2.next_state, actor="watchdog")
             # SPEC_DONE → IDLE: spec mode 終了のクリーンアップ（cmd_spec_done と同等）
             if old_state == "SPEC_DONE" and action2.next_state == "IDLE":
+                auto_qrun = sc.get("auto_qrun", False)
                 data["spec_mode"] = False
                 data["spec_config"] = {}
                 data.pop("excluded_reviewers", None)
                 data.pop("min_reviews_override", None)
                 data.pop("review_config", None)
                 data.pop("reviewer_number_map", None)
+                if not auto_qrun:
+                    data["enabled"] = False
 
         # pipeline_updates は常に適用（next_state=None でも）
         if action2.pipeline_updates:
@@ -1204,3 +1207,8 @@ def _apply_spec_action(
                 and orig_data.get("spec_config", {}).get("auto_qrun")):
             from watchdog import _check_queue
             _check_queue()
+            # キュー起動に失敗してIDLEのままなら enabled=False にフォールバック
+            def _disable_if_idle(d: dict) -> None:
+                if d.get("state") == "IDLE":
+                    d["enabled"] = False
+            update_pipeline(pipeline_path, _disable_if_idle)

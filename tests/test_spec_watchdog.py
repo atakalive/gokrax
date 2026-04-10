@@ -28,6 +28,7 @@ from config import (
     MAX_SPEC_RETRIES,
     NUDGE_GRACE_SEC,
     SPEC_BLOCK_TIMERS,
+    SPEC_REVISE_SELF_REVIEW_PASSES,
 )
 
 LOCAL_TZ = timezone(timedelta(hours=9))
@@ -959,3 +960,536 @@ class TestSpecNudge:
         data = {"history": [{"from": "SPEC_REVIEW", "to": "SPEC_REVISE", "at": naive_entered}]}
         action = _check_spec_revise(sc, _now(), data)
         assert action.nudge_implementer is False
+
+
+# --- Send failure rollback tests (#302) ---
+
+
+class TestSendFailureRollback:
+    """Issue #302: send failure → rollback cascade fix tests."""
+
+    def _make_pipeline(self, tmp_path: Path, state: str, spec_config: dict) -> Path:
+        import json
+        pj_path = tmp_path / "test-pj.json"
+        pj_data = {
+            "project": "test-pj", "state": state,
+            "enabled": True, "batch": [],
+            "spec_mode": True,
+            "spec_config": spec_config,
+            "history": [{"from": "SPEC_REVIEW", "to": "SPEC_REVISE", "at": _now().isoformat()}],
+        }
+        pj_path.write_text(json.dumps(pj_data))
+        return pj_path
+
+    # --- Test 1: self_review_sent rollback on send failure ---
+
+    def test_self_review_sent_rollback_on_send_failure(self, tmp_pipelines):
+        """send failure 時に _self_review_sent がロールバックされること。"""
+        import json
+        sc = {
+            "spec_implementer": "impl1",
+            "spec_path": "docs/spec.md",
+            "current_rev": "2",
+            "rev_index": 2,
+            "_revise_response": "REVISE_COMPLETE\ncommit: abc123\nchanges: +10 -5\nchangelog: fixed",
+            "_revise_sent": _now().isoformat(),
+            "review_requests": {},
+            "current_reviews": {"entries": {}},
+            "retry_counts": {},
+        }
+        pj_path = self._make_pipeline(tmp_pipelines, "SPEC_REVISE", sc)
+        orig_data = json.loads(pj_path.read_text())
+
+        # Branch (C) fires: revise_response present → self_review send
+        action = SpecTransitionAction(
+            next_state=None,
+            expected_state="SPEC_REVISE",
+        )
+        with patch("engine.fsm_spec.send_to_agent_queued", return_value=False), \
+             patch("engine.fsm_spec.notify_discord") as mock_discord, \
+             patch("spec_revise.parse_revise_response", return_value={
+                 "commit": "abc123",
+                 "changes": {"added_lines": 10, "removed_lines": 5},
+                 "changelog_summary": "fixed",
+             }), \
+             patch("spec_revise.build_revise_completion_updates", return_value={
+                 "current_rev": "3",
+                 "last_commit": "abc123",
+             }):
+            _apply_spec_action(pj_path, action, _now(), orig_data)
+
+        result = json.loads(pj_path.read_text())
+        assert result["spec_config"].get("_self_review_sent") is None
+        # Discord send failure notification
+        discord_calls = [str(c) for c in mock_discord.call_args_list]
+        assert any("send failure" in c for c in discord_calls)
+
+    # --- Test 2: B2 branch fires after rollback ---
+
+    def test_b2_branch_fires_after_rollback(self):
+        """ロールバック後の次 tick で branch (B2) が発火すること。"""
+        sc = {
+            "spec_implementer": "impl1",
+            "spec_path": "docs/spec.md",
+            "current_rev": "2",
+            "_self_review_pending_updates": {"current_rev": "3", "last_commit": "abc123"},
+            "_self_review_sent": None,
+            "_self_review_pass": 0,
+            "_revise_sent": _now().isoformat(),
+            "review_requests": {},
+            "current_reviews": {"entries": {}},
+            "retry_counts": {},
+        }
+        data = {
+            "project": "test-pj",
+            "history": [{"from": "SPEC_REVIEW", "to": "SPEC_REVISE", "at": _now().isoformat()}],
+        }
+        action = _check_spec_revise(sc, _now(), data)
+        assert action.send_to is not None
+        assert action.pipeline_updates is not None
+        assert action.pipeline_updates.get("_self_review_sent") is not None
+        assert action.pipeline_updates.get("_self_review_pass") == 1
+        assert action.send_failure_rollback == {"_self_review_sent": None}
+
+    # --- Test 3: _revise_sent rollback on send failure (initial revise send) ---
+
+    def test_revise_sent_rollback_on_send_failure(self, tmp_pipelines):
+        """send failure 時に _revise_sent がロールバックされること（revise 初回送信）。"""
+        import json
+        sc = {
+            "spec_implementer": "impl1",
+            "spec_path": "docs/spec.md",
+            "current_rev": "1",
+            "rev_index": 1,
+            "review_requests": {},
+            "current_reviews": {
+                "entries": {
+                    "reviewer1": {
+                        "verdict": "P0", "items": [{"id": "i1", "severity": "critical",
+                            "section": "s", "title": "t", "description": "d", "suggestion": "s"}],
+                        "raw_text": "", "parse_success": True, "status": "received",
+                    },
+                },
+            },
+            "retry_counts": {},
+            "_revise_send_retries": 0,
+        }
+        pj_path = self._make_pipeline(tmp_pipelines, "SPEC_REVISE", sc)
+        orig_data = json.loads(pj_path.read_text())
+
+        action = SpecTransitionAction(
+            next_state=None,
+            expected_state="SPEC_REVISE",
+        )
+        with patch("engine.fsm_spec.send_to_agent_queued", return_value=False), \
+             patch("engine.fsm_spec.notify_discord"):
+            _apply_spec_action(pj_path, action, _now(), orig_data)
+
+        result = json.loads(pj_path.read_text())
+        assert result["spec_config"].get("_revise_sent") is None
+        assert result["spec_config"].get("_revise_send_retries") == 1
+
+    # --- Test 4: revise re-sent on next tick after rollback ---
+
+    def test_revise_resent_on_next_tick(self):
+        """ロールバック後の次 tick で revise が再送信されること。"""
+        sc = {
+            "spec_implementer": "impl1",
+            "spec_path": "docs/spec.md",
+            "current_rev": "1",
+            "rev_index": 1,
+            "review_requests": {},
+            "current_reviews": {
+                "entries": {
+                    "reviewer1": {
+                        "verdict": "P0", "items": [{"id": "i1", "severity": "critical",
+                            "section": "s", "title": "t", "description": "d", "suggestion": "s"}],
+                        "raw_text": "", "parse_success": True, "status": "received",
+                    },
+                },
+            },
+            "retry_counts": {},
+            "_revise_send_retries": 1,
+        }
+        data = {
+            "project": "test-pj",
+            "history": [{"from": "SPEC_REVIEW", "to": "SPEC_REVISE", "at": _now().isoformat()}],
+        }
+        action = _check_spec_revise(sc, _now(), data)
+        assert action.send_to is not None
+        assert "impl1" in action.send_to
+        assert action.pipeline_updates.get("_revise_send_retries") == 2
+
+    # --- Test 5: issues_found send failure sets _issues_found_pending_feedback ---
+
+    def test_issues_found_send_failure_sets_pending_feedback(self, tmp_pipelines):
+        """issues_found send failure で _issues_found_pending_feedback が設定されること。"""
+        import json
+        # Mock parse_self_review_response to return issues_found directly
+        sc = {
+            "spec_implementer": "impl1",
+            "spec_path": "docs/spec.md",
+            "current_rev": "2",
+            "rev_index": 2,
+            "_self_review_response": "dummy response",
+            "_self_review_sent": _now().isoformat(),
+            "_self_review_pending_updates": {"current_rev": "3"},
+            "_revise_sent": _now().isoformat(),
+            "review_requests": {},
+            "current_reviews": {"entries": {}},
+            "retry_counts": {},
+        }
+        pj_path = self._make_pipeline(tmp_pipelines, "SPEC_REVISE", sc)
+        orig_data = json.loads(pj_path.read_text())
+
+        action = SpecTransitionAction(
+            next_state=None,
+            expected_state="SPEC_REVISE",
+        )
+        mock_result = {
+            "verdict": "issues_found",
+            "items": [{"id": "reflected_items_match", "result": "No", "evidence": "missing"}],
+        }
+        with patch("engine.fsm_spec.send_to_agent_queued", return_value=False), \
+             patch("engine.fsm_spec.notify_discord"), \
+             patch("spec_revise.parse_self_review_response", return_value=mock_result):
+            _apply_spec_action(pj_path, action, _now(), orig_data)
+
+        result = json.loads(pj_path.read_text())
+        pfb = result["spec_config"].get("_issues_found_pending_feedback")
+        assert pfb is not None
+        assert isinstance(pfb, str)
+        # _revise_sent should NOT be rolled back (issues_found does not rollback _revise_sent)
+        assert result["spec_config"].get("_revise_sent") is not None
+
+    # --- Test 6: A2 branch fires on next tick for issues_found pending ---
+
+    def test_a2_branch_fires_for_issues_found_pending(self):
+        """issues_found pending feedback の次 tick で branch (A2) が発火すること。"""
+        sc = {
+            "spec_implementer": "impl1",
+            "spec_path": "docs/spec.md",
+            "current_rev": "2",
+            "_issues_found_pending_feedback": "Fix these issues:\n- item1",
+            "_issues_found_send_retries": 0,
+            "_revise_sent": _now().isoformat(),
+            "review_requests": {},
+            "current_reviews": {"entries": {}},
+            "retry_counts": {},
+        }
+        data = {
+            "project": "test-pj",
+            "history": [{"from": "SPEC_REVIEW", "to": "SPEC_REVISE", "at": _now().isoformat()}],
+        }
+        action = _check_spec_revise(sc, _now(), data)
+        assert action.send_to is not None
+        assert "impl1" in action.send_to
+        assert action.send_to["impl1"] == "Fix these issues:\n- item1"
+        assert action.pipeline_updates == {
+            "_issues_found_pending_feedback": None,
+            "_issues_found_send_retries": 1,
+        }
+
+    # --- Test 7: no rollback when send_failure_rollback is None ---
+
+    def test_no_rollback_when_send_failure_rollback_none(self, tmp_pipelines):
+        """send_failure_rollback が None の場合はロールバックしないこと。"""
+        import json
+        sc = {"spec_implementer": "impl1", "retry_counts": {}}
+        pj_path = self._make_pipeline(tmp_pipelines, "SPEC_REVISE", sc)
+        orig_data = json.loads(pj_path.read_text())
+
+        action = SpecTransitionAction(
+            next_state=None,
+            expected_state="SPEC_REVISE",
+            send_to={"impl1": "test msg"},
+            pipeline_updates={"_test_field": "value"},
+            send_failure_rollback=None,
+        )
+        # Mock check_transition_spec to return the same action
+        with patch("engine.fsm_spec.check_transition_spec", return_value=action), \
+             patch("engine.fsm_spec.send_to_agent_queued", return_value=False), \
+             patch("engine.fsm_spec.notify_discord"), \
+             patch("engine.fsm_spec.update_pipeline") as mock_up:
+            # First call is the main update, second would be rollback
+            _apply_spec_action(pj_path, action, _now(), orig_data)
+        # update_pipeline should be called once for main update, NOT for rollback
+        assert mock_up.call_count == 1
+
+    # --- Test 8: reviewer send failure rolls back sent_at ---
+
+    def test_reviewer_send_failure_rolls_back_sent_at(self, tmp_pipelines):
+        """_check_spec_review の reviewer send failure で sent_at がロールバックされること。"""
+        import json
+        sc = {
+            "spec_path": "docs/spec.md",
+            "current_rev": "1",
+            "rev_index": 1,
+            "review_requests": {
+                "reviewer1": {"status": "pending", "sent_at": None, "timeout_at": None,
+                    "last_nudge_at": None, "response": None},
+            },
+            "current_reviews": {"entries": {}},
+            "revise_count": 0,
+            "max_revise_cycles": 5,
+        }
+        pj_path = self._make_pipeline(tmp_pipelines, "SPEC_REVIEW", sc)
+        pj_data = json.loads(pj_path.read_text())
+        pj_data["review_mode"] = "lite"
+
+        action = SpecTransitionAction(
+            next_state=None,
+            expected_state="SPEC_REVIEW",
+        )
+        with patch("engine.fsm_spec.send_to_agent_queued", return_value=False), \
+             patch("engine.fsm_spec.notify_discord"):
+            _apply_spec_action(pj_path, action, _now(), pj_data)
+
+        result = json.loads(pj_path.read_text())
+        rr = result["spec_config"]["review_requests"]["reviewer1"]
+        assert rr["sent_at"] is None
+        assert "timeout_at" not in rr or rr.get("timeout_at") is None
+
+    # --- Test 9: reviewer resend on next tick after rollback ---
+
+    def test_reviewer_resend_after_rollback(self):
+        """reviewer ロールバック後の次 tick で再送信されること。"""
+        sc = {
+            "spec_path": "docs/spec.md",
+            "current_rev": "1",
+            "rev_index": 1,
+            "review_requests": {
+                "reviewer1": {"status": "pending", "sent_at": None, "timeout_at": None},
+            },
+            "current_reviews": {"entries": {}},
+            "revise_count": 0,
+            "max_revise_cycles": 5,
+        }
+        data = {"project": "test-pj", "review_mode": "lite", "history": []}
+        action = _check_spec_review(sc, _now(), data)
+        assert action.send_to is not None
+        assert "reviewer1" in action.send_to
+
+    # --- Test 10: B2 PAUSED on non-dict _self_review_pending_updates ---
+
+    def test_b2_paused_on_non_dict_pending_updates(self):
+        """_self_review_pending_updates が非 dict の場合 PAUSED になること。"""
+        sc = {
+            "spec_implementer": "impl1",
+            "spec_path": "docs/spec.md",
+            "current_rev": "2",
+            "_self_review_pending_updates": "not a dict",
+            "_self_review_sent": None,
+            "_revise_sent": _now().isoformat(),
+            "review_requests": {},
+            "current_reviews": {"entries": {}},
+            "retry_counts": {},
+        }
+        data = {
+            "project": "test-pj",
+            "history": [{"from": "SPEC_REVIEW", "to": "SPEC_REVISE", "at": _now().isoformat()}],
+        }
+        action = _check_spec_revise(sc, _now(), data)
+        assert action.next_state == "SPEC_PAUSED"
+
+    # --- Test 11: rollback exception does not crash watchdog ---
+
+    def test_rollback_exception_does_not_crash(self, tmp_pipelines, caplog):
+        """ロールバック処理が例外を投げた場合 watchdog が継続すること。"""
+        import json
+        import logging
+        sc = {
+            "spec_implementer": "impl1",
+            "spec_path": "docs/spec.md",
+            "current_rev": "1",
+            "rev_index": 1,
+            "review_requests": {},
+            "current_reviews": {
+                "entries": {
+                    "reviewer1": {
+                        "verdict": "P0", "items": [{"id": "i1", "severity": "critical",
+                            "section": "s", "title": "t", "description": "d", "suggestion": "s"}],
+                        "raw_text": "", "parse_success": True, "status": "received",
+                    },
+                },
+            },
+            "retry_counts": {},
+            "_revise_send_retries": 0,
+        }
+        pj_path = self._make_pipeline(tmp_pipelines, "SPEC_REVISE", sc)
+        orig_data = json.loads(pj_path.read_text())
+
+        action = SpecTransitionAction(
+            next_state=None,
+            expected_state="SPEC_REVISE",
+        )
+
+        call_count = [0]
+        original_update = __import__("pipeline_io").update_pipeline
+
+        def mock_update_pipeline(path, callback):
+            call_count[0] += 1
+            if call_count[0] >= 2:  # rollback call
+                raise OSError("disk full")
+            return original_update(path, callback)
+
+        with patch("engine.fsm_spec.send_to_agent_queued", return_value=False), \
+             patch("engine.fsm_spec.notify_discord"), \
+             patch("engine.fsm_spec.update_pipeline", side_effect=mock_update_pipeline), \
+             caplog.at_level(logging.WARNING):
+            _apply_spec_action(pj_path, action, _now(), orig_data)
+        assert any("send_failure_rollback failed" in r.message for r in caplog.records)
+
+    # --- Test 12: partial reviewer rollback (only failed reviewer) ---
+
+    def test_partial_reviewer_rollback(self, tmp_pipelines):
+        """複数 reviewer 中1名のみ send failure → 失敗した reviewer のみロールバック。"""
+        import json
+        sc = {
+            "spec_path": "docs/spec.md",
+            "current_rev": "1",
+            "rev_index": 1,
+            "review_requests": {
+                "reviewer_a": {"status": "pending", "sent_at": None, "timeout_at": None,
+                    "last_nudge_at": None, "response": None},
+                "reviewer_b": {"status": "pending", "sent_at": None, "timeout_at": None,
+                    "last_nudge_at": None, "response": None},
+            },
+            "current_reviews": {"entries": {}},
+            "revise_count": 0,
+            "max_revise_cycles": 5,
+        }
+        pj_path = self._make_pipeline(tmp_pipelines, "SPEC_REVIEW", sc)
+        pj_data = json.loads(pj_path.read_text())
+        pj_data["review_mode"] = "lite"
+
+        action = SpecTransitionAction(
+            next_state=None,
+            expected_state="SPEC_REVIEW",
+        )
+
+        def side_effect_send(agent_id, msg):
+            return agent_id == "reviewer_a"
+
+        with patch("engine.fsm_spec.send_to_agent_queued", side_effect=side_effect_send), \
+             patch("engine.fsm_spec.notify_discord"):
+            _apply_spec_action(pj_path, action, _now(), pj_data)
+
+        result = json.loads(pj_path.read_text())
+        rr = result["spec_config"]["review_requests"]
+        # reviewer_a: send succeeded → sent_at maintained
+        assert rr["reviewer_a"]["sent_at"] is not None
+        # reviewer_b: send failed → sent_at rolled back
+        assert rr["reviewer_b"]["sent_at"] is None
+
+    # --- Test 13: B2 PAUSED when _self_review_pass exhausted ---
+
+    def test_b2_paused_on_self_review_pass_exhausted(self):
+        """branch (B2) で _self_review_pass が SPEC_REVISE_SELF_REVIEW_PASSES に到達 → PAUSED。"""
+        sc = {
+            "spec_implementer": "impl1",
+            "spec_path": "docs/spec.md",
+            "current_rev": "2",
+            "_self_review_pending_updates": {"current_rev": "3", "last_commit": "abc123"},
+            "_self_review_sent": None,
+            "_self_review_pass": SPEC_REVISE_SELF_REVIEW_PASSES,
+            "_revise_sent": _now().isoformat(),
+            "review_requests": {},
+            "current_reviews": {"entries": {}},
+            "retry_counts": {},
+        }
+        data = {
+            "project": "test-pj",
+            "history": [{"from": "SPEC_REVIEW", "to": "SPEC_REVISE", "at": _now().isoformat()}],
+        }
+        action = _check_spec_revise(sc, _now(), data)
+        assert action.next_state == "SPEC_PAUSED"
+
+    # --- Test 14: A2 PAUSED when _issues_found_send_retries exhausted ---
+
+    def test_a2_paused_on_issues_found_retries_exhausted(self):
+        """branch (A2) で _issues_found_send_retries が MAX_SPEC_RETRIES に到達 → PAUSED。"""
+        sc = {
+            "spec_implementer": "impl1",
+            "spec_path": "docs/spec.md",
+            "current_rev": "2",
+            "_issues_found_pending_feedback": "Fix these issues",
+            "_issues_found_send_retries": MAX_SPEC_RETRIES,
+            "_revise_sent": _now().isoformat(),
+            "review_requests": {},
+            "current_reviews": {"entries": {}},
+            "retry_counts": {},
+        }
+        data = {
+            "project": "test-pj",
+            "history": [{"from": "SPEC_REVIEW", "to": "SPEC_REVISE", "at": _now().isoformat()}],
+        }
+        action = _check_spec_revise(sc, _now(), data)
+        assert action.next_state == "SPEC_PAUSED"
+        assert action.pipeline_updates["paused_from"] == "SPEC_REVISE"
+        assert action.pipeline_updates["_issues_found_pending_feedback"] is None
+        assert action.pipeline_updates["_issues_found_send_retries"] is None
+
+    # --- Test 15: D PAUSED when _revise_send_retries exhausted ---
+
+    def test_d_paused_on_revise_send_retries_exhausted(self):
+        """branch (D) で _revise_send_retries が MAX_SPEC_RETRIES に到達 → PAUSED。"""
+        sc = {
+            "spec_implementer": "impl1",
+            "spec_path": "docs/spec.md",
+            "current_rev": "1",
+            "rev_index": 1,
+            "review_requests": {},
+            "current_reviews": {
+                "entries": {
+                    "reviewer1": {
+                        "verdict": "P0", "items": [{"id": "i1", "severity": "critical",
+                            "section": "s", "title": "t", "description": "d", "suggestion": "s"}],
+                        "raw_text": "", "parse_success": True, "status": "received",
+                    },
+                },
+            },
+            "retry_counts": {},
+            "_revise_send_retries": MAX_SPEC_RETRIES,
+        }
+        data = {
+            "project": "test-pj",
+            "history": [{"from": "SPEC_REVIEW", "to": "SPEC_REVISE", "at": _now().isoformat()}],
+        }
+        action = _check_spec_revise(sc, _now(), data)
+        assert action.next_state == "SPEC_PAUSED"
+        assert action.pipeline_updates["paused_from"] == "SPEC_REVISE"
+        assert action.pipeline_updates["_revise_send_retries"] is None
+
+    # --- Test 16: A.1 clean resets counters ---
+
+    def test_a1_clean_resets_send_retries(self):
+        """(A.1) clean 遷移で _revise_send_retries と _issues_found_send_retries がリセットされること。"""
+        sc = {
+            "spec_implementer": "impl1",
+            "spec_path": "docs/spec.md",
+            "current_rev": "2",
+            "_self_review_response": "```yaml\nchecklist:\n  - id: reflected_items_match\n    result: \"Yes\"\n    evidence: \"ok\"\n  - id: no_new_contradictions\n    result: \"Yes\"\n    evidence: \"ok\"\n```",
+            "_self_review_sent": _now().isoformat(),
+            "_self_review_pending_updates": {
+                "current_rev": "3",
+                "last_commit": "abc123",
+                "last_changes": {"added_lines": 10, "removed_lines": 5, "changelog_summary": "fix"},
+            },
+            "_self_review_expected_ids": ["reflected_items_match", "no_new_contradictions"],
+            "_revise_sent": _now().isoformat(),
+            "_revise_send_retries": 2,
+            "_issues_found_send_retries": 1,
+            "review_requests": {"reviewer1": {"status": "pending"}},
+            "current_reviews": {"entries": {}},
+            "retry_counts": {},
+        }
+        data = {
+            "project": "test-pj",
+            "history": [{"from": "SPEC_REVIEW", "to": "SPEC_REVISE", "at": _now().isoformat()}],
+        }
+        action = _check_spec_revise(sc, _now(), data)
+        assert action.next_state == "SPEC_REVIEW"
+        assert action.pipeline_updates.get("_revise_send_retries") is None
+        assert action.pipeline_updates.get("_issues_found_send_retries") is None
+        assert action.pipeline_updates.get("_issues_found_pending_feedback") is None

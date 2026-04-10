@@ -46,6 +46,7 @@ class SpecTransitionAction:
     error: str | None = None
     nudge_reviewers: list[str] | None = None   # list of reviewers needing nudge. None=no nudge, []=no nudge (no side effects)
     nudge_implementer: bool = False              # implementer nudge flag
+    send_failure_rollback: dict | None = None    # rollback dict for spec_config on send failure
 
 
 # ---------------------------------------------------------------------------
@@ -289,6 +290,9 @@ def _check_spec_revise(
             pending["_self_review_pending_updates"] = None
             pending["_self_review_expected_ids"] = None
             pending["_revise_sent"] = None  # transition complete. (E) suppression no longer needed, clear
+            pending["_revise_send_retries"] = None
+            pending["_issues_found_send_retries"] = None
+            pending["_issues_found_pending_feedback"] = None
             current_rev = pending.get("current_rev", spec_config.get("current_rev", "?"))
             reviewer_count = len(spec_config.get("review_requests", {}))
             revise_msg = render("spec.revise", "notify_done", project=project, rev=current_rev, commit=pending.get("last_commit", ""))
@@ -327,6 +331,7 @@ def _check_spec_revise(
                     # _revise_response をクリアして再 revise-submit を受付可能にする
                     "_revise_response": None,
                 },
+                send_failure_rollback={"_issues_found_pending_feedback": feedback_msg} if implementer else None,
             )
 
         else:  # parse_failed
@@ -358,12 +363,92 @@ def _check_spec_revise(
                     "_self_review_response": None,
                     "_self_review_pass": current_pass + 1,
                 },
+                send_failure_rollback={"_self_review_sent": None},
             )
+
+    # -----------------------------------------------------------------------
+    # (A2) issues_found 差し戻し送信 pending（send failure ロールバック後のリトライ）
+    # -----------------------------------------------------------------------
+    pending_feedback = spec_config.get("_issues_found_pending_feedback")
+    if pending_feedback and isinstance(pending_feedback, str):
+        feedback_retries = spec_config.get("_issues_found_send_retries", 0)
+        if feedback_retries >= MAX_SPEC_RETRIES:
+            return SpecTransitionAction(
+                next_state="SPEC_PAUSED",
+                discord_notify=render("spec.paused", "notify_paused",
+                    project=project,
+                    reason=f"Issues_found send retry exhausted ({feedback_retries}/{MAX_SPEC_RETRIES})",
+                ),
+                pipeline_updates={
+                    "paused_from": "SPEC_REVISE",
+                    "_issues_found_pending_feedback": None,
+                    "_issues_found_send_retries": None,
+                },
+            )
+        implementer = spec_config.get("spec_implementer", "")
+        if implementer:
+            return SpecTransitionAction(
+                next_state=None,
+                send_to={implementer: pending_feedback},
+                pipeline_updates={
+                    "_issues_found_pending_feedback": None,
+                    "_issues_found_send_retries": feedback_retries + 1,
+                },
+                send_failure_rollback={
+                    "_issues_found_pending_feedback": pending_feedback,
+                },
+            )
+
+    # -----------------------------------------------------------------------
+    # (B2) self_review 送信 pending（send failure ロールバック後のリトライ）
+    # -----------------------------------------------------------------------
+    pending_updates = spec_config.get("_self_review_pending_updates")
+    self_review_sent = spec_config.get("_self_review_sent")
+    if pending_updates and not self_review_sent:
+        if not isinstance(pending_updates, dict):
+            return SpecTransitionAction(
+                next_state="SPEC_PAUSED",
+                discord_notify=render("spec.paused", "notify_paused",
+                    project=project,
+                    reason="_self_review_pending_updates is not a dict (B2 failsafe)",
+                ),
+                pipeline_updates={
+                    "paused_from": "SPEC_REVISE",
+                    "_self_review_pending_updates": None,
+                },
+            )
+        current_pass = spec_config.get("_self_review_pass", 0)
+        if current_pass >= SPEC_REVISE_SELF_REVIEW_PASSES:
+            return SpecTransitionAction(
+                next_state="SPEC_PAUSED",
+                discord_notify=render("spec.paused", "notify_paused",
+                    project=project,
+                    reason=f"Self-review send retry exhausted ({current_pass} passes). Human intervention required",
+                ),
+                pipeline_updates={
+                    "paused_from": "SPEC_REVISE",
+                    "_self_review_sent": None,
+                    "_self_review_pending_updates": None,
+                    "_self_review_pass": 0,
+                },
+            )
+        agent = get_self_review_agent(spec_config)
+        checklist = spec_config.get("self_review_checklist", DEFAULT_SELF_REVIEW_CHECKLIST)
+        merged_cfg = {**spec_config, **pending_updates}
+        prompt = build_self_review_prompt(merged_cfg, data, checklist=checklist)
+        return SpecTransitionAction(
+            next_state=None,
+            send_to={agent: prompt},
+            pipeline_updates={
+                "_self_review_sent": now.isoformat(),
+                "_self_review_pass": current_pass + 1,
+            },
+            send_failure_rollback={"_self_review_sent": None},
+        )
 
     # -----------------------------------------------------------------------
     # (B) self_review 送信済み & 応答なし → タイムアウトチェック
     # -----------------------------------------------------------------------
-    self_review_sent = spec_config.get("_self_review_sent")
     if self_review_sent:
         # SPEC_BLOCK_TIMERS["SPEC_REVIEW"] を流用（self_review 専用タイムアウトは不要。運用上同一SLA）
         try:
@@ -397,6 +482,7 @@ def _check_spec_revise(
                     "_self_review_response": None,
                     "_self_review_pass": current_pass + 1,
                 },
+                send_failure_rollback={"_self_review_sent": None},
             )
 
         if elapsed < SPEC_BLOCK_TIMERS["SPEC_REVIEW"]:
@@ -436,6 +522,7 @@ def _check_spec_revise(
                 "_self_review_response": None,
                 "_self_review_pass": current_pass + 1,
             },
+            send_failure_rollback={"_self_review_sent": None},
         )
 
     # -----------------------------------------------------------------------
@@ -497,6 +584,7 @@ def _check_spec_revise(
                 "_self_review_pending_updates": updates,  # save data for transition
                 "_self_review_expected_ids": expected_ids,  # for ID validation during parse
             },
+            send_failure_rollback={"_self_review_sent": None},
         )
     # --- ここまで S-5 追加。以下は implementer 送信 + タイムアウトチェック ---
 
@@ -504,6 +592,20 @@ def _check_spec_revise(
     implementer = spec_config.get("spec_implementer", "")
     revise_sent = spec_config.get("_revise_sent")
     if not revise_sent and implementer:
+        # (D) circuit breaker: _revise_send_retries で送信リトライ回数を制限
+        revise_send_retries = spec_config.get("_revise_send_retries", 0)
+        if revise_send_retries >= MAX_SPEC_RETRIES:
+            return SpecTransitionAction(
+                next_state="SPEC_PAUSED",
+                discord_notify=render("spec.paused", "notify_paused",
+                    project=project,
+                    reason=f"Revise send retry exhausted ({revise_send_retries}/{MAX_SPEC_RETRIES})",
+                ),
+                pipeline_updates={
+                    "paused_from": "SPEC_REVISE",
+                    "_revise_send_retries": None,
+                },
+            )
         # current_reviews.entries からレビュー指摘を整形
         current_reviews = spec_config.get("current_reviews", {})
         entries = current_reviews.get("entries", {})
@@ -540,7 +642,11 @@ def _check_spec_revise(
             return SpecTransitionAction(
                 next_state=None,
                 send_to={implementer: prompt},
-                pipeline_updates={"_revise_sent": now.isoformat()},
+                pipeline_updates={
+                    "_revise_sent": now.isoformat(),
+                    "_revise_send_retries": revise_send_retries + 1,
+                },
+                send_failure_rollback={"_revise_sent": None},
             )
 
     # タイムアウト起点: _revise_retry_at（リトライ後）or _revise_sent or history（初回）
@@ -1037,10 +1143,11 @@ def _apply_spec_action(
     from engine.shared import log
     applied = False
     applied_action: SpecTransitionAction | None = None
+    rr_patch_reviewers: set[str] = set()
     pj = orig_data.get("project", pipeline_path.stem)
 
     def _update(data: dict) -> None:
-        nonlocal applied, applied_action
+        nonlocal applied, applied_action, rr_patch_reviewers
         # expected_state 不一致 → 競合スキップ
         if data.get("state") != action.expected_state:
             log(f"[{pj}] spec DCL conflict: expected={action.expected_state}, actual={data.get('state')}")
@@ -1072,6 +1179,7 @@ def _apply_spec_action(
             # review_requests_patch: per-reviewer の差分を deep merge
             rr_patch = pu.pop("review_requests_patch", None)
             if rr_patch:
+                rr_patch_reviewers = set(rr_patch.keys())
                 rr = sc.setdefault("review_requests", {})
                 for reviewer, patch in rr_patch.items():
                     rr.setdefault(reviewer, {}).update(patch)
@@ -1107,9 +1215,37 @@ def _apply_spec_action(
             pd = orig_data.get("spec_config", {}).get("pipelines_dir")
             if pd:
                 _ensure_pipelines_dir(pd)
+            failed_agents: set[str] = set()
             for agent_id, msg in applied_action.send_to.items():
                 if not send_to_agent_queued(agent_id, msg):
                     notify_discord(render("spec.paused", "notify_failure", project=pj, kind="send failure", detail=f"agent={agent_id}"))
+                    failed_agents.add(agent_id)
+            if failed_agents:
+                rb = applied_action.send_failure_rollback
+                rr_failed = failed_agents & rr_patch_reviewers
+                if rb or rr_failed:
+                    # NOTE: This rollback is a separate transaction from the initial write.
+                    # A process crash between the two leaves sent markers stranded.
+                    # The window is extremely small and acceptable in practice.
+                    def _rollback_send(data: dict, rollback: dict | None = rb, rr_agents: set[str] = rr_failed) -> None:
+                        sc = data.get("spec_config", {})
+                        if rollback:
+                            sc.update(rollback)
+                        if rr_agents:
+                            rr = sc.get("review_requests", {})
+                            for agent in rr_agents:
+                                entry = rr.get(agent)
+                                if isinstance(entry, dict):
+                                    entry["sent_at"] = None
+                                    entry.pop("timeout_at", None)
+                        data["spec_config"] = sc
+                    try:
+                        update_pipeline(pipeline_path, _rollback_send)
+                    except Exception as exc:
+                        logging.warning(
+                            "_apply_spec_action: send_failure_rollback failed for %s: %s",
+                            pipeline_path.stem, exc,
+                        )
         # spec mode レビュアー催促（#76）
         if applied_action.nudge_reviewers:
             from engine.shared import _is_agent_inactive

@@ -371,7 +371,7 @@ def _check_spec_revise(
     # -----------------------------------------------------------------------
     pending_feedback = spec_config.get("_issues_found_pending_feedback")
     if pending_feedback and isinstance(pending_feedback, str):
-        feedback_retries = spec_config.get("_issues_found_send_retries", 0)
+        feedback_retries = spec_config.get("_issues_found_send_retries") or 0
         if feedback_retries >= MAX_SPEC_RETRIES:
             return SpecTransitionAction(
                 next_state="SPEC_PAUSED",
@@ -593,7 +593,7 @@ def _check_spec_revise(
     revise_sent = spec_config.get("_revise_sent")
     if not revise_sent and implementer:
         # (D) circuit breaker: _revise_send_retries で送信リトライ回数を制限
-        revise_send_retries = spec_config.get("_revise_send_retries", 0)
+        revise_send_retries = spec_config.get("_revise_send_retries") or 0
         if revise_send_retries >= MAX_SPEC_RETRIES:
             return SpecTransitionAction(
                 next_state="SPEC_PAUSED",

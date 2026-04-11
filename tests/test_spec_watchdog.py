@@ -247,6 +247,51 @@ class TestCheckSpecRevise:
         action = _check_spec_revise(sc, _now(), {"history": []})
         assert action.next_state is None
 
+    def test_d_revise_send_retries_none_no_crash(self):
+        """_revise_send_retries=None（clean path リセット後）で TypeError にならず、0 として扱われる。"""
+        sc = {
+            "spec_implementer": "impl1",
+            "spec_path": "docs/spec.md",
+            "current_reviews": {
+                "entries": {
+                    "r1": {
+                        "verdict": "P0",
+                        "items": [{"id": "i1", "severity": "critical",
+                            "section": "s", "title": "t", "description": "d", "suggestion": "s"}],
+                        "raw_text": "", "parse_success": True, "status": "received",
+                    },
+                },
+            },
+            "retry_counts": {},
+            "_revise_send_retries": None,
+        }
+        data = {
+            "project": "test-pj",
+            "history": [{"from": "SPEC_REVIEW", "to": "SPEC_REVISE", "at": _now().isoformat()}],
+        }
+        action = _check_spec_revise(sc, _now(), data)
+        # None が 0 として扱われ、送信試行 → retries 0+1=1
+        assert action.pipeline_updates["_revise_send_retries"] == 1
+        assert "impl1" in action.send_to
+
+    def test_a2_issues_found_send_retries_none_no_crash(self):
+        """_issues_found_send_retries=None（clean path リセット後）で TypeError にならず、0 として扱われる。"""
+        sc = {
+            "spec_implementer": "impl1",
+            "retry_counts": {},
+            "_issues_found_pending_feedback": "revise feedback text",
+            "_issues_found_send_retries": None,
+        }
+        data = {
+            "history": [{"from": "SPEC_REVIEW", "to": "SPEC_REVISE", "at": _now().isoformat()}],
+        }
+        action = _check_spec_revise(sc, _now(), data)
+        # None が 0 として扱われ、送信試行 → retries 0+1=1
+        assert action.pipeline_updates["_issues_found_send_retries"] == 1
+        assert "impl1" in action.send_to
+        # pending_feedback はクリアされる
+        assert action.pipeline_updates["_issues_found_pending_feedback"] is None
+
 
 # --- _apply_spec_action DCL ---
 

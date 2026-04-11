@@ -152,7 +152,8 @@ def cmd_spec_start(args):
         )
     if review_mode not in REVIEW_MODES:
         raise SystemExit(f"Unknown review_mode: {review_mode!r} (available: {sorted(REVIEW_MODES.keys())})")
-    reviewers = REVIEW_MODES[review_mode]["members"]
+    from engine.fsm import _build_phase_config
+    phase_config = _build_phase_config(REVIEW_MODES[review_mode], "design")
     review_requests = {
         r: {
             "status": "pending",
@@ -161,7 +162,7 @@ def cmd_spec_start(args):
             "last_nudge_at": None,
             "response": None,
         }
-        for r in reviewers
+        for r in phase_config["members"]
     }
 
     pipelines_dir = str(Path(PIPELINES_DIR) / args.project / "spec-reviews")
@@ -169,8 +170,6 @@ def cmd_spec_start(args):
     # ロック外: _reset_reviewers（ネットワーク I/O）
     if not skip_review:
         from engine.reviewer import _reset_reviewers
-        from engine.fsm import _build_phase_config
-        phase_config = _build_phase_config(REVIEW_MODES[review_mode], "design")
         excluded = _reset_reviewers(phase_config, implementer=args.implementer or "")
         excluded_reviewers_only = [r for r in excluded if r in phase_config["members"]]
     else:

@@ -1,9 +1,12 @@
 """engine/reviewer.py - レビュー関連ロジック（watchdog.pyから分離）"""
 
+from __future__ import annotations
+
 import logging
 import re
 import time
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 import config
 from config import (
@@ -12,10 +15,13 @@ from config import (
 from engine.shared import log
 from notify import send_to_agent_queued, ping_agent
 
+if TYPE_CHECKING:
+    from engine.fsm import PhaseConfig
+
 _logger = logging.getLogger(__name__)
 
 
-def _reset_reviewers(phase_config: dict, implementer: str = "") -> list[str]:
+def _reset_reviewers(phase_config: PhaseConfig, implementer: str = "") -> list[str]:
     """Reset reviewer/implementer sessions before a review cycle.
 
     For openclaw backend: sends /new to each target, waits, then pings free tier.
@@ -83,7 +89,7 @@ def _reset_reviewers(phase_config: dict, implementer: str = "") -> list[str]:
     return excluded
 
 
-def _reset_short_context_reviewers(phase_config: dict) -> None:
+def _reset_short_context_reviewers(phase_config: PhaseConfig) -> None:
     """Reset short-context tier reviewers before a review cycle.
 
     For openclaw backend: sends /new and waits POST_NEW_COMMAND_WAIT_SEC.

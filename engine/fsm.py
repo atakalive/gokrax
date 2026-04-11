@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from datetime import datetime as _datetime
+from typing import TypedDict
 
 from config import (
     BLOCK_TIMERS,
@@ -27,6 +28,14 @@ from notify import notify_discord, notify_implementer, notify_reviewers
 from pipeline_io import clear_pending_notification, get_path, load_pipeline
 
 
+class PhaseConfig(TypedDict):
+    """Phase-resolved review config returned by _build_phase_config / get_phase_config."""
+    members: list[str]
+    min_reviews: int
+    n_pass: dict[str, int]
+    grace_period_sec: int
+
+
 def get_min_reviews(mode_config: dict) -> int:
     """mode_config から min_reviews を取得する。未定義または None の場合は len(members) を返す。"""
     val = mode_config.get("min_reviews")
@@ -35,7 +44,7 @@ def get_min_reviews(mode_config: dict) -> int:
     return len(mode_config.get("members", []))
 
 
-def _build_phase_config(mode_config: dict, phase: str) -> dict:
+def _build_phase_config(mode_config: dict, phase: str) -> PhaseConfig:
     """mode_config から指定フェーズの review_config エントリを生成する。
 
     min_reviews の計算順序:
@@ -96,7 +105,7 @@ def build_review_config(mode_config: dict) -> dict:
     }
 
 
-def get_phase_config(data: dict | None, phase: str) -> dict:
+def get_phase_config(data: dict | None, phase: str) -> PhaseConfig:
     """pipeline data から指定フェーズ（"design" or "code"）の review config を取得する。
 
     review_config が存在すれば使い、なければ review_mode から REVIEW_MODES を引いてフォールバックする。

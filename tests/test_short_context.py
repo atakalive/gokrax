@@ -199,7 +199,7 @@ class TestNotifyReviewersShortContext:
 class TestResetShortContextReviewers:
 
     def _setup(self, monkeypatch, short_ctx_members=None, other_members=None, mode_name="test_mode"):
-        """テスト用の config を構築して返す。"""
+        """テスト用の config を構築して phase_config dict を返す。"""
         import config
         short_ctx_members = short_ctx_members or []
         other_members = other_members or []
@@ -218,7 +218,7 @@ class TestResetShortContextReviewers:
         # Ensure openclaw backend so send_to_agent_queued path is exercised
         # (project settings may set DEFAULT_AGENT_BACKEND="pi")
         monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "openclaw")
-        return mode_name
+        return {"members": all_members, "min_reviews": 1, "grace_period_sec": 0, "n_pass": {}}
 
     def test_keep_ctx_sends_new_to_short_context(self, monkeypatch):
         """keep_ctx=True + short-context tier メンバーがいるモードで /new が short-context メンバーに送信されること。"""
@@ -265,11 +265,15 @@ class TestResetShortContextReviewers:
         mock_queued.assert_not_called()
 
     def test_unknown_review_mode_raises(self, monkeypatch):
-        """未知の review_mode を渡したとき KeyError を raise すること。"""
+        """未知の review_mode で phase_config を構築できない（呼び出し側の責務）。
+        _reset_short_context_reviewers 自体は phase_config dict を受け取るため、
+        空 members の phase_config を渡すと何もしない。"""
         import engine.reviewer
 
-        with pytest.raises(KeyError):
-            engine.reviewer._reset_short_context_reviewers("nonexistent_mode_xyz")
+        phase_config = {"members": [], "min_reviews": 0, "grace_period_sec": 0, "n_pass": {}}
+        with patch("engine.reviewer.send_to_agent_queued") as mock_send:
+            engine.reviewer._reset_short_context_reviewers(phase_config)
+        mock_send.assert_not_called()
 
     def test_dry_run_skips_sleep(self, monkeypatch):
         """DRY_RUN=True 時に time.sleep が呼ばれないこと。"""

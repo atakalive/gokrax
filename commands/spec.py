@@ -169,9 +169,10 @@ def cmd_spec_start(args):
     # ロック外: _reset_reviewers（ネットワーク I/O）
     if not skip_review:
         from engine.reviewer import _reset_reviewers
-        excluded = _reset_reviewers(review_mode, implementer=args.implementer or "")
-        mode_config = REVIEW_MODES[review_mode]
-        excluded_reviewers_only = [r for r in excluded if r in mode_config["members"]]
+        from engine.fsm import _build_phase_config
+        phase_config = _build_phase_config(REVIEW_MODES[review_mode], "design")
+        excluded = _reset_reviewers(phase_config, implementer=args.implementer or "")
+        excluded_reviewers_only = [r for r in excluded if r in phase_config["members"]]
     else:
         excluded = []
         excluded_reviewers_only = []
@@ -215,8 +216,8 @@ def cmd_spec_start(args):
             rr = sc.get("review_requests", {})
             for r in excluded_reviewers_only:
                 rr.pop(r, None)
-            effective_count = len(mode_config["members"]) - len(excluded_reviewers_only)
-            min_reviews = get_min_reviews(mode_config)
+            effective_count = len(phase_config["members"]) - len(excluded_reviewers_only)
+            min_reviews = get_min_reviews(phase_config)
             if effective_count < min_reviews:
                 data["min_reviews_override"] = max(1, effective_count)
 

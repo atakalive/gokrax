@@ -24,7 +24,7 @@ def _block_external_calls(request, tmp_path):
     watchdog.LOG_FILE = tmp_log
 
     module = Path(request.node.fspath).stem
-    if module in ("test_notify", "test_config", "test_short_context"):
+    if module in ("test_notify", "test_config", "test_short_context", "test_phase_override"):
         yield
         config.LOG_FILE = orig_config
         watchdog.LOG_FILE = orig_watchdog
@@ -124,7 +124,7 @@ def tmp_pipelines(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 # Test-only constants — use these instead of real agent/project names
 # ---------------------------------------------------------------------------
-TEST_REVIEWERS = ["reviewer1", "reviewer2", "reviewer3", "reviewer4", "reviewer5"]
+TEST_REVIEWERS = ["reviewer1", "reviewer2", "reviewer3", "reviewer4", "reviewer5", "reviewer6"]
 TEST_IMPLEMENTERS = ["implementer1", "implementer2"]
 TEST_PROJECTS = ["project1", "project2", "project3"]
 TEST_GITLAB_NS = "testns"
@@ -136,7 +136,14 @@ TEST_REVIEWER_TIERS = {
     "short-context": ["reviewer2", "reviewer4", "reviewer5"],
 }
 TEST_REVIEW_MODES = {
-    "full": {"members": ["reviewer1", "reviewer3", "reviewer5", "reviewer6"], "min_reviews": 4, "grace_period_sec": 0},
+    "full": {
+        "members": ["reviewer1", "reviewer3", "reviewer5", "reviewer6"],
+        "min_reviews": 4,
+        "grace_period_sec": 0,
+        "code": {
+            "members": ["reviewer1", "reviewer3", "reviewer6"],
+        },
+    },
     "standard": {"members": ["reviewer1", "reviewer3", "reviewer6"], "min_reviews": 3, "grace_period_sec": 0},
     "lite": {"members": ["reviewer1", "reviewer3"], "min_reviews": 2, "grace_period_sec": 0},
     "min": {"members": ["reviewer1"], "min_reviews": 1, "grace_period_sec": 0},

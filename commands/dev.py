@@ -720,16 +720,25 @@ def cmd_transition(args):
                 def _set_last_impl(s):
                     s["last_impl_project"] = pj
                 update_gokrax_state(_set_last_impl)
-            _reset_reviewers(ctx["review_mode"], implementer=impl)
+            from engine.fsm import get_phase_config
+            reset_phase = STATE_PHASE_MAP.get(args.to, "design")
+            pipeline_data = load_pipeline(get_path(pj))
+            phase_config = get_phase_config(pipeline_data, reset_phase)
+            _reset_reviewers(phase_config, implementer=impl)
     if notif.impl_msg:
         phase = STATE_PHASE_MAP.get(args.to, "")
         notify_implementer(ctx["implementer"], f"[gokrax] {pj}: {prefix}{notif.impl_msg}", project=pj, phase=phase)
         clear_pending_notification(pj, "impl")
     if notif.send_review:
         excluded = ctx["excluded_reviewers"]
+        from engine.fsm import get_phase_config as _gpc
+        _reset_phase = STATE_PHASE_MAP.get(args.to, "design")
+        _pipeline_data = load_pipeline(get_path(pj))
+        phase_config = _gpc(_pipeline_data, _reset_phase)
         notify_reviewers(pj, args.to, ctx["batch"], ctx["gitlab"],
                         repo_path=ctx["repo_path"],
-                        review_mode=ctx["review_mode"], excluded=excluded)
+                        review_mode=ctx["review_mode"], excluded=excluded,
+                        phase_config=phase_config)
         clear_pending_notification(pj, "review")
 
     # Discord 通知（pending 対象外 — 重複許容）

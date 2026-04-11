@@ -289,6 +289,10 @@ class TestReviewerResetDispatch:
         monkeypatch.setattr(_reviewer_mod, "_reset_reviewers", _real_reset_reviewers)
         monkeypatch.setattr(_reviewer_mod, "_reset_short_context_reviewers", _real_reset_short_context)
 
+    def _phase_config(self, mode="standard"):
+        from engine.fsm import _build_phase_config
+        return _build_phase_config(config.REVIEW_MODES[mode], "design")
+
     def test_openclaw_sends_new(self, monkeypatch):
         """openclaw backend sends /new via send_to_agent_queued."""
         monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "openclaw")
@@ -296,7 +300,7 @@ class TestReviewerResetDispatch:
         with patch.object(_reviewer_mod, "send_to_agent_queued", return_value=True) as mock_send, \
              patch.object(_reviewer_mod, "ping_agent", return_value=True), \
              patch("time.sleep"):
-            _real_reset_reviewers(review_mode="standard")
+            _real_reset_reviewers(self._phase_config())
         assert mock_send.call_count > 0
         for c in mock_send.call_args_list:
             assert c[0][1] == "/new"
@@ -306,14 +310,14 @@ class TestReviewerResetDispatch:
         monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "pi")
         with patch("engine.backend.reset_session") as mock_reset, \
              patch.object(_reviewer_mod, "send_to_agent_queued") as mock_send:
-            _real_reset_reviewers(review_mode="standard")
+            _real_reset_reviewers(self._phase_config())
         assert mock_reset.call_count > 0
         mock_send.assert_not_called()
 
     def test_pi_reset_returns_empty_excluded(self, monkeypatch):
         monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "pi")
         with patch("engine.backend.reset_session"):
-            excluded = _real_reset_reviewers(review_mode="standard")
+            excluded = _real_reset_reviewers(self._phase_config())
         assert excluded == []
 
     def test_cc_calls_reset_session_not_new(self, monkeypatch):
@@ -321,14 +325,14 @@ class TestReviewerResetDispatch:
         monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "cc")
         with patch("engine.backend.reset_session") as mock_reset, \
              patch.object(_reviewer_mod, "send_to_agent_queued") as mock_send:
-            _real_reset_reviewers(review_mode="standard")
+            _real_reset_reviewers(self._phase_config())
         assert mock_reset.call_count > 0
         mock_send.assert_not_called()
 
     def test_cc_reset_returns_empty_excluded(self, monkeypatch):
         monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "cc")
         with patch("engine.backend.reset_session"):
-            excluded = _real_reset_reviewers(review_mode="standard")
+            excluded = _real_reset_reviewers(self._phase_config())
         assert excluded == []
 
     def test_openclaw_reset_waits(self, monkeypatch):
@@ -338,7 +342,7 @@ class TestReviewerResetDispatch:
         with patch.object(_reviewer_mod, "send_to_agent_queued", return_value=True), \
              patch.object(_reviewer_mod, "ping_agent", return_value=True), \
              patch("time.sleep") as mock_sleep:
-            _real_reset_reviewers(review_mode="standard")
+            _real_reset_reviewers(self._phase_config())
         mock_sleep.assert_called()
 
 
@@ -353,12 +357,16 @@ class TestShortContextResetDispatch:
         monkeypatch.setattr(_reviewer_mod, "_reset_reviewers", _real_reset_reviewers)
         monkeypatch.setattr(_reviewer_mod, "_reset_short_context_reviewers", _real_reset_short_context)
 
+    def _phase_config(self, mode="full"):
+        from engine.fsm import _build_phase_config
+        return _build_phase_config(config.REVIEW_MODES[mode], "design")
+
     def test_openclaw_sends_new_and_waits(self, monkeypatch):
         monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "openclaw")
         monkeypatch.setattr(config, "DRY_RUN", False)
         with patch.object(_reviewer_mod, "send_to_agent_queued", return_value=True) as mock_send, \
              patch("time.sleep") as mock_sleep:
-            _real_reset_short_context("full")
+            _real_reset_short_context(self._phase_config())
         if mock_send.call_count > 0:
             for c in mock_send.call_args_list:
                 assert c[0][1] == "/new"
@@ -367,16 +375,16 @@ class TestShortContextResetDispatch:
     def test_pi_calls_reset_session_no_sleep(self, monkeypatch):
         monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "pi")
         from engine.reviewer import get_tier
-        mode_config = config.REVIEW_MODES["full"]
+        phase_config = self._phase_config()
         expected_targets = sorted(
-            m for m in mode_config["members"]
+            m for m in phase_config["members"]
             if get_tier(m) == "short-context" and m in config.AGENTS
         )
         assert len(expected_targets) > 0, "Test prerequisite failed: empty target set"
         with patch("engine.backend.reset_session") as mock_reset, \
              patch.object(_reviewer_mod, "send_to_agent_queued") as mock_send, \
              patch("time.sleep") as mock_sleep:
-            _real_reset_short_context("full")
+            _real_reset_short_context(phase_config)
         mock_send.assert_not_called()
         mock_sleep.assert_not_called()
         # Assert reset_session call targets and count
@@ -387,16 +395,16 @@ class TestShortContextResetDispatch:
     def test_cc_calls_reset_session_no_sleep(self, monkeypatch):
         monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "cc")
         from engine.reviewer import get_tier
-        mode_config = config.REVIEW_MODES["full"]
+        phase_config = self._phase_config()
         expected_targets = sorted(
-            m for m in mode_config["members"]
+            m for m in phase_config["members"]
             if get_tier(m) == "short-context" and m in config.AGENTS
         )
         assert len(expected_targets) > 0, "Test prerequisite failed: empty target set"
         with patch("engine.backend.reset_session") as mock_reset, \
              patch.object(_reviewer_mod, "send_to_agent_queued") as mock_send, \
              patch("time.sleep") as mock_sleep:
-            _real_reset_short_context("full")
+            _real_reset_short_context(phase_config)
         mock_send.assert_not_called()
         mock_sleep.assert_not_called()
         assert mock_reset.call_count == len(expected_targets)
@@ -487,8 +495,10 @@ class TestMixedBackendReset:
              patch.object(_reviewer_mod, "send_to_agent_queued", return_value=True) as mock_send, \
              patch.object(_reviewer_mod, "ping_agent", return_value=True), \
              patch("time.sleep"):
+            from engine.fsm import _build_phase_config
             review_mode = "standard" if "standard" in config.REVIEW_MODES else "full"
-            _real_reset_reviewers(review_mode=review_mode)
+            phase_config = _build_phase_config(config.REVIEW_MODES[review_mode], "design")
+            _real_reset_reviewers(phase_config)
 
         # pi agent got reset_session
         reset_targets = [c[0][0] for c in mock_reset.call_args_list]

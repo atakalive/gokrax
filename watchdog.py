@@ -1016,18 +1016,22 @@ def process(path: Path):
                 skip_reset = notification.get("keep_ctx_intra", False)
             else:
                 skip_reset = False
+            # Derive phase_config from pipeline data (frozen review_config)
+            reset_phase = STATE_PHASE_MAP.get(action.new_state or "", "design")
+            pipeline_data = load_pipeline(get_path(pj))
+            phase_config = get_phase_config(pipeline_data, reset_phase)
+
             if skip_reset:
                 log(f"[{pj}] reset_reviewers SKIPPED (keep_ctx for {action.new_state})")
-                _reset_short_context_reviewers(review_mode)
+                _reset_short_context_reviewers(phase_config)
                 excluded = []
             else:
                 # 実装担当も常にリセット（レビュアーと同タイミングで/new）
                 impl = notification.get("implementer", "")
                 log(f"[{pj}] reset_reviewers triggered: new_state={action.new_state}, impl='{impl}', review_mode={review_mode}")
-                excluded = _reset_reviewers(review_mode, implementer=impl)
+                excluded = _reset_reviewers(phase_config, implementer=impl)
 
             # Save excluded_reviewers and min_reviews_override inside update_pipeline lock
-            mode_config = REVIEW_MODES[review_mode]
             notify_path = get_path(pj)
 
             import random
@@ -1047,7 +1051,7 @@ def process(path: Path):
                     # 注: review_config が存在するが全フェーズの members が空リストの場合は
                     # フォールバックしない（空集合は意図的な設定）。
                     if not rc:
-                        all_phase_members = set(mode_config.get("members", []))
+                        all_phase_members = set(phase_config.get("members", []))
                     active_reviewers = sorted(r for r in all_phase_members if r not in excluded)
                     n = len(active_reviewers)
                     numbers = list(range(1, n + 1))
@@ -1055,8 +1059,8 @@ def process(path: Path):
                     data["reviewer_number_map"] = dict(zip(active_reviewers, numbers))
 
                 # Calculate effective reviewer count
-                effective_count = len([m for m in mode_config["members"] if m not in excluded])
-                min_reviews = get_min_reviews(mode_config)
+                effective_count = len([m for m in phase_config["members"] if m not in excluded])
+                min_reviews = get_min_reviews(phase_config)
 
                 # Clamp min_reviews if deadlock would occur
                 if effective_count < min_reviews:
@@ -1089,6 +1093,10 @@ def process(path: Path):
             base_commit = pipeline_data.get("base_commit")
             from pipeline_io import get_current_round
             round_num = get_current_round(pipeline_data)
+            # Derive phase_config for notify_reviewers
+            notify_phase = STATE_PHASE_MAP.get(action.new_state or "", "design")
+            pipeline_data = load_pipeline(get_path(pj))
+            phase_config = get_phase_config(pipeline_data, notify_phase)
             try:
                 failed = notify_reviewers(
                     pj, action.new_state, notification["batch"], notification["gitlab"],
@@ -1100,6 +1108,7 @@ def process(path: Path):
                     comment=pipeline_data.get("comment", ""),
                     round_num=round_num if round_num > 0 else None,
                     already_reset=not skip_reset,  # True if _reset_reviewers() was executed
+                    phase_config=phase_config,
                 )
             except KeyError as e:
                 log(f"[{pj}] FATAL: notify_reviewers failed due to configuration error: {e}. Disabling watchdog.")
@@ -1110,7 +1119,7 @@ def process(path: Path):
 
             # 送信失敗レビュアーを excluded_reviewers に追加（2回目の update_pipeline）
             if isinstance(failed, list) and failed:
-                _failed_mode_config = REVIEW_MODES[review_mode]
+                _failed_phase_config = phase_config
                 def _add_failed_to_excluded(data: dict) -> None:
                     ex = data.get("excluded_reviewers", [])
                     for r in failed:
@@ -1118,8 +1127,8 @@ def process(path: Path):
                             ex.append(r)
                     data["excluded_reviewers"] = ex
                     # DEADLOCK クランプ再計算
-                    effective_count = len([m for m in _failed_mode_config["members"] if m not in data["excluded_reviewers"]])
-                    _min_reviews = get_min_reviews(_failed_mode_config)
+                    effective_count = len([m for m in _failed_phase_config["members"] if m not in data["excluded_reviewers"]])
+                    _min_reviews = get_min_reviews(_failed_phase_config)
                     if effective_count < _min_reviews:
                         clamped = max(effective_count, 0)
                         log(f"[{pj}] [DEADLOCK] effective reviewers ({effective_count}) < min_reviews ({_min_reviews}), clamping to {clamped}")

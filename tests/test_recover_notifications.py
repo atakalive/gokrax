@@ -22,13 +22,14 @@ class TestRecoverReviewFreshExcluded:
                 "batch": [{"issue": 1, "title": "t"}],
                 "gitlab": "ns/proj",
                 "repo_path": "/tmp/repo",
-                "review_mode": "short_context",
+                "review_mode": "standard",
                 "base_commit": "abc123",
             },
         }
         fresh_pipeline = {
             "excluded_reviewers": ["reviewer_fresh"],
             "comment": "fresh comment",
+            "review_mode": "standard",
         }
 
         with (
@@ -53,7 +54,7 @@ class TestRecoverReviewFreshExcluded:
                 [{"issue": 1, "title": "t"}], "ns/proj",
             )
             assert call_kwargs[1]["repo_path"] == "/tmp/repo"
-            assert call_kwargs[1]["review_mode"] == "short_context"
+            assert call_kwargs[1]["review_mode"] == "standard"
             assert call_kwargs[1]["base_commit"] == "abc123"
             # pending cleared after success
             mock_clear.assert_called_once_with("proj", "review")
@@ -73,6 +74,7 @@ class TestRecoverReviewFreshComment:
         fresh_pipeline = {
             "excluded_reviewers": [],
             "comment": "updated comment",
+            "review_mode": "standard",
         }
 
         with (

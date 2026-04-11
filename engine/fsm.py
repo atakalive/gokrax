@@ -1005,6 +1005,8 @@ def _recover_pending_notifications(pj: str, pending: dict) -> None:
             fresh_data = load_pipeline(get_path(pj))
             excluded = fresh_data.get("excluded_reviewers", [])
             comment = fresh_data.get("comment", "")
+            phase = STATE_PHASE_MAP.get(info["new_state"], "design")
+            phase_config = get_phase_config(fresh_data, phase)
             notify_reviewers(
                 pj, info["new_state"], info["batch"], info["gitlab"],
                 repo_path=info.get("repo_path", ""),
@@ -1012,6 +1014,7 @@ def _recover_pending_notifications(pj: str, pending: dict) -> None:
                 excluded=excluded,
                 base_commit=info.get("base_commit"),
                 comment=comment,
+                phase_config=phase_config,
             )
             clear_pending_notification(pj, "review")
         except Exception as e:

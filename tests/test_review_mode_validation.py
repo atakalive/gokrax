@@ -27,15 +27,14 @@ def _read_pipeline(path: Path) -> dict:
 
 
 class TestResetReviewersValidation:
-    """_reset_reviewers が不明モードで KeyError を出す"""
+    """_reset_reviewers now takes phase_config dict; unknown mode validation
+    is the caller's responsibility (via get_phase_config)."""
 
     def test_unknown_review_mode_raises_in_reset_reviewers(self, monkeypatch):
-        import engine.reviewer as _mod
-        monkeypatch.setattr(_mod, "REVIEW_MODES", {
-            "standard": {"members": ["reviewer1"], "min_reviews": 1, "grace_period_sec": 0},
-        })
-        with pytest.raises(KeyError):
-            _real_reset_reviewers(review_mode="nonexistent")
+        """Empty phase_config members results in no reset actions."""
+        phase_config = {"members": [], "min_reviews": 0, "grace_period_sec": 0, "n_pass": {}}
+        excluded = _real_reset_reviewers(phase_config)
+        assert excluded == []
 
 
 class TestGetPhaseConfigValidation:
@@ -52,15 +51,13 @@ class TestGetPhaseConfigValidation:
 
 
 class TestShortContextResetValidation:
-    """_reset_short_context_reviewers が不明モードで KeyError を出す"""
+    """_reset_short_context_reviewers now takes phase_config dict; unknown mode
+    validation is the caller's responsibility (via get_phase_config)."""
 
     def test_unknown_review_mode_raises_in_short_context_reset(self, monkeypatch):
-        import engine.reviewer as _mod
-        monkeypatch.setattr(_mod, "REVIEW_MODES", {
-            "standard": {"members": ["reviewer1"], "min_reviews": 1, "grace_period_sec": 0},
-        })
-        with pytest.raises(KeyError):
-            _real_reset_short_context_reviewers(review_mode="nonexistent")
+        """Empty phase_config members results in no reset actions."""
+        phase_config = {"members": [], "min_reviews": 0, "grace_period_sec": 0, "n_pass": {}}
+        _real_reset_short_context_reviewers(phase_config)
 
 
 class TestWatchdogDisablesOnKeyError:

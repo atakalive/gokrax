@@ -7,7 +7,7 @@ from datetime import datetime
 
 import config
 from config import (
-    AGENTS, REVIEW_MODES, POST_NEW_COMMAND_WAIT_SEC,
+    AGENTS, POST_NEW_COMMAND_WAIT_SEC,
 )
 from engine.shared import log
 from notify import send_to_agent_queued, ping_agent
@@ -15,14 +15,14 @@ from notify import send_to_agent_queued, ping_agent
 _logger = logging.getLogger(__name__)
 
 
-def _reset_reviewers(review_mode: str, implementer: str = "") -> list[str]:
+def _reset_reviewers(phase_config: dict, implementer: str = "") -> list[str]:
     """Reset reviewer/implementer sessions before a review cycle.
 
     For openclaw backend: sends /new to each target, waits, then pings free tier.
     For pi/cc backend: calls reset_session() for each target (no /new, no wait).
 
     Args:
-        review_mode: Review mode to determine member list
+        phase_config: Phase-resolved review config from get_phase_config()
         implementer: Implementer agent ID (if DESIGN_PLAN state)
 
     Returns:
@@ -31,12 +31,11 @@ def _reset_reviewers(review_mode: str, implementer: str = "") -> list[str]:
     from engine.backend import reset_session as _dispatch_reset
     from engine.backend import resolve_backend
 
-    mode_config = REVIEW_MODES[review_mode]
-    targets = set(mode_config["members"])
+    targets = set(phase_config["members"])
     if implementer:
         targets.add(implementer)
 
-    log(f"[/new] reset_reviewers: mode={review_mode}, impl='{implementer}', targets={sorted(targets)}")
+    log(f"[/new] reset_reviewers: members={sorted(phase_config['members'])}, impl='{implementer}', targets={sorted(targets)}")
 
     excluded = []
     oc_targets = []  # openclaw agents that received /new
@@ -67,7 +66,7 @@ def _reset_reviewers(review_mode: str, implementer: str = "") -> list[str]:
         time.sleep(POST_NEW_COMMAND_WAIT_SEC)
 
     # Ping free tier reviewers (openclaw only — pi agents have no ping check)
-    free_members = [m for m in mode_config["members"]
+    free_members = [m for m in phase_config["members"]
                     if get_tier(m) == "free" and m in oc_targets]
     if not free_members:
         log("[/new] no free tier members in mode, skipping ping")
@@ -84,7 +83,7 @@ def _reset_reviewers(review_mode: str, implementer: str = "") -> list[str]:
     return excluded
 
 
-def _reset_short_context_reviewers(review_mode: str) -> None:
+def _reset_short_context_reviewers(phase_config: dict) -> None:
     """Reset short-context tier reviewers before a review cycle.
 
     For openclaw backend: sends /new and waits POST_NEW_COMMAND_WAIT_SEC.
@@ -93,8 +92,7 @@ def _reset_short_context_reviewers(review_mode: str) -> None:
     from engine.backend import reset_session as _dispatch_reset
     from engine.backend import resolve_backend
 
-    mode_config = REVIEW_MODES[review_mode]
-    short_ctx = [m for m in mode_config["members"]
+    short_ctx = [m for m in phase_config["members"]
                  if get_tier(m) == "short-context" and m in AGENTS]
     if not short_ctx:
         return

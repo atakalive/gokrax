@@ -818,7 +818,8 @@ def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
                      base_commit: str | None = None,
                      comment: str = "",
                      round_num: int | None = None,
-                     already_reset: bool = False) -> list[str]:
+                     already_reset: bool = False,
+                     phase_config: dict | None = None) -> list[str]:
     """各レビュアーに個別のメッセージを送信。
 
     review_mode が "skip" の場合は通知をスキップ（自動承認用）。
@@ -841,7 +842,10 @@ def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
         raise KeyError(f"Invalid review_mode: {review_mode!r} (available: {sorted(REVIEW_MODES.keys())})")
 
     mode_config = REVIEW_MODES[review_mode]
-    reviewers = mode_config["members"]
+    if phase_config is not None:
+        reviewers = phase_config["members"]
+    else:
+        reviewers = mode_config["members"]
 
     # "skip" モード: 通知なし（watchdog が自動承認を処理）
     if review_mode == "skip":
@@ -881,7 +885,10 @@ def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
         # 強制外部化: CODE_REVIEW で n_pass > 1 のレビュアー → NPASS 用にファイル参照を保存
         force_externalize = False
         if state == "CODE_REVIEW":
-            n_pass = mode_config.get("n_pass", {}).get(r, 1)
+            if phase_config is not None:
+                n_pass = phase_config.get("n_pass", {}).get(r, 1)
+            else:
+                n_pass = mode_config.get("n_pass", {}).get(r, 1)
             if n_pass > 1:
                 force_externalize = True
 

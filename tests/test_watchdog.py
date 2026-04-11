@@ -6678,8 +6678,9 @@ class TestBlockedImplMsgNotification:
         # 2 calls: (1) state transition line, (2) impl_msg
         assert len(discord_calls) == 2
         assert "BLOCKED" in discord_calls[0]
-        # impl_msg should contain the blocked reason
-        assert discord_calls[1]  # non-empty
+        # impl_msg should contain the blocked reason with severity and project
+        assert "P0" in discord_calls[1]
+        assert "test-pj" in discord_calls[1]
 
     def test_blocked_transition_posts_gitlab_note(self, tmp_path, monkeypatch):
         """BLOCKED遷移でGitLab noteが投稿されること"""
@@ -6725,6 +6726,7 @@ class TestBlockedImplMsgNotification:
         for c in mock_post_note.call_args_list:
             body = c[0][2]
             assert "[gokrax] BLOCKED:" in body
+            assert "P0" in body
 
     def test_non_blocked_transition_no_extra_discord(self, tmp_path, monkeypatch):
         """BLOCKED以外の遷移で追加通知が発生しないこと"""

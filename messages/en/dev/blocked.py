@@ -24,7 +24,7 @@ def blocked_max_cycles(
     phase = _phase_label(state)
     return (
         f"{phase} review cycle has reached the limit ({MAX_REVISE_CYCLES} cycles).\n"
-        f"{severity} findings remain unresolved. Address manually. Report to {OWNER_NAME} on Discord."
+        f"{severity} findings remain unresolved. Address manually."
     )
 
 

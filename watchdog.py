@@ -784,6 +784,10 @@ def process(path: Path):
         q_prefix = "[Queue]" if notification.get("queue_mode") else ""
         notify_discord(f"{q_prefix}[{pj}] {notification['old_state']} → {action.new_state} ({ts})")
 
+        # BLOCKED: impl_msg を Discord に送信
+        if action.new_state == "BLOCKED" and action.impl_msg:
+            notify_discord(f"{q_prefix}[{pj}] {action.impl_msg}")
+
         # Grace period expired: スキップされたレビュアーを通知
         if action.grace_skipped_reviewers:
             names = action.grace_skipped_reviewers
@@ -865,6 +869,16 @@ def process(path: Path):
                 from config import DISCORD_CHANNEL
                 skipped_nums = ", ".join(f"#{i['issue']}" for i in skipped if isinstance(i, dict) and "issue" in i)
                 post_discord(DISCORD_CHANNEL, f"[{pj}] Excluded by risk filter: {skipped_nums}")
+
+        # BLOCKED: impl_msg を GitLab note として投稿（永続記録）
+        if action.new_state == "BLOCKED" and action.impl_msg:
+            from notify import post_gitlab_note
+            gitlab = notification.get("gitlab", "")
+            for issue in notification.get("batch", []):
+                issue_num = issue.get("issue") if isinstance(issue, dict) else issue
+                if issue_num:
+                    body = f"[gokrax] BLOCKED: {action.impl_msg}"
+                    post_gitlab_note(gitlab, issue_num, body)
 
         # REVISE遷移時: P0サマリーを投稿
         if action.new_state in ("DESIGN_REVISE", "CODE_REVISE"):

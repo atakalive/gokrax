@@ -6633,3 +6633,138 @@ class TestMainErrorCounting:
         discord_should_fail = False
         wd.main()
         assert len(discord_calls) == 1
+
+
+# ── TestBlockedImplMsgNotification (Issue #309) ──────────────────────────────
+
+class TestBlockedImplMsgNotification:
+    """BLOCKED遷移時にimpl_msgがDiscord/GitLabに通知されること。"""
+
+    def test_blocked_transition_sends_impl_msg_to_discord(self, tmp_path, monkeypatch):
+        """BLOCKED遷移でimpl_msgがDiscordに送信されること"""
+        import config, pipeline_io
+        from watchdog import process
+
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        path = tmp_path / "test-pj.json"
+        reviews = _make_reviews(["APPROVE", "P0"])
+        data = {
+            "project": "test-pj",
+            "state": "DESIGN_REVIEW",
+            "enabled": True,
+            "review_mode": "lite",
+            "design_revise_count": config.MAX_REVISE_CYCLES,
+            "batch": [{"issue": 1, "design_reviews": reviews, "code_reviews": {}}],
+            "history": [],
+            "created_at": "",
+            "updated_at": "",
+        }
+        _write_pipeline(path, data)
+
+        def fake_update(p, cb):
+            cb(data)
+            return data
+
+        discord_calls = []
+        with patch("watchdog.update_pipeline", side_effect=fake_update), \
+             patch("watchdog.notify_discord", side_effect=lambda msg: discord_calls.append(msg)), \
+             patch("watchdog.notify_implementer"), \
+             patch("notify.post_gitlab_note"):
+            process(path)
+
+        assert data["state"] == "BLOCKED"
+        # 2 calls: (1) state transition line, (2) impl_msg
+        assert len(discord_calls) == 2
+        assert "BLOCKED" in discord_calls[0]
+        # impl_msg should contain the blocked reason
+        assert discord_calls[1]  # non-empty
+
+    def test_blocked_transition_posts_gitlab_note(self, tmp_path, monkeypatch):
+        """BLOCKED遷移でGitLab noteが投稿されること"""
+        import config, pipeline_io
+        from watchdog import process
+
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        path = tmp_path / "test-pj.json"
+        reviews = _make_reviews(["APPROVE", "P0"])
+        batch = [
+            {"issue": 10, "design_reviews": reviews, "code_reviews": {}},
+            {"issue": 20, "design_reviews": reviews, "code_reviews": {}},
+        ]
+        data = {
+            "project": "test-pj",
+            "state": "DESIGN_REVIEW",
+            "enabled": True,
+            "review_mode": "lite",
+            "design_revise_count": config.MAX_REVISE_CYCLES,
+            "batch": batch,
+            "history": [],
+            "created_at": "",
+            "updated_at": "",
+        }
+        _write_pipeline(path, data)
+
+        def fake_update(p, cb):
+            cb(data)
+            return data
+
+        mock_post_note = MagicMock()
+        with patch("watchdog.update_pipeline", side_effect=fake_update), \
+             patch("watchdog.notify_discord"), \
+             patch("watchdog.notify_implementer"), \
+             patch("notify.post_gitlab_note", mock_post_note):
+            process(path)
+
+        assert data["state"] == "BLOCKED"
+        # Should be called once per issue in batch
+        assert mock_post_note.call_count == 2
+        for c in mock_post_note.call_args_list:
+            body = c[0][2]
+            assert "[gokrax] BLOCKED:" in body
+
+    def test_non_blocked_transition_no_extra_discord(self, tmp_path, monkeypatch):
+        """BLOCKED以外の遷移で追加通知が発生しないこと"""
+        import config, pipeline_io
+        from watchdog import process
+
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        path = tmp_path / "test-pj.json"
+        # P0 review + revise_count=0 → DESIGN_REVISE (not BLOCKED)
+        reviews = _make_reviews(["APPROVE", "P0"])
+        data = {
+            "project": "test-pj",
+            "state": "DESIGN_REVIEW",
+            "enabled": True,
+            "review_mode": "lite",
+            "design_revise_count": 0,
+            "batch": [{"issue": 1, "design_reviews": reviews, "code_reviews": {}}],
+            "history": [],
+            "created_at": "",
+            "updated_at": "",
+        }
+        _write_pipeline(path, data)
+
+        def fake_update(p, cb):
+            cb(data)
+            return data
+
+        discord_calls = []
+        mock_post_note = MagicMock()
+        with patch("watchdog.update_pipeline", side_effect=fake_update), \
+             patch("watchdog.notify_discord", side_effect=lambda msg: discord_calls.append(msg)), \
+             patch("watchdog.notify_implementer"), \
+             patch("notify.post_gitlab_note", mock_post_note):
+            process(path)
+
+        assert data["state"] == "DESIGN_REVISE"
+        # State transition line should be present, but no BLOCKED impl_msg
+        assert any("DESIGN_REVISE" in c for c in discord_calls)
+        assert not any("BLOCKED" in c for c in discord_calls)
+        # No BLOCKED gitlab notes
+        mock_post_note.assert_not_called()

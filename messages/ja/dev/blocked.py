@@ -24,7 +24,7 @@ def blocked_max_cycles(
     phase = _phase_label(state)
     return (
         f"{phase}レビューサイクルが上限（{MAX_REVISE_CYCLES}回）に達しました。\n"
-        f"{severity}の指摘が解消されていません。手動で対応してください。Discordで{OWNER_NAME}に報告してください。"
+        f"{severity}の指摘が解消されていません。手動で対応してください。"
     )
 
 

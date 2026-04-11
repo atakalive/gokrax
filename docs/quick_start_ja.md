@@ -49,7 +49,7 @@ pip install -r requirements.txt
 # Python3, pip が無い場合: sudo apt update && sudo apt install -y python3.12 && sudo apt install python3-pip
 
 # homebrew (https://brew.sh/ja/)
-# 無ければインストール -> Next steps に従って PATH に追加
+# 無ければインストール -> 表示される Next steps に従って PATH に追加
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
 # glab（GitLab CLI — https://gitlab.com/gitlab-org/cli/-/releases）
@@ -66,7 +66,11 @@ npm install -g @mariozechner/pi-coding-agent
 # pi にパスが通っているか確認
 which pi
 # 見つからない場合: echo 'export PATH="$(npm -g prefix)/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
-pi    # 起動後、/login でプロバイダを選択してブラウザでログインし、使用予定のモデルの応答確認する
+
+pi
+# 起動後、/login でプロバイダを選択してブラウザでログインする
+# /model で使用予定のモデルを選択し、応答を確認する
+# /quit で終了
 ```
 
 ## 3. gokrax コマンドの設定（必須）
@@ -79,7 +83,10 @@ chmod +x gokrax.py
 mkdir -p ~/.local/bin
 ln -s "$(realpath gokrax.py)" ~/.local/bin/gokrax
 
-# ~/.local/bin が PATH にない場合:
+# 確認
+which gokrax
+
+# パスが表示されない場合、~/.local/bin が PATH にない場合:
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
 
 # 確認
@@ -101,10 +108,7 @@ nano settings.py
 
 ```python
 # --- 必須 ---
-GOKRAX_CLI = "/home/you/.local/bin/gokrax"  # which gokrax で確認（手順 3 で作成したリンク）
-GITLAB_NAMESPACE = "your-username"      # gitlab.com/YOUR_NAMESPACE/...
-
-DEFAULT_AGENT_BACKEND = "pi"
+GITLAB_NAMESPACE = "YOUR_NAMESPACE"      # gitlab.com/YOUR_NAMESPACE/...
 
 DEFAULT_QUEUE_OPTIONS = {
     "automerge": True,          # no_cc 以外はデフォルトでOK
@@ -132,7 +136,7 @@ cp agents/example/INSTRUCTION.md.implementer agents/impl1/INSTRUCTION.md
 モデル設定（`agents/config_pi.json`）。`provider` と `model` は `pi --list-models` で表示される名前を使う:
 
 ```bash
-# 有効な provider, model を表示
+# 有効な provider, model を表示（どこかにメモする）
 pi --list-models
 
 # モデル設定 (Save: Ctrl+O, Exit: Ctrl+X)
@@ -141,16 +145,18 @@ nano agents/config_pi.json
 
 ```json
 {
-  "reviewer1": {
+  "impl1": {
     "provider": "openai-codex",
     "model": "gpt-5.4",
     "thinking": "low",
-    "tools": "read,bash,grep,find,ls"
+    "compile-startup-md": true
   },
-  "impl1": {
-    "provider": "anthropic",
-    "model": "claude-opus-4-6",
-    "thinking": "low"
+  "reviewer1": {
+    "provider": "google-gemini-cli",
+    "model": "gemini-3.1-pro-preview",
+    "thinking": "low",
+    "tools": "read,bash,grep,find,ls",
+    "compile-startup-md": true
   }
 }
 ```
@@ -186,6 +192,7 @@ GitLab リポジトリ作成後:
 
 ```bash
 # gokrax にプロジェクトを登録（GitLab リポジトリとローカルパスを指定して実行）
+# repo-path 例: /home/username/gokrax/myproject
 gokrax init --pj myproject --gitlab your-username/myproject --repo-path /fullpath/to/your/project --implementer impl1
 
 # サンプル Issue を作成
@@ -196,7 +203,7 @@ glab issue create \
 
 ## 7. 実行
 
-ブラウザで GitLab の Issue #1 ページを開いておく。本文更新・設計・レビューのコメントがリアルタイムで反映されていく。
+作成したプロジェクトの GitLab Issue #1 ページをブラウザで開いておく。本文更新・設計・レビューのコメントがリアルタイムで反映されていく。
 
 ```bash
 gokrax start --project myproject --issue 1 --mode min

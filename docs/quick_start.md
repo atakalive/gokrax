@@ -66,7 +66,10 @@ npm install -g @mariozechner/pi-coding-agent
 # Verify pi is on PATH
 which pi
 # If not found: echo 'export PATH="$(npm -g prefix)/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
-pi    # After launching, run /login to authenticate with your provider and confirm the model responds
+pi
+# After launching, run /login to select your provider and authenticate via browser
+# Use /model to select the model you plan to use and confirm it responds
+# /quit to exit
 ```
 
 ## 3. Set Up the gokrax Command (Required)
@@ -79,7 +82,10 @@ chmod +x gokrax.py
 mkdir -p ~/.local/bin
 ln -s "$(realpath gokrax.py)" ~/.local/bin/gokrax
 
-# If ~/.local/bin is not on PATH:
+# Verify
+which gokrax
+
+# If the path is not shown / ~/.local/bin is not on PATH:
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
 
 # Verify
@@ -101,10 +107,7 @@ nano settings.py
 
 ```python
 # --- Required ---
-GOKRAX_CLI = "/home/you/.local/bin/gokrax"  # Run: which gokrax (symlink created in step 3)
-GITLAB_NAMESPACE = "your-username"      # gitlab.com/YOUR_NAMESPACE/...
-
-DEFAULT_AGENT_BACKEND = "pi"
+GITLAB_NAMESPACE = "YOUR_NAMESPACE"      # gitlab.com/YOUR_NAMESPACE/...
 
 DEFAULT_QUEUE_OPTIONS = {
     "automerge": True,          # Defaults are fine except no_cc
@@ -132,7 +135,7 @@ cp agents/example/INSTRUCTION.md.implementer agents/impl1/INSTRUCTION.md
 Configure models in `agents/config_pi.json`. Use provider and model names from `pi --list-models`:
 
 ```bash
-# List available providers and models
+# List available providers and models (take note of them)
 pi --list-models
 
 # Edit (Save: Ctrl+O, Exit: Ctrl+X)
@@ -141,16 +144,18 @@ nano agents/config_pi.json
 
 ```json
 {
-  "reviewer1": {
+  "impl1": {
     "provider": "openai-codex",
     "model": "gpt-5.4",
     "thinking": "low",
-    "tools": "read,bash,grep,find,ls"
+    "compile-startup-md": true
   },
-  "impl1": {
-    "provider": "anthropic",
-    "model": "claude-opus-4-6",
-    "thinking": "low"
+  "reviewer1": {
+    "provider": "google-gemini-cli",
+    "model": "gemini-3.1-pro-preview",
+    "thinking": "low",
+    "tools": "read,bash,grep,find,ls",
+    "compile-startup-md": true
   }
 }
 ```
@@ -186,6 +191,7 @@ After the GitLab repository is ready:
 
 ```bash
 # Register the project with gokrax (specify the GitLab repo and local path)
+# repo-path example: /home/username/gokrax/myproject
 gokrax init --pj myproject --gitlab your-username/myproject --repo-path /fullpath/to/your/project --implementer impl1
 
 # Create a sample Issue
@@ -196,7 +202,7 @@ glab issue create \
 
 ## 7. Run
 
-Open the GitLab Issue #1 page in your browser. The issue description, design plan, and review comments will update in real time.
+Open your project's GitLab Issue #1 page in your browser. The issue description, design plan, and review comments will update in real time.
 
 ```bash
 gokrax start --project myproject --issue 1 --mode min

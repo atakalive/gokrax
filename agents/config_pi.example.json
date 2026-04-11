@@ -1,12 +1,12 @@
 {
-  "example_implementer": {
-    "provider": "anthropic",
-    "model": "claude-opus-4-6",
+  "impl1": {
+    "provider": "openai-codex",
+    "model": "gpt-5.4",
     "thinking": "low",
     "compile-startup-md": false
   },
-  "example_reviewer": {
-    "provider": "google",
+  "reviewer1": {
+    "provider": "google-gemini-cli",
     "model": "gemini-3.1-pro-preview",
     "thinking": "low",
     "tools": "read,bash,grep,find,ls",

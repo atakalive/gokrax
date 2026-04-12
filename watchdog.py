@@ -884,13 +884,12 @@ def process(path: Path):
         if action.new_state == "BLOCKED":
             implementer = notification.get("implementer", "")
             if implementer:
-                from config import GOKRAX_CLI as _GOKRAX_CLI_BLOCKED
                 report_prompt = render(
                     "dev.blocked", "blocked_prompt_report",
                     project=pj,
                     state=notification.get("old_state", ""),
                     impl_msg=action.impl_msg or "",
-                    GOKRAX_CLI=_GOKRAX_CLI_BLOCKED,
+                    GOKRAX_CLI=GOKRAX_CLI,
                 )
                 send_to_agent(implementer, report_prompt)
 

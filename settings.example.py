@@ -14,12 +14,10 @@ ANNOUNCE_BOT_USER_ID = ""  # Discord bot user ID of the bot (can be obtained by 
 MERGE_APPROVER_DISCORD_ID = ""  # Your Discord user ID for approving merges
 COMMAND_BOT_USER_ID = ""        # If you send commands via 3rd-party Discord tool (WatcherB etc.), include its bot user ID here
 
-GLAB_BIN = "glab"    # Uses PATH by default. Override with absolute path if needed (e.g. "/usr/bin/glab")
-GITLAB_NAMESPACE: str = "YOUR_NAMESPACE"           # i.e., gitlab.com/YOUR_NAMESPACE/ProjectName/
+GITLAB_NAMESPACE: str = "YOUR_NAMESPACE"           # i.e., YOUR_NAMESPACE of gitlab.com/YOUR_NAMESPACE/ProjectName/
 GOKRAX_CLI = Path.home() / ".local/bin/gokrax"     # must be symbolic link to gokrax.py
-PIPELINES_DIR = Path.home() / ".gokrax/pipelines"  # myproject.json pipeline files are stored here
 
-DEFAULT_AGENT_BACKEND = "pi"    # "openclaw" or "pi" or "cc"
+DEFAULT_AGENT_BACKEND = "pi"    # "pi" or "cc" or "openclaw"
 AGENT_BACKEND_OVERRIDE = {}     # per-agent override, e.g. {"impl1": "openclaw", "reviewer1": "cc"}
 
 # openclaw settings (if using openclaw backend)
@@ -30,9 +28,9 @@ IMPLEMENTERS = ["impl1"]
 # AGENTS dictionary is auto-generated from REVIEWERS + IMPLEMENTERS in config.
 
 # Reviewer tiers means that their infrastructure capability
-# Regular: Stable connection, enough context length
-# Free: Limited daily token usage, may be disconnected in workflow. (Author did not test them well)
-# Short-context: Shorter context length. Local LLM etc. (64k-ctx model was tested in single issue)
+# regular: Stable connection, enough context length
+# short-context: Shorter context length. Local LLM etc. (64k-ctx model was tested in single issue)
+# free: Limited daily token usage, may be disconnected in workflow. (Author did not test them well)
 REVIEWER_TIERS: dict = {
     "regular": ["reviewer1"],
     "short-context": [],
@@ -114,7 +112,9 @@ REVIEW_MODES = {
 # Advanced — uncomment and edit if needed
 #            Other settings in config directory can be overridden in settings.py
 # ===========================================================================
+# PIPELINES_DIR = Path.home() / ".gokrax/pipelines"  # myproject.json pipeline files are stored here
 # AGENT_PROFILES_DIR = Path("/path/to/agents")  # agent profile directory (default: gokrax/agents/)
+# GLAB_BIN = "glab"    # Uses PATH by default. Override with absolute path if needed (e.g. "/usr/bin/glab")
 # PI_BIN = "pi"        # Uses PATH by default. Override with absolute path if needed (e.g. "/usr/bin/pi")
 # PI_AGENT_CONFIG = AGENT_PROFILES_DIR / "config_pi.json"  # pi backend per-agent config
 # PI_START_GRACE_SEC = 30       # seconds to treat a just-spawned pi agent as active

@@ -107,7 +107,7 @@ from commands.dev import (  # noqa: F401 — re-export for backwards compatibili
     cmd_cc_start, cmd_plan_done, cmd_assess_done, cmd_design_revise, cmd_code_revise,
     cmd_review_mode, cmd_exclude, cmd_merge_summary, cmd_ok,
     cmd_qrun, cmd_qstatus, cmd_qadd, cmd_qdel, cmd_qedit,
-    cmd_get_comments,
+    cmd_get_comments, cmd_blocked_report,
     get_status_text, get_qstatus_text, _get_running_info,
     _reset_to_idle,
 )
@@ -327,6 +327,11 @@ def main():
     p.add_argument("entry", nargs="+", help="new entry (e.g. gokrax 105 full automerge)")
     p.add_argument("--queue", type=Path, help="queue file path")
 
+    # blocked-report
+    p = sub.add_parser("blocked-report", help="report blocked situation to Discord")
+    p.add_argument("--pj", "--project", dest="project", required=True)
+    p.add_argument("--summary", required=True, help="block reason / situation description")
+
     # spec
     spec_parser = sub.add_parser("spec", help="Spec mode commands")
     spec_sub = spec_parser.add_subparsers(dest="spec_command")
@@ -437,6 +442,7 @@ def main():
         "qadd": cmd_qadd,
         "qdel": cmd_qdel,
         "qedit": cmd_qedit,
+        "blocked-report": cmd_blocked_report,
         "spec": cmd_spec,
     }
     from task_queue import QueueSkipError

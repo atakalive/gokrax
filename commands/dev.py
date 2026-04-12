@@ -2067,3 +2067,19 @@ def cmd_get_comments(args: argparse.Namespace) -> None:
             print()
         print(f"--- comment by {username} at {created_at} ---")
         print(body)
+
+
+def cmd_blocked_report(args) -> None:
+    """BLOCKED: send implementer situation report to Discord (fire-and-forget)."""
+    path = get_path(args.project)
+    data = load_pipeline(path)
+    state = data.get("state", "IDLE")
+    if state != "BLOCKED":
+        raise SystemExit(f"Not in BLOCKED state: {state}")
+    summary = args.summary.strip()
+    if not summary:
+        raise SystemExit("--summary must not be empty or whitespace-only")
+    summary = summary[:500]
+    q_prefix = "[Queue]" if data.get("queue_mode") else ""
+    notify_discord(f"{q_prefix}[{args.project}] BLOCKED report: {summary}")
+    print(f"{args.project}: blocked report sent")

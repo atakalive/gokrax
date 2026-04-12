@@ -52,3 +52,20 @@ def notify_recovery_merge_summary(project: str, **_kw) -> str:
 def notify_recovery_cc(project: str, **_kw) -> str:
     """CC起動の復旧警告。"""
     return f"[{project}] ⚠️ CC起動が中断されていました。手動確認してください。"
+
+
+def blocked_prompt_report(
+    project: str,
+    state: str,
+    impl_msg: str,
+    GOKRAX_CLI: str,
+    **_kw,
+) -> str:
+    """BLOCKED遷移時に実装者に送る状況報告依頼プロンプト。"""
+    reason = impl_msg or "(理由未記載)"
+    return (
+        f"{state} から BLOCKED に遷移しました。\n"
+        f"理由: {reason}\n\n"
+        f"状況を報告してください。何が起きたか、何が必要かを簡潔にまとめてください。\n"
+        f"{GOKRAX_CLI} blocked-report --pj {project} --summary \"<説明>\""
+    )

@@ -6770,3 +6770,135 @@ class TestBlockedImplMsgNotification:
         assert not any("BLOCKED" in c for c in discord_calls)
         # No BLOCKED gitlab notes
         mock_post_note.assert_not_called()
+
+
+# ── TestBlockedPromptReport (Issue #310) ─────────────────────────────────────
+
+class TestBlockedPromptReport:
+    """BLOCKED遷移時にsend_to_agentでreport依頼が送信されること。"""
+
+    def test_blocked_sends_report_prompt(self, tmp_path, monkeypatch):
+        """BLOCKED遷移でsend_to_agentが実装者に呼ばれること"""
+        import config, pipeline_io, messages
+        from watchdog import process
+
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(messages, "PROMPT_LANG", "en")
+
+        path = tmp_path / "test-pj.json"
+        reviews = _make_reviews(["APPROVE", "P0"])
+        data = {
+            "project": "test-pj",
+            "state": "DESIGN_REVIEW",
+            "enabled": True,
+            "review_mode": "lite",
+            "implementer": "impl-agent",
+            "design_revise_count": config.MAX_REVISE_CYCLES,
+            "batch": [{"issue": 1, "design_reviews": reviews, "code_reviews": {}}],
+            "history": [],
+            "created_at": "",
+            "updated_at": "",
+        }
+        _write_pipeline(path, data)
+
+        def fake_update(p, cb):
+            cb(data)
+            return data
+
+        mock_send = MagicMock()
+        with patch("watchdog.update_pipeline", side_effect=fake_update), \
+             patch("watchdog.notify_discord"), \
+             patch("watchdog.notify_implementer"), \
+             patch("notify.post_gitlab_note"), \
+             patch("watchdog.send_to_agent", new=mock_send):
+            process(path)
+
+        assert data["state"] == "BLOCKED"
+        mock_send.assert_called_once()
+        assert mock_send.call_args[0][0] == "impl-agent"
+        prompt = mock_send.call_args[0][1]
+        assert "test-pj" in prompt
+        assert "blocked-report" in prompt
+
+    def test_blocked_sends_report_prompt_impl_msg_none(self, tmp_path, monkeypatch):
+        """impl_msg=Noneでも(no reason provided)が含まれること"""
+        import config, pipeline_io, messages
+        from engine.fsm import TransitionAction
+        from watchdog import process
+
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(messages, "PROMPT_LANG", "en")
+
+        path = tmp_path / "test-pj.json"
+        data = {
+            "project": "test-pj",
+            "state": "DESIGN_REVIEW",
+            "enabled": True,
+            "review_mode": "lite",
+            "implementer": "impl-agent",
+            "design_revise_count": 0,
+            "batch": [{"issue": 1, "design_reviews": {}, "code_reviews": {}}],
+            "history": [],
+            "created_at": "",
+            "updated_at": "",
+        }
+        _write_pipeline(path, data)
+
+        def fake_update(p, cb):
+            cb(data)
+            return data
+
+        mock_send = MagicMock()
+        with patch("watchdog.update_pipeline", side_effect=fake_update), \
+             patch("watchdog.notify_discord"), \
+             patch("watchdog.notify_implementer"), \
+             patch("notify.post_gitlab_note"), \
+             patch("watchdog.send_to_agent", new=mock_send), \
+             patch("watchdog.check_transition", return_value=TransitionAction(new_state="BLOCKED", impl_msg=None)):
+            process(path)
+
+        assert data["state"] == "BLOCKED"
+        mock_send.assert_called_once()
+        prompt = mock_send.call_args[0][1]
+        assert "(no reason provided)" in prompt
+
+    def test_blocked_no_send_when_implementer_empty(self, tmp_path, monkeypatch):
+        """implementerが空ならsend_to_agentを呼ばないこと"""
+        import config, pipeline_io
+        from watchdog import process
+
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        path = tmp_path / "test-pj.json"
+        reviews = _make_reviews(["APPROVE", "P0"])
+        data = {
+            "project": "test-pj",
+            "state": "DESIGN_REVIEW",
+            "enabled": True,
+            "review_mode": "lite",
+            "implementer": "",
+            "design_revise_count": config.MAX_REVISE_CYCLES,
+            "batch": [{"issue": 1, "design_reviews": reviews, "code_reviews": {}}],
+            "history": [],
+            "created_at": "",
+            "updated_at": "",
+        }
+        _write_pipeline(path, data)
+
+        def fake_update(p, cb):
+            cb(data)
+            return data
+
+        mock_send = MagicMock()
+        with patch("watchdog.update_pipeline", side_effect=fake_update), \
+             patch("watchdog.notify_discord"), \
+             patch("watchdog.notify_implementer"), \
+             patch("notify.post_gitlab_note"), \
+             patch("watchdog.send_to_agent", new=mock_send):
+            process(path)
+
+        assert data["state"] == "BLOCKED"
+        mock_send.assert_not_called()

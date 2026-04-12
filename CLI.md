@@ -264,6 +264,20 @@ Records a per-issue assessment in the batch entry and appends `[Lvl N / Risk X]`
 When all issues in the batch have been assessed, watchdog transitions to IMPLEMENTATION (or IDLE if domain risk exclusion applies).
 Title update failure is a warning only — it does not block assessment recording.
 
+### `blocked-report` -- Report blocked situation to Discord
+
+```bash
+gokrax blocked-report --pj myproject --summary "Test fails due to dependency version mismatch"
+```
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--pj` | Yes | project name |
+| `--summary TEXT` | Yes | block reason / situation description (max 500 chars, must not be empty) |
+
+Prerequisite: pipeline must be in BLOCKED state.
+Sends summary to Discord. No state transition, no pipeline write.
+
 ### `design-revise` -- Mark design revision as done
 
 ```bash

@@ -880,6 +880,20 @@ def process(path: Path):
                     body = f"[gokrax] BLOCKED: {action.impl_msg}"
                     post_gitlab_note(gitlab, issue_num, body)
 
+        # BLOCKED: 実装者に report 依頼プロンプト送信
+        if action.new_state == "BLOCKED":
+            implementer = notification.get("implementer", "")
+            if implementer:
+                from config import GOKRAX_CLI as _GOKRAX_CLI_BLOCKED
+                report_prompt = render(
+                    "dev.blocked", "blocked_prompt_report",
+                    project=pj,
+                    state=notification.get("old_state", ""),
+                    impl_msg=action.impl_msg or "",
+                    GOKRAX_CLI=_GOKRAX_CLI_BLOCKED,
+                )
+                send_to_agent(implementer, report_prompt)
+
         # REVISE遷移時: P0サマリーを投稿
         if action.new_state in ("DESIGN_REVISE", "CODE_REVISE"):
             review_key = "design_reviews" if "DESIGN" in action.new_state else "code_reviews"

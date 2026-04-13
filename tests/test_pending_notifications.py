@@ -1280,7 +1280,7 @@ class TestCmdTransitionReturnCheck:
         with patch("commands.dev.notify_implementer", return_value=False), \
              patch("commands.dev.notify_reviewers"), \
              patch("commands.dev.notify_discord"), \
-             patch("watchdog._reset_reviewers", return_value=[]), \
+             patch("engine.reviewer._reset_reviewers", return_value=[]), \
              patch("commands.dev.clear_pending_notification", mock_clear):
             cmd_transition(args)
 

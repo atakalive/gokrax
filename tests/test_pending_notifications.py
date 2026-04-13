@@ -1071,3 +1071,220 @@ class TestImplRecoveryProjectPhase:
         )
         result = _read_pipeline(path)
         assert "_pending_notifications" not in result
+
+
+# ── Issue #313: notify_implementer return-value handling ──────────────────
+
+
+class TestNoCcPendingSave:
+    """no_cc=True + IMPLEMENTATION 遷移時に pending['impl'] が保存される"""
+
+    def test_no_cc_pending_saved(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        path = tmp_path / "test-pj.json"
+        data = _base_pipeline(
+            state="DESIGN_APPROVED",
+            batch=_make_batch(1, design_ready=True),
+            skip_assess=True,
+            no_cc=True,
+        )
+        _write_pipeline(path, data)
+
+        from watchdog import process
+
+        with patch("watchdog.notify_implementer", return_value=True), \
+             patch("watchdog.notify_reviewers"), \
+             patch("watchdog.notify_discord"), \
+             patch("watchdog._reset_reviewers", return_value=[]):
+            process(path)
+
+        result = _read_pipeline(path)
+        assert result["state"] == "IMPLEMENTATION"
+        # no_cc_msg pending should have been saved (and cleared on success)
+        # Since notify_implementer returned True, pending should be cleared
+        assert "impl" not in result.get("_pending_notifications", {})
+
+
+class TestNoCcSendSuccessClear:
+    """notify_implementer が True → clear_pending_notification が呼ばれる"""
+
+    def test_no_cc_send_success_clears_pending(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        path = tmp_path / "test-pj.json"
+        data = _base_pipeline(
+            state="DESIGN_APPROVED",
+            batch=_make_batch(1, design_ready=True),
+            skip_assess=True,
+            no_cc=True,
+        )
+        _write_pipeline(path, data)
+
+        from watchdog import process
+
+        mock_clear = MagicMock()
+        with patch("watchdog.notify_implementer", return_value=True), \
+             patch("watchdog.notify_reviewers"), \
+             patch("watchdog.notify_discord"), \
+             patch("watchdog._reset_reviewers", return_value=[]), \
+             patch("watchdog.clear_pending_notification", mock_clear):
+            process(path)
+
+        # clear_pending_notification should have been called for "impl"
+        mock_clear.assert_any_call("test-pj", "impl")
+
+
+class TestNoCcSendFailurePreservesPending:
+    """notify_implementer が False → clear_pending_notification は呼ばれない"""
+
+    def test_no_cc_send_failure_preserves_pending(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        path = tmp_path / "test-pj.json"
+        data = _base_pipeline(
+            state="DESIGN_APPROVED",
+            batch=_make_batch(1, design_ready=True),
+            skip_assess=True,
+            no_cc=True,
+        )
+        _write_pipeline(path, data)
+
+        from watchdog import process
+
+        with patch("watchdog.notify_implementer", return_value=False), \
+             patch("watchdog.notify_reviewers"), \
+             patch("watchdog.notify_discord"), \
+             patch("watchdog._reset_reviewers", return_value=[]):
+            process(path)
+
+        result = _read_pipeline(path)
+        # pending impl should be preserved since notify returned False
+        pn = result.get("_pending_notifications", {})
+        assert "impl" in pn
+
+
+class TestNoCcExceptionPreservesPending:
+    """notify_implementer が例外 → pending 維持 + process() クラッシュなし"""
+
+    def test_no_cc_exception_preserves_pending(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        path = tmp_path / "test-pj.json"
+        data = _base_pipeline(
+            state="DESIGN_APPROVED",
+            batch=_make_batch(1, design_ready=True),
+            skip_assess=True,
+            no_cc=True,
+        )
+        _write_pipeline(path, data)
+
+        from watchdog import process
+
+        with patch("watchdog.notify_implementer", side_effect=Exception("agent down")), \
+             patch("watchdog.notify_reviewers"), \
+             patch("watchdog.notify_discord"), \
+             patch("watchdog._reset_reviewers", return_value=[]):
+            process(path)  # should not crash
+
+        result = _read_pipeline(path)
+        pn = result.get("_pending_notifications", {})
+        assert "impl" in pn
+
+
+class TestFireAndForgetNotCrash:
+    """merge_summary / CODE_TEST_FIX で例外が出ても process() はクラッシュしない"""
+
+    def test_merge_summary_exception_no_crash(self, tmp_path, monkeypatch):
+        """merge_summary 通知で notify_implementer が例外を投げても process() が完走する"""
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        path = tmp_path / "test-pj.json"
+        data = _base_pipeline(
+            state="CODE_APPROVED",
+            batch=_make_batch(1, commit="abc123"),
+        )
+        _write_pipeline(path, data)
+
+        from watchdog import process
+        from notify import DiscordPostResult
+
+        with patch("watchdog.notify_implementer", side_effect=Exception("agent down")), \
+             patch("watchdog.notify_reviewers"), \
+             patch("watchdog.notify_discord"), \
+             patch("notify.post_discord", return_value=DiscordPostResult("msg-1")), \
+             patch("notify.get_bot_token", return_value="tok"), \
+             patch("watchdog._reset_reviewers", return_value=[]):
+            process(path)  # should not crash
+
+        result = _read_pipeline(path)
+        assert result["state"] == "MERGE_SUMMARY_SENT"
+
+    def test_code_test_fix_exception_no_crash(self, tmp_path, monkeypatch):
+        """CODE_TEST_FIX 通知で notify_implementer が例外を投げても process() が完走する"""
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        path = tmp_path / "test-pj.json"
+        data = _base_pipeline(
+            state="CODE_TEST",
+            batch=_make_batch(1, commit="abc123"),
+            test_output="FAIL: test_foo",
+            test_retry_count=0,
+            test_result="fail",
+        )
+        _write_pipeline(path, data)
+
+        from watchdog import process
+
+        with patch("watchdog.notify_implementer", side_effect=Exception("agent down")), \
+             patch("watchdog.notify_reviewers"), \
+             patch("watchdog.notify_discord"), \
+             patch("watchdog._reset_reviewers", return_value=[]):
+            process(path)  # should not crash
+
+        result = _read_pipeline(path)
+        assert result["state"] == "CODE_TEST_FIX"
+
+
+class TestCmdTransitionReturnCheck:
+    """cmd_transition で notify_implementer が False → clear_pending_notification は呼ばれない"""
+
+    def test_cmd_transition_false_no_clear(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        path = tmp_path / "test-pj.json"
+        data = _base_pipeline(
+            state="IDLE",
+            batch=_make_batch(1),
+        )
+        _write_pipeline(path, data)
+
+        from gokrax import cmd_transition
+
+        args = MagicMock()
+        args.project = "test-pj"
+        args.to = "DESIGN_PLAN"
+        args.force = True
+        args.actor = "cli"
+        args.dry_run = False
+        args.resume = False
+
+        mock_clear = MagicMock()
+        with patch("commands.dev.notify_implementer", return_value=False), \
+             patch("commands.dev.notify_reviewers"), \
+             patch("commands.dev.notify_discord"), \
+             patch("watchdog._reset_reviewers", return_value=[]), \
+             patch("commands.dev.clear_pending_notification", mock_clear):
+            cmd_transition(args)
+
+        # clear_pending_notification should NOT have been called for "impl"
+        for call in mock_clear.call_args_list:
+            assert call[0] != ("test-pj", "impl"), \
+                "clear_pending_notification('test-pj', 'impl') should not be called when notify returns False"

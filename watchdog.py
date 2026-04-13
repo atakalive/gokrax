@@ -611,6 +611,13 @@ def process(path: Path):
                 "project": pj,
                 "phase": STATE_PHASE_MAP.get(action.new_state or "", ""),
             }
+        elif notification.get("no_cc_msg"):
+            pending["impl"] = {
+                "implementer": data.get("implementer", IMPLEMENTERS[0]),
+                "msg": f"[gokrax] {pj}: {notification['no_cc_msg']}",
+                "project": pj,
+                "phase": "code",
+            }
         if action.send_review:
             pending["review"] = {
                 "new_state": action.new_state,
@@ -993,8 +1000,11 @@ def process(path: Path):
                     project=pj, content=content,
                 )
                 try:
-                    notify_implementer(implementer, prompt)
-                    log(f"[{pj}] implementer notified: {implementer}")
+                    ok = notify_implementer(implementer, prompt)
+                    if ok:
+                        log(f"[{pj}] implementer notified: {implementer}")
+                    else:
+                        log(f"[{pj}] WARNING: implementer notification failed (returned False)")
                 except Exception as e:
                     log(f"[{pj}] WARNING: implementer notification failed: {e}")
             else:
@@ -1193,12 +1203,17 @@ def process(path: Path):
 
         # Issue #206: no_cc モード通知
         if notification.get("no_cc_msg"):
-            notify_implementer(
-                notification["implementer"],
-                f"[gokrax] {pj}: {notification['no_cc_msg']}",
-                project=pj,
-                phase="code",
-            )
+            try:
+                ok = notify_implementer(
+                    notification["implementer"],
+                    f"[gokrax] {pj}: {notification['no_cc_msg']}",
+                    project=pj,
+                    phase="code",
+                )
+                if ok:
+                    clear_pending_notification(pj, "impl")
+            except Exception as e:
+                log(f"[{pj}] WARNING: no_cc implementer notification failed: {e}")
 
         # Issue #87: CODE_TEST テスト起動
         if notification.get("run_test"):
@@ -1243,12 +1258,15 @@ def process(path: Path):
                     retry_count=retry_count, max_retry=MAX_TEST_RETRY,
                     GOKRAX_CLI=_GOKRAX_CLI,
                 )
-                notify_implementer(
-                    notification["implementer"],
-                    f"[gokrax] {pj}: {msg}",
-                    project=pj,
-                    phase="code",
-                )
+                try:
+                    _ = notify_implementer(
+                        notification["implementer"],
+                        f"[gokrax] {pj}: {msg}",
+                        project=pj,
+                        phase="code",
+                    )
+                except Exception as e:
+                    log(f"[{pj}] WARNING: CODE_TEST_FIX implementer notification failed: {e}")
 
 
 # _stop_loop_if_idle は廃止。crontab/loop.sh は常時稼働し、

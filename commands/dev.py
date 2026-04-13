@@ -727,8 +727,9 @@ def cmd_transition(args):
             _reset_reviewers(phase_config, implementer=impl)
     if notif.impl_msg:
         phase = STATE_PHASE_MAP.get(args.to, "")
-        notify_implementer(ctx["implementer"], f"[gokrax] {pj}: {prefix}{notif.impl_msg}", project=pj, phase=phase)
-        clear_pending_notification(pj, "impl")
+        ok = notify_implementer(ctx["implementer"], f"[gokrax] {pj}: {prefix}{notif.impl_msg}", project=pj, phase=phase)
+        if ok:
+            clear_pending_notification(pj, "impl")
     if notif.send_review:
         excluded = ctx["excluded_reviewers"]
         from engine.fsm import get_phase_config as _gpc

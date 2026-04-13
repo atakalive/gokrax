@@ -15,9 +15,9 @@ def batch_done(
     return (
         f"[gokrax] {project}: batch completed\n"
         f"{content}\n\n"
-        "Review the work above and record only the following:\n"
+        "Review the work above and record only what is worth recording about the following:\n"
         "- Pitfalls or issues encountered (if any)\n"
         "- Lessons learned from reviewer findings (if any)\n"
         "- Decisions that affect future work (if any)\n"
-        "If nothing to record, NO_REPLY is fine."
+        "**Recording is not mandatory**. If nothing to record, NO_REPLY is fine."
     )

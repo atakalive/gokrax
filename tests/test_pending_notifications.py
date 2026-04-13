@@ -152,7 +152,10 @@ class TestRecoveryOnRestart:
              patch("engine.fsm.notify_discord"):
             process(path)
 
-        mock_impl.assert_called_once_with("implementer1", "[gokrax] test-pj: test message")
+        mock_impl.assert_called_once_with(
+            "implementer1", "[gokrax] test-pj: test message",
+            project="", phase="",
+        )
         result = _read_pipeline(path)
         assert "_pending_notifications" not in result
 
@@ -698,3 +701,373 @@ class TestBaseCommitInPending:
         mock_review.assert_called_once()
         _, kwargs = mock_review.call_args
         assert kwargs.get("base_commit") is None
+
+
+# ── Issue #311: impl send failure preserves pending ──────────────────────
+
+class TestImplSendFailurePreservesPending:
+    """notify_implementer が False を返した場合 pending が残ること"""
+
+    def test_impl_send_failure_keeps_pending(self, tmp_path, monkeypatch):
+        """impl 送信失敗時に clear_pending_notification が呼ばれない"""
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        path = tmp_path / "test-pj.json"
+        # INITIALIZE → DESIGN_PLAN has impl_msg
+        data = _base_pipeline(
+            state="INITIALIZE",
+            batch=_make_batch(1),
+        )
+        _write_pipeline(path, data)
+
+        from watchdog import process
+
+        with patch("watchdog.notify_implementer", return_value=False) as mock_impl, \
+             patch("watchdog.notify_reviewers"), \
+             patch("watchdog.notify_discord"):
+            process(path)
+
+        mock_impl.assert_called()
+        result = _read_pipeline(path)
+        # pending must be preserved because send returned False
+        assert "_pending_notifications" in result
+        assert "impl" in result["_pending_notifications"]
+
+    def test_impl_send_success_clears_pending(self, tmp_path, monkeypatch):
+        """impl 送信成功時に pending がクリアされる"""
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        path = tmp_path / "test-pj.json"
+        # INITIALIZE → DESIGN_PLAN has impl_msg
+        data = _base_pipeline(
+            state="INITIALIZE",
+            batch=_make_batch(1),
+        )
+        _write_pipeline(path, data)
+
+        from watchdog import process
+
+        with patch("watchdog.notify_implementer", return_value=True), \
+             patch("watchdog.notify_reviewers"), \
+             patch("watchdog.notify_discord"):
+            process(path)
+
+        result = _read_pipeline(path)
+        pn = result.get("_pending_notifications", {})
+        assert "impl" not in pn
+
+
+# ── Issue #311: blocked_report pending ────────────────────────────────────
+
+class TestBlockedReportPending:
+    """BLOCKED 遷移で blocked_report が pending に保存されること"""
+
+    def test_blocked_report_saved_in_pending(self, tmp_path, monkeypatch):
+        """do_transition コールバック内で pending["blocked_report"] が構築される"""
+        import messages
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(messages, "PROMPT_LANG", "en")
+
+        path = tmp_path / "test-pj.json"
+        data = _base_pipeline(
+            state="DESIGN_REVIEW",
+            review_mode="lite",
+            implementer="impl-agent",
+            design_revise_count=config.MAX_REVISE_CYCLES,
+            batch=[{"issue": 1, "design_reviews": {"r0": {"verdict": "APPROVE", "at": ""}, "r1": {"verdict": "P0", "at": ""}}, "code_reviews": {}}],
+        )
+        _write_pipeline(path, data)
+
+        from watchdog import process
+
+        callback_pending = {}
+        orig_update = pipeline_io.update_pipeline
+
+        def capturing_update(p, cb):
+            def wrapped_cb(d):
+                cb(d)
+                pn = d.get("_pending_notifications", {})
+                callback_pending.update(pn)
+            return orig_update(p, wrapped_cb)
+
+        with patch("watchdog.update_pipeline", side_effect=capturing_update), \
+             patch("watchdog.notify_discord"), \
+             patch("watchdog.notify_implementer", return_value=True), \
+             patch("notify.post_gitlab_note"), \
+             patch("watchdog.send_to_agent", return_value=True):
+            process(path)
+
+        assert "blocked_report" in callback_pending
+        assert callback_pending["blocked_report"]["implementer"] == "impl-agent"
+        assert len(callback_pending["blocked_report"]["msg"]) > 0
+
+    def test_blocked_report_uses_notification_dict(self, tmp_path, monkeypatch):
+        """ロック外送信で notification["blocked_report"]["msg"] が使われ render が再呼出しされない"""
+        import messages
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(messages, "PROMPT_LANG", "en")
+
+        path = tmp_path / "test-pj.json"
+        data = _base_pipeline(
+            state="DESIGN_REVIEW",
+            review_mode="lite",
+            implementer="impl-agent",
+            design_revise_count=config.MAX_REVISE_CYCLES,
+            batch=[{"issue": 1, "design_reviews": {"r0": {"verdict": "APPROVE", "at": ""}, "r1": {"verdict": "P0", "at": ""}}, "code_reviews": {}}],
+        )
+        _write_pipeline(path, data)
+
+        from watchdog import process
+
+        render_call_count = 0
+        orig_render = __import__("messages").render
+
+        def counting_render(*args, **kwargs):
+            nonlocal render_call_count
+            render_call_count += 1
+            return orig_render(*args, **kwargs)
+
+        mock_send = MagicMock(return_value=True)
+        with patch("watchdog.render", side_effect=counting_render), \
+             patch("watchdog.notify_discord"), \
+             patch("watchdog.notify_implementer", return_value=True), \
+             patch("notify.post_gitlab_note"), \
+             patch("watchdog.send_to_agent", new=mock_send):
+            process(path)
+
+        # render is called once (inside do_transition callback), not again outside
+        assert render_call_count == 1
+        # send_to_agent receives the pre-rendered message
+        mock_send.assert_called_once()
+
+    def test_blocked_report_send_success_clears_pending(self, tmp_path, monkeypatch):
+        """blocked_report 送信成功時に pending がクリアされる"""
+        import messages
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(messages, "PROMPT_LANG", "en")
+
+        path = tmp_path / "test-pj.json"
+        data = _base_pipeline(
+            state="DESIGN_REVIEW",
+            review_mode="lite",
+            implementer="impl-agent",
+            design_revise_count=config.MAX_REVISE_CYCLES,
+            batch=[{"issue": 1, "design_reviews": {"r0": {"verdict": "APPROVE", "at": ""}, "r1": {"verdict": "P0", "at": ""}}, "code_reviews": {}}],
+        )
+        _write_pipeline(path, data)
+
+        from watchdog import process
+
+        with patch("watchdog.notify_discord"), \
+             patch("watchdog.notify_implementer", return_value=True), \
+             patch("notify.post_gitlab_note"), \
+             patch("watchdog.send_to_agent", return_value=True):
+            process(path)
+
+        result = _read_pipeline(path)
+        pn = result.get("_pending_notifications", {})
+        assert "blocked_report" not in pn
+
+    def test_blocked_report_send_failure_keeps_pending(self, tmp_path, monkeypatch):
+        """blocked_report 送信失敗時に pending が残る"""
+        import messages
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(messages, "PROMPT_LANG", "en")
+
+        path = tmp_path / "test-pj.json"
+        data = _base_pipeline(
+            state="DESIGN_REVIEW",
+            review_mode="lite",
+            implementer="impl-agent",
+            design_revise_count=config.MAX_REVISE_CYCLES,
+            batch=[{"issue": 1, "design_reviews": {"r0": {"verdict": "APPROVE", "at": ""}, "r1": {"verdict": "P0", "at": ""}}, "code_reviews": {}}],
+        )
+        _write_pipeline(path, data)
+
+        from watchdog import process
+
+        with patch("watchdog.notify_discord"), \
+             patch("watchdog.notify_implementer", return_value=True), \
+             patch("notify.post_gitlab_note"), \
+             patch("watchdog.send_to_agent", return_value=False):
+            process(path)
+
+        result = _read_pipeline(path)
+        assert "_pending_notifications" in result
+        assert "blocked_report" in result["_pending_notifications"]
+
+
+# ── Issue #311: pending recovery with enabled=False ───────────────────────
+
+class TestPendingRecoveryDisabled:
+    """enabled=False でも pending recovery が実行されること"""
+
+    def test_recovery_runs_when_disabled(self, tmp_path, monkeypatch):
+        """data = {"enabled": False, "_pending_notifications": {...}} → recovery 実行"""
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        path = tmp_path / "test-pj.json"
+        data = _base_pipeline(
+            state="BLOCKED",
+            enabled=False,
+            _pending_notifications={
+                "impl": {
+                    "implementer": "implementer1",
+                    "msg": "[gokrax] test-pj: blocked message",
+                    "project": "test-pj",
+                    "phase": "",
+                },
+            },
+        )
+        _write_pipeline(path, data)
+
+        from watchdog import process
+
+        mock_impl = MagicMock(return_value=True)
+        with patch("engine.fsm.notify_implementer", mock_impl), \
+             patch("engine.fsm.notify_discord"):
+            process(path)
+
+        mock_impl.assert_called_once()
+        result = _read_pipeline(path)
+        assert "_pending_notifications" not in result
+
+
+# ── Issue #311: blocked_report recovery ───────────────────────────────────
+
+class TestBlockedReportRecovery:
+    """_recover_pending_notifications で blocked_report が再送されること"""
+
+    def test_blocked_report_recovery_success(self, tmp_path, monkeypatch):
+        """send_to_agent 成功時に clear_pending_notification が呼ばれる"""
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        path = tmp_path / "test-pj.json"
+        data = _base_pipeline(
+            state="BLOCKED",
+            enabled=False,
+            _pending_notifications={
+                "blocked_report": {
+                    "implementer": "implementer1",
+                    "msg": "test blocked report prompt",
+                },
+            },
+        )
+        _write_pipeline(path, data)
+
+        from watchdog import process
+
+        mock_send = MagicMock(return_value=True)
+        with patch("engine.fsm.send_to_agent", mock_send), \
+             patch("engine.fsm.notify_discord"):
+            process(path)
+
+        mock_send.assert_called_once_with("implementer1", "test blocked report prompt")
+        result = _read_pipeline(path)
+        assert "_pending_notifications" not in result
+
+    def test_blocked_report_recovery_failure(self, tmp_path, monkeypatch):
+        """send_to_agent 失敗時に pending が維持される"""
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        path = tmp_path / "test-pj.json"
+        data = _base_pipeline(
+            state="BLOCKED",
+            enabled=False,
+            _pending_notifications={
+                "blocked_report": {
+                    "implementer": "implementer1",
+                    "msg": "test blocked report prompt",
+                },
+            },
+        )
+        _write_pipeline(path, data)
+
+        from watchdog import process
+
+        mock_send = MagicMock(return_value=False)
+        with patch("engine.fsm.send_to_agent", mock_send), \
+             patch("engine.fsm.notify_discord"):
+            process(path)
+
+        mock_send.assert_called_once()
+        result = _read_pipeline(path)
+        assert "_pending_notifications" in result
+        assert "blocked_report" in result["_pending_notifications"]
+
+
+# ── Issue #311: impl recovery with project/phase ─────────────────────────
+
+class TestImplRecoveryProjectPhase:
+    """impl recovery で project/phase が notify_implementer に渡されること"""
+
+    def test_recovery_passes_project_phase(self, tmp_path, monkeypatch):
+        """pending["impl"] に project/phase があれば recovery で渡される"""
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        path = tmp_path / "test-pj.json"
+        data = _base_pipeline(
+            state="DESIGN_REVIEW",
+            _pending_notifications={
+                "impl": {
+                    "implementer": "implementer1",
+                    "msg": "[gokrax] test-pj: message",
+                    "project": "test-pj",
+                    "phase": "design",
+                },
+            },
+        )
+        _write_pipeline(path, data)
+
+        from watchdog import process
+
+        mock_impl = MagicMock(return_value=True)
+        with patch("engine.fsm.notify_implementer", mock_impl), \
+             patch("engine.fsm.notify_discord"):
+            process(path)
+
+        mock_impl.assert_called_once_with(
+            "implementer1", "[gokrax] test-pj: message",
+            project="test-pj", phase="design",
+        )
+
+    def test_recovery_backward_compat_no_project_phase(self, tmp_path, monkeypatch):
+        """project/phase が存在しない既存 pending でも recovery が動作する"""
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        path = tmp_path / "test-pj.json"
+        data = _base_pipeline(
+            state="DESIGN_REVIEW",
+            _pending_notifications={
+                "impl": {
+                    "implementer": "implementer1",
+                    "msg": "[gokrax] test-pj: old message",
+                },
+            },
+        )
+        _write_pipeline(path, data)
+
+        from watchdog import process
+
+        mock_impl = MagicMock(return_value=True)
+        with patch("engine.fsm.notify_implementer", mock_impl), \
+             patch("engine.fsm.notify_discord"):
+            process(path)
+
+        mock_impl.assert_called_once_with(
+            "implementer1", "[gokrax] test-pj: old message",
+            project="", phase="",
+        )
+        result = _read_pipeline(path)
+        assert "_pending_notifications" not in result

@@ -134,6 +134,19 @@ def _check_queue():
 def process(path: Path):
     # === 第1チェック (ロックなし) ===
     data = load_pipeline(path)
+
+    # === Issue #311: pending recovery は enabled に関わらず実行 ===
+    # BLOCKED で enabled=False でも pending を消化する必要がある。
+    # recovery 後は return して今回のサイクルを終了する（Issue #59 設計判断:
+    # 20秒間隔のため1サイクルスキップは許容。pending 消化と通常処理の
+    # 同時実行による通知競合を避ける）。
+    pj_recover = data.get("project", path.stem)
+    pending = data.get("_pending_notifications")
+    if pending:
+        log(f"[{pj_recover}] recovering pending notifications: {list(pending.keys())}")
+        _recover_pending_notifications(pj_recover, pending)
+        return
+
     if not data.get("enabled", False):
         return
 
@@ -143,16 +156,6 @@ def process(path: Path):
 
     # === Issue #87: CODE_TEST テスト完了ポーリング ===
     _poll_code_test(path, pj_poll)
-
-    # === Issue #59: 未完了通知のリカバリ ===
-    # pending が残っていれば再送してクリアし、今回のループは終了。
-    # 20秒間隔なので1サイクルスキップは許容（設計判断）。
-    pj_recover = data.get("project", path.stem)
-    pending = data.get("_pending_notifications")
-    if pending:
-        log(f"[{pj_recover}] recovering pending notifications: {list(pending.keys())}")
-        _recover_pending_notifications(pj_recover, pending)
-        return
 
     state = data.get("state", "IDLE")
     batch = data.get("batch", [])
@@ -605,6 +608,8 @@ def process(path: Path):
             pending["impl"] = {
                 "implementer": data.get("implementer", IMPLEMENTERS[0]),
                 "msg": f"[gokrax] {pj}: {action.impl_msg}",
+                "project": pj,
+                "phase": STATE_PHASE_MAP.get(action.new_state or "", ""),
             }
         if action.send_review:
             pending["review"] = {
@@ -619,6 +624,22 @@ def process(path: Path):
             pending["merge_summary"] = True
         if action.run_cc:
             pending["run_cc"] = True
+        if action.new_state == "BLOCKED":
+            _impl = data.get("implementer", IMPLEMENTERS[0])
+            if _impl:
+                _report = render(
+                    "dev.blocked", "blocked_prompt_report",
+                    project=pj,
+                    state=state,
+                    impl_msg=action.impl_msg or "",
+                    GOKRAX_CLI=GOKRAX_CLI,
+                )
+                pending["blocked_report"] = {
+                    "implementer": _impl,
+                    "msg": _report,
+                }
+        if "blocked_report" in pending:
+            notification["blocked_report"] = pending["blocked_report"]
         if pending:
             merge_pending_notifications(data, pending, pj)
 
@@ -696,7 +717,6 @@ def process(path: Path):
                 # メッセージ組み立て（1通にまとめる）
                 from notify import review_command
                 from pipeline_io import get_current_round
-                from config import GOKRAX_CLI
                 round_num = get_current_round(pipeline_data)
                 msg_parts = []
 
@@ -882,16 +902,11 @@ def process(path: Path):
 
         # BLOCKED: 実装者に report 依頼プロンプト送信
         if action.new_state == "BLOCKED":
-            implementer = notification.get("implementer", "")
-            if implementer:
-                report_prompt = render(
-                    "dev.blocked", "blocked_prompt_report",
-                    project=pj,
-                    state=notification.get("old_state", ""),
-                    impl_msg=action.impl_msg or "",
-                    GOKRAX_CLI=GOKRAX_CLI,
-                )
-                send_to_agent(implementer, report_prompt)
+            br = notification.get("blocked_report")
+            if br:
+                ok = send_to_agent(br["implementer"], br["msg"])
+                if ok:
+                    clear_pending_notification(pj, "blocked_report")
 
         # REVISE遷移時: P0サマリーを投稿
         if action.new_state in ("DESIGN_REVISE", "CODE_REVISE"):
@@ -1103,13 +1118,14 @@ def process(path: Path):
 
         if action.impl_msg:
             phase = STATE_PHASE_MAP.get(action.new_state or "", "")
-            notify_implementer(
+            ok = notify_implementer(
                 notification["implementer"],
                 f"[gokrax] {pj}: {action.impl_msg}",
                 project=pj,
                 phase=phase,
             )
-            clear_pending_notification(pj, "impl")
+            if ok:
+                clear_pending_notification(pj, "impl")
         if action.send_review:
             review_mode = notification.get("review_mode", "")
             prev_reviews = notification.get("prev_reviews", {})

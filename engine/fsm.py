@@ -24,7 +24,7 @@ from engine.reviewer import (
 )
 from engine.shared import _is_cc_running, _is_ok_reply, log
 from messages import render
-from notify import notify_discord, notify_implementer, notify_reviewers
+from notify import notify_discord, notify_implementer, notify_reviewers, send_to_agent
 from pipeline_io import clear_pending_notification, get_path, load_pipeline
 
 
@@ -1003,8 +1003,15 @@ def _recover_pending_notifications(pj: str, pending: dict) -> None:
     if "impl" in pending:
         info = pending["impl"]
         try:
-            notify_implementer(info["implementer"], info["msg"])
-            clear_pending_notification(pj, "impl")
+            ok = notify_implementer(
+                info["implementer"], info["msg"],
+                project=info.get("project", ""),
+                phase=info.get("phase", ""),
+            )
+            if ok:
+                clear_pending_notification(pj, "impl")
+            else:
+                log(f"[{pj}] impl recovery: send failed, will retry next cycle")
         except Exception as e:
             log(f"[{pj}] WARNING: impl recovery failed, will retry next cycle: {e}")
 
@@ -1042,3 +1049,14 @@ def _recover_pending_notifications(pj: str, pending: dict) -> None:
             clear_pending_notification(pj, "run_cc")
         except Exception as e:
             log(f"[{pj}] WARNING: run_cc recovery warning failed, will retry: {e}")
+
+    if "blocked_report" in pending:
+        info = pending["blocked_report"]
+        try:
+            ok = send_to_agent(info["implementer"], info["msg"])
+            if ok:
+                clear_pending_notification(pj, "blocked_report")
+            else:
+                log(f"[{pj}] blocked_report recovery: send failed, will retry next cycle")
+        except Exception as e:
+            log(f"[{pj}] WARNING: blocked_report recovery failed, will retry next cycle: {e}")

@@ -36,6 +36,7 @@ def _block_external_calls(request, tmp_path):
          patch("watchdog.send_to_agent", return_value=True), \
          patch("watchdog.send_to_agent_queued", return_value=True), \
          patch("watchdog.ping_agent", return_value=True), \
+         patch("engine.fsm.send_to_agent", return_value=True), \
          patch("engine.reviewer._reset_reviewers", return_value=[]), \
          patch("engine.reviewer._reset_short_context_reviewers"), \
          patch("watchdog._start_cc"), \

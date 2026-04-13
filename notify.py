@@ -762,19 +762,19 @@ def _check_squash(batch: list, base_commit: str, repo_path: str) -> list[str]:
     return warnings
 
 
-def notify_implementer(agent_id: str, message: str, project: str = "", phase: str = ""):
-    """実装担当にメッセージを送信する。
+def notify_implementer(agent_id: str, message: str, project: str = "", phase: str = "") -> bool:
+    """実装担当にメッセージを送信する。成否を返す。
 
     agent_id に紐付けられたスキルブロック（config.AGENT_SKILLS）がある場合、
     message の先頭に自動付与する。
     """
     if agent_id not in AGENTS:
         logger.error("Unknown agent: %s", agent_id)
-        return
+        return False
     skill_block = load_skills(agent_id, project, phase)
     if skill_block:
         message = f"{skill_block}\n\n{message}"
-    send_to_agent(agent_id, message)
+    return send_to_agent(agent_id, message)
 
 
 def notify_dispute(

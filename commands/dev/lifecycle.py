@@ -3,7 +3,8 @@ import json
 import subprocess
 import sys
 
-import config as _config
+import os
+
 from config import (
     GLAB_BIN,
     VALID_STATES, VALID_TRANSITIONS, MAX_BATCH,
@@ -23,9 +24,19 @@ from notify import (
     notify_implementer, notify_reviewers, notify_discord,
     resolve_reviewer_arg,
 )
-import os
 
 from commands.dev.helpers import parse_issue_args, _masked_reviewer, _reset_to_idle
+
+
+def _pipelines_dir():
+    """Resolve PIPELINES_DIR through the package namespace.
+
+    Tests patch ``commands.dev.PIPELINES_DIR`` via monkeypatch.  By
+    resolving through the package ``__dict__`` at call-time, those patches
+    are honoured even though this code lives in a submodule.
+    """
+    import commands.dev as _pkg  # noqa: F811 — deferred to avoid circular import
+    return _pkg.PIPELINES_DIR
 
 
 def get_status_text(enabled_only: bool = False) -> str:
@@ -40,8 +51,8 @@ def get_status_text(enabled_only: bool = False) -> str:
     import io
     output = io.StringIO()
 
-    _config.PIPELINES_DIR.mkdir(parents=True, exist_ok=True)
-    files = sorted(_config.PIPELINES_DIR.glob("*.json"))
+    _pipelines_dir().mkdir(parents=True, exist_ok=True)
+    files = sorted(_pipelines_dir().glob("*.json"))
 
     # Filter by enabled if requested
     matching_files = []
@@ -95,7 +106,7 @@ def cmd_status(args):
 
 def cmd_init(args):
     """新PJのpipeline JSONを初期化"""
-    _config.PIPELINES_DIR.mkdir(parents=True, exist_ok=True)
+    _pipelines_dir().mkdir(parents=True, exist_ok=True)
     path = get_path(args.project)
     if path.exists():
         print(f"Already exists: {path}", file=sys.stderr)
@@ -714,7 +725,7 @@ def cmd_transition(args):
 def cmd_reset(args: argparse.Namespace) -> None:
     """非IDLE状態の全PJをIDLEにリセット"""
     targets = []
-    for path in sorted(_config.PIPELINES_DIR.glob("*.json")):
+    for path in sorted(_pipelines_dir().glob("*.json")):
         data = load_pipeline(path)
         state = data.get("state", "IDLE")
         if state == "IDLE":

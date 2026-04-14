@@ -209,10 +209,19 @@ class TestCheckSpecReview:
         sent = _now()
         sc["review_requests"]["reviewer2"]["sent_at"] = sent.isoformat()
         sc["review_requests"]["reviewer2"]["timeout_at"] = (sent + timedelta(seconds=SPEC_BLOCK_TIMERS["SPEC_REVIEW"])).isoformat()
-        data = {"project": "test", "review_mode": "lite"}
+        # entered_at must be set and NUDGE_GRACE_SEC must have elapsed for nudge path
+        entered_at = sent - timedelta(seconds=NUDGE_GRACE_SEC + 60)
+        data = {
+            "project": "test",
+            "review_mode": "lite",
+            "history": [{"from": "SPEC_REVISE", "to": "SPEC_REVIEW",
+                         "at": entered_at.isoformat()}],
+        }
         action = _check_spec_review(sc, sent + timedelta(seconds=60), data)
-        if action.nudge_reviewers:
-            assert "reviewer1" not in action.nudge_reviewers
+        # reviewer2 is pending+sent → should be nudged; reviewer1 is approved_prior → not nudged
+        assert action.nudge_reviewers is not None
+        assert "reviewer2" in action.nudge_reviewers
+        assert "reviewer1" not in action.nudge_reviewers
 
     def test_approved_prior_does_not_block_all_complete(self):
         """approved_prior + all others received APPROVE → SPEC_APPROVED."""
@@ -275,8 +284,77 @@ class TestCheckSpecReview:
         action = _check_spec_review(sc, _now(), data)
         assert action.next_state == "SPEC_APPROVED"
         history = action.pipeline_updates.get("_review_history_append", {})
-        entries = history.get("entries", {})
-        assert "reviewer1" not in entries
+        reviews = history.get("reviews", {})
+        assert "reviewer1" not in reviews
+
+    def test_approved_prior_expires_after_one_round_integration(self):
+        """Integration: approved_prior from round N expires in round N+2.
+
+        Flow: build_revise_completion_updates (round 1 → 2) sets approved_prior,
+        then build_revise_completion_updates (round 2 → 3) should reset to pending
+        because the approved_prior reviewer has no entry in current_reviews.
+        """
+        from spec_revise import build_revise_completion_updates
+
+        # Round 1: reviewer1=APPROVE, reviewer2=P1 → SPEC_REVISE
+        sc_round1 = {
+            "spec_path": "/repo/docs/spec-rev1.md",
+            "current_rev": "1",
+            "rev_index": 1,
+            "review_history": [],
+            "current_reviews": {
+                "entries": {
+                    "reviewer1": {"status": "received", "verdict": "APPROVE",
+                                  "items": [], "raw_text": "", "parse_success": True},
+                    "reviewer2": {"status": "received", "verdict": "P1",
+                                  "items": [{"severity": "major"}], "raw_text": "",
+                                  "parse_success": True},
+                },
+            },
+            "last_commit": "aaa111",
+            "review_requests": {
+                "reviewer1": {"status": "received", "sent_at": "x",
+                              "timeout_at": "x", "last_nudge_at": None, "response": None},
+                "reviewer2": {"status": "received", "sent_at": "x",
+                              "timeout_at": "x", "last_nudge_at": None, "response": None},
+            },
+        }
+        revise1 = {"new_rev": "2", "commit": "bbb222", "changes": {"added_lines": 10}}
+        updates1 = build_revise_completion_updates(sc_round1, revise1, _now())
+
+        # After round 1 revise: reviewer1 should be approved_prior
+        assert updates1["review_requests_patch"]["reviewer1"]["status"] == "approved_prior"
+        assert updates1["review_requests_patch"]["reviewer2"]["status"] == "pending"
+
+        # Round 2: reviewer1 did not review (approved_prior, no entry).
+        # reviewer2 gave P1 again → SPEC_REVISE
+        sc_round2 = {
+            "spec_path": "/repo/docs/spec-rev2.md",
+            "current_rev": "2",
+            "rev_index": 2,
+            "review_history": updates1["review_history"],
+            "current_reviews": {
+                "entries": {
+                    # reviewer1 has NO entry (was approved_prior, didn't review)
+                    "reviewer2": {"status": "received", "verdict": "P1",
+                                  "items": [{"severity": "major"}], "raw_text": "",
+                                  "parse_success": True},
+                },
+            },
+            "last_commit": "bbb222",
+            "review_requests": {
+                "reviewer1": {"status": "approved_prior", "sent_at": None,
+                              "timeout_at": None, "last_nudge_at": None, "response": None},
+                "reviewer2": {"status": "received", "sent_at": "x",
+                              "timeout_at": "x", "last_nudge_at": None, "response": None},
+            },
+        }
+        revise2 = {"new_rev": "3", "commit": "ccc333", "changes": {"added_lines": 5}}
+        updates2 = build_revise_completion_updates(sc_round2, revise2, _now())
+
+        # After round 2 revise: reviewer1 should be back to pending (1-round expiry)
+        assert updates2["review_requests_patch"]["reviewer1"]["status"] == "pending"
+        assert updates2["review_requests_patch"]["reviewer2"]["status"] == "pending"
 
 
 # --- _check_spec_revise ---
@@ -1630,7 +1708,7 @@ class TestSendFailureRollback:
         action = _check_spec_revise(sc, _now(), data)
         assert action.next_state == "SPEC_REVIEW"
         # reviewer_count in notification should be 1 (only pending reviewer2)
-        assert "1" in action.discord_notify
+        assert "(1人)" in action.discord_notify
 
     # --- Test 16: A.1 clean resets counters ---
 

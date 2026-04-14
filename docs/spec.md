@@ -11,7 +11,7 @@ gokrax is a CLI + watchdog system that manages the **Issue -> Design -> Implemen
 
 ```
 gokrax.py            -- CLI entry point + watchdog loop management + main()
-commands/dev.py       -- Normal mode CLI commands (cmd_start, cmd_review, etc.)
+commands/dev/       -- Normal mode CLI commands (cmd_start, cmd_review, etc.)
 commands/spec.py      -- Spec mode CLI commands (cmd_spec_start, etc.)
 config/               -- Packaged module
   __init__.py          -- Centralized constant management + settings.py override
@@ -79,7 +79,7 @@ Reviewers are classified into 3 tiers. Tier members are defined in `REVIEWER_TIE
 
 - At MERGE_SUMMARY_SENT, a summary is posted to the Discord notification channel. Transitions to DONE via any of:
   - Replying "OK" to the Discord summary
-  - Running `gokrax ok --pj <project>` CLI command (`commands/dev.py` `cmd_ok`)
+  - Running `gokrax ok --pj <project>` CLI command (`commands/dev/` `cmd_ok`)
   - Auto-transition when `automerge` flag is enabled
 - Runs control commands such as `gokrax start` and `gokrax transition --force`
 
@@ -274,8 +274,8 @@ Review modes are defined in `REVIEW_MODES` in `settings.py`. See `settings.examp
 |----------|-------|-------------|
 | NUDGE_GRACE_SEC | 300 sec | No nudges within this period after a transition |
 | EXTEND_NOTICE_THRESHOLD | 300 sec | When remaining time is below this value, extension instructions are appended to nudges |
-| INACTIVE_THRESHOLD_SEC | 303 sec | Considered inactive if no updates for this many seconds |
-| INACTIVE_THRESHOLD_PLAN_SEC | 600 sec | Nudge interval for implementer during DESIGN_PLAN |
+| INACTIVE_THRESHOLD_SEC | 603 sec | Considered inactive if no updates for this many seconds |
+| INACTIVE_THRESHOLD_PLAN_SEC | 900 sec | Nudge interval for implementer during DESIGN_PLAN |
 
 ### timeout_extension
 
@@ -288,7 +288,7 @@ Review modes are defined in `REVIEW_MODES` in `settings.py`. See `settings.examp
 
 ### 7.0 watchdog-loop.sh
 
-- Execution: Polls every 20 seconds via `watchdog-loop.sh`
+- Execution: Polls every 10 seconds via `watchdog-loop.sh`
 - PID file: `/tmp/gokrax-watchdog-loop.pid`
 - Lock file: `/tmp/gokrax-watchdog-loop.lock`
 

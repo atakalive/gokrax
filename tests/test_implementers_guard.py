@@ -78,7 +78,7 @@ class TestArgparseImplementerDefault:
         prod_files = [
             "gokrax.py",
             "watchdog.py",
-            "commands/dev.py",
+            *[str(p.relative_to(ROOT)) for p in sorted(ROOT.glob("commands/dev/*.py"))],
             "commands/spec.py",
         ]
         for fname in prod_files:

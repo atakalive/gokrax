@@ -19,7 +19,7 @@ from notify import (
     mask_agent_name, resolve_reviewer_arg, format_review_note_header,
 )
 
-from commands._dev.helpers import (
+from commands.dev.helpers import (
     VERDICT_SEVERITY, RISK_DISPLAY,
     parse_issue_args, _log, _masked_reviewer,
 )

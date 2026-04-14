@@ -112,7 +112,8 @@ def tmp_pipelines(tmp_path, monkeypatch):
     import config
     monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
     # from config import で取り込んだローカル参照も差し替え
-    for mod_name in ("pipeline_io", "gokrax", "commands.dev"):
+    for mod_name in ("pipeline_io", "gokrax", "commands.dev",
+                      "commands.dev.lifecycle", "commands.dev.review", "commands.dev.queue"):
         try:
             import importlib
             mod = importlib.import_module(mod_name)
@@ -175,7 +176,8 @@ def _override_config_names(monkeypatch):
             monkeypatch.setattr(config, attr, val)
     # Patch modules that import these at module level
     for mod_name in ("notify", "engine.reviewer", "engine.fsm", "task_queue",
-                      "commands.dev", "commands.spec", "watchdog", "gokrax"):
+                      "commands.dev", "commands.dev.lifecycle", "commands.dev.review",
+                      "commands.dev.queue", "commands.spec", "watchdog", "gokrax"):
         try:
             import importlib
             mod = importlib.import_module(mod_name)

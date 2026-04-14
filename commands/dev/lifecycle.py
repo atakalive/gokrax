@@ -3,8 +3,9 @@ import json
 import subprocess
 import sys
 
+import config as _config
 from config import (
-    PIPELINES_DIR, GLAB_BIN,
+    GLAB_BIN,
     VALID_STATES, VALID_TRANSITIONS, MAX_BATCH,
     GLAB_TIMEOUT, REVIEWERS, REVIEW_MODES, LOCAL_TZ,
     WATCHDOG_LOOP_PIDFILE, WATCHDOG_LOOP_LOCKFILE,
@@ -24,7 +25,7 @@ from notify import (
 )
 import os
 
-from commands._dev.helpers import parse_issue_args, _masked_reviewer, _reset_to_idle
+from commands.dev.helpers import parse_issue_args, _masked_reviewer, _reset_to_idle
 
 
 def get_status_text(enabled_only: bool = False) -> str:
@@ -39,8 +40,8 @@ def get_status_text(enabled_only: bool = False) -> str:
     import io
     output = io.StringIO()
 
-    PIPELINES_DIR.mkdir(parents=True, exist_ok=True)
-    files = sorted(PIPELINES_DIR.glob("*.json"))
+    _config.PIPELINES_DIR.mkdir(parents=True, exist_ok=True)
+    files = sorted(_config.PIPELINES_DIR.glob("*.json"))
 
     # Filter by enabled if requested
     matching_files = []
@@ -94,7 +95,7 @@ def cmd_status(args):
 
 def cmd_init(args):
     """新PJのpipeline JSONを初期化"""
-    PIPELINES_DIR.mkdir(parents=True, exist_ok=True)
+    _config.PIPELINES_DIR.mkdir(parents=True, exist_ok=True)
     path = get_path(args.project)
     if path.exists():
         print(f"Already exists: {path}", file=sys.stderr)
@@ -713,7 +714,7 @@ def cmd_transition(args):
 def cmd_reset(args: argparse.Namespace) -> None:
     """非IDLE状態の全PJをIDLEにリセット"""
     targets = []
-    for path in sorted(PIPELINES_DIR.glob("*.json")):
+    for path in sorted(_config.PIPELINES_DIR.glob("*.json")):
         data = load_pipeline(path)
         state = data.get("state", "IDLE")
         if state == "IDLE":

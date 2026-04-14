@@ -7,7 +7,7 @@ from pipeline_io import (
     add_history, get_path,
 )
 
-from commands._dev.helpers import _reset_to_idle
+from commands.dev.helpers import _reset_to_idle
 
 
 def cmd_qrun(args):
@@ -115,7 +115,7 @@ def cmd_qrun(args):
 
     # cmd_start 実行 (エラー時は復元 + queue_mode ロールバック)
     try:
-        from commands._dev.lifecycle import cmd_start
+        from commands.dev.lifecycle import cmd_start
         cmd_start(start_args)
     except QueueSkipError as e:
         # 永続的エラー: エントリを復元せずスキップ。

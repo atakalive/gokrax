@@ -9,7 +9,7 @@ Development pipeline automation tool. Automates the cycle of Issue creation → 
 ```
 # === CLI ===
 gokrax.py              # CLI entry point (all command definitions)
-commands/dev.py        # Dev mode CLI subcommands
+commands/dev/          # Dev mode CLI subcommands (package)
 commands/spec.py       # Spec mode CLI subcommands
 
 # === Watchdog daemon ===

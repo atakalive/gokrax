@@ -11,7 +11,7 @@ gokrax は **Issue -> 設計 -> 実装 -> テスト -> レビュー -> マージ
 
 ```
 gokrax.py            -- CLI エントリポイント + watchdog loop 管理 + main()
-commands/dev.py       -- 通常モード CLI コマンド (cmd_start, cmd_review, etc.)
+commands/dev/       -- 通常モード CLI コマンド (cmd_start, cmd_review, etc.)
 commands/spec.py      -- spec モード CLI コマンド (cmd_spec_start, etc.)
 config/               -- パッケージ化済み
   __init__.py          -- 定数の一元管理 + settings.py override
@@ -79,7 +79,7 @@ settings.py           -- ユーザー設定 (config override)
 
 - MERGE_SUMMARY_SENT で Discord 通知チャンネルにサマリーが投稿される。以下のいずれかで DONE に遷移:
   - Discord サマリーに「OK」リプライ
-  - `gokrax ok --pj <project>` CLI コマンド (`commands/dev.py` `cmd_ok`)
+  - `gokrax ok --pj <project>` CLI コマンド (`commands/dev/` `cmd_ok`)
   - `automerge` フラグ有効時は自動遷移
 - `gokrax start` や `gokrax transition --force` 等の制御コマンドを実行する
 
@@ -274,8 +274,8 @@ IDLE -> INITIALIZE -> DESIGN_PLAN -> DESIGN_REVIEW -> DESIGN_APPROVED -> ASSESSM
 |------|---|------|
 | NUDGE_GRACE_SEC | 300 秒 | 遷移直後はこの期間催促しない |
 | EXTEND_NOTICE_THRESHOLD | 300 秒 | 残り時間がこの値未満で延長案内を催促に付加 |
-| INACTIVE_THRESHOLD_SEC | 303 秒 | この秒数更新がなければ非アクティブ扱い |
-| INACTIVE_THRESHOLD_PLAN_SEC | 600 秒 | DESIGN_PLAN での実装者催促間隔 |
+| INACTIVE_THRESHOLD_SEC | 603 秒 | この秒数更新がなければ非アクティブ扱い |
+| INACTIVE_THRESHOLD_PLAN_SEC | 900 秒 | DESIGN_PLAN での実装者催促間隔 |
 
 ### timeout_extension
 
@@ -288,7 +288,7 @@ IDLE -> INITIALIZE -> DESIGN_PLAN -> DESIGN_REVIEW -> DESIGN_APPROVED -> ASSESSM
 
 ### 7.0 watchdog-loop.sh
 
-- 実行方法: `watchdog-loop.sh` で 20 秒おきにポーリング
+- 実行方法: `watchdog-loop.sh` で 10 秒おきにポーリング
 - PID ファイル: `/tmp/gokrax-watchdog-loop.pid`
 - ロックファイル: `/tmp/gokrax-watchdog-loop.lock`
 

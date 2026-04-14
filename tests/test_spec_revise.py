@@ -300,6 +300,102 @@ class TestBuildReviseCompletionUpdates:
         updates = build_revise_completion_updates(sc, revise_data, _now())
         assert len(updates["review_history"]) == 2
 
+    def test_approved_reviewer_gets_approved_prior_status(self):
+        sc = {
+            "spec_path": "/repo/docs/foo-spec-rev2.md",
+            "current_rev": "2",
+            "rev_index": 2,
+            "review_history": [],
+            "current_reviews": {
+                "entries": {
+                    "reviewer1": {"status": "received", "verdict": "APPROVE",
+                               "items": [], "raw_text": "", "parse_success": True},
+                },
+            },
+            "last_commit": "old123",
+            "review_requests": {
+                "reviewer1": {"status": "received", "sent_at": "x", "timeout_at": "x",
+                           "last_nudge_at": None, "response": None},
+            },
+        }
+        revise_data = {
+            "new_rev": "3", "commit": "new456",
+            "changes": {"added_lines": 10, "removed_lines": 5, "reflected_items": []},
+        }
+        updates = build_revise_completion_updates(sc, revise_data, _now())
+        assert updates["review_requests_patch"]["reviewer1"]["status"] == "approved_prior"
+
+    def test_non_approve_reviewer_stays_pending(self):
+        sc = {
+            "spec_path": "/repo/docs/foo-spec-rev2.md",
+            "current_rev": "2",
+            "rev_index": 2,
+            "review_history": [],
+            "current_reviews": {
+                "entries": {
+                    "reviewer1": {"status": "received", "verdict": "P0",
+                               "items": [{"severity": "critical"}], "raw_text": "", "parse_success": True},
+                    "reviewer2": {"status": "received", "verdict": "APPROVE",
+                               "items": [], "raw_text": "", "parse_success": True},
+                },
+            },
+            "last_commit": "old123",
+            "review_requests": {
+                "reviewer1": {"status": "received", "sent_at": "x", "timeout_at": "x",
+                           "last_nudge_at": None, "response": None},
+                "reviewer2": {"status": "received", "sent_at": "x", "timeout_at": "x",
+                           "last_nudge_at": None, "response": None},
+            },
+        }
+        revise_data = {
+            "new_rev": "3", "commit": "new456",
+            "changes": {"added_lines": 10, "removed_lines": 5, "reflected_items": []},
+        }
+        updates = build_revise_completion_updates(sc, revise_data, _now())
+        assert updates["review_requests_patch"]["reviewer1"]["status"] == "pending"
+        assert updates["review_requests_patch"]["reviewer2"]["status"] == "approved_prior"
+
+    def test_timeout_reviewer_stays_pending(self):
+        sc = {
+            "spec_path": "/repo/docs/foo-spec-rev2.md",
+            "current_rev": "2",
+            "rev_index": 2,
+            "review_history": [],
+            "current_reviews": {"entries": {}},
+            "last_commit": "old123",
+            "review_requests": {
+                "reviewer1": {"status": "timeout", "sent_at": "x", "timeout_at": "x",
+                           "last_nudge_at": None, "response": None},
+            },
+        }
+        revise_data = {
+            "new_rev": "3", "commit": "new456",
+            "changes": {"added_lines": 10, "removed_lines": 5, "reflected_items": []},
+        }
+        updates = build_revise_completion_updates(sc, revise_data, _now())
+        assert updates["review_requests_patch"]["reviewer1"]["status"] == "pending"
+
+    def test_approved_prior_expires_after_one_round(self):
+        """approved_prior reviewer with no current_reviews entry → pending (1-round expiry)."""
+        sc = {
+            "spec_path": "/repo/docs/foo-spec-rev2.md",
+            "current_rev": "2",
+            "rev_index": 2,
+            "review_history": [],
+            "current_reviews": {"entries": {}},
+            "last_commit": "old123",
+            "review_requests": {
+                "reviewer1": {"status": "approved_prior", "sent_at": None, "timeout_at": None,
+                           "last_nudge_at": None, "response": None},
+            },
+        }
+        revise_data = {
+            "new_rev": "3", "commit": "new456",
+            "changes": {"added_lines": 10, "removed_lines": 5, "reflected_items": []},
+        }
+        updates = build_revise_completion_updates(sc, revise_data, _now())
+        assert updates["review_requests_patch"]["reviewer1"]["status"] == "pending"
+
     def test_does_not_mutate_spec_config(self):
         sc = {
             "spec_path": "/repo/docs/foo-spec-rev1.md",

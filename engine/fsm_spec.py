@@ -146,11 +146,32 @@ def _check_spec_review(
         effective_sc = dict(spec_config)
         effective_sc["current_reviews"] = effective_cr
 
+        # should_continue_review 専用スコープ: 合成エントリ注入（#307）
+        # effective_sc/effective_cr は history・severity 集計に使うため汚染しない
+        scr_entries = dict(effective_entries)
+        actual_received = sum(
+            1 for e in scr_entries.values() if e.get("status") == "received"
+        )
+        if actual_received > 0:
+            for reviewer in review_requests:
+                if _effective_status(reviewer) == "approved_prior" and reviewer not in scr_entries:
+                    scr_entries[reviewer] = {
+                        "status": "received",
+                        "verdict": "APPROVE",
+                        "items": [],
+                        "raw_text": None,
+                        "parse_success": True,
+                    }
+        scr_cr = dict(effective_cr)
+        scr_cr["entries"] = scr_entries
+        scr_sc = dict(effective_sc)
+        scr_sc["current_reviews"] = scr_cr
+
         review_mode = data.get("review_mode")
         if not review_mode:
             raise KeyError("review_mode is not set in pipeline data (spec mode)")
         min_reviews_override = data.get("min_reviews_override")
-        result = should_continue_review(effective_sc, review_mode, min_reviews_override=min_reviews_override)
+        result = should_continue_review(scr_sc, review_mode, min_reviews_override=min_reviews_override)
 
         # merged severity counts を entries から集計
         sev_counts = {"critical": 0, "major": 0, "minor": 0, "suggestion": 0}
@@ -294,7 +315,10 @@ def _check_spec_revise(
             pending["_issues_found_send_retries"] = None
             pending["_issues_found_pending_feedback"] = None
             current_rev = pending.get("current_rev", spec_config.get("current_rev", "?"))
-            reviewer_count = len(spec_config.get("review_requests", {}))
+            reviewer_count = sum(
+                1 for r in pending.get("review_requests_patch", {}).values()
+                if r.get("status") == "pending"
+            )
             revise_msg = render("spec.revise", "notify_done", project=project, rev=current_rev, commit=pending.get("last_commit", ""))
             review_msg = render("spec.review", "notify_start", project=project, rev=current_rev, reviewer_count=reviewer_count)
             return SpecTransitionAction(

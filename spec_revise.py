@@ -435,10 +435,17 @@ def build_revise_completion_updates(
     review_history.append(history_entry)
 
     # review_requests リセット差分（§5.4 / Dijkstra P1-2）
+    # APPROVE 済みレビュアーは approved_prior に（1ラウンド限定 #307）
+    current_entries = spec_config.get("current_reviews", {}).get("entries", {})
     reset_rr: dict[str, dict] = {}
     for reviewer in spec_config.get("review_requests", {}):
+        entry = current_entries.get(reviewer, {})
+        if entry.get("verdict") == "APPROVE":
+            status = "approved_prior"
+        else:
+            status = "pending"
         reset_rr[reviewer] = {
-            "status": "pending",
+            "status": status,
             "sent_at": None,
             "timeout_at": None,
             "last_nudge_at": None,

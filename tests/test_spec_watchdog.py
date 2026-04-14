@@ -191,6 +191,93 @@ class TestCheckSpecReview:
         action = _check_spec_review(sc, _now(), data)
         assert action.next_state == "SPEC_REVISE"
 
+    def test_approved_prior_not_sent(self):
+        """approved_prior reviewer is not sent a review request."""
+        sc = self._base_config(["reviewer1", "reviewer2"])
+        sc["review_requests"]["reviewer1"]["status"] = "approved_prior"
+        data = {"project": "test", "review_mode": "lite"}
+        action = _check_spec_review(sc, _now(), data)
+        assert action.send_to is not None
+        assert "reviewer1" not in action.send_to
+        assert "reviewer2" in action.send_to
+
+    def test_approved_prior_not_nudged(self):
+        """approved_prior reviewer is not included in nudge targets."""
+        sc = self._base_config(["reviewer1", "reviewer2"])
+        sc["review_requests"]["reviewer1"]["status"] = "approved_prior"
+        sc["review_requests"]["reviewer1"]["sent_at"] = _now().isoformat()
+        sent = _now()
+        sc["review_requests"]["reviewer2"]["sent_at"] = sent.isoformat()
+        sc["review_requests"]["reviewer2"]["timeout_at"] = (sent + timedelta(seconds=SPEC_BLOCK_TIMERS["SPEC_REVIEW"])).isoformat()
+        data = {"project": "test", "review_mode": "lite"}
+        action = _check_spec_review(sc, sent + timedelta(seconds=60), data)
+        if action.nudge_reviewers:
+            assert "reviewer1" not in action.nudge_reviewers
+
+    def test_approved_prior_does_not_block_all_complete(self):
+        """approved_prior + all others received APPROVE → SPEC_APPROVED."""
+        sc = self._base_config(["reviewer1", "reviewer2"])
+        sc["review_requests"]["reviewer1"]["status"] = "approved_prior"
+        sc["review_requests"]["reviewer2"]["status"] = "received"
+        sc["review_requests"]["reviewer2"]["sent_at"] = _now().isoformat()
+        sc["review_requests"]["reviewer2"]["timeout_at"] = (_now() + timedelta(seconds=SPEC_BLOCK_TIMERS["SPEC_REVIEW"])).isoformat()
+        sc["current_reviews"]["entries"]["reviewer2"] = {
+            "verdict": "APPROVE", "items": [], "raw_text": "",
+            "parse_success": True, "status": "received",
+        }
+        data = {"project": "test", "review_mode": "lite"}
+        action = _check_spec_review(sc, _now(), data)
+        assert action.next_state == "SPEC_APPROVED"
+
+    def test_approved_prior_synthetic_entry_satisfies_min_valid(self):
+        """approved_prior synthetic entry satisfies min_valid in full mode (min_reviews=4)."""
+        reviewers = ["reviewer1", "reviewer3", "reviewer5", "reviewer6"]
+        sc = self._base_config(reviewers)
+        sc["review_requests"]["reviewer1"]["status"] = "approved_prior"
+        for r in ["reviewer3", "reviewer5", "reviewer6"]:
+            sc["review_requests"][r]["status"] = "received"
+            sc["review_requests"][r]["sent_at"] = _now().isoformat()
+            sc["review_requests"][r]["timeout_at"] = (_now() + timedelta(seconds=SPEC_BLOCK_TIMERS["SPEC_REVIEW"])).isoformat()
+            sc["current_reviews"]["entries"][r] = {
+                "verdict": "APPROVE", "items": [], "raw_text": "",
+                "parse_success": True, "status": "received",
+            }
+        data = {"project": "test", "review_mode": "full"}
+        action = _check_spec_review(sc, _now(), data)
+        assert action.next_state == "SPEC_APPROVED"
+
+    def test_approved_prior_only_no_actual_received_fails(self):
+        """approved_prior + timeout only (no actual received) → not SPEC_APPROVED."""
+        sc = self._base_config(["reviewer1", "reviewer2"])
+        sc["review_requests"]["reviewer1"]["status"] = "approved_prior"
+        sc["review_requests"]["reviewer2"]["status"] = "timeout"
+        sc["review_requests"]["reviewer2"]["sent_at"] = _now().isoformat()
+        sc["current_reviews"]["entries"]["reviewer2"] = {
+            "verdict": None, "items": [], "raw_text": None,
+            "parse_success": False, "status": "timeout",
+        }
+        data = {"project": "test", "review_mode": "lite"}
+        action = _check_spec_review(sc, _now(), data)
+        assert action.next_state == "SPEC_REVIEW_FAILED"
+
+    def test_approved_prior_not_in_review_history(self):
+        """approved_prior reviewer should not appear in review history entries."""
+        sc = self._base_config(["reviewer1", "reviewer2"])
+        sc["review_requests"]["reviewer1"]["status"] = "approved_prior"
+        sc["review_requests"]["reviewer2"]["status"] = "received"
+        sc["review_requests"]["reviewer2"]["sent_at"] = _now().isoformat()
+        sc["review_requests"]["reviewer2"]["timeout_at"] = (_now() + timedelta(seconds=SPEC_BLOCK_TIMERS["SPEC_REVIEW"])).isoformat()
+        sc["current_reviews"]["entries"]["reviewer2"] = {
+            "verdict": "APPROVE", "items": [], "raw_text": "",
+            "parse_success": True, "status": "received",
+        }
+        data = {"project": "test", "review_mode": "lite"}
+        action = _check_spec_review(sc, _now(), data)
+        assert action.next_state == "SPEC_APPROVED"
+        history = action.pipeline_updates.get("_review_history_append", {})
+        entries = history.get("entries", {})
+        assert "reviewer1" not in entries
+
 
 # --- _check_spec_revise ---
 
@@ -1505,6 +1592,45 @@ class TestSendFailureRollback:
         assert action.next_state == "SPEC_PAUSED"
         assert action.pipeline_updates["paused_from"] == "SPEC_REVISE"
         assert action.pipeline_updates["_revise_send_retries"] is None
+
+    # --- Test: reviewer_count excludes approved_prior (#307) ---
+
+    def test_reviewer_count_excludes_approved_prior(self):
+        """Discord notification reviewer_count should only count pending reviewers."""
+        sc = {
+            "spec_implementer": "impl1",
+            "spec_path": "docs/spec.md",
+            "current_rev": "2",
+            "_self_review_response": "```yaml\nchecklist:\n  - id: reflected_items_match\n    result: \"Yes\"\n    evidence: \"ok\"\n  - id: no_new_contradictions\n    result: \"Yes\"\n    evidence: \"ok\"\n```",
+            "_self_review_sent": _now().isoformat(),
+            "_self_review_pending_updates": {
+                "current_rev": "3",
+                "last_commit": "abc123",
+                "last_changes": {"added_lines": 10, "removed_lines": 5, "changelog_summary": "fix"},
+                "review_requests_patch": {
+                    "reviewer1": {"status": "approved_prior", "sent_at": None,
+                                "timeout_at": None, "last_nudge_at": None, "response": None},
+                    "reviewer2": {"status": "pending", "sent_at": None,
+                                "timeout_at": None, "last_nudge_at": None, "response": None},
+                },
+            },
+            "_self_review_expected_ids": ["reflected_items_match", "no_new_contradictions"],
+            "_revise_sent": _now().isoformat(),
+            "review_requests": {
+                "reviewer1": {"status": "received"},
+                "reviewer2": {"status": "received"},
+            },
+            "current_reviews": {"entries": {}},
+            "retry_counts": {},
+        }
+        data = {
+            "project": "test-pj",
+            "history": [{"from": "SPEC_REVIEW", "to": "SPEC_REVISE", "at": _now().isoformat()}],
+        }
+        action = _check_spec_revise(sc, _now(), data)
+        assert action.next_state == "SPEC_REVIEW"
+        # reviewer_count in notification should be 1 (only pending reviewer2)
+        assert "1" in action.discord_notify
 
     # --- Test 16: A.1 clean resets counters ---
 

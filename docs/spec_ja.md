@@ -330,7 +330,7 @@ OS ごとの CLI 引数サイズ上限 (`_get_max_cli_arg_bytes`):
 
 ### 7.3 催促
 
-- **実装担当**: 非アクティブ (INACTIVE_THRESHOLD_SEC=303 秒以上更新なし) の場合のみ `"continue"` を `send_to_agent_queued()` で送信
+- **実装担当**: 非アクティブ (INACTIVE_THRESHOLD_SEC=603 秒以上更新なし) の場合のみ `"continue"` を `send_to_agent_queued()` で送信
 - **レビュアー**: 未完了レビュアーに `"continue"` を `send_to_agent_queued()` で送信。送信失敗時は 10 分後にリトライ
 - CC 実行中 (`/proc/<pid>` 存在) はアクティブ扱い
 

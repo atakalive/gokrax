@@ -1,5 +1,5 @@
 #!/bin/bash
-# watchdog-loop.sh — 20秒間隔でwatchdog.pyを実行するデーモン
+# watchdog-loop.sh — 10秒間隔でwatchdog.pyを実行するデーモン
 # crontabの1分間隔cronの代替。flock排他で二重起動防止。
 #
 # 起動: nohup bash watchdog-loop.sh &
@@ -7,7 +7,7 @@
 
 LOCKFILE="/tmp/gokrax-watchdog-loop.lock"
 PIDFILE="/tmp/gokrax-watchdog-loop.pid"
-INTERVAL=20
+INTERVAL=10
 DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # cron flock ラッパーから継承された fd を閉じる（二重ロック防止 #145）

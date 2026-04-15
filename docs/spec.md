@@ -330,7 +330,7 @@ Per-OS CLI argument size limits (`_get_max_cli_arg_bytes`):
 
 ### 7.3 Nudges
 
-- **Implementer**: Sends `"continue"` via `send_to_agent_queued()` only when inactive (no updates for INACTIVE_THRESHOLD_SEC=303 seconds or more)
+- **Implementer**: Sends `"continue"` via `send_to_agent_queued()` only when inactive (no updates for INACTIVE_THRESHOLD_SEC=603 seconds or more)
 - **Reviewers**: Sends `"continue"` via `send_to_agent_queued()` to incomplete reviewers. Retries after 10 minutes on send failure
 - Treated as active while CC is running (`/proc/<pid>` exists)
 

@@ -142,6 +142,24 @@ def cmd_review(args):
             _skipped = True
             print(f"#{args.issue}: review by {_masked_reviewer(args.reviewer, _pipeline.get('reviewer_number_map'))} silently discarded (state={state})")
             return
+        # phase 検証: REVIEW 状態では --phase 必須。
+        # 旧コマンド（--phase なし）の遅延応答、または前フェーズの遅延応答を拒否する。
+        # REVISE 状態は dispute 処理（--force 付き）で --phase を持たないためスキップ。
+        if state in ("DESIGN_REVIEW", "DESIGN_REVIEW_NPASS",
+                      "CODE_REVIEW", "CODE_REVIEW_NPASS"):
+            _phase_arg = getattr(args, "phase", None)
+            current_phase = "design" if state.startswith("DESIGN") else "code"
+            if _phase_arg is None:
+                # --phase 省略: 旧コマンドの遅延応答と見なし破棄
+                _skipped = True
+                print(f"#{args.issue}: review by {_masked_reviewer(args.reviewer, _pipeline.get('reviewer_number_map'))} silently discarded "
+                      f"(--phase not specified, current phase is {current_phase})")
+                return
+            if _phase_arg != current_phase:
+                _skipped = True
+                print(f"#{args.issue}: review by {_masked_reviewer(args.reviewer, _pipeline.get('reviewer_number_map'))} silently discarded "
+                      f"(phase mismatch: --phase {_phase_arg}, current {current_phase})")
+                return
         # ラウンド番号検証: stale なレビュー（前サイクルの Remind 応答等）を拒否する。
         # DESIGN_REVISE/CODE_REVISE 状態では dispute レビュー（--force 必須）のみ
         # ここに到達する。dispute 経由の場合、notify_dispute が --round を付与しない

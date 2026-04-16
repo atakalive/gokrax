@@ -98,6 +98,7 @@ class TestRoundValidation:
             summary="LGTM",
             force=False,
             round=1,
+            phase="design",
         )
         with patch("commands.dev.subprocess.run", return_value=mock_result):
             with patch("commands.dev.time.sleep"):
@@ -122,6 +123,7 @@ class TestRoundValidation:
             summary="LGTM",
             force=False,
             round=2,  # 現在は round 1 なのに round 2 を指定
+            phase="design",
         )
         with pytest.raises(SystemExit) as exc_info:
             gokrax.cmd_review(args)
@@ -150,6 +152,7 @@ class TestRoundValidation:
             summary="minor issue",
             force=False,
             round=None,  # 省略
+            phase="design",
         )
         with patch("commands.dev.subprocess.run", return_value=mock_result):
             with patch("commands.dev.time.sleep"):
@@ -160,3 +163,140 @@ class TestRoundValidation:
         reviews = data["batch"][0]["design_reviews"]
         assert "reviewer1" in reviews
         assert reviews["reviewer1"]["verdict"] == "P1"
+
+
+class TestReviewCommandPhase:
+
+    def test_review_command_includes_phase(self):
+        """phase="code" 指定 → 出力文字列に --phase code が含まれる"""
+        from notify import review_command
+        cmd = review_command("test-pj", 1, "reviewer1", round_num=1, phase="code")
+        assert "--phase code" in cmd
+
+    def test_review_command_phase_none(self):
+        """phase=None → 出力文字列に --phase が含まれない"""
+        from notify import review_command
+        cmd = review_command("test-pj", 1, "reviewer1", phase=None)
+        assert "--phase" not in cmd
+
+
+class TestPhaseValidation:
+
+    def test_phase_mismatch_discards_review(self, tmp_pipelines):
+        """CODE_REVIEW + --phase design → 破棄"""
+        _make_pipeline(tmp_pipelines, state="CODE_REVIEW")
+
+        import gokrax
+        args = argparse.Namespace(
+            project="test-pj", issue=1, reviewer="reviewer1",
+            verdict="APPROVE", summary="LGTM", force=False,
+            round=1, phase="design",
+        )
+        with patch("commands.dev.subprocess.run"):
+            with patch("commands.dev.time.sleep"):
+                gokrax.cmd_review(args)
+
+        path = tmp_pipelines / "test-pj.json"
+        data = json.loads(path.read_text())
+        assert data["batch"][0]["code_reviews"] == {}
+
+    def test_phase_match_accepts_review(self, tmp_pipelines):
+        """CODE_REVIEW + --phase code → 正常受理"""
+        _make_pipeline(tmp_pipelines, state="CODE_REVIEW")
+
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stderr = ""
+
+        import gokrax
+        args = argparse.Namespace(
+            project="test-pj", issue=1, reviewer="reviewer1",
+            verdict="APPROVE", summary="LGTM", force=False,
+            round=1, phase="code",
+        )
+        with patch("commands.dev.subprocess.run", return_value=mock_result):
+            with patch("commands.dev.time.sleep"):
+                gokrax.cmd_review(args)
+
+        path = tmp_pipelines / "test-pj.json"
+        data = json.loads(path.read_text())
+        reviews = data["batch"][0]["code_reviews"]
+        assert "reviewer1" in reviews
+        assert reviews["reviewer1"]["verdict"] == "APPROVE"
+
+    def test_phase_omitted_discards_review(self, tmp_pipelines):
+        """CODE_REVIEW + --phase 省略 → 旧コマンドとして破棄"""
+        _make_pipeline(tmp_pipelines, state="CODE_REVIEW")
+
+        import gokrax
+        args = argparse.Namespace(
+            project="test-pj", issue=1, reviewer="reviewer1",
+            verdict="APPROVE", summary="LGTM", force=False,
+            round=1, phase=None,
+        )
+        with patch("commands.dev.subprocess.run"):
+            with patch("commands.dev.time.sleep"):
+                gokrax.cmd_review(args)
+
+        path = tmp_pipelines / "test-pj.json"
+        data = json.loads(path.read_text())
+        assert data["batch"][0]["code_reviews"] == {}
+
+    def test_phase_design_mismatch_code_review(self, tmp_pipelines):
+        """DESIGN_REVIEW + --phase code → 破棄"""
+        _make_pipeline(tmp_pipelines, state="DESIGN_REVIEW")
+
+        import gokrax
+        args = argparse.Namespace(
+            project="test-pj", issue=1, reviewer="reviewer1",
+            verdict="APPROVE", summary="LGTM", force=False,
+            round=1, phase="code",
+        )
+        with patch("commands.dev.subprocess.run"):
+            with patch("commands.dev.time.sleep"):
+                gokrax.cmd_review(args)
+
+        path = tmp_pipelines / "test-pj.json"
+        data = json.loads(path.read_text())
+        assert data["batch"][0]["design_reviews"] == {}
+
+    def test_phase_npass_match(self, tmp_pipelines):
+        """CODE_REVIEW_NPASS + --phase code → 正常受理"""
+        _make_pipeline(tmp_pipelines, state="CODE_REVIEW_NPASS")
+
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stderr = ""
+
+        import gokrax
+        args = argparse.Namespace(
+            project="test-pj", issue=1, reviewer="reviewer1",
+            verdict="APPROVE", summary="LGTM", force=False,
+            round=1, phase="code",
+        )
+        with patch("commands.dev.subprocess.run", return_value=mock_result):
+            with patch("commands.dev.time.sleep"):
+                gokrax.cmd_review(args)
+
+        path = tmp_pipelines / "test-pj.json"
+        data = json.loads(path.read_text())
+        reviews = data["batch"][0]["code_reviews"]
+        assert "reviewer1" in reviews
+
+    def test_phase_npass_mismatch(self, tmp_pipelines):
+        """DESIGN_REVIEW_NPASS + --phase code → 破棄"""
+        _make_pipeline(tmp_pipelines, state="DESIGN_REVIEW_NPASS")
+
+        import gokrax
+        args = argparse.Namespace(
+            project="test-pj", issue=1, reviewer="reviewer1",
+            verdict="APPROVE", summary="LGTM", force=False,
+            round=1, phase="code",
+        )
+        with patch("commands.dev.subprocess.run"):
+            with patch("commands.dev.time.sleep"):
+                gokrax.cmd_review(args)
+
+        path = tmp_pipelines / "test-pj.json"
+        data = json.loads(path.read_text())
+        assert data["batch"][0]["design_reviews"] == {}

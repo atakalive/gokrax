@@ -112,14 +112,16 @@ def load_skills(agent_name: str, project: str = "", phase: str = "") -> str:
     return block
 
 
-def review_command(project: str, issue: int, reviewer: str, round_num: int | None = None) -> str:
+def review_command(project: str, issue: int, reviewer: str,
+                   round_num: int | None = None, phase: str | None = None) -> str:
     """レビュー報告コマンド文字列を生成する。単一ソース。"""
     round_arg = f' --round {round_num}' if round_num is not None else ''
+    phase_arg = f' --phase {phase}' if phase is not None else ''
     cmd = (
         f'python3 {GOKRAX_CLI} review'
         f' --project {project}'
         f' --issue {issue}'
-        f'{round_arg}'
+        f'{round_arg}{phase_arg}'
         f' --reviewer {reviewer}'
         f' --verdict <APPROVE/P0/P1/P2>'
         f' --summary "..."'
@@ -218,7 +220,8 @@ def _build_file_review_message(
     # 各Issueのreviewコマンド生成
     review_cmds = []
     for i in pending_issues:
-        cmd = review_command(project, i["issue"], reviewer, round_num)
+        cmd = review_command(project, i["issue"], reviewer, round_num,
+                            phase="code" if is_code else "design")
         review_cmds.append(cmd)
 
     cmds_block = "\n".join(review_cmds)
@@ -284,7 +287,8 @@ def _build_npass_review_message(
         num = i["issue"]
         title = i.get("title", "")
         todo_lines.append(f"□ #{num}: {title}")
-        cmd = review_command(project, num, reviewer, round_num)
+        cmd = review_command(project, num, reviewer, round_num,
+                            phase="code" if is_code else "design")
         review_cmds.append(cmd)
 
     todo_header = (
@@ -1084,9 +1088,10 @@ def format_review_request(project: str, state: str, batch: list, gitlab: str,
             continue
         pending_issues.append(f"□ #{num}: {title}")
         round_arg = f" --round {round_num}" if round_num is not None else ""
+        phase_arg = f" --phase {'code' if is_code else 'design'}"
         pending_cmds.append(
             f"{GOKRAX_CLI} review --project {project} --issue {num}"
-            f"{round_arg}"
+            f"{round_arg}{phase_arg}"
             f" --reviewer {reviewer} --verdict <APPROVE|P0|P1|P2> "
             f"--summary $'review body\nline 2\nline 3..'"
         )

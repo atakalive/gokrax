@@ -69,6 +69,7 @@ class TestReviewGitlabNoteRetry:
             verdict="APPROVE",
             summary="LGTM",
             force=False,
+            phase="design",
         )
         with patch("notify.subprocess.run", side_effect=mock_run):
             with patch("notify.time.sleep"):
@@ -99,6 +100,7 @@ class TestReviewGitlabNoteRetry:
             verdict="P1",
             summary="minor issue",
             force=False,
+            phase="design",
         )
         import logging
         with caplog.at_level(logging.WARNING, logger="gokrax.notify"):
@@ -137,6 +139,7 @@ class TestReviewForce:
             verdict="P0",
             summary="",
             force=False,
+            phase="design",
         )
         with patch("notify.subprocess.run", return_value=ok_result):
             with patch("notify.time.sleep"):
@@ -156,6 +159,7 @@ class TestReviewForce:
             verdict="APPROVE",
             summary="",
             force=True,
+            phase="design",
         )
         with patch("notify.subprocess.run", return_value=ok_result):
             with patch("notify.time.sleep"):
@@ -184,6 +188,7 @@ class TestReviewForce:
             verdict="P0",
             summary="",
             force=False,
+            phase="design",
         )
         with patch("notify.subprocess.run", return_value=ok_result):
             with patch("notify.time.sleep"):
@@ -204,6 +209,7 @@ class TestReviewForce:
             verdict="APPROVE",
             summary="",
             force=False,
+            phase="design",
         )
         with patch("notify.subprocess.run", side_effect=mock_run_2nd):
             with patch("notify.time.sleep"):
@@ -234,6 +240,7 @@ class TestReviewForce:
             verdict="APPROVE",
             summary="LGTM",
             force=True,
+            phase="design",
         )
         with patch("notify.subprocess.run", return_value=ok_result):
             with patch("notify.time.sleep"):

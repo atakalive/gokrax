@@ -224,7 +224,7 @@ class TestReviewResponseMetric:
 
         with patch("pipeline_io.append_metric") as mock_metric, \
              patch("commands.dev._post_gitlab_note", return_value=False):
-            cmd_review(self._make_args())
+            cmd_review(self._make_args(phase="code"))
 
         mock_metric.assert_called_once()
         call_kwargs = mock_metric.call_args.kwargs
@@ -259,7 +259,7 @@ class TestReviewResponseMetric:
 
         with patch("pipeline_io.append_metric") as mock_metric, \
              patch("commands.dev._post_gitlab_note", return_value=False):
-            cmd_review(self._make_args())
+            cmd_review(self._make_args(phase="code"))
 
         mock_metric.assert_not_called()
 
@@ -282,7 +282,7 @@ class TestReviewResponseMetric:
 
         with patch("pipeline_io.append_metric") as mock_metric, \
              patch("commands.dev._post_gitlab_note", return_value=False):
-            cmd_review(self._make_args(verdict="P0"))
+            cmd_review(self._make_args(verdict="P0", phase="design"))
 
         call_kwargs = mock_metric.call_args.kwargs
         assert call_kwargs["phase"] == "design"

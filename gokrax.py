@@ -212,6 +212,8 @@ def main():
     p.add_argument("--force", action="store_true", default=False,
                    help="overwrite existing review")
     p.add_argument("--round", type=int, default=None, help="review round number (auto-filled)")
+    p.add_argument("--phase", default=None, choices=["design", "code"],
+                   help="review phase (auto-filled)")
 
     # flag
     p = sub.add_parser("flag", help="human (M) P0/P1/P2 injection at any time")

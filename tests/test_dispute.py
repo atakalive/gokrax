@@ -449,7 +449,7 @@ class TestCmdReviewDisputeAutoResolve:
         import gokrax
         with patch("commands.dev.subprocess.run") as mock_run:
             mock_run.return_value.returncode = 0
-            gokrax.cmd_review(_review_args(verdict="APPROVE", force=False))
+            gokrax.cmd_review(_review_args(verdict="APPROVE", force=False, phase="design"))
 
         data = _read_pipeline(tmp_pipelines / "test-pj.json")
         d = data["batch"][0]["disputes"][0]
@@ -465,7 +465,7 @@ class TestCmdReviewDisputeAutoResolve:
         import gokrax
         with patch("commands.dev.subprocess.run") as mock_run:
             mock_run.return_value.returncode = 0
-            gokrax.cmd_review(_review_args(verdict="APPROVE", force=False))
+            gokrax.cmd_review(_review_args(verdict="APPROVE", force=False, phase="design"))
 
         data = _read_pipeline(tmp_pipelines / "test-pj.json")
         review = data["batch"][0]["design_reviews"].get("reviewer1", {})
@@ -483,7 +483,7 @@ class TestCmdReviewDisputeAutoResolve:
         import gokrax
         with patch("commands.dev.subprocess.run") as mock_run:
             mock_run.return_value.returncode = 0
-            gokrax.cmd_review(_review_args(verdict="P0", summary="やはり P0", force=False))
+            gokrax.cmd_review(_review_args(verdict="P0", summary="やはり P0", force=False, phase="design"))
 
         data = _read_pipeline(tmp_pipelines / "test-pj.json")
         d = data["batch"][0]["disputes"][0]
@@ -510,7 +510,7 @@ class TestCmdReviewDisputeAutoResolve:
         import gokrax
         with patch("commands.dev.subprocess.run") as mock_run:
             mock_run.return_value.returncode = 0
-            gokrax.cmd_review(_review_args(verdict="APPROVE", force=False))
+            gokrax.cmd_review(_review_args(verdict="APPROVE", force=False, phase="design"))
 
         data = _read_pipeline(tmp_pipelines / "test-pj.json")
         review = data["batch"][0]["design_reviews"].get("reviewer1", {})
@@ -530,7 +530,7 @@ class TestCmdReviewDisputeAutoResolve:
         import gokrax
         with patch("commands.dev.subprocess.run") as mock_run:
             mock_run.return_value.returncode = 0
-            gokrax.cmd_review(_review_args(verdict="APPROVE", force=False))
+            gokrax.cmd_review(_review_args(verdict="APPROVE", force=False, phase="design"))
 
         data = _read_pipeline(tmp_pipelines / "test-pj.json")
         # 上書きされず P0 のまま

@@ -743,7 +743,8 @@ def process(path: Path):
 
                 if normal_pending_issues:
                     cmd_lines = "\n".join(
-                        review_command(pj, num, reviewer, round_num=round_num if round_num > 0 else None) for num in normal_pending_issues
+                        review_command(pj, num, reviewer, round_num=round_num if round_num > 0 else None,
+                                       phase="code" if is_code else "design") for num in normal_pending_issues
                     )
                     msg_parts.append(render(review_module, "nudge_review",
                         project=pj,

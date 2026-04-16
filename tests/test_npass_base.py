@@ -157,6 +157,7 @@ class TestNpassReviewEntry:
             verdict="APPROVE",
             summary="LGTM",
             force=False,
+            phase="code",
         )
         ok_result = MagicMock()
         ok_result.returncode = 0
@@ -209,6 +210,7 @@ class TestNpassIdempotencyBypass:
             verdict="APPROVE",
             summary="2nd pass",
             force=False,
+            phase="code",
         )
         ok_result = MagicMock()
         ok_result.returncode = 0
@@ -264,6 +266,7 @@ class TestNpassGitlabNoteSkip:
             verdict="APPROVE",
             summary="",
             force=False,
+            phase="code",
         )
 
         mock_note = MagicMock(return_value=True)
@@ -311,6 +314,7 @@ class TestNpassGitlabNotePosted:
             verdict="P1",
             summary="issue found",
             force=False,
+            phase="code",
         )
 
         mock_note = MagicMock(return_value=True)
@@ -354,6 +358,7 @@ class TestNpassFinalPassNote:
             verdict="APPROVE",
             summary="LGTM",
             force=False,
+            phase="code",
         )
 
         mock_note = MagicMock(return_value=True)
@@ -390,6 +395,7 @@ class TestNpassDefaultTargetPass:
             verdict="APPROVE",
             summary="LGTM",
             force=False,
+            phase="code",
         )
 
         ok_result = MagicMock()
@@ -441,6 +447,7 @@ class TestNpassValidation:
             verdict="APPROVE",
             summary="",
             force=False,
+            phase="code",
         )
 
         ok_result = MagicMock()

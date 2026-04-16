@@ -6,8 +6,6 @@ import sys
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-import pytest
-
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
@@ -59,8 +57,8 @@ class TestPhaseMembership:
             verdict="APPROVE", summary="LGTM", force=False,
             round=1, phase="design",
         )
-        with patch("commands.dev.subprocess.run", return_value=mock_result):
-            with patch("commands.dev.time.sleep"):
+        with patch("notify.subprocess.run", return_value=mock_result):
+            with patch("notify.time.sleep"):
                 gokrax.cmd_review(args)
 
         path = tmp_pipelines / "test-pj.json"
@@ -80,8 +78,8 @@ class TestPhaseMembership:
             verdict="APPROVE", summary="LGTM", force=False,
             round=1, phase="design",
         )
-        with patch("commands.dev.subprocess.run"):
-            with patch("commands.dev.time.sleep"):
+        with patch("notify.subprocess.run"):
+            with patch("notify.time.sleep"):
                 gokrax.cmd_review(args)
 
         path = tmp_pipelines / "test-pj.json"
@@ -101,8 +99,8 @@ class TestPhaseMembership:
             verdict="APPROVE", summary="LGTM", force=False,
             round=1, phase=None,
         )
-        with patch("commands.dev.subprocess.run"):
-            with patch("commands.dev.time.sleep"):
+        with patch("notify.subprocess.run"):
+            with patch("notify.time.sleep"):
                 gokrax.cmd_review(args)
 
         captured = capsys.readouterr()
@@ -118,8 +116,8 @@ class TestPhaseMembership:
             verdict="APPROVE", summary="LGTM", force=False,
             round=1, phase="design",
         )
-        with patch("commands.dev.subprocess.run"):
-            with patch("commands.dev.time.sleep"):
+        with patch("notify.subprocess.run"):
+            with patch("notify.time.sleep"):
                 gokrax.cmd_review(args)
 
         captured = capsys.readouterr()

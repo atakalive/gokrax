@@ -96,7 +96,7 @@ class TestReviewGitlabNoteRetry:
         args = argparse.Namespace(
             project="test-pj",
             issue=1,
-            reviewer="reviewer2",
+            reviewer="reviewer3",
             verdict="P1",
             summary="minor issue",
             force=False,
@@ -112,8 +112,8 @@ class TestReviewGitlabNoteRetry:
         path = tmp_pipelines / "test-pj.json"
         data = json.loads(path.read_text())
         reviews = data["batch"][0]["design_reviews"]
-        assert "reviewer2" in reviews
-        assert reviews["reviewer2"]["verdict"] == "P1"
+        assert "reviewer3" in reviews
+        assert reviews["reviewer3"]["verdict"] == "P1"
 
         # logger に警告が出る（post_gitlab_note は logger.error を使用）
         assert any("3 attempts" in r.message for r in caplog.records)

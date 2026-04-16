@@ -160,6 +160,15 @@ def cmd_review(args):
                 print(f"#{args.issue}: review by {_masked_reviewer(args.reviewer, _pipeline.get('reviewer_number_map'))} silently discarded "
                       f"(phase mismatch: --phase {_phase_arg}, current {current_phase})")
                 return
+            # メンバーシップ検証: フェーズに参加していないレビュアーの応答を破棄する。
+            from engine.fsm import get_phase_config as _get_phase_config_mem
+            _pc = _get_phase_config_mem(data, current_phase)
+            if args.reviewer not in _pc["members"]:
+                _skipped = True
+                print(f"#{args.issue}: review by "
+                      f"{_masked_reviewer(args.reviewer, _pipeline.get('reviewer_number_map'))} "
+                      f"silently discarded (not a {current_phase} phase member)")
+                return
         # ラウンド番号検証: stale なレビュー（前サイクルの Remind 応答等）を拒否する。
         # DESIGN_REVISE/CODE_REVISE 状態では dispute レビュー（--force 必須）のみ
         # ここに到達する。dispute 経由の場合、notify_dispute が --round を付与しない

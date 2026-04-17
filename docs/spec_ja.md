@@ -272,7 +272,7 @@ IDLE -> INITIALIZE -> DESIGN_PLAN -> DESIGN_REVIEW -> DESIGN_APPROVED -> ASSESSM
 
 | 定数 | 値 | 説明 |
 |------|---|------|
-| NUDGE_GRACE_SEC | 300 秒 | 遷移直後はこの期間催促しない |
+| NUDGE_GRACE_SEC | 600 秒 | 遷移直後はこの期間催促しない |
 | EXTEND_NOTICE_THRESHOLD | 300 秒 | 残り時間がこの値未満で延長案内を催促に付加 |
 | INACTIVE_THRESHOLD_SEC | 603 秒 | この秒数更新がなければ非アクティブ扱い |
 | INACTIVE_THRESHOLD_PLAN_SEC | 900 秒 | DESIGN_PLAN での実装者催促間隔 |

@@ -3130,7 +3130,7 @@ class TestTimeoutAllStates:
 
         # Test all states with BLOCK_TIMERS
         for state_name, timeout_sec in BLOCK_TIMERS.items():
-            elapsed = NUDGE_GRACE_SEC + 10  # Within timeout
+            elapsed = min(NUDGE_GRACE_SEC + 10, timeout_sec - 10)  # Within timeout (clamp below CODE_TEST timer)
             entered_at = datetime.now(LOCAL_TZ) - timedelta(seconds=elapsed)
 
             if state_name == "IMPLEMENTATION":

@@ -272,7 +272,7 @@ Review modes are defined in `REVIEW_MODES` in `settings.py`. See `settings.examp
 
 | Constant | Value | Description |
 |----------|-------|-------------|
-| NUDGE_GRACE_SEC | 300 sec | No nudges within this period after a transition |
+| NUDGE_GRACE_SEC | 600 sec | No nudges within this period after a transition |
 | EXTEND_NOTICE_THRESHOLD | 300 sec | When remaining time is below this value, extension instructions are appended to nudges |
 | INACTIVE_THRESHOLD_SEC | 603 sec | Considered inactive if no updates for this many seconds |
 | INACTIVE_THRESHOLD_PLAN_SEC | 900 sec | Nudge interval for implementer during DESIGN_PLAN |

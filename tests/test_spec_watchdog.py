@@ -842,7 +842,7 @@ class TestSpecNudge:
         assert action.nudge_reviewers is None
 
     def test_spec_review_nudge_within_grace_no_nudge(self):
-        """猶予期間内（elapsed < 300s）→ nudge_reviewers=None。"""
+        """猶予期間内（elapsed < 600s）→ nudge_reviewers=None。"""
         sc = self._base_sc()
         entered_at = (_now() - timedelta(seconds=100)).isoformat()
         data = {
@@ -853,9 +853,9 @@ class TestSpecNudge:
         assert action.nudge_reviewers is None
 
     def test_spec_review_nudge_after_grace_pending_reviewer(self):
-        """猶予期間後（elapsed ≥ 300s）+ 未完了レビュアーあり → nudge_reviewers にそのレビュアーが含まれる。"""
+        """猶予期間後（elapsed ≥ 600s）+ 未完了レビュアーあり → nudge_reviewers にそのレビュアーが含まれる。"""
         sc = self._base_sc("reviewer1")
-        data = self._data_with_entered_at(-400)
+        data = self._data_with_entered_at(-(NUDGE_GRACE_SEC + 100))
         action = _check_spec_review(sc, _now(), data)
         assert action.nudge_reviewers is not None
         assert "reviewer1" in action.nudge_reviewers
@@ -864,7 +864,7 @@ class TestSpecNudge:
         """status=received のレビュアー → nudge_reviewers に含まれない。"""
         sc = self._base_sc("reviewer1")
         sc["review_requests"]["reviewer1"]["status"] = "received"
-        data = self._data_with_entered_at(-400)
+        data = self._data_with_entered_at(-(NUDGE_GRACE_SEC + 100))
         action = _check_spec_review(sc, _now(), data)
         # received は all_complete 方向なので next_state が返る可能性を考慮
         if action.next_state is None:
@@ -874,7 +874,7 @@ class TestSpecNudge:
         """status=timeout のレビュアー → nudge_reviewers に含まれない。"""
         sc = self._base_sc("reviewer1")
         sc["review_requests"]["reviewer1"]["status"] = "timeout"
-        data = self._data_with_entered_at(-400)
+        data = self._data_with_entered_at(-(NUDGE_GRACE_SEC + 100))
         action = _check_spec_review(sc, _now(), data)
         # timeout は all_complete 方向なので next_state が返る可能性を考慮
         if action.next_state is None:
@@ -884,7 +884,7 @@ class TestSpecNudge:
         """sent_at=None（未送信）のレビュアー → nudge_reviewers に含まれない（初回送信と催促を区別）。"""
         sc = self._base_sc("reviewer1")
         sc["review_requests"]["reviewer1"]["sent_at"] = None  # 未送信
-        data = self._data_with_entered_at(-400)
+        data = self._data_with_entered_at(-(NUDGE_GRACE_SEC + 100))
         action = _check_spec_review(sc, _now(), data)
         assert action.nudge_reviewers is None or "reviewer1" not in (action.nudge_reviewers or [])
 
@@ -904,7 +904,7 @@ class TestSpecNudge:
             "revise_count": 0,
             "max_revise_cycles": 5,
         }
-        data = self._data_with_entered_at(-400)
+        data = self._data_with_entered_at(-(NUDGE_GRACE_SEC + 100))
         action = _check_spec_review(sc, _now(), data)
         # reviewer1 は初回送信 → send_to に含まれる
         assert action.send_to is not None
@@ -918,7 +918,7 @@ class TestSpecNudge:
     # --- _check_spec_revise 催促テスト ---
 
     def test_spec_revise_nudge_within_grace_no_nudge(self):
-        """猶予期間内（elapsed < 300s）→ nudge_implementer=False。"""
+        """猶予期間内（elapsed < 600s）→ nudge_implementer=False。"""
         sc = {"retry_counts": {}}
         entered = (_now() - timedelta(seconds=100)).isoformat()
         data = {"history": [{"from": "SPEC_REVIEW", "to": "SPEC_REVISE", "at": entered}]}
@@ -926,7 +926,7 @@ class TestSpecNudge:
         assert action.nudge_implementer is False
 
     def test_spec_revise_nudge_after_grace(self):
-        """猶予期間後（elapsed ≥ 300s かつ タイムアウト前）→ nudge_implementer=True。"""
+        """猶予期間後（elapsed ≥ 600s かつ タイムアウト前）→ nudge_implementer=True。"""
         sc = {"retry_counts": {}}
         entered = (_now() - timedelta(seconds=NUDGE_GRACE_SEC + 1)).isoformat()
         data = {"history": [{"from": "SPEC_REVIEW", "to": "SPEC_REVISE", "at": entered}]}

@@ -24,10 +24,11 @@ def transition(
         f"{comment_line}"
         f"Target Issues: {issues_str}\n"
         f"{repo_line}"
-        f"**Update the target Issue descriptions** (glab issue update) to a granularity that Claude Code can reliably implement.\n"
-        f"Do not supplement via comments.\n"
+        f"**Update the target Issue descriptions** to a granularity that Claude Code can reliably implement. Do not supplement via comments.\n"
+        f"Write the revised body to /tmp/gokrax-{project}-N.md and apply it via:\n"
+        f"  {GOKRAX_CLI} issue-update --pj {project} --issue N --body-file /tmp/gokrax-{project}-N.md\n"
         f"After all updates, run plan-done to complete (batch reporting supported).\n"
-        f"{GOKRAX_CLI} plan-done --project {project} --issue N [N...]\n"
+        f"  {GOKRAX_CLI} plan-done --project {project} --issue N [N...]\n"
         f"[Request] Complete the work without interruption."
     )
 

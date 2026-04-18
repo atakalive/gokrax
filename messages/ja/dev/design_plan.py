@@ -20,10 +20,11 @@ def transition(
         f"[gokrax] {project}: 設計確認フェーズ\n"
         f"{comment_line}"
         f"対象Issue: {issues_str}\n"
-        f"Claude Codeが確実に実装できる粒度まで、**対象Issue本文の説明を修正せよ** (glab issue update)。\n"
-        f"コメントによる補足は禁止する。\n"
+        f"Claude Codeが確実に実装できる粒度まで、**対象Issue本文の説明を修正せよ**。コメントによる補足は禁止する。\n"
+        f"修正後の本文を一時ファイル /tmp/gokrax-{project}-N.md に書き出し、次のコマンドで反映せよ:\n"
+        f"  {GOKRAX_CLI} issue-update --pj {project} --issue N --body-file /tmp/gokrax-{project}-N.md\n"
         f"全て修正後、問題がなければ plan-done して完了せよ（一括報告できる）。\n"
-        f"{GOKRAX_CLI} plan-done --project {project} --issue N [N...]\n"
+        f"  {GOKRAX_CLI} plan-done --project {project} --issue N [N...]\n"
         f"[お願い] 仕事は中断せず、完了まで一気にやること。"
     )
 

@@ -111,6 +111,7 @@ from commands.dev import (  # noqa: F401 — re-export for backwards compatibili
     get_status_text, get_qstatus_text, _get_running_info,
     _reset_to_idle,
 )
+from commands.issue_ops import cmd_issue_update
 
 
 def main():
@@ -302,6 +303,14 @@ def main():
     p.add_argument("--pj", "--project", required=True, dest="project", help="project name")
     p.add_argument("--issue", required=True, type=int, help="issue number")
 
+    # issue-update
+    p = sub.add_parser("issue-update", help="update GitLab issue body from a file")
+    p.add_argument("--pj", "--project", required=True, dest="project", help="project name")
+    p.add_argument("--issue", required=True, type=int, help="issue number")
+    p.add_argument("--body-file", required=True, type=Path, dest="body_file",
+                   help="path to UTF-8 file containing the new issue body")
+    p.add_argument("--title", default=None, help="optional new issue title")
+
     # qrun
     p = sub.add_parser("qrun", help="run next batch from queue")
     p.add_argument("--queue", type=Path, help="queue file path (default: gokrax-queue.txt)")
@@ -439,6 +448,7 @@ def main():
         "merge-summary": cmd_merge_summary,
         "ok": cmd_ok,
         "get-comments": cmd_get_comments,
+        "issue-update": cmd_issue_update,
         "qrun": cmd_qrun,
         "qstatus": cmd_qstatus,
         "qadd": cmd_qadd,

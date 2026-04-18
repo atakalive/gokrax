@@ -412,20 +412,27 @@ def format_review_note_header(
     round_num : int
         Current round number (1-based). 0 means omit.
     target_pass : int
-        Total pass count for the target reviewer.
+        Total pass count for the target reviewer (from n_pass config).
 
     Returns
     -------
     str
         e.g. "[Reviewer 1] P1 (design review) Round 1"
-        e.g. "[Reviewer 1] P1 (design review) Round 2, 2-Pass"
-        e.g. "[Reviewer 1] APPROVE (code review) Round 1"
+        e.g. "[Reviewer 1] APPROVE (code review) Round 1, 2-Pass"
+        e.g. "[Reviewer 1] P1 (design review) Round 2"   # Round 2+ は N-Pass を付けない
+
+    Notes
+    -----
+    `{target_pass}-Pass` サフィックスは NPASS ラウンド（Round 1 かつ target_pass > 1）
+    でのみ付加する。NPASS interception は revise_count == 0 のみ発火する仕様
+    （engine/fsm.py:629-631）に合わせる。`round_num == 0` のときも N-Pass は
+    付加しない（不変条件: `N-Pass は Round 1 の NPASS ラウンドのみ`）。
     """
     header = f"[{masked_reviewer}] {verdict} ({phase} review)"
     parts: list[str] = []
     if round_num > 0:
         parts.append(f"Round {round_num}")
-    if target_pass > 1:
+    if round_num == 1 and target_pass > 1:
         parts.append(f"{target_pass}-Pass")
     if parts:
         header += " " + ", ".join(parts)

@@ -28,9 +28,9 @@ class TestFormatReviewNoteHeader:
         assert result == "[Reviewer 1] APPROVE (code review) Round 1, 2-Pass"
 
     def test_round2_2pass(self):
-        """Round 2, target_pass 2 → 'Round 2, 2-Pass'"""
+        """Round 2, target_pass 2 → 'Round 2' のみ（NPASS は Round 1 限定）"""
         result = format_review_note_header("Reviewer 1", "P1", "design", 2, 2)
-        assert result == "[Reviewer 1] P1 (design review) Round 2, 2-Pass"
+        assert result == "[Reviewer 1] P1 (design review) Round 2"
 
     def test_round0_no_round(self):
         """round_num=0 → Round 付与しない"""
@@ -46,3 +46,17 @@ class TestFormatReviewNoteHeader:
         """3-Pass"""
         result = format_review_note_header("Reviewer 1", "P0", "design", 1, 3)
         assert result == "[Reviewer 1] P0 (design review) Round 1, 3-Pass"
+
+    def test_round3_3pass_no_npass_suffix(self):
+        """Round 3 以降でも N-Pass サフィックスは付かない（NPASS は Round 1 限定）"""
+        result = format_review_note_header("Reviewer 1", "APPROVE", "code", 3, 3)
+        assert result == "[Reviewer 1] APPROVE (code review) Round 3"
+
+    def test_round0_with_multipass_no_npass_suffix(self):
+        """round_num=0 かつ target_pass>1 でも Round も N-Pass も出さない
+
+        不変条件: N-Pass は Round 1 の NPASS ラウンドのみ表示
+        （到達不能だが helper の仕様として固定化）
+        """
+        result = format_review_note_header("Reviewer 1", "APPROVE", "code", 0, 2)
+        assert result == "[Reviewer 1] APPROVE (code review)"

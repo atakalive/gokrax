@@ -62,6 +62,7 @@ def _make_full_data() -> dict:
         # Reviewer
         "excluded_reviewers": ["r1"],
         "min_reviews_override": 2,
+        "_transient_dispatch_warned": True,
         "review_config": {"design": {}},
         "reviewer_number_map": {"r1": 1},
         # Merge summary
@@ -100,7 +101,8 @@ _CLEANUP_KEYS = {
     "test_result", "test_output", "test_retry_count",
     "cc_pid", "cc_session_id",
     "base_commit",
-    "excluded_reviewers", "min_reviews_override", "review_config", "reviewer_number_map",
+    "excluded_reviewers", "min_reviews_override", "_transient_dispatch_warned",
+    "review_config", "reviewer_number_map",
     "summary_message_id",
     "_pending_notifications",
     "_state_entered_at",

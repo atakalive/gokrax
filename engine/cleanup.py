@@ -70,6 +70,7 @@ def _cleanup_batch_state(data: dict, pj: str) -> None:
     # Reviewer
     data.pop("excluded_reviewers", None)
     data.pop("min_reviews_override", None)
+    data.pop("_transient_dispatch_warned", None)
     data.pop("review_config", None)
     data.pop("reviewer_number_map", None)
     # Merge summary

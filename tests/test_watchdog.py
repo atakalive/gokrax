@@ -6265,10 +6265,9 @@ class TestReviewerNumberMapPhaseOverride:
 
 
 class TestNotifyReviewersFailedExcluded:
-    """Issue #219: notify_reviewers の失敗レビュアーが excluded_reviewers に追加されること"""
+    """Issue #322: notify_reviewers の送信失敗は一時的エラーとして扱い、excluded_reviewers に積まない"""
 
-    def test_failed_added_to_excluded_with_deadlock_clamp(self, tmp_path, monkeypatch):
-        """failed レビュアーが excluded_reviewers に追加され、effective_count が正しく減算されること"""
+    def _setup_pipeline(self, tmp_path, monkeypatch, extra: dict | None = None) -> Path:
         import pipeline_io
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
@@ -6291,13 +6290,22 @@ class TestNotifyReviewersFailedExcluded:
             "review_mode": "standard",
             "excluded_reviewers": [],
         }
+        if extra:
+            pipeline_data.update(extra)
         _write_pipeline(path, pipeline_data)
+        return path
 
+    def test_failed_not_added_to_excluded_and_warns(self, tmp_path, monkeypatch):
+        """Issue #322: 送信失敗は excluded_reviewers に積まず、Discord 警告を 1 回出す"""
+        from tests.conftest import TEST_REVIEWERS
+        r2 = TEST_REVIEWERS[1]
+
+        path = self._setup_pipeline(tmp_path, monkeypatch)
         from watchdog import process
 
-        # notify_reviewers が r2 を失敗レビュアーとして返す
+        mock_discord = MagicMock()
         monkeypatch.setattr("watchdog.notify_reviewers", lambda *a, **k: [r2])
-        monkeypatch.setattr("watchdog.notify_discord", lambda msg: None)
+        monkeypatch.setattr("watchdog.notify_discord", mock_discord)
         monkeypatch.setattr("watchdog._start_cc", lambda *a, **k: None)
 
         process(path)
@@ -6305,12 +6313,94 @@ class TestNotifyReviewersFailedExcluded:
         with open(path) as f:
             result = json.load(f)
 
-        assert r2 in result.get("excluded_reviewers", []), \
-            f"Failed reviewer {r2} should be in excluded_reviewers"
-        # effective_count = 3 members - 1 excluded = 2, min_reviews = 3 → clamp
-        assert result.get("min_reviews_override") is not None, \
-            "DEADLOCK clamp should be applied when effective < min_reviews"
-        assert result["min_reviews_override"] == 2
+        assert r2 not in result.get("excluded_reviewers", [])
+        assert result.get("min_reviews_override") is None
+        assert result.get("_transient_dispatch_warned") is True
+        transient_calls = [c for c in mock_discord.call_args_list if "transient failure" in c[0][0]]
+        assert len(transient_calls) == 1
+        msg = transient_calls[0][0][0]
+        assert r2 in msg
+
+    def test_queue_mode_prefix(self, tmp_path, monkeypatch):
+        """queue_mode=True の場合、Discord メッセージは [Queue] プレフィックスで始まる"""
+        from tests.conftest import TEST_REVIEWERS
+        r2 = TEST_REVIEWERS[1]
+
+        path = self._setup_pipeline(tmp_path, monkeypatch, extra={"queue_mode": True})
+        from watchdog import process
+
+        mock_discord = MagicMock()
+        monkeypatch.setattr("watchdog.notify_reviewers", lambda *a, **k: [r2])
+        monkeypatch.setattr("watchdog.notify_discord", mock_discord)
+        monkeypatch.setattr("watchdog._start_cc", lambda *a, **k: None)
+
+        process(path)
+
+        transient_calls = [c for c in mock_discord.call_args_list if "transient failure" in c[0][0]]
+        assert len(transient_calls) == 1
+        msg = transient_calls[0][0][0]
+        assert msg.startswith("[Queue][test-pj]")
+
+    def test_no_failed_no_warning(self, tmp_path, monkeypatch):
+        """failed が空のときは Discord 警告は出ない"""
+        path = self._setup_pipeline(tmp_path, monkeypatch)
+        from watchdog import process
+
+        mock_discord = MagicMock()
+        monkeypatch.setattr("watchdog.notify_reviewers", lambda *a, **k: [])
+        monkeypatch.setattr("watchdog.notify_discord", mock_discord)
+        monkeypatch.setattr("watchdog._start_cc", lambda *a, **k: None)
+
+        process(path)
+
+        transient_calls = [c for c in mock_discord.call_args_list if "transient failure" in c[0][0]]
+        assert len(transient_calls) == 0
+
+    def test_dedupe_within_same_batch(self, tmp_path, monkeypatch):
+        """warn フラグが立っている間は 2 回目以降警告を出さない"""
+        from tests.conftest import TEST_REVIEWERS
+        r2 = TEST_REVIEWERS[1]
+
+        path = self._setup_pipeline(
+            tmp_path, monkeypatch,
+            extra={"_transient_dispatch_warned": True},
+        )
+        from watchdog import process
+
+        mock_discord = MagicMock()
+        monkeypatch.setattr("watchdog.notify_reviewers", lambda *a, **k: [r2])
+        monkeypatch.setattr("watchdog.notify_discord", mock_discord)
+        monkeypatch.setattr("watchdog._start_cc", lambda *a, **k: None)
+
+        process(path)
+
+        transient_calls = [c for c in mock_discord.call_args_list if "transient failure" in c[0][0]]
+        assert len(transient_calls) == 0
+
+    def test_flag_cleared_on_reset_reviewers(self, tmp_path, monkeypatch):
+        """reset_reviewers=True 遷移で _save_excluded 経由にフラグがクリアされること"""
+        from engine.fsm import TransitionAction
+
+        path = self._setup_pipeline(
+            tmp_path, monkeypatch,
+            extra={"state": "DESIGN_REVIEW", "_transient_dispatch_warned": True},
+        )
+        from watchdog import process
+
+        mock_discord = MagicMock()
+        # reset_reviewers=True を含む action を強制する
+        forced_action = TransitionAction(new_state="DESIGN_REVISE", reset_reviewers=True)
+        monkeypatch.setattr("watchdog.check_transition", lambda *a, **k: forced_action)
+        monkeypatch.setattr("watchdog.notify_reviewers", lambda *a, **k: [])
+        monkeypatch.setattr("watchdog.notify_discord", mock_discord)
+        monkeypatch.setattr("watchdog._start_cc", lambda *a, **k: None)
+        monkeypatch.setattr("watchdog._reset_reviewers", lambda *a, **k: [])
+
+        process(path)
+
+        with open(path) as f:
+            result = json.load(f)
+        assert "_transient_dispatch_warned" not in result
 
 
 # ── Issue #273: DESIGN_PLAN 催促レート制限の閾値切り替えテスト ──────────────

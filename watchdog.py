@@ -1093,6 +1093,7 @@ def process(path: Path):
 
             def _save_excluded(data: dict) -> None:
                 data["excluded_reviewers"] = excluded
+                data.pop("_transient_dispatch_warned", None)
                 # reviewer_number_map は初回のみ生成（バッチ内で安定させるため）
                 if "reviewer_number_map" not in data:
                     # reviewer_number_map: バッチ参加レビュアーにランダム番号を割り当て
@@ -1173,25 +1174,21 @@ def process(path: Path):
                 update_pipeline(get_path(pj), _disable_on_notify_error)
                 return
 
-            # 送信失敗レビュアーを excluded_reviewers に追加（2回目の update_pipeline）
+            # 送信失敗は一時的エラーのため excluded_reviewers に積まない (Issue #322)
+            # nudge 経路で再試行される。観測性のため Discord 警告を 1 バッチ内で1回だけ出す。
             if isinstance(failed, list) and failed:
-                _failed_phase_config = phase_config
-                def _add_failed_to_excluded(data: dict) -> None:
-                    ex = data.get("excluded_reviewers", [])
-                    for r in failed:
-                        if r not in ex:
-                            ex.append(r)
-                    data["excluded_reviewers"] = ex
-                    # DEADLOCK クランプ再計算
-                    effective_count = len([m for m in _failed_phase_config["members"] if m not in data["excluded_reviewers"]])
-                    _min_reviews = get_min_reviews(_failed_phase_config)
-                    if effective_count < _min_reviews:
-                        clamped = max(effective_count, 0)
-                        log(f"[{pj}] [DEADLOCK] effective reviewers ({effective_count}) < min_reviews ({_min_reviews}), clamping to {clamped}")
-                        data["min_reviews_override"] = clamped
-                    else:
-                        data.pop("min_reviews_override", None)
-                update_pipeline(get_path(pj), _add_failed_to_excluded)
+                _warn_flag = [False]
+                def _mark_transient_warn(data: dict) -> None:
+                    if not data.get("_transient_dispatch_warned"):
+                        data["_transient_dispatch_warned"] = True
+                        _warn_flag[0] = True
+                update_pipeline(get_path(pj), _mark_transient_warn)
+                if _warn_flag[0]:
+                    q_prefix = "[Queue]" if notification.get("queue_mode", False) else ""
+                    notify_discord(
+                        f"{q_prefix}[{pj}] ⚠️ review dispatch transient failure: "
+                        f"{', '.join(failed)} — will retry via nudge"
+                    )
 
             clear_pending_notification(pj, "review")
         if action.run_cc:

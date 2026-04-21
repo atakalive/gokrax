@@ -924,12 +924,20 @@ def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
             is_npass = state in ("DESIGN_REVIEW_NPASS", "CODE_REVIEW_NPASS")
             short_msg = _build_file_review_message(project, is_code, r, file_path, batch, round_num, skip_skills=is_npass)
             if not send_to_agent(r, short_msg):
-                logger.warning("Failed to send review request to %s", r)
+                from engine.backend import resolve_backend
+                logger.warning(
+                    "Failed to send review request to %s (backend=%s)",
+                    r, resolve_backend(r),
+                )
                 failed_set.add(r)
                 continue
         else:
             if not send_to_agent(r, msg):
-                logger.warning("Failed to send review request to %s", r)
+                from engine.backend import resolve_backend
+                logger.warning(
+                    "Failed to send review request to %s (backend=%s)",
+                    r, resolve_backend(r),
+                )
                 failed_set.add(r)
                 continue
 

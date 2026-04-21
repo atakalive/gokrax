@@ -465,6 +465,9 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
     data を読み取るが直接変更しない。data への書き込みが必要な場合は
     TransitionAction のフィールド（save_grace_met_at, clear_grace_met_at 等）
     で呼び出し側に委譲する。
+
+    INITIALIZE 離脱時は skip_design の有無にかかわらず reset_reviewers=True を返す
+    (IDLE→INITIALIZE 帰属の /new; Issue #321)。
     """
     if state in ("IDLE", "BLOCKED"):
         return TransitionAction()
@@ -473,8 +476,10 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
     if state == "INITIALIZE":
         skip_design = data.get("skip_design", False) if data else False
         if skip_design:
+            # skip_design=True でも /new を送る (IDLE→INITIALIZE 帰属; Issue #321)
             return TransitionAction(
                 new_state="DESIGN_APPROVED",
+                reset_reviewers=True,
             )
         pj = data.get("project", "") if data else ""
         comment = data.get("comment", "") if data else ""

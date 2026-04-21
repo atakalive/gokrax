@@ -1060,10 +1060,12 @@ def process(path: Path):
         skip_reset = True  # reset not executed if reset_reviewers=False -> already_reset=False
         if action.reset_reviewers:
             review_mode = notification.get("review_mode", "")
+            state = notification.get("old_state", "")
             # keep_ctx 分岐: 遷移先に応じて参照フラグを切り替え
             if action.new_state in ("DESIGN_REVISE", "CODE_REVISE"):
                 skip_reset = True  # always skip for REVISE transition
-            elif action.new_state == "DESIGN_PLAN":
+            elif state == "INITIALIZE":
+                # IDLE→INITIALIZE 帰属の /new。DESIGN_PLAN/DESIGN_APPROVED 両方が対象 (Issue #321)
                 skip_reset = notification.get("keep_ctx_batch", False)
             elif action.new_state == "IMPLEMENTATION":
                 skip_reset = notification.get("keep_ctx_intra", False)
@@ -1075,13 +1077,13 @@ def process(path: Path):
             phase_config = get_phase_config(pipeline_data, reset_phase)
 
             if skip_reset:
-                log(f"[{pj}] reset_reviewers SKIPPED (keep_ctx for {action.new_state})")
+                log(f"[{pj}] reset_reviewers SKIPPED: reason=keep_ctx from_state={state} new_state={action.new_state}")
                 _reset_short_context_reviewers(phase_config)
                 excluded = []
             else:
                 # 実装担当も常にリセット（レビュアーと同タイミングで/new）
                 impl = notification.get("implementer", "")
-                log(f"[{pj}] reset_reviewers triggered: new_state={action.new_state}, impl='{impl}', review_mode={review_mode}")
+                log(f"[{pj}] reset_reviewers triggered: from_state={state} new_state={action.new_state} impl='{impl}' review_mode={review_mode}")
                 excluded = _reset_reviewers(phase_config, implementer=impl)
 
             # Save excluded_reviewers and min_reviews_override inside update_pipeline lock

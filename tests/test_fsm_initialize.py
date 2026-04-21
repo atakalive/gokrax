@@ -58,17 +58,18 @@ class TestSkipDesign:
     ]
 
     def test_skip_design_transitions_to_design_approved(self):
-        """skip_design=True → DESIGN_APPROVED, reset_reviewers=False"""
+        """skip_design=True → DESIGN_APPROVED, reset_reviewers=True (Issue #321)"""
         data = {"skip_design": True}
         action = check_transition("INITIALIZE", list(self._BATCH), data)
         assert action.new_state == "DESIGN_APPROVED"
-        assert action.reset_reviewers is False
+        assert action.reset_reviewers is True   # Issue #321: skip_design でも /new が走る
 
     def test_skip_design_plus_skip_assess(self):
         """skip_design + skip_assess → INITIALIZE→DESIGN_APPROVED, then DESIGN_APPROVED→IMPLEMENTATION"""
         data = {"skip_design": True, "skip_assess": True}
         action1 = check_transition("INITIALIZE", list(self._BATCH), data)
         assert action1.new_state == "DESIGN_APPROVED"
+        assert action1.reset_reviewers is True   # Issue #321
 
         action2 = check_transition("DESIGN_APPROVED", list(self._BATCH), data)
         assert action2.new_state == "IMPLEMENTATION"

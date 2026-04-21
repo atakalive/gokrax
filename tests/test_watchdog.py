@@ -5437,6 +5437,86 @@ class TestInitializeToDesignPlanPytest:
         assert saved["_pytest_baseline"]["pid"] == 66666
 
 
+class TestInitializeSkipDesignResetReviewers:
+    """Issue #321: skip_design=True (INITIALIZE→DESIGN_APPROVED) でも _reset_reviewers が呼ばれる
+
+    check_transition はモックせず、fsm.py + watchdog.py 変更の end-to-end を検証する。
+    """
+
+    @staticmethod
+    def _build_pipeline(tmp_pipelines, *, keep_ctx_batch: bool):
+        import json as _json
+        path = tmp_pipelines / "pj.json"
+        data = {
+            "project": "pj", "gitlab": "testns/pj",
+            "state": "INITIALIZE", "enabled": True,
+            "review_mode": "standard",
+            "batch": [{"issue": 1}],
+            "history": [],
+            "repo_path": "/fake/repo",
+            "skip_design": True,
+            "keep_ctx_batch": keep_ctx_batch,
+        }
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(_json.dumps(data))
+        return path
+
+    def test_skip_design_calls_reset_reviewers_with_design_phase(self, tmp_pipelines, monkeypatch):
+        """skip_design=True かつ keep_ctx_batch=False → _reset_reviewers が design phase メンバーで呼ばれる (check_transition 実コード経由)"""
+        from watchdog import process
+
+        path = self._build_pipeline(tmp_pipelines, keep_ctx_batch=False)
+        monkeypatch.setattr("watchdog.PIPELINES_DIR", tmp_pipelines)
+
+        # do_transition で参照される REVIEW_MODES を差し替えて design phase を固定
+        fixed_mode = {
+            "design": {"members": ["reviewer1", "reviewer3"], "min_reviews": 1},
+            "code": {"members": ["reviewer1", "reviewer3"], "min_reviews": 1},
+        }
+        monkeypatch.setattr("watchdog.REVIEW_MODES", {"standard": fixed_mode})
+
+        mock_git = MagicMock(); mock_git.returncode = 0; mock_git.stdout = "abc12345\n"
+
+        with patch("watchdog._reset_reviewers", return_value=[]) as mock_reset, \
+             patch("watchdog._reset_short_context_reviewers") as mock_short_reset, \
+             patch("watchdog._has_pytest", return_value=False), \
+             patch("subprocess.run", return_value=mock_git), \
+             patch("watchdog.notify_implementer"), \
+             patch("watchdog._poll_pytest_baseline"):
+            process(path)
+
+        mock_reset.assert_called_once()
+        mock_short_reset.assert_not_called()
+        called_phase_config = mock_reset.call_args[0][0]
+        assert set(called_phase_config["members"]) == {"reviewer1", "reviewer3"}
+
+    def test_skip_design_keep_ctx_batch_skips_reset(self, tmp_pipelines, monkeypatch):
+        """skip_design=True かつ keep_ctx_batch=True → _reset_reviewers は呼ばれず、_reset_short_context_reviewers のみ呼ばれる (Issue #321 + euler P1 Round 1)"""
+        from watchdog import process
+
+        path = self._build_pipeline(tmp_pipelines, keep_ctx_batch=True)
+        monkeypatch.setattr("watchdog.PIPELINES_DIR", tmp_pipelines)
+
+        fixed_mode = {
+            "design": {"members": ["reviewer1", "reviewer3"], "min_reviews": 1},
+            "code": {"members": ["reviewer1", "reviewer3"], "min_reviews": 1},
+        }
+        monkeypatch.setattr("watchdog.REVIEW_MODES", {"standard": fixed_mode})
+
+        mock_git = MagicMock(); mock_git.returncode = 0; mock_git.stdout = "abc12345\n"
+
+        with patch("watchdog._reset_reviewers") as mock_reset, \
+             patch("watchdog._reset_short_context_reviewers") as mock_short_reset, \
+             patch("watchdog._has_pytest", return_value=False), \
+             patch("subprocess.run", return_value=mock_git), \
+             patch("watchdog.notify_implementer"), \
+             patch("watchdog._poll_pytest_baseline"):
+            process(path)
+
+        mock_reset.assert_not_called()
+        mock_short_reset.assert_called_once()
+
+
 # ── TestHandleQrun (Issue #97): _handle_qrun 回帰テスト ──────────────────────
 
 

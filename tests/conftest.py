@@ -43,6 +43,7 @@ def _block_external_calls(request, tmp_path):
          patch("watchdog._start_code_test"), \
          patch("watchdog._start_cc_test_fix"), \
          patch("watchdog.notify_discord"), \
+         patch("engine.glab.fetch_issue_state", return_value="opened"), \
          patch("time.sleep"):
         yield
     config.LOG_FILE = orig_config

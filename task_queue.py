@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Optional
 
 from pipeline_io import load_pipeline, get_path
-from config import REVIEW_MODES, resolve_queue_options
+from config import REVIEW_MODES, resolve_queue_options, GITLAB_NAMESPACE
 
 
 class QueueSkipError(Exception):
@@ -283,81 +283,147 @@ def _find_active_lines(lines: list[str]) -> list[tuple[int, dict]]:
     return result
 
 
-def pop_next_queue_entry(queue_path: Path) -> Optional[dict]:
-    """キューファイルから次の実行可能エントリをpopする。
+def _find_next_idle_candidate_readonly(queue_path: Path) -> tuple[int, str, dict] | None:
+    """LOCK_EX|LOCK_NB を取り、最初の IDLE 候補行を探して (line_idx, original_line, entry) を返す。
 
-    1. fcntl.flock(LOCK_EX) でロック取得
-    2. 有効行を上から順に探す
-    3. 対象PJがIDLEかチェック (非IDLEならスキップして次行へ)
-    4. 見つかったら "# done: " prefix に書き換え
-    5. 見つからなければ None
-
-    Args:
-        queue_path: キューファイルのパス
-
-    Returns:
-        実行可能エントリの dict、または None
+    ファイルは書き換えない。候補なし / ロック取得失敗 / ファイル不存在 → None。
     """
     if not queue_path.exists():
         return None
-
-    with open(queue_path, "r+") as f:
-        # ファイルロック取得 (non-blocking: 取れなければ即 None)
+    with open(queue_path, "r") as f:
         try:
             fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
             return None
         try:
             lines = f.readlines()
-            modified = False
-            result = None
-
             for i, line in enumerate(lines):
-                # "# done:" prefix がある行はスキップ
                 if line.strip().startswith("# done:"):
                     continue
-
-                # パース（ValueError = 無効行、スキップ）
                 try:
                     entry = parse_queue_line(line)
                 except ValueError:
                     continue
-
-                # IDLE チェック
                 project = entry["project"]
                 try:
                     pipeline_path = get_path(project)
                     if not pipeline_path.exists():
-                        # Pipeline not found, skip
                         continue
                     data = load_pipeline(pipeline_path)
                     if data.get("state", "IDLE") != "IDLE":
-                        # Not IDLE, skip (Head-of-Line Blocking 回避)
                         continue
                 except Exception:
-                    # エラー時もスキップ
                     continue
-
-                # 実行可能エントリ発見
-                lines[i] = f"# done: {line}" if not line.endswith("\n") else f"# done: {line}"
-                modified = True
-                result = entry
-                break
-
-            if not modified:
-                return None
-
-            # アトミック書き込み
-            f.seek(0)
-            f.truncate()
-            f.writelines(lines)
-            f.flush()
-            os.fsync(f.fileno())
-
-            return result
-
+                return (i, line, entry)
+            return None
         finally:
             fcntl.flock(f, fcntl.LOCK_UN)
+
+
+def _mark_line_done_if_matches(queue_path: Path, original_line: str) -> bool:
+    """content-based match で `original_line` と一致する active 行を "# done:" 化する。
+
+    True: 該当 active 行を done 化した。
+    False: 既に done 化 / 行消失 / ロック取得失敗 → 次候補を探すべき。
+    """
+    if not queue_path.exists():
+        return False
+    with open(queue_path, "r+") as f:
+        try:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            return False
+        try:
+            lines = f.readlines()
+            target_stripped = original_line.rstrip("\n")
+            for i, line in enumerate(lines):
+                if line.strip().startswith("# done:"):
+                    continue
+                if line.rstrip("\n") == target_stripped:
+                    lines[i] = f"# done: {line}"
+                    f.seek(0)
+                    f.truncate()
+                    f.writelines(lines)
+                    f.flush()
+                    os.fsync(f.fileno())
+                    return True
+            return False
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
+
+
+def pop_next_queue_entry(queue_path: Path) -> Optional[dict]:
+    """キューから次の実行可能エントリを pop（crash-safe 3-phase 版）。
+
+    Phase A (read-only, locked): 候補行特定。
+    Phase B (unlocked): glab API で closed Issue スキップ判定。
+    Phase C (commit, locked): content-based revalidation で該当行を done 化。
+    Phase D (unlocked): Discord 通知。
+    """
+    closed_skipped: list[tuple[str, list[int]]] = []
+    unverified_entries: list[tuple[str, list[int]]] = []
+    result: Optional[dict] = None
+
+    while True:
+        found = _find_next_idle_candidate_readonly(queue_path)
+        if found is None:
+            break
+        _line_idx, original_line, entry = found
+
+        if entry.get("allow_closed", False) or entry.get("issues") == "all":
+            if _mark_line_done_if_matches(queue_path, original_line):
+                result = entry
+                break
+            continue
+
+        project = entry["project"]
+        try:
+            data = load_pipeline(get_path(project))
+        except Exception:
+            if _mark_line_done_if_matches(queue_path, original_line):
+                result = entry
+                break
+            continue
+
+        gitlab = data.get("gitlab", f"{GITLAB_NAMESPACE}/{project}")
+
+        from engine.glab import fetch_issue_state
+        closed_nums: list[int] = []
+        unverified_nums: list[int] = []
+        for num_str in entry["issues"].split(","):
+            num = int(num_str)
+            state = fetch_issue_state(num, gitlab)
+            if state == "closed":
+                closed_nums.append(num)
+            elif state is None:
+                unverified_nums.append(num)
+
+        if closed_nums:
+            if _mark_line_done_if_matches(queue_path, original_line):
+                closed_skipped.append((project, closed_nums))
+            continue
+
+        if _mark_line_done_if_matches(queue_path, original_line):
+            if unverified_nums:
+                unverified_entries.append((project, unverified_nums))
+            result = entry
+            break
+        continue
+
+    if closed_skipped or unverified_entries:
+        from notify import post_discord
+        from config import DISCORD_CHANNEL
+        if DISCORD_CHANNEL:
+            for pj, nums in closed_skipped:
+                nums_str = ", ".join(f"#{n}" for n in nums)
+                post_discord(DISCORD_CHANNEL,
+                             f"⚠️ Queue entry skipped: {pj} {nums_str} (closed)")
+            for pj, nums in unverified_entries:
+                nums_str = ", ".join(f"#{n}" for n in nums)
+                post_discord(DISCORD_CHANNEL,
+                             f"⚠️ Queue entry proceeded with unverified state: {pj} {nums_str}")
+
+    return result
 
 
 def restore_queue_entry(queue_path: Path, original_line: str) -> bool:

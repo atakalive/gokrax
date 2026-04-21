@@ -846,6 +846,8 @@ def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
     if excluded is None:
         excluded = []
 
+    from engine.backend import resolve_backend
+
     failed_set: set[str] = set()
 
     # review_mode 検証
@@ -924,7 +926,6 @@ def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
             is_npass = state in ("DESIGN_REVIEW_NPASS", "CODE_REVIEW_NPASS")
             short_msg = _build_file_review_message(project, is_code, r, file_path, batch, round_num, skip_skills=is_npass)
             if not send_to_agent(r, short_msg):
-                from engine.backend import resolve_backend
                 logger.warning(
                     "Failed to send review request to %s (backend=%s)",
                     r, resolve_backend(r),
@@ -933,7 +934,6 @@ def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
                 continue
         else:
             if not send_to_agent(r, msg):
-                from engine.backend import resolve_backend
                 logger.warning(
                     "Failed to send review request to %s (backend=%s)",
                     r, resolve_backend(r),

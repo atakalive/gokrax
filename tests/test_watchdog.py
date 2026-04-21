@@ -6357,7 +6357,13 @@ class TestNotifyReviewersFailedExcluded:
         assert len(transient_calls) == 0
 
     def test_dedupe_within_same_batch(self, tmp_path, monkeypatch):
-        """warn フラグが立っている間は 2 回目以降警告を出さない"""
+        """warn フラグが立っている間は 2 回目以降警告を出さない
+
+        state="DESIGN_PLAN" + design_ready=True batch だと DESIGN_PLAN→DESIGN_REVIEW
+        遷移となり action.reset_reviewers は立たない（REVIEW 依頼送信のみ）。
+        よって _save_excluded は走らず、事前セットした _transient_dispatch_warned=True
+        が残留して 2 回目以降の警告を抑制する、という同一バッチ内 de-dupe の挙動を検証する。
+        """
         from tests.conftest import TEST_REVIEWERS
         r2 = TEST_REVIEWERS[1]
 
@@ -6380,21 +6386,37 @@ class TestNotifyReviewersFailedExcluded:
     def test_flag_cleared_on_reset_reviewers(self, tmp_path, monkeypatch):
         """reset_reviewers=True 遷移で _save_excluded 経由にフラグがクリアされること"""
         from engine.fsm import TransitionAction
+        from tests.conftest import TEST_REVIEWERS
+        r1, r2, r3 = TEST_REVIEWERS[0], TEST_REVIEWERS[1], TEST_REVIEWERS[2]
 
+        # REVIEW→REVISE 遷移時の L496-518 (未応答除外) 経路を迂回するため
+        # 全メンバーに design_reviews を埋めておく
+        batch = _make_batch(1, design_ready=True)
+        batch[0]["design_reviews"] = {
+            r1: {"verdict": "P0", "at": ""},
+            r2: {"verdict": "P0", "at": ""},
+            r3: {"verdict": "P0", "at": ""},
+        }
         path = self._setup_pipeline(
             tmp_path, monkeypatch,
-            extra={"state": "DESIGN_REVIEW", "_transient_dispatch_warned": True},
+            extra={
+                "state": "DESIGN_REVIEW",
+                "_transient_dispatch_warned": True,
+                "batch": batch,
+            },
         )
         from watchdog import process
 
         mock_discord = MagicMock()
         # reset_reviewers=True を含む action を強制する
+        # DESIGN_REVISE 遷移は skip_reset=True 経路に入り _reset_short_context_reviewers
+        # が呼ばれる (副作用あり) ため、テスト堅牢性のためスタブで抑止する。
         forced_action = TransitionAction(new_state="DESIGN_REVISE", reset_reviewers=True)
         monkeypatch.setattr("watchdog.check_transition", lambda *a, **k: forced_action)
         monkeypatch.setattr("watchdog.notify_reviewers", lambda *a, **k: [])
         monkeypatch.setattr("watchdog.notify_discord", mock_discord)
         monkeypatch.setattr("watchdog._start_cc", lambda *a, **k: None)
-        monkeypatch.setattr("watchdog._reset_reviewers", lambda *a, **k: [])
+        monkeypatch.setattr("watchdog._reset_short_context_reviewers", lambda *a, **k: None)
 
         process(path)
 

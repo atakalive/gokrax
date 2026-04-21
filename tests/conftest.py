@@ -24,7 +24,7 @@ def _block_external_calls(request, tmp_path):
     watchdog.LOG_FILE = tmp_log
 
     module = Path(request.node.fspath).stem
-    if module in ("test_notify", "test_config", "test_short_context", "test_phase_override"):
+    if module in ("test_notify", "test_config", "test_short_context", "test_phase_override", "test_run_glab"):
         yield
         config.LOG_FILE = orig_config
         watchdog.LOG_FILE = orig_watchdog

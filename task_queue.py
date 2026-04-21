@@ -391,7 +391,11 @@ def pop_next_queue_entry(queue_path: Path) -> Optional[dict]:
         closed_nums: list[int] = []
         unverified_nums: list[int] = []
         for num_str in entry["issues"].split(","):
-            num = int(num_str)
+            try:
+                num = int(num_str)
+            except ValueError:
+                # parse_queue_line で数値検証済みのはずだが、契約崩壊時の safety net
+                continue
             state = fetch_issue_state(num, gitlab)
             if state == "closed":
                 closed_nums.append(num)

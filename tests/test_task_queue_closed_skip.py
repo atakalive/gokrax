@@ -249,6 +249,33 @@ def test_t11_crash_safety_file_unchanged_in_phase_b(env, post_spy, monkeypatch):
         assert "# done:" not in snap
 
 
+def test_t11b_phase_a_readonly_no_overwrite(env, post_spy, monkeypatch):
+    """P2-B: Phase A が読み取り専用であることの mutation 試験。
+    Phase B 侵入時に外部がファイル内容を mutate しても、Phase A 側は
+    ファイルに書き戻さない（Phase A は "r" open なので構造上不可能だが、
+    実装変更で writable open になる退行を検出する）。
+    """
+    tmp, pdir = env
+    _write_pipeline(pdir / "proj1.json", _make_idle_pipeline("proj1"))
+    q = tmp / "q.txt"
+    q.write_text("proj1 1\n")
+
+    def fake(n, g):
+        # Phase B 侵入時点で外部がファイルを完全に差し替える
+        q.write_text("proj1 999 mutated_by_external\n")
+        return "opened"
+    _patch_fetch(monkeypatch, fake)
+
+    from task_queue import pop_next_queue_entry
+    pop_next_queue_entry(q)
+    # Phase A の結果が file に逆流していないこと（Phase C は content-based
+    # revalidation で original_line を見つけられず False を返すので書き戻しなし）
+    content = q.read_text()
+    assert "proj1 999 mutated_by_external" in content
+    # Phase A が読んだ "proj1 1" を上書き保存していたら mutate 行が消えるはず
+    # → 残っているので Phase A は書き戻していない
+
+
 def test_t12_no_closed_nums_no_notify(env, post_spy, monkeypatch):
     tmp, pdir = env
     _write_pipeline(pdir / "proj1.json", _make_idle_pipeline("proj1"))

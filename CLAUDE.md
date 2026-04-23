@@ -26,6 +26,7 @@ engine/backend.py      # Backend abstraction layer (dispatch)
 engine/backend_openclaw.py  # OpenClaw backend implementation
 engine/backend_pi.py   # PI (Project Interpreter) backend implementation
 engine/backend_cc.py   # CC backend (via claude CLI)
+engine/backend_gemini.py  # Gemini CLI backend implementation
 engine/cleanup.py      # Batch state cleanup
 engine/filter.py       # Project/author filtering
 

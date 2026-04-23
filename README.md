@@ -66,7 +66,7 @@ If critical issues (P0/P1) are raised during review, the pipeline enters a revis
 - **OS**: Linux (including WSL2), macOS
 - **Remote operation**: Possible via Discord regardless of OS
 - **Python**: 3.11 or higher. External dependencies: `requests`, `PyYAML`
-- **Agent framework**: [openclaw](https://github.com/openclaw/openclaw), [pi-coding-agent](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent), or [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code). Used for LLM agent authentication and prompt dispatch for design, revision, and review
+- **Agent framework**: [openclaw](https://github.com/openclaw/openclaw), [pi-coding-agent](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent), [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code), or [Gemini CLI](https://github.com/google-gemini/gemini-cli). Used for LLM agent authentication and prompt dispatch for design, revision, and review
 - **GitLab**: Issue tracker and code hosting. Requires git push access to managed projects (SSH key or HTTPS token)
 - **[glab CLI](https://gitlab.com/gitlab-org/cli)**: Used for GitLab operations (Issue retrieval/editing, comment retrieval/posting, Issue closing)
 - **[Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code)**: Called internally as the implementation agent (recommended)
@@ -74,7 +74,7 @@ If critical issues (P0/P1) are raised during review, the pipeline enters a revis
 
 ### LLM Providers
 
-gokrax is not tied to any specific LLM provider — any provider that openclaw, pi, or cc can authenticate with is supported:
+gokrax is not tied to any specific LLM provider — any provider that openclaw, pi, cc, or gemini can authenticate with is supported:
 
 - Anthropic (Claude)
 - Google (Gemini)
@@ -130,8 +130,9 @@ gokrax requires a backend for agent provider authentication and prompt dispatch.
 - openclaw
 - pi-coding-agent
 - Claude Code CLI (cc backend)
+- Gemini CLI (gemini backend)
 
-If openclaw is already running in your environment, using it directly is the easiest option. Otherwise, pi is simpler to set up. Claude Code CLI can also be used as a backend for all agent roles, not just implementation.
+If openclaw is already running in your environment, using it directly is the easiest option. Otherwise, pi is simpler to set up. Claude Code CLI can also be used as a backend for all agent roles, not just implementation. Gemini CLI is a minimal oneshot backend (1 prompt = 1 process) and useful when the Gemini quota is the desired provider.
 
 Note that gokrax requires at least 2 agents (an implementer and a reviewer).
 
@@ -179,6 +180,8 @@ agents/
 │   ├── INSTRUCTION.md    # Role, rules, review guidelines
 │   ├── MEMORY.md         # Lessons learned, known issues
 │   ├── AGENTS.md         # Auto-generated from IDENTITY + INSTRUCTION + MEMORY
+│   ├── CLAUDE.md         # Auto-generated (same source) — used by cc backend
+│   ├── GEMINI.md         # Auto-generated (same source) — used by gemini backend
 │   └── .agents_hash      # Used to detect content changes (auto-generated)
 ├── reviewer2/
 │   └── ...
@@ -186,11 +189,11 @@ agents/
     └── ...
 ```
 
-`AGENTS.md` is auto-generated from `IDENTITY.md`, `INSTRUCTION.md`, and `MEMORY.md` (only when content changes). There is no need to edit `AGENTS.md` directly.
+The startup file for each backend (`AGENTS.md` for pi, `CLAUDE.md` for cc, `GEMINI.md` for gemini) is auto-generated from `IDENTITY.md`, `INSTRUCTION.md`, and `MEMORY.md` (only when content changes, and only when the backend's `compile-startup-md: true`). There is no need to edit these generated files directly.
 
 #### Per-Agent Model Configuration
 
-Configure the provider, model, thinking level, and available tools for each agent in `agents/config_pi.json`. Reviewers also need `bash` to report completion to gokrax (`INSTRUCTION.md` instructs them not to write to the repository). No tool specification is needed for implementers (all tools are permitted).
+Configure the provider, model, thinking level, and available tools for each agent in the backend's config file: `agents/config_pi.json` (pi), `agents/config_cc.json` (cc), or `agents/config_gemini.json` (gemini). The openclaw backend does not use a gokrax-side per-agent config file — its agent config is managed on the openclaw Gateway side. Each agent looks up its entry by `agent_id` in the config file of the backend resolved for it. Reviewers also need `bash` to report completion to gokrax (`INSTRUCTION.md` instructs them not to write to the repository). No tool specification is needed for implementers (all tools are permitted).
 
 Run `pi --list-models` to list currently available providers and models.
 
@@ -216,6 +219,25 @@ Example configuration:
   }
 }
 ```
+
+#### gemini backend config (`agents/config_gemini.json`)
+
+The Gemini CLI exposes no `thinking` or `effort` knob, so the config is minimal. Tool scoping cannot be done from gokrax — configure tool access via the Gemini CLI itself if needed.
+
+```json
+{
+  "example_reviewer": {
+    "model": "gemini-2.5-pro",
+    "compile-startup-md": false
+  }
+}
+```
+
+Keys:
+- `model`: Gemini model name (e.g. `gemini-2.5-pro`, `gemini-2.5-flash`)
+- `compile-startup-md`: when `true`, `IDENTITY.md` + `INSTRUCTION.md` + `MEMORY.md` are compiled into `GEMINI.md` on each send
+
+The template is `agents/config_gemini.example.json`.
 
 ### Installing glab CLI
 
@@ -491,7 +513,7 @@ Key configuration items in `settings.py`:
 
 ### Agent Definitions
 
-Register openclaw agent IDs. These agent names are used throughout subsequent configuration.
+Register agent IDs. These agent names are used throughout subsequent configuration and serve as the lookup key in each backend's per-agent config file (`agents/config_{pi,cc,gemini}.json`). The openclaw backend does not use a gokrax-side per-agent config; its agents are identified by the IDs registered here but their models/auth live in the openclaw Gateway.
 
 ```python
 # Reviewer names
@@ -516,9 +538,12 @@ DEFAULT_AGENT_BACKEND = "openclaw"
 # Run agents with Claude Code backend
 DEFAULT_AGENT_BACKEND = "cc"
 
+# Run agents with Gemini CLI backend
+DEFAULT_AGENT_BACKEND = "gemini"
+
 # Mix backends per agent
 DEFAULT_AGENT_BACKEND = "pi"
-AGENT_BACKEND_OVERRIDE = {"impl1": "openclaw"}
+AGENT_BACKEND_OVERRIDE = {"impl1": "openclaw", "reviewer2": "gemini"}
 ```
 
 ### Reviewer Tiers

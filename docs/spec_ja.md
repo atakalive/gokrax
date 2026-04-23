@@ -23,10 +23,11 @@ engine/
   cc.py                -- Claude Code 自動起動・テスト実行
   reviewer.py          -- レビュアー管理 (tier, pending, revise 判定)
   shared.py            -- 共有ユーティリティ (log, is_cc_running, is_ok_reply)
-  backend.py           -- バックエンドディスパッチ (openclaw/pi/cc 振り分け)
+  backend.py           -- バックエンドディスパッチ (openclaw/pi/cc/gemini 振り分け)
   backend_openclaw.py  -- openclaw バックエンド (Gateway CLI 経由)
   backend_pi.py        -- pi バックエンド (pi CLI 経由)
   backend_cc.py        -- cc バックエンド (claude CLI 経由)
+  backend_gemini.py    -- gemini バックエンド (gemini CLI 経由, oneshot)
   cleanup.py           -- バッチ状態クリーンアップ共通関数
   filter.py            -- プロジェクト/著者フィルタリング (許可著者、Issue/コメント検証)
 watchdog.py           -- watchdog ループ + Discord コマンド処理
@@ -45,7 +46,7 @@ messages/             -- テンプレートメッセージ (render() 経由)
 settings.py           -- ユーザー設定 (config override)
 ```
 
-- **エージェント通信**: `engine/backend.py` がルーターとして機能し、エージェントごとに `openclaw`、`pi`、`cc` バックエンドに振り分ける。`settings.py` の `DEFAULT_AGENT_BACKEND` と `AGENT_BACKEND_OVERRIDE` で制御。
+- **エージェント通信**: `engine/backend.py` がルーターとして機能し、エージェントごとに `openclaw`、`pi`、`cc`、`gemini` バックエンドに振り分ける。`settings.py` の `DEFAULT_AGENT_BACKEND` と `AGENT_BACKEND_OVERRIDE` で制御。
 - **pipeline JSON**: `~/.gokrax/pipelines/<project>.json`
 - **watchdog**: `watchdog-loop.sh` で 20 秒おきにポーリング (後述 7 章)
 - **Discord 通知先**: Discord 通知チャンネル（`settings.py` の `DISCORD_CHANNEL` で設定）
@@ -306,8 +307,9 @@ IDLE -> INITIALIZE -> DESIGN_PLAN -> DESIGN_REVIEW -> DESIGN_APPROVED -> ASSESSM
 - **openclaw**: `engine/backend_openclaw.py` — `openclaw gateway call` CLI 経由で Gateway に送信
 - **pi**: `engine/backend_pi.py` — `pi` CLI 経由で送信。セッションファイルの mtime でアクティビティを判定
 - **cc**: `engine/backend_cc.py` — `claude -p` CLI 経由で送信。PID の有効性とセッション JSONL の mtime でアクティビティを判定
+- **gemini**: `engine/backend_gemini.py` — `gemini` CLI を oneshot プロセスとして起動して送信する（1 プロンプト = 1 プロセス）。`send()` は `subprocess.Popen(cwd=<agent profile dir>)` で `gemini` を起動する（Gemini CLI はセッションを cwd でスコープする）。アクティビティは pid ファイルに加え `/proc/<pid>` の存在と cmdline に `"gemini"` を含むことで判定する。セッション継続は `-r latest` を使用する。セッションは cwd 単位のため、エージェント間のセッション混在を避けるためにエージェントごとに独立した profile dir（`agents/<agent_id>/`）が必要。
 
-バックエンドは `settings.py` の `DEFAULT_AGENT_BACKEND`（config デフォルト: `"openclaw"`、`settings.example.py` 推奨値: `"pi"`、3 種類: openclaw, pi, cc）で設定し、`AGENT_BACKEND_OVERRIDE` でエージェント単位の上書きが可能。
+バックエンドは `settings.py` の `DEFAULT_AGENT_BACKEND`（config デフォルト: `"openclaw"`、`settings.example.py` 推奨値: `"pi"`、4 種類: openclaw, pi, cc, gemini）で設定し、`AGENT_BACKEND_OVERRIDE` でエージェント単位の上書きが可能。
 
 `send_to_agent()` と `send_to_agent_queued()` は同一関数 (後者はエイリアス)。
 `openclaw gateway call` CLI 経由で Gateway に `chat.send` を送信する。

@@ -12,6 +12,7 @@ import uuid
 
 import config
 from config import AGENT_SEND_TIMEOUT
+from engine.backend_types import SendResult
 
 logger = logging.getLogger(__name__)
 
@@ -72,13 +73,13 @@ def _gateway_chat_send(session_key: str, message: str, timeout: int) -> bool:
     return _gateway_chat_send_cli(params_json, timeout)
 
 
-def send(agent_id: str, message: str, timeout: int = AGENT_SEND_TIMEOUT) -> bool:
+def send(agent_id: str, message: str, timeout: int = AGENT_SEND_TIMEOUT) -> SendResult:
     """Send message to an openclaw agent via gateway chat.send."""
     if config.DRY_RUN:
         logger.info("[dry-run] send_to_agent skipped (agent=%s)", agent_id)
-        return True
+        return SendResult.OK
     session_key = f"agent:{agent_id}:main"
-    return _gateway_chat_send(session_key, message, timeout)
+    return SendResult.OK if _gateway_chat_send(session_key, message, timeout) else SendResult.FAIL
 
 
 def ping(agent_id: str, timeout: int = 20) -> bool:

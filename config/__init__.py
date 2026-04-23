@@ -134,9 +134,17 @@ CC_BIN: str = "claude"
 CC_START_GRACE_SEC: int = 30
 GEMINI_BIN: str = "gemini"
 
-# 非アクティブ判定 (秒)
+# 非アクティブ判定 (秒) — nudge 専用の閾値。
+# _is_agent_inactive() が「最後の書き込みからこの秒数経過したら進行中作業が止まっていると
+# 見なして催促を出す」判定に使う。送信可否判定には使わない（送信可否は PID の生死で判定する。#327）。
 INACTIVE_THRESHOLD_SEC = 603
 INACTIVE_THRESHOLD_PLAN_SEC = 900  # DESIGN_PLAN 実装者の催促間隔（秒）
+
+# BUSY が連続したまま継続したら FAIL 扱いに昇格させる閾値（秒）。
+# 昇格後は通常の FAIL 経路で retry counter を 1 回消費し、counter が尽きた時点で
+# 最終的に SPEC_PAUSED に到達する。30 分超で即 halt するのではなく、
+# 「30 分の連続 BUSY を 1 回の機械的失敗としてカウントする」という意味。
+BUSY_ESCALATION_SEC = 1800
 
 # /new コマンド後の待ち時間（秒）
 POST_NEW_COMMAND_WAIT_SEC = 30

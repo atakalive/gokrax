@@ -22,8 +22,6 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import os
-import signal as _signal
 import subprocess
 import time
 import uuid
@@ -38,6 +36,7 @@ from config import (
     CC_AGENT_CONFIG,
     PROJECT_ROOT,
 )
+from engine.backend_types import SendResult
 
 logger = logging.getLogger(__name__)
 
@@ -50,10 +49,6 @@ SUPPORTED_BACKENDS: frozenset[str] = frozenset({"openclaw", "pi", "cc"})
 # Process-local starting-state marker
 # ---------------------------------------------------------------------------
 _starting_markers: dict[str, float] = {}
-
-_OWNER_WAIT_TICKS: int = 10        # ポーリング回数 (SIGTERM 前)
-_OWNER_WAIT_SEC: float = 0.5       # ポーリング間隔 (合計最大 5秒)
-_OWNER_TERM_WAIT_SEC: float = 2.0  # SIGTERM 後の待機秒数
 
 # ---------------------------------------------------------------------------
 # Per-agent config (agents/config_cc.json)
@@ -377,7 +372,7 @@ def _rebuild_claude_md(agent_id: str) -> None:
 # send
 # ---------------------------------------------------------------------------
 
-def send(agent_id: str, message: str, timeout: int) -> bool:
+def send(agent_id: str, message: str, timeout: int) -> SendResult:
     """Fire-and-forget subprocess launch of ``claude -p``.
 
     Args:
@@ -386,12 +381,12 @@ def send(agent_id: str, message: str, timeout: int) -> bool:
         timeout: Kept for interface parity; unused by cc fire-and-forget spawn.
 
     Returns:
-        True if process spawn, stdin handoff, and state persistence all succeeded,
-        False otherwise.
+        SendResult.OK on successful spawn, SendResult.BUSY if another live
+        claude owner is writing the session, SendResult.FAIL on other errors.
     """
     if config.DRY_RUN:
         logger.info("[dry-run] cc send skipped (agent=%s)", agent_id)
-        return True
+        return SendResult.OK
 
     CC_SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -405,82 +400,23 @@ def send(agent_id: str, message: str, timeout: int) -> bool:
     state = _read_persisted_state(agent_id)
     ownership = _check_session_ownership(state)
 
-    # Enforce single-writer invariant — guard → wait → SIGTERM → retry
     if ownership.has_live_owner:
-        # Guard 1: don't SIGTERM a CC we recently spawned (within starting grace)
         marker_ts = _starting_markers.get(agent_id)
         if marker_ts is not None and (time.time() - marker_ts) < config.CC_START_GRACE_SEC:
             logger.warning(
                 "cc send refused for %s session %s: live owner within starting grace; "
-                "refusing spawn to avoid killing active session",
+                "deferring spawn (busy)",
                 agent_id, state.session_id,
             )
-            return False
-        # Guard 2: don't SIGTERM an actively writing CC (session mtime check)
-        if state.session_id:
-            profile_dir = AGENT_PROFILES_DIR / agent_id
-            cwd = profile_dir if profile_dir.is_dir() else PROJECT_ROOT
-            jsonl_path = _claude_session_jsonl_path(cwd, state.session_id)
-            try:
-                mtime = jsonl_path.stat().st_mtime
-                if (time.time() - mtime) < INACTIVE_THRESHOLD_SEC:
-                    logger.warning(
-                        "cc send refused for %s session %s: session still active "
-                        "(last write %.0fs ago, threshold %ds)",
-                        agent_id, state.session_id,
-                        time.time() - mtime, INACTIVE_THRESHOLD_SEC,
-                    )
-                    return False
-            except (OSError, FileNotFoundError):
-                pass  # No session file → no activity evidence → proceed to wait
-        # 自然終了をポーリングで待機
-        for _ in range(_OWNER_WAIT_TICKS):
-            time.sleep(_OWNER_WAIT_SEC)
-            state = _read_persisted_state(agent_id)
-            ownership = _check_session_ownership(state)
-            if not ownership.has_live_owner:
-                break
-        if ownership.has_live_owner:
-            # Guard 2 再チェック: wait 中に activity が復活していたら SIGTERM しない
-            if state.session_id:
-                profile_dir = AGENT_PROFILES_DIR / agent_id
-                cwd = profile_dir if profile_dir.is_dir() else PROJECT_ROOT
-                jsonl_path = _claude_session_jsonl_path(cwd, state.session_id)
-                try:
-                    mtime = jsonl_path.stat().st_mtime
-                    if (time.time() - mtime) < INACTIVE_THRESHOLD_SEC:
-                        logger.warning(
-                            "cc send refused for %s session %s: session became active "
-                            "during wait (last write %.0fs ago)",
-                            agent_id, state.session_id, time.time() - mtime,
-                        )
-                        return False
-                except (OSError, FileNotFoundError):
-                    pass
-            # SIGTERM で終了を促す — 最新の state から PID を取得
-            pid = int(state.pid_text)
-            try:
-                os.kill(pid, _signal.SIGTERM)
-            except OSError:
-                logger.debug(
-                    "os.kill(%d, SIGTERM) failed (likely already exited)", pid,
-                )
-            time.sleep(_OWNER_TERM_WAIT_SEC)
-            state = _read_persisted_state(agent_id)
-            ownership = _check_session_ownership(state)
-            if ownership.has_live_owner:
-                logger.warning(
-                    "cc send refused for %s session %s: live owner pid %d still active "
-                    "after wait + SIGTERM",
-                    agent_id, state.session_id, pid,
-                )
-                return False
-            logger.info("cc send: terminated stale owner pid=%d for %s", pid, agent_id)
-        else:
-            logger.info("cc send: previous owner exited naturally for %s", agent_id)
+            return SendResult.BUSY
+
+        logger.info(
+            "cc send refused for %s session %s: live owner pid present (busy)",
+            agent_id, state.session_id,
+        )
+        return SendResult.BUSY
 
     # Determine session_id: resume existing or create new
-    # (ownership/state may have been refreshed during the wait loop above)
     is_resume = ownership.has_valid_session
     assert state.session_id is not None or not is_resume
     session_id = state.session_id if is_resume else str(uuid.uuid4())
@@ -549,7 +485,7 @@ def send(agent_id: str, message: str, timeout: int) -> bool:
         )
     except (OSError, FileNotFoundError) as e:
         logger.warning("cc spawn failed for %s: %s", agent_id, e)
-        return False
+        return SendResult.FAIL
 
     # Write message to stdin
     try:
@@ -562,7 +498,7 @@ def send(agent_id: str, message: str, timeout: int) -> bool:
         except OSError:
             pass
         _cleanup_proc(proc)
-        return False
+        return SendResult.FAIL
 
     # Persist session_id and pid
     sid_path = _session_id_path(agent_id)
@@ -582,10 +518,10 @@ def send(agent_id: str, message: str, timeout: int) -> bool:
         except OSError:
             pass
         _cleanup_proc(proc)
-        return False
+        return SendResult.FAIL
 
     _starting_markers[agent_id] = time.time()
-    return True
+    return SendResult.OK
 
 
 def _cleanup_proc(proc: subprocess.Popen) -> None:

@@ -14,6 +14,7 @@ import pytest
 import config
 from config import PI_SESSIONS_DIR, PROJECT_ROOT
 from engine import backend_pi
+from engine.backend_types import SendResult
 
 
 # ---------------------------------------------------------------------------
@@ -138,7 +139,7 @@ class TestSend:
     def test_dry_run_returns_true(self, monkeypatch):
         monkeypatch.setattr(config, "DRY_RUN", True)
         result = backend_pi.send("reviewer1", "hello", timeout=30)
-        assert result is True
+        assert result is SendResult.OK
 
     def test_creates_sessions_dir(self, tmp_sessions, monkeypatch):
         import shutil
@@ -342,7 +343,7 @@ class TestSend:
         mock_proc.stdin = MagicMock()
         with patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
             result = backend_pi.send("reviewer1", "hello", timeout=30)
-        assert result is True
+        assert result is SendResult.OK
         cmd = mock_popen.call_args[0][0]
         model_idx = cmd.index("--model")
         assert cmd[model_idx + 1] == "12345"
@@ -369,13 +370,13 @@ class TestSend:
         monkeypatch.setattr(config, "DRY_RUN", False)
         with patch("subprocess.Popen", side_effect=FileNotFoundError("pi not found")):
             result = backend_pi.send("reviewer1", "hello", timeout=30)
-        assert result is False
+        assert result is SendResult.FAIL
 
     def test_returns_false_on_oserror_spawn(self, tmp_sessions, monkeypatch):
         monkeypatch.setattr(config, "DRY_RUN", False)
         with patch("subprocess.Popen", side_effect=OSError("spawn error")):
             result = backend_pi.send("reviewer1", "hello", timeout=30)
-        assert result is False
+        assert result is SendResult.FAIL
 
     def test_returns_false_on_stdin_write_failure(self, tmp_sessions, monkeypatch):
         monkeypatch.setattr(config, "DRY_RUN", False)
@@ -383,7 +384,7 @@ class TestSend:
         mock_proc.stdin.write.side_effect = BrokenPipeError("pipe broken")
         with patch("subprocess.Popen", return_value=mock_proc):
             result = backend_pi.send("reviewer1", "hello", timeout=30)
-        assert result is False
+        assert result is SendResult.FAIL
 
     def test_returns_false_on_stdin_close_failure(self, tmp_sessions, monkeypatch):
         monkeypatch.setattr(config, "DRY_RUN", False)
@@ -392,7 +393,7 @@ class TestSend:
         mock_proc.stdin.close.side_effect = OSError("close error")
         with patch("subprocess.Popen", return_value=mock_proc):
             result = backend_pi.send("reviewer1", "hello", timeout=30)
-        assert result is False
+        assert result is SendResult.FAIL
 
     def test_timeout_unused(self, tmp_sessions, monkeypatch):
         """timeout parameter is kept for interface parity but unused by pi."""

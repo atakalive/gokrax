@@ -12,6 +12,7 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from engine.backend_types import SendResult
 from engine.fsm_spec import (
     SpecTransitionAction,
     check_transition_spec,
@@ -681,7 +682,7 @@ class TestDCL:
             next_state="SPEC_REVISE",
             expected_state="SPEC_REVIEW",  # 不一致
         )
-        with patch("engine.fsm_spec.send_to_agent_queued") as mock_send, \
+        with patch("engine.fsm_spec.send_to_agent_with_status", return_value=SendResult.OK) as mock_send, \
              patch("engine.fsm_spec.notify_discord") as mock_discord:
             _apply_spec_action(pj_path, action, _now(), pj_data)
 
@@ -703,7 +704,7 @@ class TestDCL:
             next_state="SPEC_APPROVED",
             expected_state="SPEC_REVIEW",
         )
-        with patch("engine.fsm_spec.send_to_agent_queued"), \
+        with patch("engine.fsm_spec.send_to_agent_with_status", return_value=SendResult.OK), \
              patch("engine.fsm_spec.notify_discord"):
             _apply_spec_action(pj_path, action, _now(), pj_data)
 

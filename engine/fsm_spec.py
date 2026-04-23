@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime as _datetime, timedelta as _timedelta
 from pathlib import Path
 
@@ -17,8 +17,9 @@ from pipeline_io import (
     load_pipeline, update_pipeline, add_history,
 )
 from notify import (
-    notify_discord, send_to_agent_queued,
+    notify_discord, send_to_agent_with_status,
 )
+from engine.backend_types import SendResult
 from messages import render
 from spec_review import (
     should_continue_review, build_review_history_entry,
@@ -47,6 +48,10 @@ class SpecTransitionAction:
     nudge_reviewers: list[str] | None = None   # list of reviewers needing nudge. None=no nudge, []=no nudge (no side effects)
     nudge_implementer: bool = False              # implementer nudge flag
     send_failure_rollback: dict | None = None    # rollback dict for spec_config on send failure
+    busy_counter_decrements: dict[str, int] = field(default_factory=dict)
+    # BUSY 受信時に減算する counter キーと減算量。decrement 後は 0 未満にクランプ。
+    busy_since_key: str | None = None
+    # BUSY エスカレーション用のタイムスタンプ pipeline キー。
 
 
 # ---------------------------------------------------------------------------
@@ -314,6 +319,9 @@ def _check_spec_revise(
             pending["_revise_send_retries"] = None
             pending["_issues_found_send_retries"] = None
             pending["_issues_found_pending_feedback"] = None
+            pending["_self_review_busy_since"] = None
+            pending["_issues_found_busy_since"] = None
+            pending["_revise_busy_since"] = None
             current_rev = pending.get("current_rev", spec_config.get("current_rev", "?"))
             reviewer_count = sum(
                 1 for r in pending.get("review_requests_patch", {}).values()
@@ -373,6 +381,7 @@ def _check_spec_revise(
                         "_self_review_response": None,
                         "_self_review_pass": 0,
                         "_self_review_expected_ids": None,
+                        "_self_review_busy_since": None,
                         # _self_review_pending_updates は保持（PAUSED解除後に再利用可能）
                     },
                 )
@@ -388,6 +397,8 @@ def _check_spec_revise(
                     "_self_review_pass": current_pass + 1,
                 },
                 send_failure_rollback={"_self_review_sent": None},
+                busy_counter_decrements={"_self_review_pass": 1},
+                busy_since_key="_self_review_busy_since",
             )
 
     # -----------------------------------------------------------------------
@@ -407,6 +418,7 @@ def _check_spec_revise(
                     "paused_from": "SPEC_REVISE",
                     "_issues_found_pending_feedback": None,
                     "_issues_found_send_retries": None,
+                    "_issues_found_busy_since": None,
                 },
             )
         implementer = spec_config.get("spec_implementer", "")
@@ -421,6 +433,8 @@ def _check_spec_revise(
                 send_failure_rollback={
                     "_issues_found_pending_feedback": pending_feedback,
                 },
+                busy_counter_decrements={"_issues_found_send_retries": 1},
+                busy_since_key="_issues_found_busy_since",
             )
 
     # -----------------------------------------------------------------------
@@ -454,6 +468,7 @@ def _check_spec_revise(
                     "_self_review_sent": None,
                     "_self_review_pending_updates": None,
                     "_self_review_pass": 0,
+                    "_self_review_busy_since": None,
                 },
             )
         agent = get_self_review_agent(spec_config)
@@ -468,6 +483,8 @@ def _check_spec_revise(
                 "_self_review_pass": current_pass + 1,
             },
             send_failure_rollback={"_self_review_sent": None},
+            busy_counter_decrements={"_self_review_pass": 1},
+            busy_since_key="_self_review_busy_since",
         )
 
     # -----------------------------------------------------------------------
@@ -494,6 +511,7 @@ def _check_spec_revise(
                         "_self_review_response": None,
                         "_self_review_pass": 0,
                         "_self_review_expected_ids": None,
+                        "_self_review_busy_since": None,
                     },
                 )
             agent = get_self_review_agent(spec_config)
@@ -527,6 +545,7 @@ def _check_spec_revise(
                     "_self_review_response": None,
                     "_self_review_pass": 0,
                     "_self_review_expected_ids": None,
+                    "_self_review_busy_since": None,
                     # _self_review_pending_updates は保持（PAUSED解除後に再利用可能）
                 },
             )
@@ -547,6 +566,8 @@ def _check_spec_revise(
                 "_self_review_pass": current_pass + 1,
             },
             send_failure_rollback={"_self_review_sent": None},
+            busy_counter_decrements={"_self_review_pass": 1},
+            busy_since_key="_self_review_busy_since",
         )
 
     # -----------------------------------------------------------------------
@@ -628,6 +649,7 @@ def _check_spec_revise(
                 pipeline_updates={
                     "paused_from": "SPEC_REVISE",
                     "_revise_send_retries": None,
+                    "_revise_busy_since": None,
                 },
             )
         # current_reviews.entries からレビュー指摘を整形
@@ -671,6 +693,8 @@ def _check_spec_revise(
                     "_revise_send_retries": revise_send_retries + 1,
                 },
                 send_failure_rollback={"_revise_sent": None},
+                busy_counter_decrements={"_revise_send_retries": 1},
+                busy_since_key="_revise_busy_since",
             )
 
     # タイムアウト起点: _revise_retry_at（リトライ後）or _revise_sent or history（初回）
@@ -1234,27 +1258,118 @@ def _apply_spec_action(
     update_pipeline(pipeline_path, _update)
 
     # 副作用はロック外で実行（applied_action の結果を使用）
+    busy_agents: set[str] = set()
+    failed_agents: set[str] = set()
     if applied and applied_action:
         if applied_action.send_to:
             pd = orig_data.get("spec_config", {}).get("pipelines_dir")
             if pd:
                 _ensure_pipelines_dir(pd)
-            failed_agents: set[str] = set()
+            # Single-agent invariant: rollback-bearing actions must target one agent.
+            has_rollback = bool(
+                applied_action.send_failure_rollback
+                or applied_action.busy_counter_decrements
+                or applied_action.busy_since_key
+            )
+            if has_rollback and len(applied_action.send_to) > 1:
+                raise AssertionError(
+                    f"_apply_spec_action: rollback-bearing action must target a single agent "
+                    f"(got {sorted(applied_action.send_to)})"
+                )
+
+            now_iso = _datetime.now(LOCAL_TZ).isoformat()
+            from config import BUSY_ESCALATION_SEC
+            escalated_busy_agents: set[str] = set()
             for agent_id, msg in applied_action.send_to.items():
-                if not send_to_agent_queued(agent_id, msg):
-                    notify_discord(render("spec.paused", "notify_failure", project=pj, kind="send failure", detail=f"agent={agent_id}"))
-                    failed_agents.add(agent_id)
-            if failed_agents:
+                result = send_to_agent_with_status(agent_id, msg)
+                if result is SendResult.OK:
+                    continue
+                if result is SendResult.BUSY:
+                    bsk = applied_action.busy_since_key
+                    first_busy_iso = (
+                        orig_data.get("spec_config", {}).get(bsk) if bsk else None
+                    )
+                    elapsed = 0.0
+                    if first_busy_iso is not None:
+                        try:
+                            if not isinstance(first_busy_iso, str):
+                                raise TypeError("busy_since must be str")
+                            elapsed = (
+                                _datetime.now(LOCAL_TZ)
+                                - _datetime.fromisoformat(first_busy_iso)
+                            ).total_seconds()
+                        except (ValueError, TypeError) as exc:
+                            logging.warning(
+                                "_apply_spec_action: busy_since_key %s has invalid value %r "
+                                "(%s); treating elapsed=0 and self-healing in rollback",
+                                bsk, first_busy_iso, exc,
+                            )
+                            elapsed = 0.0
+                    if first_busy_iso is not None and elapsed >= BUSY_ESCALATION_SEC:
+                        logging.warning(
+                            "_apply_spec_action: BUSY escalation: agent=%s key=%s "
+                            "elapsed=%.0fs >= %ds; treating as FAIL",
+                            agent_id, bsk, elapsed, BUSY_ESCALATION_SEC,
+                        )
+                        notify_discord(render(
+                            "spec.paused", "notify_failure",
+                            project=pj, kind="busy escalation",
+                            detail=f"agent={agent_id} key={bsk} elapsed={elapsed:.0f}s",
+                        ))
+                        escalated_busy_agents.add(agent_id)
+                        continue
+                    busy_agents.add(agent_id)
+                    logging.info(
+                        "_apply_spec_action: send deferred (busy) project=%s agent=%s",
+                        pj, agent_id,
+                    )
+                    continue
+                # SendResult.FAIL
+                notify_discord(render(
+                    "spec.paused", "notify_failure",
+                    project=pj, kind="send failure", detail=f"agent={agent_id}",
+                ))
+                failed_agents.add(agent_id)
+
+            failed_agents |= escalated_busy_agents
+
+            if failed_agents or busy_agents:
                 rb = applied_action.send_failure_rollback
-                rr_failed = failed_agents & rr_patch_reviewers
-                if rb or rr_failed:
-                    # NOTE: This rollback is a separate transaction from the initial write.
-                    # A process crash between the two leaves sent markers stranded.
-                    # The window is extremely small and acceptable in practice.
-                    def _rollback_send(data: dict, rollback: dict | None = rb, rr_agents: set[str] = rr_failed) -> None:
+                decrements = applied_action.busy_counter_decrements
+                bsk = applied_action.busy_since_key
+                rr_targets = (failed_agents | busy_agents) & rr_patch_reviewers
+
+                if rb or rr_targets or (busy_agents and (decrements or bsk)):
+                    def _rollback_send(
+                        data,
+                        rollback=rb,
+                        rr_agents=rr_targets,
+                        failed=failed_agents,
+                        busy=busy_agents,
+                        decs=decrements,
+                        busy_key=bsk,
+                    ) -> None:
                         sc = data.get("spec_config", {})
-                        if rollback:
+                        if rollback and (failed or busy):
                             sc.update(rollback)
+                        if busy and decs:
+                            for key, amount in decs.items():
+                                cur = sc.get(key, 0) or 0
+                                sc[key] = max(0, cur - amount)
+                        if busy and busy_key:
+                            existing = sc.get(busy_key)
+                            needs_init = False
+                            if not existing:
+                                needs_init = True
+                            elif not isinstance(existing, str):
+                                needs_init = True
+                            else:
+                                try:
+                                    _datetime.fromisoformat(existing)
+                                except (ValueError, TypeError):
+                                    needs_init = True
+                            if needs_init:
+                                sc[busy_key] = now_iso
                         if rr_agents:
                             rr = sc.get("review_requests", {})
                             for agent in rr_agents:
@@ -1267,9 +1382,24 @@ def _apply_spec_action(
                         update_pipeline(pipeline_path, _rollback_send)
                     except Exception as exc:
                         logging.warning(
-                            "_apply_spec_action: send_failure_rollback failed for %s: %s",
+                            "_apply_spec_action: send rollback failed for %s: %s",
                             pipeline_path.stem, exc,
                         )
+
+            # Clear busy_since_key when no agent is still BUSY (OK/FAIL/escalated).
+            if applied_action.busy_since_key and not busy_agents:
+                def _clear_busy_since(data, key=applied_action.busy_since_key) -> None:
+                    sc = data.get("spec_config", {})
+                    if key in sc:
+                        sc.pop(key, None)
+                    data["spec_config"] = sc
+                try:
+                    update_pipeline(pipeline_path, _clear_busy_since)
+                except Exception as exc:
+                    logging.warning(
+                        "_apply_spec_action: clear busy_since failed for %s: %s",
+                        pipeline_path.stem, exc,
+                    )
         # spec mode レビュアー催促（#76）
         if applied_action.nudge_reviewers:
             from engine.shared import _is_agent_inactive
@@ -1302,7 +1432,7 @@ def _apply_spec_action(
                     spec_path=spec_path_fresh, reviewer=reviewer,
                     GOKRAX_CLI=GOKRAX_CLI,
                 )
-                if send_to_agent_queued(reviewer, nudge_msg):
+                if send_to_agent_with_status(reviewer, nudge_msg) is SendResult.OK:
                     woken.append(reviewer)
 
             if woken:
@@ -1343,7 +1473,7 @@ def _apply_spec_action(
                         project=project_fresh, current_rev=current_rev_fresh,
                         GOKRAX_CLI=GOKRAX_CLI,
                     )
-                    if send_to_agent_queued(implementer, nudge_msg):
+                    if send_to_agent_with_status(implementer, nudge_msg) is SendResult.OK:
                         def _set_impl_nudge(data, impl=implementer):
                             sc = data.get("spec_config", {})
                             sc["_last_nudge_implementer"] = _datetime.now(LOCAL_TZ).isoformat()
@@ -1352,7 +1482,15 @@ def _apply_spec_action(
                         ts = _datetime.now(LOCAL_TZ).strftime("%m/%d %H:%M")
                         notify_discord(f"[Spec][{pj_fresh}] nudging implementer {implementer} ({ts})")
         if applied_action.discord_notify:
-            notify_discord(applied_action.discord_notify)
+            suppress_due_to_busy = bool(applied_action.send_to) and bool(busy_agents)
+            if not suppress_due_to_busy:
+                notify_discord(applied_action.discord_notify)
+            else:
+                logging.info(
+                    "_apply_spec_action: suppress discord_notify due to BUSY "
+                    "(project=%s busy=%s)",
+                    pj, sorted(busy_agents),
+                )
         should_cleanup = (
             applied_action.next_state in _SPEC_TERMINAL_STATES
             or (action.expected_state == "SPEC_DONE" and applied_action.next_state == "IDLE")

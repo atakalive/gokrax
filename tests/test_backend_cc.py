@@ -6,7 +6,6 @@ import hashlib
 import json
 import logging
 import os
-import signal
 import subprocess
 import time
 import uuid
@@ -19,6 +18,7 @@ import pytest
 import config
 from config import PROJECT_ROOT
 from engine import backend_cc
+from engine.backend_types import SendResult
 
 
 # ---------------------------------------------------------------------------
@@ -193,7 +193,7 @@ class TestSend:
     def test_dry_run_returns_true(self, monkeypatch):
         monkeypatch.setattr(config, "DRY_RUN", True)
         result = backend_cc.send("reviewer1", "hello", timeout=30)
-        assert result is True
+        assert result is SendResult.OK
 
     def test_creates_sessions_dir(self, tmp_sessions, monkeypatch, tmp_path):
         import shutil
@@ -449,7 +449,7 @@ class TestSend:
         mock_proc.pid = 12345
         with patch("subprocess.Popen", return_value=mock_proc):
             result = backend_cc.send("reviewer1", "hello", timeout=30)
-        assert result is True
+        assert result is SendResult.OK
         sid_path = tmp_sessions / "reviewer1" / "session_id"
         pid_path = tmp_sessions / "reviewer1" / "pid"
         assert sid_path.exists()
@@ -463,7 +463,7 @@ class TestSend:
         monkeypatch.setattr(backend_cc, "_agent_config_cache", {})
         with patch("subprocess.Popen", side_effect=FileNotFoundError("claude not found")):
             result = backend_cc.send("reviewer1", "hello", timeout=30)
-        assert result is False
+        assert result is SendResult.FAIL
 
     def test_stdin_failure_returns_false_no_state(self, tmp_sessions, monkeypatch):
         monkeypatch.setattr(config, "DRY_RUN", False)
@@ -473,7 +473,7 @@ class TestSend:
         mock_proc.pid = 12345
         with patch("subprocess.Popen", return_value=mock_proc):
             result = backend_cc.send("reviewer1", "hello", timeout=30)
-        assert result is False
+        assert result is SendResult.FAIL
         assert "reviewer1" not in backend_cc._starting_markers
 
     def test_write_failure_triggers_proc_cleanup(self, tmp_sessions, monkeypatch):
@@ -524,7 +524,7 @@ class TestSend:
         with patch("subprocess.Popen", return_value=mock_proc), \
              patch.object(Path, "write_text", mock_write_text):
             result = backend_cc.send("reviewer1", "hello", timeout=30)
-        assert result is False
+        assert result is SendResult.FAIL
         assert "reviewer1" not in backend_cc._starting_markers
 
     def test_persist_failure_triggers_proc_cleanup(self, tmp_sessions, monkeypatch):
@@ -1302,7 +1302,7 @@ class TestCheckSessionOwnership:
 # ===========================================================================
 
 class TestSendSingleWriter:
-    def test_live_owner_returns_false_no_popen(self, tmp_sessions, monkeypatch, caplog):
+    def test_live_owner_returns_busy_no_popen(self, tmp_sessions, monkeypatch, caplog):
         monkeypatch.setattr(config, "DRY_RUN", False)
         monkeypatch.setattr(backend_cc, "_agent_config_cache", {})
         d = tmp_sessions / "reviewer1"
@@ -1327,23 +1327,21 @@ class TestSendSingleWriter:
         with patch.object(Path, "exists", mock_exists), \
              patch.object(Path, "read_bytes", mock_read_bytes), \
              patch("subprocess.Popen") as mock_popen, \
-             patch("time.sleep"), \
+             patch("time.sleep") as mock_sleep, \
              patch("os.kill") as mock_kill, \
-             caplog.at_level(logging.WARNING):
+             caplog.at_level(logging.INFO):
             result = backend_cc.send("reviewer1", "hello", timeout=30)
 
-        assert result is False
+        assert result is SendResult.BUSY
         mock_popen.assert_not_called()
-        mock_kill.assert_called_once_with(12345, signal.SIGTERM)
+        mock_kill.assert_not_called()
+        mock_sleep.assert_not_called()
         assert (d / "session_id").read_text() == sid
         assert (d / "pid").read_text() == "12345"
         assert "reviewer1" not in backend_cc._starting_markers
-        assert any(
-            "after wait + SIGTERM" in r.message
-            for r in caplog.records
-        )
+        assert any("live owner" in r.message for r in caplog.records)
 
-    def test_live_owner_session_id_returns_false_no_popen_files_unchanged_and_exact_warning(
+    def test_live_owner_session_id_returns_busy_no_popen_files_unchanged_and_exact_warning(
         self, tmp_sessions, monkeypatch, caplog,
     ):
         """End-to-end regression: persisted session + live owner => refuse spawn."""
@@ -1371,21 +1369,24 @@ class TestSendSingleWriter:
         with patch.object(Path, "exists", mock_exists), \
              patch.object(Path, "read_bytes", mock_read_bytes), \
              patch("subprocess.Popen") as mock_popen, \
-             patch("time.sleep"), \
+             patch("time.sleep") as mock_sleep, \
              patch("os.kill") as mock_kill, \
-             caplog.at_level(logging.WARNING):
+             caplog.at_level(logging.INFO):
             result = backend_cc.send("reviewer1", "hello", timeout=30)
 
-        assert result is False
+        assert result is SendResult.BUSY
         mock_popen.assert_not_called()
-        mock_kill.assert_called_once_with(12345, signal.SIGTERM)
+        mock_kill.assert_not_called()
+        mock_sleep.assert_not_called()
         assert (d / "session_id").read_text() == sid
         assert (d / "pid").read_text() == "12345"
         assert "reviewer1" not in backend_cc._starting_markers
-        assert [r.message for r in caplog.records if r.levelno == logging.WARNING] == [
+        # Exact message emitted by backend_cc.send on live-owner path
+        expected = (
             f"cc send refused for reviewer1 session {sid}: "
-            f"live owner pid 12345 still active after wait + SIGTERM"
-        ]
+            f"live owner pid present (busy)"
+        )
+        assert expected in [r.message for r in caplog.records]
 
     def test_dead_pid_uses_resume(self, tmp_sessions, monkeypatch):
         monkeypatch.setattr(config, "DRY_RUN", False)
@@ -1409,7 +1410,7 @@ class TestSendSingleWriter:
         with patch.object(Path, "exists", mock_exists), \
              patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
             result = backend_cc.send("reviewer1", "hello", timeout=30)
-        assert result is True
+        assert result is SendResult.OK
         cmd = mock_popen.call_args[0][0]
         assert "--resume" in cmd
         idx = cmd.index("--resume")
@@ -1445,7 +1446,7 @@ class TestSendSingleWriter:
              patch.object(Path, "read_bytes", mock_read_bytes), \
              patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
             result = backend_cc.send("reviewer1", "hello", timeout=30)
-        assert result is True
+        assert result is SendResult.OK
         cmd = mock_popen.call_args[0][0]
         assert "--resume" in cmd
         idx = cmd.index("--resume")
@@ -1459,7 +1460,7 @@ class TestSendSingleWriter:
         mock_proc.pid = 12345
         with patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
             result = backend_cc.send("reviewer1", "hello", timeout=30)
-        assert result is True
+        assert result is SendResult.OK
         cmd = mock_popen.call_args[0][0]
         assert "--session-id" in cmd
         assert "--resume" not in cmd
@@ -1500,143 +1501,6 @@ class TestSendSingleWriter:
 
         assert len(read_calls) == 1
 
-    def test_live_owner_exits_naturally_during_poll(self, tmp_sessions, monkeypatch, caplog):
-        monkeypatch.setattr(config, "DRY_RUN", False)
-        monkeypatch.setattr(backend_cc, "_agent_config_cache", {})
-        d = tmp_sessions / "reviewer1"
-        d.mkdir(parents=True)
-        sid = str(uuid.uuid4())
-        (d / "session_id").write_text(sid)
-        (d / "pid").write_text("12345")
-
-        call_count = 0
-        orig_read = backend_cc._read_persisted_state
-
-        def counting_read(agent_id):
-            nonlocal call_count
-            call_count += 1
-            if call_count <= 3:
-                return orig_read(agent_id)
-            return backend_cc.PersistedCcState(session_id=sid, pid_text=None)
-
-        orig_exists = Path.exists
-        orig_read_bytes = Path.read_bytes
-
-        def mock_exists(self):
-            if str(self) == "/proc/12345":
-                return True
-            return orig_exists(self)
-
-        def mock_read_bytes(self):
-            if str(self) == "/proc/12345/cmdline":
-                return f"claude\0-p\0--resume\0{sid}\0".encode()
-            return orig_read_bytes(self)
-
-        mock_proc = MagicMock()
-        mock_proc.stdin = MagicMock()
-        mock_proc.pid = 54321
-        with patch.object(Path, "exists", mock_exists), \
-             patch.object(Path, "read_bytes", mock_read_bytes), \
-             patch("engine.backend_cc._read_persisted_state", side_effect=counting_read), \
-             patch("subprocess.Popen", return_value=mock_proc) as mock_popen, \
-             patch("time.sleep"), \
-             patch("os.kill") as mock_kill, \
-             caplog.at_level(logging.INFO):
-            result = backend_cc.send("reviewer1", "hello", timeout=30)
-
-        assert result is True
-        mock_kill.assert_not_called()
-        mock_popen.assert_called_once()
-        cmd = mock_popen.call_args[0][0]
-        assert "--resume" in cmd
-        assert any("exited naturally" in r.message for r in caplog.records)
-
-    def test_live_owner_exits_after_sigterm(self, tmp_sessions, monkeypatch, caplog):
-        monkeypatch.setattr(config, "DRY_RUN", False)
-        monkeypatch.setattr(backend_cc, "_agent_config_cache", {})
-        d = tmp_sessions / "reviewer1"
-        d.mkdir(parents=True)
-        sid = str(uuid.uuid4())
-        (d / "session_id").write_text(sid)
-        (d / "pid").write_text("12345")
-
-        call_count = 0
-        orig_read = backend_cc._read_persisted_state
-
-        def counting_read(agent_id):
-            nonlocal call_count
-            call_count += 1
-            if call_count <= 11:
-                return orig_read(agent_id)
-            return backend_cc.PersistedCcState(session_id=sid, pid_text=None)
-
-        orig_exists = Path.exists
-        orig_read_bytes = Path.read_bytes
-
-        def mock_exists(self):
-            if str(self) == "/proc/12345":
-                return True
-            return orig_exists(self)
-
-        def mock_read_bytes(self):
-            if str(self) == "/proc/12345/cmdline":
-                return f"claude\0-p\0--resume\0{sid}\0".encode()
-            return orig_read_bytes(self)
-
-        mock_proc = MagicMock()
-        mock_proc.stdin = MagicMock()
-        mock_proc.pid = 54321
-        with patch.object(Path, "exists", mock_exists), \
-             patch.object(Path, "read_bytes", mock_read_bytes), \
-             patch("engine.backend_cc._read_persisted_state", side_effect=counting_read), \
-             patch("subprocess.Popen", return_value=mock_proc) as mock_popen, \
-             patch("time.sleep"), \
-             patch("os.kill") as mock_kill, \
-             caplog.at_level(logging.INFO):
-            result = backend_cc.send("reviewer1", "hello", timeout=30)
-
-        assert result is True
-        mock_kill.assert_called_once_with(12345, signal.SIGTERM)
-        mock_popen.assert_called_once()
-        cmd = mock_popen.call_args[0][0]
-        assert "--resume" in cmd
-        assert any("terminated stale owner" in r.message for r in caplog.records)
-
-    def test_live_owner_sigterm_oserror_ignored(self, tmp_sessions, monkeypatch, caplog):
-        monkeypatch.setattr(config, "DRY_RUN", False)
-        monkeypatch.setattr(backend_cc, "_agent_config_cache", {})
-        d = tmp_sessions / "reviewer1"
-        d.mkdir(parents=True)
-        sid = str(uuid.uuid4())
-        (d / "session_id").write_text(sid)
-        (d / "pid").write_text("12345")
-
-        orig_exists = Path.exists
-        orig_read_bytes = Path.read_bytes
-
-        def mock_exists(self):
-            if str(self) == "/proc/12345":
-                return True
-            return orig_exists(self)
-
-        def mock_read_bytes(self):
-            if str(self) == "/proc/12345/cmdline":
-                return f"claude\0-p\0--resume\0{sid}\0".encode()
-            return orig_read_bytes(self)
-
-        with patch.object(Path, "exists", mock_exists), \
-             patch.object(Path, "read_bytes", mock_read_bytes), \
-             patch("subprocess.Popen") as mock_popen, \
-             patch("time.sleep"), \
-             patch("os.kill", side_effect=OSError("No such process")) as mock_kill, \
-             caplog.at_level(logging.WARNING):
-            result = backend_cc.send("reviewer1", "hello", timeout=30)
-
-        assert result is False
-        mock_popen.assert_not_called()
-        mock_kill.assert_called_once_with(12345, signal.SIGTERM)
-        assert any("after wait + SIGTERM" in r.message for r in caplog.records)
-
     def test_live_owner_within_starting_grace_refuses(self, tmp_sessions, monkeypatch, caplog):
         monkeypatch.setattr(config, "DRY_RUN", False)
         monkeypatch.setattr(backend_cc, "_agent_config_cache", {})
@@ -1671,118 +1535,12 @@ class TestSendSingleWriter:
              caplog.at_level(logging.WARNING):
             result = backend_cc.send("reviewer1", "hello", timeout=30)
 
-        assert result is False
+        assert result is SendResult.BUSY
         mock_popen.assert_not_called()
         mock_kill.assert_not_called()
         mock_sleep.assert_not_called()
         assert any(
             "starting grace" in r.message
-            for r in caplog.records
-        )
-
-    def test_live_owner_active_session_refuses(self, tmp_sessions, tmp_path, monkeypatch, caplog):
-        monkeypatch.setattr(config, "DRY_RUN", False)
-        monkeypatch.setattr(backend_cc, "_agent_config_cache", {})
-        d = tmp_sessions / "reviewer1"
-        d.mkdir(parents=True)
-        sid = str(uuid.uuid4())
-        (d / "session_id").write_text(sid)
-        (d / "pid").write_text("12345")
-
-        orig_exists = Path.exists
-        orig_read_bytes = Path.read_bytes
-
-        def mock_exists(self):
-            if str(self) == "/proc/12345":
-                return True
-            return orig_exists(self)
-
-        def mock_read_bytes(self):
-            if str(self) == "/proc/12345/cmdline":
-                return f"claude\0-p\0--resume\0{sid}\0".encode()
-            return orig_read_bytes(self)
-
-        # Create a fresh session JSONL file in tmp_path (mtime = now)
-        jsonl_path = tmp_path / f"{sid}.jsonl"
-        jsonl_path.write_text("{}\n")
-
-        # Make _claude_session_jsonl_path return our hermetic test file
-        monkeypatch.setattr(
-            backend_cc, "_claude_session_jsonl_path",
-            lambda cwd, session_id: jsonl_path,
-        )
-
-        with patch.object(Path, "exists", mock_exists), \
-             patch.object(Path, "read_bytes", mock_read_bytes), \
-             patch("subprocess.Popen") as mock_popen, \
-             patch("time.sleep") as mock_sleep, \
-             patch("os.kill") as mock_kill, \
-             caplog.at_level(logging.WARNING):
-            result = backend_cc.send("reviewer1", "hello", timeout=30)
-
-        assert result is False
-        mock_popen.assert_not_called()
-        mock_kill.assert_not_called()
-        mock_sleep.assert_not_called()
-        assert any(
-            "session still active" in r.message
-            for r in caplog.records
-        )
-
-    def test_live_owner_becomes_active_during_wait_refuses(
-        self, tmp_sessions, tmp_path, monkeypatch, caplog,
-    ):
-        monkeypatch.setattr(config, "DRY_RUN", False)
-        monkeypatch.setattr(backend_cc, "_agent_config_cache", {})
-        d = tmp_sessions / "reviewer1"
-        d.mkdir(parents=True)
-        sid = str(uuid.uuid4())
-        (d / "session_id").write_text(sid)
-        (d / "pid").write_text("12345")
-
-        orig_exists = Path.exists
-        orig_read_bytes = Path.read_bytes
-
-        def mock_exists(self):
-            if str(self) == "/proc/12345":
-                return True
-            return orig_exists(self)
-
-        def mock_read_bytes(self):
-            if str(self) == "/proc/12345/cmdline":
-                return f"claude\0-p\0--resume\0{sid}\0".encode()
-            return orig_read_bytes(self)
-
-        # JSONL path — file does NOT exist initially (Guard 2 skipped via FileNotFoundError)
-        jsonl_path = tmp_path / f"{sid}.jsonl"
-
-        monkeypatch.setattr(
-            backend_cc, "_claude_session_jsonl_path",
-            lambda cwd, session_id: jsonl_path,
-        )
-
-        sleep_call_count = 0
-
-        def fake_sleep(seconds):
-            nonlocal sleep_call_count
-            sleep_call_count += 1
-            # After a few polls, simulate the CC writing to its session file
-            if sleep_call_count == 5 and not jsonl_path.exists():
-                jsonl_path.write_text("{}\n")
-
-        with patch.object(Path, "exists", mock_exists), \
-             patch.object(Path, "read_bytes", mock_read_bytes), \
-             patch("subprocess.Popen") as mock_popen, \
-             patch("time.sleep", side_effect=fake_sleep), \
-             patch("os.kill") as mock_kill, \
-             caplog.at_level(logging.WARNING):
-            result = backend_cc.send("reviewer1", "hello", timeout=30)
-
-        assert result is False
-        mock_popen.assert_not_called()
-        mock_kill.assert_not_called()  # SIGTERM should NOT have been sent
-        assert any(
-            "became active during wait" in r.message
             for r in caplog.records
         )
 

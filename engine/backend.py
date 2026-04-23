@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import config
 from engine.backend_pi import SUPPORTED_BACKENDS
+from engine.backend_types import SendResult
 from engine.shared import log
 
 
@@ -42,7 +43,7 @@ def validate_overrides() -> list[str]:
     return unknown
 
 
-def send(agent_id: str, message: str, timeout: int) -> bool:
+def send(agent_id: str, message: str, timeout: int) -> SendResult:
     """Dispatch send to the selected backend."""
     backend = resolve_backend(agent_id)
     if backend == "pi":

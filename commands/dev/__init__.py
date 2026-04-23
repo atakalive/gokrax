@@ -20,7 +20,7 @@ from engine.fsm import get_notification_for_state  # noqa: F401
 from notify import (  # noqa: F401
     notify_implementer, notify_reviewers, notify_discord,
     resolve_reviewer_arg,
-    send_to_agent_queued,
+    send_to_agent_queued, send_to_agent_with_status,
     post_gitlab_note as _post_gitlab_note,
     mask_agent_name, format_review_note_header,
 )

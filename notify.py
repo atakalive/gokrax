@@ -134,15 +134,29 @@ def send_to_agent(agent_id: str, message: str, timeout: int = AGENT_SEND_TIMEOUT
     """Send message to agent, dispatching to the selected backend.
 
     collectキュー（デフォルト）により、run中でもabortせずfollowup turnとして処理される。
-    改行を保持する。
+    改行を保持する。Returns True only on SendResult.OK (BUSY and FAIL are False).
     """
     from engine.backend import send as _dispatch_send
-    return _dispatch_send(agent_id, message, timeout)
+    from engine.backend_types import SendResult
+    result = _dispatch_send(agent_id, message, timeout)
+    return result is SendResult.OK
 
 
 def send_to_agent_queued(agent_id: str, message: str, timeout: int = AGENT_SEND_TIMEOUT) -> bool:
     """send_to_agent のエイリアス。"""
     return send_to_agent(agent_id, message, timeout)
+
+
+def send_to_agent_with_status(
+    agent_id: str, message: str, timeout: int = AGENT_SEND_TIMEOUT,
+):
+    """Three-valued variant: returns SendResult (OK / BUSY / FAIL).
+
+    Use from call sites (e.g. spec self_review B2) that need to distinguish
+    BUSY (retry next tick without consuming counter) from FAIL (persistent).
+    """
+    from engine.backend import send as _dispatch_send
+    return _dispatch_send(agent_id, message, timeout)
 
 
 def _write_review_file(

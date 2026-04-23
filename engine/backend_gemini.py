@@ -35,6 +35,7 @@ from config import (
     GEMINI_AGENT_CONFIG,
     GEMINI_PIDS_DIR,
 )
+from engine.backend_types import SendResult
 
 logger = logging.getLogger(__name__)
 
@@ -300,16 +301,16 @@ def _rebuild_gemini_md(agent_id: str) -> None:
         logger.warning("_rebuild_gemini_md: failed for %s: %s", agent_id, exc)
 
 
-def send(agent_id: str, message: str, timeout: int) -> bool:
+def send(agent_id: str, message: str, timeout: int) -> SendResult:
     """Fire-and-forget subprocess launch of ``gemini``.
 
-    Returns True if process spawn + pid persistence succeeded, else False.
-    Profile dir is mandatory (per-agent cwd for session scoping); absence
-    logs a warning and returns False.
+    Returns SendResult.OK on spawn + pid persistence success, SendResult.FAIL
+    otherwise. Profile dir is mandatory (per-agent cwd for session scoping);
+    absence logs a warning and returns SendResult.FAIL.
     """
     if config.DRY_RUN:
         logger.info("[dry-run] gemini send skipped (agent=%s)", agent_id)
-        return True
+        return SendResult.OK
 
     GEMINI_PIDS_DIR.mkdir(parents=True, exist_ok=True)
     _rebuild_gemini_md(agent_id)
@@ -325,7 +326,7 @@ def send(agent_id: str, message: str, timeout: int) -> bool:
             "session contamination (session is cwd-scoped).",
             agent_id, profile_dir,
         )
-        return False
+        return SendResult.FAIL
     cwd = profile_dir
 
     has_prev = (_count_sessions(cwd) or 0) > 0
@@ -352,7 +353,7 @@ def send(agent_id: str, message: str, timeout: int) -> bool:
         )
     except (OSError, FileNotFoundError) as e:
         logger.warning("gemini spawn failed for %s: %s", agent_id, e)
-        return False
+        return SendResult.FAIL
 
     try:
         _pid_path(agent_id).write_text(str(proc.pid))
@@ -373,9 +374,9 @@ def send(agent_id: str, message: str, timeout: int) -> bool:
                 "(or clear --list-sessions) for this agent.",
                 agent_id, proc.pid, cwd, proc.pid,
             )
-        return False
+        return SendResult.FAIL
 
-    return True
+    return SendResult.OK
 
 
 def ping(agent_id: str, timeout: int) -> bool:

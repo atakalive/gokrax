@@ -11,6 +11,7 @@ import pytest
 
 import config
 from engine import backend_gemini
+from engine.backend_types import SendResult
 
 
 AGENT = "reviewer1"
@@ -84,13 +85,13 @@ def _profile_dir() -> Path:
 class TestSend:
     def test_initial_no_r_latest(self, recorder, monkeypatch):
         monkeypatch.setattr(backend_gemini, "_count_sessions", lambda cwd: 0)
-        assert backend_gemini.send(AGENT, "hi", 30) is True
+        assert backend_gemini.send(AGENT, "hi", 30) is SendResult.OK
         argv = recorder["popen_calls"][0]
         assert "-r" not in argv and "latest" not in argv
 
     def test_continuation_has_r_latest(self, recorder, monkeypatch):
         monkeypatch.setattr(backend_gemini, "_count_sessions", lambda cwd: 3)
-        assert backend_gemini.send(AGENT, "hi", 30) is True
+        assert backend_gemini.send(AGENT, "hi", 30) is SendResult.OK
         argv = recorder["popen_calls"][0]
         assert argv[-2:] == ["-r", "latest"]
 
@@ -108,7 +109,7 @@ class TestSend:
 
     def test_dry_run_no_popen(self, recorder, monkeypatch):
         monkeypatch.setattr(config, "DRY_RUN", True)
-        assert backend_gemini.send(AGENT, "hi", 30) is True
+        assert backend_gemini.send(AGENT, "hi", 30) is SendResult.OK
         assert recorder["popen_calls"] == []
 
     def test_pid_persisted(self, recorder, monkeypatch):
@@ -142,7 +143,7 @@ class TestSend:
         monkeypatch.setattr(backend_gemini, "AGENT_PROFILES_DIR", empty_dir)
         with caplog.at_level(logging.WARNING, logger="engine.backend_gemini"):
             result = backend_gemini.send(AGENT, "hi", 30)
-        assert result is False
+        assert result is SendResult.FAIL
         assert recorder["popen_calls"] == []
         assert any("profile dir" in r.message for r in caplog.records)
 
@@ -153,7 +154,7 @@ class TestSend:
             backend_gemini, "_terminate_pid_tree",
             lambda *a, **k: terminate_calls.append(1) or True,
         )
-        assert backend_gemini.send(AGENT, "hi", 30) is True
+        assert backend_gemini.send(AGENT, "hi", 30) is SendResult.OK
         assert terminate_calls == []
 
     def test_pid_write_failure_terminates(self, recorder, monkeypatch):
@@ -176,7 +177,7 @@ class TestSend:
         monkeypatch.setattr(Path, "write_text", fake_write_text)
 
         result = backend_gemini.send(AGENT, "hi", 30)
-        assert result is False
+        assert result is SendResult.FAIL
         assert len(terminate_calls) == 1
         pid, agent_id, proc = terminate_calls[0]
         assert pid == 4242
@@ -202,7 +203,7 @@ class TestSend:
         monkeypatch.setattr(Path, "write_text", fake_write_text)
 
         with caplog.at_level(logging.ERROR, logger="engine.backend_gemini"):
-            assert backend_gemini.send(AGENT, "hi", 30) is False
+            assert backend_gemini.send(AGENT, "hi", 30) is SendResult.FAIL
         assert any(
             r.levelno == logging.ERROR
             and "could not be terminated" in r.message

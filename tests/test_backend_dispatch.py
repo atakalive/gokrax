@@ -11,6 +11,7 @@ import pytest
 import config
 import notify
 from engine import backend, backend_cc, backend_openclaw, backend_pi, reviewer as _reviewer_mod
+from engine.backend_types import SendResult
 
 # Save real function references before conftest's autouse fixtures replace them
 # with mocks. Module-level imports execute before per-test fixtures.
@@ -137,30 +138,30 @@ class TestThinWrapperPropagation:
 class TestBackendSendDispatch:
     def test_openclaw_calls_backend_openclaw_send(self, monkeypatch):
         monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "openclaw")
-        with patch("engine.backend_openclaw.send", return_value=True) as mock_oc:
+        with patch("engine.backend_openclaw.send", return_value=SendResult.OK) as mock_oc:
             result = backend.send("reviewer1", "hello", 30)
-        assert result is True
+        assert result is SendResult.OK
         mock_oc.assert_called_once_with("reviewer1", "hello", 30)
 
     def test_pi_calls_pi_send(self, monkeypatch):
         monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "pi")
-        with patch("engine.backend_pi.send", return_value=True) as mock_pi:
+        with patch("engine.backend_pi.send", return_value=SendResult.OK) as mock_pi:
             result = backend.send("reviewer1", "hello", 30)
-        assert result is True
+        assert result is SendResult.OK
         mock_pi.assert_called_once_with("reviewer1", "hello", 30)
 
     def test_cc_calls_cc_send(self, monkeypatch):
         monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "cc")
-        with patch("engine.backend_cc.send", return_value=True) as mock_cc:
+        with patch("engine.backend_cc.send", return_value=SendResult.OK) as mock_cc:
             result = backend.send("reviewer1", "hello", 30)
-        assert result is True
+        assert result is SendResult.OK
         mock_cc.assert_called_once_with("reviewer1", "hello", 30)
 
     def test_gemini_calls_gemini_send(self, monkeypatch):
         monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "gemini")
-        with patch("engine.backend_gemini.send", return_value=True) as mock_gm:
+        with patch("engine.backend_gemini.send", return_value=SendResult.OK) as mock_gm:
             result = backend.send("reviewer1", "hello", 30)
-        assert result is True
+        assert result is SendResult.OK
         mock_gm.assert_called_once_with("reviewer1", "hello", 30)
 
 

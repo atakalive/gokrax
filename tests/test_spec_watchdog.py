@@ -12,6 +12,7 @@ sys.path.insert(0, str(ROOT))
 
 import os
 
+from engine.backend_types import SendResult
 from engine.fsm_spec import (
     SpecTransitionAction,
     check_transition_spec,
@@ -477,7 +478,7 @@ class TestApplySpecAction:
             next_state="SPEC_REVISE",
             expected_state="SPEC_REVIEW",  # 不一致
         )
-        with patch("engine.fsm_spec.send_to_agent_queued"), \
+        with patch("engine.fsm_spec.send_to_agent_with_status", return_value=SendResult.OK), \
              patch("engine.fsm_spec.notify_discord"):
             _apply_spec_action(pj_path, action, _now(), pj_data)
 
@@ -501,7 +502,7 @@ class TestApplySpecAction:
             next_state="SPEC_APPROVED",
             expected_state="SPEC_REVIEW",
         )
-        with patch("engine.fsm_spec.send_to_agent_queued") as mock_send, \
+        with patch("engine.fsm_spec.send_to_agent_with_status", return_value=SendResult.OK) as mock_send, \
              patch("engine.fsm_spec.notify_discord") as mock_discord:
             _apply_spec_action(pj_path, action, _now(), pj_data)
 
@@ -643,7 +644,7 @@ class TestApplySpecActionCleanup:
             )
             mocked_action = SpecTransitionAction(next_state=state)
             with patch("engine.fsm_spec.check_transition_spec", return_value=mocked_action), \
-                 patch("engine.fsm_spec.send_to_agent_queued"), \
+                 patch("engine.fsm_spec.send_to_agent_with_status", return_value=SendResult.OK), \
                  patch("engine.fsm_spec.notify_discord"), \
                  patch("engine.fsm_spec._cleanup_expired_spec_files") as mock_cleanup:
                 _apply_spec_action(pj_path, action, _now(), orig_data)
@@ -661,7 +662,7 @@ class TestApplySpecActionCleanup:
         )
         mocked_action = SpecTransitionAction(next_state="IDLE")
         with patch("engine.fsm_spec.check_transition_spec", return_value=mocked_action), \
-             patch("engine.fsm_spec.send_to_agent_queued"), \
+             patch("engine.fsm_spec.send_to_agent_with_status", return_value=SendResult.OK), \
              patch("engine.fsm_spec.notify_discord"), \
              patch("engine.fsm_spec._cleanup_expired_spec_files") as mock_cleanup, \
              patch("watchdog._check_queue"):
@@ -679,7 +680,7 @@ class TestApplySpecActionCleanup:
         action = SpecTransitionAction(next_state="IDLE", expected_state="SPEC_DONE")
         mocked_action = SpecTransitionAction(next_state="IDLE")
         with patch("engine.fsm_spec.check_transition_spec", return_value=mocked_action), \
-             patch("engine.fsm_spec.send_to_agent_queued"), \
+             patch("engine.fsm_spec.send_to_agent_with_status", return_value=SendResult.OK), \
              patch("engine.fsm_spec.notify_discord"), \
              patch("engine.fsm_spec._cleanup_expired_spec_files"):
             _apply_spec_action(pj_path, action, _now(), {"spec_config": {"pipelines_dir": pd_str}})
@@ -709,7 +710,7 @@ class TestApplySpecActionCleanup:
             pj_path.write_text(json.dumps(d))
 
         with patch("engine.fsm_spec.check_transition_spec", return_value=mocked_action), \
-             patch("engine.fsm_spec.send_to_agent_queued"), \
+             patch("engine.fsm_spec.send_to_agent_with_status", return_value=SendResult.OK), \
              patch("engine.fsm_spec.notify_discord"), \
              patch("engine.fsm_spec._cleanup_expired_spec_files"), \
              patch("watchdog._check_queue", side_effect=fake_check_queue):
@@ -737,7 +738,7 @@ class TestApplySpecActionCleanup:
 
         # _check_queue does nothing (failure case) — state stays IDLE
         with patch("engine.fsm_spec.check_transition_spec", return_value=mocked_action), \
-             patch("engine.fsm_spec.send_to_agent_queued"), \
+             patch("engine.fsm_spec.send_to_agent_with_status", return_value=SendResult.OK), \
              patch("engine.fsm_spec.notify_discord"), \
              patch("engine.fsm_spec._cleanup_expired_spec_files"), \
              patch("watchdog._check_queue"):
@@ -771,7 +772,7 @@ class TestApplySpecActionCleanup:
             pj_path.write_text(json.dumps(d))
 
         with patch("engine.fsm_spec.check_transition_spec", return_value=mocked_action), \
-             patch("engine.fsm_spec.send_to_agent_queued"), \
+             patch("engine.fsm_spec.send_to_agent_with_status", return_value=SendResult.OK), \
              patch("engine.fsm_spec.notify_discord"), \
              patch("engine.fsm_spec._cleanup_expired_spec_files"), \
              patch("watchdog._check_queue", side_effect=fake_check_queue_then_external_start):
@@ -791,7 +792,7 @@ class TestApplySpecActionCleanup:
         )
         mocked_action = SpecTransitionAction(next_state="SPEC_REVISE")
         with patch("engine.fsm_spec.check_transition_spec", return_value=mocked_action), \
-             patch("engine.fsm_spec.send_to_agent_queued"), \
+             patch("engine.fsm_spec.send_to_agent_with_status", return_value=SendResult.OK), \
              patch("engine.fsm_spec.notify_discord"), \
              patch("engine.fsm_spec._cleanup_expired_spec_files") as mock_cleanup:
             _apply_spec_action(pj_path, action, _now(), {"spec_config": {"pipelines_dir": pd_str}})
@@ -975,7 +976,7 @@ class TestSpecNudge:
         nudge_action = SpecTransitionAction(next_state=None, nudge_reviewers=["reviewer1"])
         with patch("engine.fsm_spec.check_transition_spec", return_value=nudge_action), \
              patch("engine.shared._is_agent_inactive", return_value=True), \
-             patch("engine.fsm_spec.send_to_agent_queued") as mock_send, \
+             patch("engine.fsm_spec.send_to_agent_with_status", return_value=SendResult.OK) as mock_send, \
              patch("engine.fsm_spec.notify_discord"):
             _apply_spec_action(pj_path, action, _now(), pj_data)
         mock_send.assert_not_called()
@@ -1013,7 +1014,7 @@ class TestSpecNudge:
         nudge_action = SpecTransitionAction(next_state=None, nudge_reviewers=["reviewer1"])
         with patch("engine.fsm_spec.check_transition_spec", return_value=nudge_action), \
              patch("engine.shared._is_agent_inactive", return_value=True), \
-             patch("engine.fsm_spec.send_to_agent_queued", return_value=True) as mock_send, \
+             patch("engine.fsm_spec.send_to_agent_with_status", return_value=SendResult.OK) as mock_send, \
              patch("engine.fsm_spec.notify_discord"):
             _apply_spec_action(pj_path, action, _now(), pj_data)
         mock_send.assert_called_once()
@@ -1116,7 +1117,7 @@ class TestSpecNudge:
         nudge_action = SpecTransitionAction(next_state=None, nudge_reviewers=["reviewer1"])
         with patch("engine.fsm_spec.check_transition_spec", return_value=nudge_action), \
              patch("engine.shared._is_agent_inactive", return_value=True), \
-             patch("engine.fsm_spec.send_to_agent_queued") as mock_send, \
+             patch("engine.fsm_spec.send_to_agent_with_status", return_value=SendResult.OK) as mock_send, \
              patch("engine.fsm_spec.notify_discord"):
             _apply_spec_action(pj_path, action, _now(), pj_data)
         mock_send.assert_not_called()
@@ -1146,7 +1147,7 @@ class TestSpecNudge:
         nudge_action = SpecTransitionAction(next_state=None, nudge_implementer=True)
         with patch("engine.fsm_spec.check_transition_spec", return_value=nudge_action), \
              patch("engine.shared._is_agent_inactive", return_value=True), \
-             patch("engine.fsm_spec.send_to_agent_queued") as mock_send, \
+             patch("engine.fsm_spec.send_to_agent_with_status", return_value=SendResult.OK) as mock_send, \
              patch("engine.fsm_spec.notify_discord"):
             _apply_spec_action(pj_path, action, _now(), pj_data)
         mock_send.assert_not_called()
@@ -1215,7 +1216,7 @@ class TestSendFailureRollback:
             next_state=None,
             expected_state="SPEC_REVISE",
         )
-        with patch("engine.fsm_spec.send_to_agent_queued", return_value=False), \
+        with patch("engine.fsm_spec.send_to_agent_with_status", return_value=SendResult.FAIL), \
              patch("engine.fsm_spec.notify_discord") as mock_discord, \
              patch("spec_revise.parse_revise_response", return_value={
                  "commit": "abc123",
@@ -1291,7 +1292,7 @@ class TestSendFailureRollback:
             next_state=None,
             expected_state="SPEC_REVISE",
         )
-        with patch("engine.fsm_spec.send_to_agent_queued", return_value=False), \
+        with patch("engine.fsm_spec.send_to_agent_with_status", return_value=SendResult.FAIL), \
              patch("engine.fsm_spec.notify_discord"):
             _apply_spec_action(pj_path, action, _now(), orig_data)
 
@@ -1360,7 +1361,7 @@ class TestSendFailureRollback:
             "verdict": "issues_found",
             "items": [{"id": "reflected_items_match", "result": "No", "evidence": "missing"}],
         }
-        with patch("engine.fsm_spec.send_to_agent_queued", return_value=False), \
+        with patch("engine.fsm_spec.send_to_agent_with_status", return_value=SendResult.FAIL), \
              patch("engine.fsm_spec.notify_discord"), \
              patch("spec_revise.parse_self_review_response", return_value=mock_result):
             _apply_spec_action(pj_path, action, _now(), orig_data)
@@ -1418,7 +1419,7 @@ class TestSendFailureRollback:
         )
         # Mock check_transition_spec to return the same action
         with patch("engine.fsm_spec.check_transition_spec", return_value=action), \
-             patch("engine.fsm_spec.send_to_agent_queued", return_value=False), \
+             patch("engine.fsm_spec.send_to_agent_with_status", return_value=SendResult.FAIL), \
              patch("engine.fsm_spec.notify_discord"), \
              patch("engine.fsm_spec.update_pipeline") as mock_up:
             # First call is the main update, second would be rollback
@@ -1451,7 +1452,7 @@ class TestSendFailureRollback:
             next_state=None,
             expected_state="SPEC_REVIEW",
         )
-        with patch("engine.fsm_spec.send_to_agent_queued", return_value=False), \
+        with patch("engine.fsm_spec.send_to_agent_with_status", return_value=SendResult.FAIL), \
              patch("engine.fsm_spec.notify_discord"):
             _apply_spec_action(pj_path, action, _now(), pj_data)
 
@@ -1543,12 +1544,12 @@ class TestSendFailureRollback:
                 raise OSError("disk full")
             return original_update(path, callback)
 
-        with patch("engine.fsm_spec.send_to_agent_queued", return_value=False), \
+        with patch("engine.fsm_spec.send_to_agent_with_status", return_value=SendResult.FAIL), \
              patch("engine.fsm_spec.notify_discord"), \
              patch("engine.fsm_spec.update_pipeline", side_effect=mock_update_pipeline), \
              caplog.at_level(logging.WARNING):
             _apply_spec_action(pj_path, action, _now(), orig_data)
-        assert any("send_failure_rollback failed" in r.message for r in caplog.records)
+        assert any("send rollback failed" in r.message for r in caplog.records)
 
     # --- Test 12: partial reviewer rollback (only failed reviewer) ---
 
@@ -1579,9 +1580,9 @@ class TestSendFailureRollback:
         )
 
         def side_effect_send(agent_id, msg):
-            return agent_id == "reviewer_a"
+            return SendResult.OK if agent_id == "reviewer_a" else SendResult.FAIL
 
-        with patch("engine.fsm_spec.send_to_agent_queued", side_effect=side_effect_send), \
+        with patch("engine.fsm_spec.send_to_agent_with_status", side_effect=side_effect_send), \
              patch("engine.fsm_spec.notify_discord"):
             _apply_spec_action(pj_path, action, _now(), pj_data)
 

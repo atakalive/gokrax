@@ -32,6 +32,7 @@ from config import (
     PI_AGENT_CONFIG,
     PROJECT_ROOT,
 )
+from engine.backend_types import SendResult
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +122,7 @@ def _session_path(agent_id: str) -> Path:
     return PI_SESSIONS_DIR / f"{agent_id}.jsonl"
 
 
-def send(agent_id: str, message: str, timeout: int) -> bool:
+def send(agent_id: str, message: str, timeout: int) -> SendResult:
     """Fire-and-forget subprocess launch of ``pi``.
 
     Args:
@@ -135,7 +136,7 @@ def send(agent_id: str, message: str, timeout: int) -> bool:
     """
     if config.DRY_RUN:
         logger.info("[dry-run] pi send skipped (agent=%s)", agent_id)
-        return True
+        return SendResult.OK
 
     PI_SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -183,7 +184,7 @@ def send(agent_id: str, message: str, timeout: int) -> bool:
         )
     except (OSError, FileNotFoundError) as e:
         logger.warning("pi spawn failed for %s: %s", agent_id, e)
-        return False
+        return SendResult.FAIL
 
     try:
         proc.stdin.write(message.encode())
@@ -194,10 +195,10 @@ def send(agent_id: str, message: str, timeout: int) -> bool:
             proc.stdin.close()
         except OSError:
             pass
-        return False
+        return SendResult.FAIL
 
     _starting_markers[agent_id] = time.time()
-    return True
+    return SendResult.OK
 
 
 def ping(agent_id: str, timeout: int) -> bool:

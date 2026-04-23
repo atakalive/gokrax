@@ -156,6 +156,13 @@ class TestBackendSendDispatch:
         assert result is True
         mock_cc.assert_called_once_with("reviewer1", "hello", 30)
 
+    def test_gemini_calls_gemini_send(self, monkeypatch):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "gemini")
+        with patch("engine.backend_gemini.send", return_value=True) as mock_gm:
+            result = backend.send("reviewer1", "hello", 30)
+        assert result is True
+        mock_gm.assert_called_once_with("reviewer1", "hello", 30)
+
 
 # ===========================================================================
 # backend.ping dispatch
@@ -182,6 +189,13 @@ class TestBackendPingDispatch:
             result = backend.ping("reviewer1", 20)
         assert result is True
         mock_cc.assert_called_once_with("reviewer1", 20)
+
+    def test_gemini_calls_gemini_ping(self, monkeypatch):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "gemini")
+        with patch("engine.backend_gemini.ping", return_value=True) as mock_gm:
+            result = backend.ping("reviewer1", 20)
+        assert result is True
+        mock_gm.assert_called_once_with("reviewer1", 20)
 
 
 # ===========================================================================
@@ -217,6 +231,23 @@ class TestBackendIsInactiveDispatch:
         # Verify cc_running kwarg is passed
         _, kwargs = mock_cc.call_args
         assert "cc_running" in kwargs
+
+    def test_gemini_dispatches(self, monkeypatch):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "gemini")
+        with patch("engine.backend_gemini.is_inactive", return_value=True) as mock_gm:
+            result = backend.is_inactive("reviewer1", {"some": "data"})
+        assert result is True
+        mock_gm.assert_called_once()
+        _, kwargs = mock_gm.call_args
+        assert "cc_running" in kwargs
+
+    def test_gemini_cc_running_passed(self, monkeypatch):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "gemini")
+        with patch("engine.shared._is_cc_running", return_value=True), \
+             patch("engine.backend_gemini.is_inactive", return_value=False) as mock_gm:
+            backend.is_inactive("reviewer1", {"cc_pid": 12345})
+        _, kwargs = mock_gm.call_args
+        assert kwargs["cc_running"] is True
 
     def test_cc_cc_running_passed(self, monkeypatch):
         """cc backend receives cc_running=True when _is_cc_running returns True."""
@@ -442,6 +473,12 @@ class TestResolveBackend:
         monkeypatch.setattr(config, "AGENT_BACKEND_OVERRIDE", {})
         assert backend.resolve_backend("reviewer1") == "pi"
 
+    def test_gemini_accepted_as_backend(self, monkeypatch):
+        """resolve_backend accepts 'gemini' (in SUPPORTED_BACKENDS)."""
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "openclaw")
+        monkeypatch.setattr(config, "AGENT_BACKEND_OVERRIDE", {"reviewer1": "gemini"})
+        assert backend.resolve_backend("reviewer1") == "gemini"
+
 
 # ===========================================================================
 # validate_overrides
@@ -527,6 +564,12 @@ class TestBackendResetSessionDispatch:
         with patch("engine.backend_pi.reset_session") as mock_pi:
             backend.reset_session("reviewer1")
         mock_pi.assert_called_once_with("reviewer1")
+
+    def test_gemini_calls_gemini_reset_session(self, monkeypatch):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "gemini")
+        with patch("engine.backend_gemini.reset_session") as mock_gm:
+            backend.reset_session("reviewer1")
+        mock_gm.assert_called_once_with("reviewer1")
 
     def test_openclaw_is_noop(self, monkeypatch):
         """openclaw reset_session does not raise."""

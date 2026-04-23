@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Supported backend values (centralized domain)
 # ---------------------------------------------------------------------------
-SUPPORTED_BACKENDS: frozenset[str] = frozenset({"openclaw", "pi", "cc"})
+SUPPORTED_BACKENDS: frozenset[str] = frozenset({"openclaw", "pi", "cc", "gemini"})
 
 # ---------------------------------------------------------------------------
 # Process-local starting-state marker
@@ -260,7 +260,13 @@ def is_inactive(agent_id: str, pipeline_data: dict | None = None,
 
 
 def _rebuild_agents_md(agent_id: str) -> None:
-    """Rebuild AGENTS.md from IDENTITY.md + INSTRUCTION.md + MEMORY.md (on source change only)."""
+    """Rebuild AGENTS.md from IDENTITY.md + INSTRUCTION.md + MEMORY.md (on source change only).
+
+    IMPORTANT: This function is a near-exact twin of
+    backend_gemini.py:_rebuild_gemini_md. If you modify the logic here, mirror
+    the change to gemini (and vice versa), or extract a shared helper. The two
+    functions MUST stay in sync beyond filename differences.
+    """
     try:
         # Check compile-startup-md setting (default: False)
         config_data = _load_config()

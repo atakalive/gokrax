@@ -17,4 +17,9 @@ agents/*
 .cc-sessions/
 .claude/
 !agents/config_cc.example.json
+!agents/config_gemini.example.json
 reports/drafts/
+.gemini-pids/
+agents/*/GEMINI.md
+agents/*/.gemini_hash
+agents/config_gemini.json

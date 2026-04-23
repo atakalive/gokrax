@@ -17,6 +17,8 @@ __all__ = [
     "PI_AGENT_CONFIG",
     "CC_SESSIONS_DIR",
     "CC_AGENT_CONFIG",
+    "GEMINI_AGENT_CONFIG",
+    "GEMINI_PIDS_DIR",
 ]
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -54,3 +56,7 @@ CC_SESSIONS_DIR = _PROJECT_ROOT / ".cc-sessions"
 
 # cc backend per-agent config
 CC_AGENT_CONFIG = AGENT_PROFILES_DIR / "config_cc.json"
+
+# gemini backend pids / per-agent config
+GEMINI_PIDS_DIR = _PROJECT_ROOT / ".gemini-pids"
+GEMINI_AGENT_CONFIG = AGENT_PROFILES_DIR / "config_gemini.json"

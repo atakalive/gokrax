@@ -132,6 +132,7 @@ PI_BIN: str = "pi"
 PI_START_GRACE_SEC: int = 30
 CC_BIN: str = "claude"
 CC_START_GRACE_SEC: int = 30
+GEMINI_BIN: str = "gemini"
 
 # 非アクティブ判定 (秒)
 INACTIVE_THRESHOLD_SEC = 603

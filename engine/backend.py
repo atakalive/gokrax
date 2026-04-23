@@ -51,6 +51,9 @@ def send(agent_id: str, message: str, timeout: int) -> bool:
     elif backend == "cc":
         from engine.backend_cc import send as cc_send
         return cc_send(agent_id, message, timeout)
+    elif backend == "gemini":
+        from engine.backend_gemini import send as gm_send
+        return gm_send(agent_id, message, timeout)
     # openclaw: delegate to the openclaw-specific implementation
     from engine.backend_openclaw import send as oc_send
     return oc_send(agent_id, message, timeout)
@@ -65,6 +68,9 @@ def ping(agent_id: str, timeout: int) -> bool:
     elif backend == "cc":
         from engine.backend_cc import ping as cc_ping
         return cc_ping(agent_id, timeout)
+    elif backend == "gemini":
+        from engine.backend_gemini import ping as gm_ping
+        return gm_ping(agent_id, timeout)
     from engine.backend_openclaw import ping as oc_ping
     return oc_ping(agent_id, timeout)
 
@@ -88,6 +94,9 @@ def is_inactive(agent_id: str, pipeline_data: dict | None = None) -> bool:
     elif backend == "cc":
         from engine.backend_cc import is_inactive as cc_is_inactive
         return cc_is_inactive(agent_id, pipeline_data, cc_running=cc_running)
+    elif backend == "gemini":
+        from engine.backend_gemini import is_inactive as gm_is_inactive
+        return gm_is_inactive(agent_id, pipeline_data, cc_running=cc_running)
 
     # openclaw: preserve original semantics
     if cc_running:
@@ -113,3 +122,6 @@ def reset_session(agent_id: str) -> None:
     elif backend == "cc":
         from engine.backend_cc import reset_session as cc_reset
         cc_reset(agent_id)
+    elif backend == "gemini":
+        from engine.backend_gemini import reset_session as gm_reset
+        gm_reset(agent_id)

@@ -1,0 +1,10 @@
+{
+  "_comment": {
+    "model": "Gemini model name (e.g. 'gemini-2.5-pro', 'gemini-2.5-flash')",
+    "compile-startup-md": "If true, compile IDENTITY.md + INSTRUCTION.md + MEMORY.md into GEMINI.md"
+  },
+  "example_reviewer": {
+    "model": "gemini-2.5-pro",
+    "compile-startup-md": false
+  }
+}

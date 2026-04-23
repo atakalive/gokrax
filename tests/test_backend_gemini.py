@@ -183,6 +183,33 @@ class TestSend:
         assert agent_id == AGENT
         assert proc is not None
 
+    def test_pid_write_failure_termination_also_fails_escalates(
+        self, recorder, monkeypatch, caplog,
+    ):
+        monkeypatch.setattr(backend_gemini, "_count_sessions", lambda cwd: 0)
+        monkeypatch.setattr(
+            backend_gemini, "_terminate_pid_tree",
+            lambda *a, **k: False,
+        )
+
+        orig = Path.write_text
+
+        def fake_write_text(self, data, *a, **k):
+            if self.name.endswith(".pid"):
+                raise OSError("disk full")
+            return orig(self, data, *a, **k)
+
+        monkeypatch.setattr(Path, "write_text", fake_write_text)
+
+        with caplog.at_level(logging.ERROR, logger="engine.backend_gemini"):
+            assert backend_gemini.send(AGENT, "hi", 30) is False
+        assert any(
+            r.levelno == logging.ERROR
+            and "could not be terminated" in r.message
+            and "session for cwd" in r.message
+            for r in caplog.records
+        )
+
 
 # ===========================================================================
 # reset_session()

@@ -361,7 +361,18 @@ def send(agent_id: str, message: str, timeout: int) -> bool:
             "gemini pid write failed for %s: %s; terminating spawned process group",
             agent_id, exc,
         )
-        _terminate_pid_tree(proc.pid, agent_id, proc=proc)
+        if not _terminate_pid_tree(proc.pid, agent_id, proc=proc):
+            # Stray Gemini process could still create/update a cwd-scoped session
+            # that the next send() would resume via -r latest, replaying stale
+            # context. We cannot write a pid file (that is why we are here), so
+            # escalate visibility and require manual intervention.
+            logger.error(
+                "gemini send for %s: spawned pid %d could not be terminated "
+                "after pid-write failure; session for cwd %s may be contaminated. "
+                "Manual intervention required: kill pid %d and run reset_session "
+                "(or clear --list-sessions) for this agent.",
+                agent_id, proc.pid, cwd, proc.pid,
+            )
         return False
 
     return True

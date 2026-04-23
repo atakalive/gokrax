@@ -17,6 +17,7 @@ from pathlib import Path
 import requests
 
 import config
+from engine.backend_types import SendResult
 from engine.filter import require_issue_author, UnauthorizedAuthorError
 from config import (
     GOKRAX_CLI, GLAB_BIN, DISCORD_CHANNEL, DISCORD_BOT_TOKEN,
@@ -137,7 +138,6 @@ def send_to_agent(agent_id: str, message: str, timeout: int = AGENT_SEND_TIMEOUT
     改行を保持する。Returns True only on SendResult.OK (BUSY and FAIL are False).
     """
     from engine.backend import send as _dispatch_send
-    from engine.backend_types import SendResult
     result = _dispatch_send(agent_id, message, timeout)
     return result is SendResult.OK
 
@@ -149,7 +149,7 @@ def send_to_agent_queued(agent_id: str, message: str, timeout: int = AGENT_SEND_
 
 def send_to_agent_with_status(
     agent_id: str, message: str, timeout: int = AGENT_SEND_TIMEOUT,
-):
+) -> SendResult:
     """Three-valued variant: returns SendResult (OK / BUSY / FAIL).
 
     Use from call sites (e.g. spec self_review B2) that need to distinguish

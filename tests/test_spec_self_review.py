@@ -808,3 +808,378 @@ checklist:
         )
         result = _check_spec_revise(sc, _now(), _make_pipeline(spec_config=sc))
         assert result.next_state == "SPEC_PAUSED"
+
+
+# ---------------------------------------------------------------------------
+# #327 verification: B2 (self_review send) BUSY/FAIL paths
+# Spec Test Plan units 7, 8, 9, 10, 10b, 10c, 10d (dijkstra P2-2)
+# ---------------------------------------------------------------------------
+
+class TestB2BusyFail:
+    """B2 (self_review send pending) の BUSY / FAIL / escalation 検証。"""
+
+    def _b2_spec_config(self, **overrides):
+        """B2 経路を発火させる最小 spec_config: pending_updates あり, _self_review_sent=None。"""
+        cfg = _make_spec_config(
+            spec_implementer="implementer1",
+            self_review_agent="implementer1",
+            spec_path="docs/spec.md",
+            current_rev="1",
+            _self_review_sent=None,
+            _self_review_response=None,
+            _self_review_pass=0,
+            _self_review_pending_updates={
+                "current_rev": "2",
+                "last_commit": "abc1234",
+            },
+            _self_review_expected_ids=[c["id"] for c in DEFAULT_SELF_REVIEW_CHECKLIST],
+        )
+        cfg.update(overrides)
+        return cfg
+
+    def _write_pj(self, tmp_pipelines, sc):
+        pj_path = tmp_pipelines / "test-pj.json"
+        write_pipeline(pj_path, _make_pipeline(state="SPEC_REVISE", spec_config=sc))
+        return pj_path
+
+    def test_b2_busy_rolls_back_retries_and_sets_busy_since(self, tmp_pipelines):
+        """7: BUSY 受信 → _self_review_pass 巻き戻し, _self_review_sent ロールバック, busy_since 初期化。"""
+        from engine.fsm_spec import _check_spec_revise, _apply_spec_action
+        from engine.backend_types import SendResult
+        from unittest.mock import patch
+
+        sc = self._b2_spec_config()
+        pj_path = self._write_pj(tmp_pipelines, sc)
+        pj_data = json.loads(pj_path.read_text())
+
+        action = _check_spec_revise(sc, _now(), pj_data)
+        assert action.send_to and "implementer1" in action.send_to, "B2 not triggered"
+        action.expected_state = "SPEC_REVISE"
+
+        with patch("engine.fsm_spec.send_to_agent_with_status",
+                   return_value=SendResult.BUSY), \
+             patch("engine.fsm_spec.notify_discord") as mock_notify:
+            _apply_spec_action(pj_path, action, _now(), pj_data)
+
+        result = json.loads(pj_path.read_text())
+        sc_out = result["spec_config"]
+        # pass 巻き戻し: 0 → +1 → -1 = 0
+        assert sc_out.get("_self_review_pass", 0) == 0
+        # _self_review_sent ロールバック (send_failure_rollback で None 復元)
+        assert sc_out.get("_self_review_sent") is None
+        # busy_since_key 初期化
+        assert sc_out.get("_self_review_busy_since") is not None
+        # "send failure" 通知が出ていない (BUSY なので)
+        notified = "\n".join(str(c.args[0]) for c in mock_notify.call_args_list if c.args)
+        assert "send failure" not in notified.lower()
+
+    def test_b2_fail_consumes_retry_and_notifies(self, tmp_pipelines):
+        """8: FAIL 受信 → counter 消費 + Discord "send failure"。"""
+        from engine.fsm_spec import _check_spec_revise, _apply_spec_action
+        from engine.backend_types import SendResult
+        from unittest.mock import patch
+
+        sc = self._b2_spec_config()
+        pj_path = self._write_pj(tmp_pipelines, sc)
+        pj_data = json.loads(pj_path.read_text())
+
+        action = _check_spec_revise(sc, _now(), pj_data)
+        action.expected_state = "SPEC_REVISE"
+
+        with patch("engine.fsm_spec.send_to_agent_with_status",
+                   return_value=SendResult.FAIL), \
+             patch("engine.fsm_spec.notify_discord") as mock_notify:
+            _apply_spec_action(pj_path, action, _now(), pj_data)
+
+        result = json.loads(pj_path.read_text())
+        sc_out = result["spec_config"]
+        # FAIL ではカウンター消費 (+1 されたまま、巻き戻されない)
+        assert sc_out.get("_self_review_pass") == 1
+        # _self_review_sent は send_failure_rollback で None に巻き戻る
+        assert sc_out.get("_self_review_sent") is None
+        # FAIL では busy_since_key は設定されない (busy_agents 空)
+        assert sc_out.get("_self_review_busy_since") is None
+        # "send failure" 通知が出ている
+        notified = "\n".join(str(c.args[0]) for c in mock_notify.call_args_list if c.args)
+        assert "send failure" in notified.lower()
+
+    def test_b2_fail_max_pauses(self, tmp_pipelines):
+        """8 (続き): FAIL でカウンター枯渇後の次 tick で SPEC_PAUSED へ。"""
+        from config import SPEC_REVISE_SELF_REVIEW_PASSES
+        sc = self._b2_spec_config(
+            _self_review_pass=SPEC_REVISE_SELF_REVIEW_PASSES,
+        )
+        # この sc で _check_spec_revise を直接呼ぶと B2 経路で current_pass >= MAX → SPEC_PAUSED
+        action = _check_spec_revise(sc, _now(), _make_pipeline(spec_config=sc))
+        assert action.next_state == "SPEC_PAUSED"
+        pu = action.pipeline_updates or {}
+        assert pu.get("paused_from") == "SPEC_REVISE"
+        # busy_since もクリア
+        assert pu.get("_self_review_busy_since") is None
+
+    def test_b2_busy_then_ok_clears_busy_since(self, tmp_pipelines):
+        """9: BUSY 1 回 → 次 tick OK で busy_since クリア + counter 進行。"""
+        from engine.fsm_spec import _check_spec_revise, _apply_spec_action
+        from engine.backend_types import SendResult
+        from unittest.mock import patch
+
+        # Tick 1: BUSY
+        sc = self._b2_spec_config()
+        pj_path = self._write_pj(tmp_pipelines, sc)
+        pj_data = json.loads(pj_path.read_text())
+        action = _check_spec_revise(sc, _now(), pj_data)
+        action.expected_state = "SPEC_REVISE"
+        with patch("engine.fsm_spec.send_to_agent_with_status",
+                   return_value=SendResult.BUSY), \
+             patch("engine.fsm_spec.notify_discord"):
+            _apply_spec_action(pj_path, action, _now(), pj_data)
+        sc_after_busy = json.loads(pj_path.read_text())["spec_config"]
+        assert sc_after_busy.get("_self_review_busy_since") is not None
+        assert sc_after_busy.get("_self_review_pass", 0) == 0
+
+        # Tick 2: OK
+        pj_data2 = json.loads(pj_path.read_text())
+        sc2 = pj_data2["spec_config"]
+        action2 = _check_spec_revise(sc2, _now(), pj_data2)
+        action2.expected_state = "SPEC_REVISE"
+        with patch("engine.fsm_spec.send_to_agent_with_status",
+                   return_value=SendResult.OK), \
+             patch("engine.fsm_spec.notify_discord"):
+            _apply_spec_action(pj_path, action2, _now(), pj_data2)
+
+        sc_out = json.loads(pj_path.read_text())["spec_config"]
+        # _self_review_sent が今回の ISO 文字列にセットされている
+        assert isinstance(sc_out.get("_self_review_sent"), str)
+        # counter 進行
+        assert sc_out.get("_self_review_pass") == 1
+        # busy_since クリア
+        assert sc_out.get("_self_review_busy_since") is None
+
+    def test_b2_busy_escalation_after_threshold(self, tmp_pipelines):
+        """10: BUSY 連続で BUSY_ESCALATION_SEC 経過 → FAIL 扱い + "busy escalation" 通知。"""
+        from config import BUSY_ESCALATION_SEC
+        from engine.fsm_spec import _check_spec_revise, _apply_spec_action
+        from engine.backend_types import SendResult
+        from unittest.mock import patch
+
+        # 既にエスカレーション閾値分前に busy_since が立っている状態
+        old_iso = (_now() - timedelta(seconds=BUSY_ESCALATION_SEC + 60)).isoformat()
+        sc = self._b2_spec_config(_self_review_busy_since=old_iso)
+        pj_path = self._write_pj(tmp_pipelines, sc)
+        pj_data = json.loads(pj_path.read_text())
+        action = _check_spec_revise(sc, _now(), pj_data)
+        action.expected_state = "SPEC_REVISE"
+
+        with patch("engine.fsm_spec.send_to_agent_with_status",
+                   return_value=SendResult.BUSY), \
+             patch("engine.fsm_spec.notify_discord") as mock_notify:
+            _apply_spec_action(pj_path, action, _now(), pj_data)
+
+        notified = "\n".join(str(c.args[0]) for c in mock_notify.call_args_list if c.args)
+        # busy escalation 通知が出ている
+        assert "busy escalation" in notified.lower()
+        sc_out = json.loads(pj_path.read_text())["spec_config"]
+        # FAIL 扱いに昇格 → counter は消費 (巻き戻されない)
+        assert sc_out.get("_self_review_pass") == 1
+        # _self_review_sent は rollback で None
+        assert sc_out.get("_self_review_sent") is None
+        # busy_agents が空 (escalated は failed に移る) → busy_since クリア
+        assert sc_out.get("_self_review_busy_since") is None
+
+    def test_b2_intermittent_busy_clears_busy_since(self, tmp_pipelines):
+        """10b: BUSY → FAIL → 長時間経過 → BUSY のシーケンスで誤エスカレーション防止。"""
+        from engine.fsm_spec import _check_spec_revise, _apply_spec_action
+        from engine.backend_types import SendResult
+        from unittest.mock import patch
+
+        # Tick 1: BUSY
+        sc = self._b2_spec_config()
+        pj_path = self._write_pj(tmp_pipelines, sc)
+        pj_data = json.loads(pj_path.read_text())
+        action = _check_spec_revise(sc, _now(), pj_data)
+        action.expected_state = "SPEC_REVISE"
+        with patch("engine.fsm_spec.send_to_agent_with_status",
+                   return_value=SendResult.BUSY), \
+             patch("engine.fsm_spec.notify_discord"):
+            _apply_spec_action(pj_path, action, _now(), pj_data)
+        sc1 = json.loads(pj_path.read_text())["spec_config"]
+        assert sc1.get("_self_review_busy_since") is not None
+
+        # Tick 2: FAIL → busy_since はクリアされる (busy_agents 空)
+        pj_data2 = json.loads(pj_path.read_text())
+        sc2 = pj_data2["spec_config"]
+        action2 = _check_spec_revise(sc2, _now(), pj_data2)
+        action2.expected_state = "SPEC_REVISE"
+        with patch("engine.fsm_spec.send_to_agent_with_status",
+                   return_value=SendResult.FAIL), \
+             patch("engine.fsm_spec.notify_discord"):
+            _apply_spec_action(pj_path, action2, _now(), pj_data2)
+        sc_after_fail = json.loads(pj_path.read_text())["spec_config"]
+        # FAIL 後は busy_since がクリアされていること (誤エスカレーション防止の核心)
+        assert sc_after_fail.get("_self_review_busy_since") is None
+
+    def test_b2_busy_since_self_heal_on_corrupted_value(self, tmp_pipelines):
+        """10c: busy_since_key が不正文字列でも escalation せず ISO に self-heal。"""
+        from engine.fsm_spec import _check_spec_revise, _apply_spec_action
+        from engine.backend_types import SendResult
+        from unittest.mock import patch
+
+        sc = self._b2_spec_config(_self_review_busy_since="corrupted-value")
+        pj_path = self._write_pj(tmp_pipelines, sc)
+        pj_data = json.loads(pj_path.read_text())
+        action = _check_spec_revise(sc, _now(), pj_data)
+        action.expected_state = "SPEC_REVISE"
+
+        with patch("engine.fsm_spec.send_to_agent_with_status",
+                   return_value=SendResult.BUSY), \
+             patch("engine.fsm_spec.notify_discord") as mock_notify:
+            _apply_spec_action(pj_path, action, _now(), pj_data)
+
+        notified = "\n".join(str(c.args[0]) for c in mock_notify.call_args_list if c.args)
+        # この tick では escalation は発火しない (elapsed=0 扱い)
+        assert "busy escalation" not in notified.lower()
+        sc_out = json.loads(pj_path.read_text())["spec_config"]
+        # 値が ISO 文字列に self-heal されている
+        from datetime import datetime as _dt
+        healed = sc_out.get("_self_review_busy_since")
+        assert isinstance(healed, str)
+        # parse できる
+        _dt.fromisoformat(healed)
+
+    def test_b2_busy_since_self_heal_on_non_string(self, tmp_pipelines):
+        """10c (続き): 非文字列値 (int) でも self-heal される。"""
+        from engine.fsm_spec import _check_spec_revise, _apply_spec_action
+        from engine.backend_types import SendResult
+        from unittest.mock import patch
+
+        sc = self._b2_spec_config(_self_review_busy_since=12345)
+        pj_path = self._write_pj(tmp_pipelines, sc)
+        pj_data = json.loads(pj_path.read_text())
+        action = _check_spec_revise(sc, _now(), pj_data)
+        action.expected_state = "SPEC_REVISE"
+
+        with patch("engine.fsm_spec.send_to_agent_with_status",
+                   return_value=SendResult.BUSY), \
+             patch("engine.fsm_spec.notify_discord"):
+            _apply_spec_action(pj_path, action, _now(), pj_data)
+
+        sc_out = json.loads(pj_path.read_text())["spec_config"]
+        from datetime import datetime as _dt
+        healed = sc_out.get("_self_review_busy_since")
+        assert isinstance(healed, str)
+        _dt.fromisoformat(healed)
+
+    def test_b2_busy_suppresses_discord_notify(self, tmp_pipelines):
+        """10d: BUSY 時に applied_action.discord_notify が抑止される (timeout retry 経路)。"""
+        from config import SPEC_BLOCK_TIMERS
+        from engine.fsm_spec import _check_spec_revise, _apply_spec_action
+        from engine.backend_types import SendResult
+        from unittest.mock import patch
+
+        # B 経路 (self_review timeout retry, discord_notify 付き) を発火させる
+        sc = _make_spec_config(
+            spec_implementer="implementer1",
+            self_review_agent="implementer1",
+            spec_path="docs/spec.md",
+            current_rev="2",
+            _self_review_sent=_past(SPEC_BLOCK_TIMERS["SPEC_REVIEW"] + 60),
+            _self_review_response=None,
+            _self_review_pass=0,
+            _self_review_expected_ids=[c["id"] for c in DEFAULT_SELF_REVIEW_CHECKLIST],
+        )
+        pj_path = tmp_pipelines / "test-pj.json"
+        write_pipeline(pj_path, _make_pipeline(state="SPEC_REVISE", spec_config=sc))
+        pj_data = json.loads(pj_path.read_text())
+        action = _check_spec_revise(sc, _now(), pj_data)
+        # discord_notify が設定された timeout retry 経路であることを確認
+        assert action.discord_notify is not None
+        assert "self-review timeout" in action.discord_notify.lower()
+        action.expected_state = "SPEC_REVISE"
+
+        with patch("engine.fsm_spec.send_to_agent_with_status",
+                   return_value=SendResult.BUSY), \
+             patch("engine.fsm_spec.notify_discord") as mock_notify:
+            _apply_spec_action(pj_path, action, _now(), pj_data)
+
+        notified = "\n".join(str(c.args[0]) for c in mock_notify.call_args_list if c.args)
+        # BUSY 時は "self-review timeout" 通知が抑止される
+        assert "self-review timeout" not in notified.lower()
+
+    def test_b2_fail_does_not_suppress_discord_notify(self, tmp_pipelines):
+        """10d (続き): FAIL 時は通知が抑止されない (send failure は出る)。"""
+        from config import SPEC_BLOCK_TIMERS
+        from engine.fsm_spec import _check_spec_revise, _apply_spec_action
+        from engine.backend_types import SendResult
+        from unittest.mock import patch
+
+        sc = _make_spec_config(
+            spec_implementer="implementer1",
+            self_review_agent="implementer1",
+            spec_path="docs/spec.md",
+            current_rev="2",
+            _self_review_sent=_past(SPEC_BLOCK_TIMERS["SPEC_REVIEW"] + 60),
+            _self_review_response=None,
+            _self_review_pass=0,
+            _self_review_expected_ids=[c["id"] for c in DEFAULT_SELF_REVIEW_CHECKLIST],
+        )
+        pj_path = tmp_pipelines / "test-pj.json"
+        write_pipeline(pj_path, _make_pipeline(state="SPEC_REVISE", spec_config=sc))
+        pj_data = json.loads(pj_path.read_text())
+        action = _check_spec_revise(sc, _now(), pj_data)
+        action.expected_state = "SPEC_REVISE"
+
+        with patch("engine.fsm_spec.send_to_agent_with_status",
+                   return_value=SendResult.FAIL), \
+             patch("engine.fsm_spec.notify_discord") as mock_notify:
+            _apply_spec_action(pj_path, action, _now(), pj_data)
+
+        notified = "\n".join(str(c.args[0]) for c in mock_notify.call_args_list if c.args)
+        # FAIL 時は send failure 通知 + (busy_agents 空なので) timeout retry 通知も出る
+        assert "send failure" in notified.lower()
+
+
+class TestB2SingleAgentAssertion:
+    """単一エージェント assertion 検証 (pascal P1-1, spec test plan 12)。
+
+    _apply_spec_action は DCL で action を再計算するため、check_transition_spec を
+    パッチして二重宛先 + rollback 持ちのアクションを注入する。
+    """
+
+    def test_b2_multi_agent_send_with_rollback_raises(self, tmp_pipelines):
+        """rollback 付きアクションを 2 エージェント宛に送るとアサーション。"""
+        import pytest as _pytest
+        from engine.fsm_spec import (
+            _apply_spec_action, SpecTransitionAction,
+        )
+        from engine.backend_types import SendResult
+        from unittest.mock import patch
+
+        sc = _make_spec_config(
+            spec_implementer="implementer1",
+            self_review_agent="implementer1",
+            spec_path="docs/spec.md",
+            current_rev="2",
+        )
+        pj_path = tmp_pipelines / "test-pj.json"
+        write_pipeline(pj_path, _make_pipeline(state="SPEC_REVISE", spec_config=sc))
+        pj_data = json.loads(pj_path.read_text())
+
+        # 二重宛先 + rollback 持ちのアクション（recompute 後にも残るよう patch で注入）
+        bad_action = SpecTransitionAction(
+            next_state=None,
+            send_to={"implementer1": "msg1", "implementer2": "msg2"},
+            send_failure_rollback={"_self_review_sent": None},
+        )
+        # expected_state は別オブジェクトで渡す
+        outer_action = SpecTransitionAction(
+            next_state=None,
+            expected_state="SPEC_REVISE",
+        )
+
+        with patch("engine.fsm_spec.check_transition_spec",
+                   return_value=bad_action), \
+             patch("engine.fsm_spec.send_to_agent_with_status",
+                   return_value=SendResult.OK), \
+             patch("engine.fsm_spec.notify_discord"):
+            with _pytest.raises(AssertionError, match="single agent"):
+                _apply_spec_action(pj_path, outer_action, _now(), pj_data)

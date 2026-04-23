@@ -525,6 +525,8 @@ def _check_spec_revise(
                     "_self_review_pass": current_pass + 1,
                 },
                 send_failure_rollback={"_self_review_sent": None},
+                busy_counter_decrements={"_self_review_pass": 1},
+                busy_since_key="_self_review_busy_since",
             )
 
         if elapsed < SPEC_BLOCK_TIMERS["SPEC_REVIEW"]:

@@ -1,7 +1,7 @@
-"""tests/test_spec_a2_d_busy.py — #327 verification: A2 and D branches on BUSY.
+"""tests/test_spec_a2_busy.py — #327 verification: A2 branch on BUSY.
 
 Ensures that when send returns SendResult.BUSY for the A2 (issues_found feedback)
-or D (revise resend) branches:
+branch:
   - the retry counter is decremented (no consumption)
   - busy_since_key is initialized on first BUSY
   - pending state is rolled back so the next tick re-enters the branch
@@ -113,78 +113,3 @@ class TestA2Busy:
         # OK path: counter consumed, busy_since cleared
         assert sc_out.get("_issues_found_send_retries") == 1
         assert sc_out.get("_issues_found_busy_since") is None
-
-
-# ---------------------------------------------------------------------------
-# D: revise resend, send BUSY → counter rolled back + busy_since set
-# ---------------------------------------------------------------------------
-
-class TestDBusy:
-    def _d_branch_config(self):
-        # Configure sc so that _check_spec_revise returns the D branch
-        # (revise timed out, retry count < MAX).
-        past_iso = (_now() - timedelta(hours=3)).isoformat()
-        return {
-            "spec_implementer": "impl1",
-            "spec_path": "docs/spec.md",
-            "current_rev": "2",
-            "_revise_sent": past_iso,
-            "_revise_retry_at": past_iso,
-            "_revise_send_retries": 0,
-            "review_requests": {},
-            "current_reviews": {
-                "entries": {
-                    "r1": {
-                        "verdict": "P0",
-                        "items": [{"id": "i1", "severity": "critical",
-                            "section": "s", "title": "t",
-                            "description": "d", "suggestion": "s"}],
-                        "raw_text": "", "parse_success": True, "status": "received",
-                    },
-                },
-            },
-            "retry_counts": {},
-        }
-
-    def test_d_busy_rolls_back_retries_and_sets_busy_since(self, tmp_pipelines):
-        """D branch: initial revise send with pending reviews → BUSY rolls back."""
-        sc = {
-            "spec_implementer": "impl1",
-            "spec_path": "docs/spec.md",
-            "current_rev": "2",
-            "_revise_sent": None,
-            "_revise_send_retries": 0,
-            "review_requests": {},
-            "current_reviews": {
-                "entries": {
-                    "r1": {
-                        "verdict": "P0",
-                        "items": [{"id": "i1", "severity": "critical",
-                            "section": "s", "title": "t",
-                            "description": "d", "suggestion": "s"}],
-                        "raw_text": "", "parse_success": True, "status": "received",
-                    },
-                },
-            },
-            "retry_counts": {},
-        }
-        pj_path = _make_pipeline(tmp_pipelines, "SPEC_REVISE", sc)
-        pj_data = json.loads(pj_path.read_text())
-
-        action = _check_spec_revise(sc, _now(), pj_data)
-        assert action.send_to and "impl1" in action.send_to, "D branch not triggered"
-        action.expected_state = "SPEC_REVISE"
-
-        with patch("engine.fsm_spec.send_to_agent_with_status",
-                   return_value=SendResult.BUSY), \
-             patch("engine.fsm_spec.notify_discord"):
-            _apply_spec_action(pj_path, action, _now(), pj_data)
-
-        result = json.loads(pj_path.read_text())
-        sc_out = result["spec_config"]
-        # Retry count rolled back to original
-        assert sc_out.get("_revise_send_retries", 0) == 0
-        # busy_since_key initialized
-        assert sc_out.get("_revise_busy_since") is not None
-        # _revise_sent rolled back by send_failure_rollback
-        assert sc_out.get("_revise_sent") is None

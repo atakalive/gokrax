@@ -1105,6 +1105,50 @@ class TestB2BusyFail:
         # BUSY 時は "self-review timeout" 通知が抑止される
         assert "self-review timeout" not in notified.lower()
 
+    def test_b_dateparse_fail_busy_rolls_back_pass(self, tmp_pipelines):
+        """euler R2 P2: (B) self_review _self_review_sent 日付パース失敗の retry 分岐
+        (fsm_spec.py:519-530) で BUSY 受信時に _self_review_pass が巻き戻ることを直接検証。
+        この枝は euler R1 P1 の配線漏れの本命ポイントなので、最小回帰テストで固定する。
+        """
+        from engine.fsm_spec import _check_spec_revise, _apply_spec_action
+        from engine.backend_types import SendResult
+        from unittest.mock import patch
+
+        sc = _make_spec_config(
+            spec_implementer="implementer1",
+            self_review_agent="implementer1",
+            spec_path="docs/spec.md",
+            current_rev="2",
+            _self_review_sent="not-a-date",  # parse 失敗を強制
+            _self_review_response=None,      # (A) ではなく (B) 経路へ
+            _self_review_pass=0,             # < SPEC_REVISE_SELF_REVIEW_PASSES
+            _self_review_expected_ids=[c["id"] for c in DEFAULT_SELF_REVIEW_CHECKLIST],
+        )
+        pj_path = tmp_pipelines / "test-pj.json"
+        write_pipeline(pj_path, _make_pipeline(state="SPEC_REVISE", spec_config=sc))
+        pj_data = json.loads(pj_path.read_text())
+
+        action = _check_spec_revise(sc, _now(), pj_data)
+        # 期待する分岐に着地していることを確認
+        assert action.send_to and "implementer1" in action.send_to
+        assert action.busy_counter_decrements == {"_self_review_pass": 1}
+        assert action.busy_since_key == "_self_review_busy_since"
+        action.expected_state = "SPEC_REVISE"
+
+        with patch("engine.fsm_spec.send_to_agent_with_status",
+                   return_value=SendResult.BUSY), \
+             patch("engine.fsm_spec.notify_discord"):
+            _apply_spec_action(pj_path, action, _now(), pj_data)
+
+        sc_out = json.loads(pj_path.read_text())["spec_config"]
+        # 0 → +1 → -1 = 0 (巻き戻し成立)
+        assert sc_out.get("_self_review_pass", 0) == 0
+        # send_failure_rollback により _self_review_sent は None に戻る
+        # (元の "not-a-date" には戻らない: rollback dict が None 固定)
+        assert sc_out.get("_self_review_sent") is None
+        # busy_since が初期化されている
+        assert sc_out.get("_self_review_busy_since") is not None
+
     def test_b2_fail_does_not_suppress_discord_notify(self, tmp_pipelines):
         """10d (続き): FAIL 時は通知が抑止されない (send failure は出る)。"""
         from config import SPEC_BLOCK_TIMERS

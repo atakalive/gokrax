@@ -146,12 +146,23 @@ class TestSend:
         assert recorder["popen_calls"] == []
         assert any("profile dir" in r.message for r in caplog.records)
 
+    def test_success_path_no_terminate(self, recorder, monkeypatch):
+        monkeypatch.setattr(backend_gemini, "_count_sessions", lambda cwd: 0)
+        terminate_calls: list = []
+        monkeypatch.setattr(
+            backend_gemini, "_terminate_pid_tree",
+            lambda *a, **k: terminate_calls.append(1) or True,
+        )
+        assert backend_gemini.send(AGENT, "hi", 30) is True
+        assert terminate_calls == []
+
     def test_pid_write_failure_terminates(self, recorder, monkeypatch):
         monkeypatch.setattr(backend_gemini, "_count_sessions", lambda cwd: 0)
         terminate_calls: list[tuple] = []
 
         def fake_terminate(pid, agent_id, proc=None):
             terminate_calls.append((pid, agent_id, proc))
+            return True
 
         monkeypatch.setattr(backend_gemini, "_terminate_pid_tree", fake_terminate)
 
@@ -216,8 +227,8 @@ class TestResetSession:
         assert len(del_args) == 0
         assert any("failed to list sessions" in r.message for r in caplog.records)
 
-    def test_terminates_live_process_before_deletion(self, recorder, monkeypatch):
-        counts = iter([0])
+    def test_terminates_live_process_before_deletion(self, monkeypatch):
+        counts = iter([2, 1, 0])
         monkeypatch.setattr(backend_gemini, "_count_sessions",
                             lambda cwd: next(counts))
         monkeypatch.setattr(backend_gemini, "_is_gemini_pid_alive",
@@ -227,14 +238,41 @@ class TestResetSession:
 
         def fake_terminate(pid, agent_id, proc=None):
             call_order.append(f"terminate:{pid}")
+            return True
+
+        def fake_run(cmd, **kwargs):
+            if "--delete-session" in cmd:
+                call_order.append(f"delete:{cmd[-1]}")
+            r = MagicMock()
+            r.returncode = 0
+            r.stdout = ""
+            return r
 
         monkeypatch.setattr(backend_gemini, "_terminate_pid_tree", fake_terminate)
+        monkeypatch.setattr(subprocess, "run", fake_run)
 
         backend_gemini.GEMINI_PIDS_DIR.mkdir(parents=True, exist_ok=True)
         backend_gemini._pid_path(AGENT).write_text("5555")
 
         backend_gemini.reset_session(AGENT)
-        assert call_order == ["terminate:5555"]
+        assert call_order == ["terminate:5555", "delete:2", "delete:1"]
+
+    def test_terminate_failure_aborts_deletion(self, recorder, monkeypatch, caplog):
+        monkeypatch.setattr(backend_gemini, "_count_sessions", lambda cwd: 5)
+        monkeypatch.setattr(backend_gemini, "_is_gemini_pid_alive",
+                            lambda pid: True)
+        monkeypatch.setattr(backend_gemini, "_terminate_pid_tree",
+                            lambda *a, **k: False)
+        backend_gemini.GEMINI_PIDS_DIR.mkdir(parents=True, exist_ok=True)
+        backend_gemini._pid_path(AGENT).write_text("5555")
+        with caplog.at_level(logging.WARNING, logger="engine.backend_gemini"):
+            backend_gemini.reset_session(AGENT)
+        del_args = [c for c in recorder["run_calls"] if "--delete-session" in c]
+        assert len(del_args) == 0
+        # pid file must NOT be unlinked when termination failed — aborting keeps
+        # the recorded live process visible for the next reset attempt.
+        assert backend_gemini._pid_path(AGENT).exists()
+        assert any("failed to terminate" in r.message for r in caplog.records)
 
     def test_skip_terminate_when_no_pid(self, recorder, monkeypatch):
         monkeypatch.setattr(backend_gemini, "_count_sessions", lambda cwd: 0)
@@ -436,6 +474,12 @@ class TestCountSessions:
     def test_unrecognized_output(self, monkeypatch, tmp_path):
         self._run_mock(monkeypatch, "unrelated output")
         assert backend_gemini._count_sessions(tmp_path) is None
+
+    def test_drift_logs_warning(self, monkeypatch, tmp_path, caplog):
+        self._run_mock(monkeypatch, "totally unexpected output")
+        with caplog.at_level(logging.WARNING, logger="engine.backend_gemini"):
+            assert backend_gemini._count_sessions(tmp_path) is None
+        assert any("drift" in r.message for r in caplog.records)
 
     def test_empty_stdout(self, monkeypatch, tmp_path):
         self._run_mock(monkeypatch, "")

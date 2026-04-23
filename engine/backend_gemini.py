@@ -135,6 +135,13 @@ def _count_sessions(cwd: Path) -> int | None:
         return int(m.group(1))
     if "No sessions found for this project" in r.stdout:
         return 0
+    # Output drift: neither known header matched — surface it so operators can
+    # diagnose format changes in the Gemini CLI.
+    logger.warning(
+        "gemini _count_sessions: unrecognized --list-sessions output (drift); "
+        "stdout head=%r",
+        r.stdout[:200],
+    )
     return None
 
 
@@ -142,14 +149,18 @@ def _terminate_pid_tree(
     pid: int,
     agent_id: str,
     proc: subprocess.Popen | None = None,
-) -> None:
+) -> bool:
     """Best-effort: PGID 単位で SIGTERM→wait→SIGKILL。
 
     Args:
         pid: 停止対象プロセスの pid。
         agent_id: ログ文言用。
         proc: Popen オブジェクトがあれば wait() に使う。無ければ wait はスキップし、
-              単純に SIGTERM→SIGKILL を送るのみ（外部 pid ファイル経由ケース）。
+              ``_is_gemini_pid_alive`` のポーリングで終了確認する。
+
+    Returns:
+        True when the process is confirmed terminated (or was already gone);
+        False when the process may still be alive after SIGKILL + wait.
     """
     try:
         pgid = os.getpgid(pid)
@@ -163,34 +174,44 @@ def _terminate_pid_tree(
     try:
         os.killpg(pgid, signal.SIGTERM)
     except ProcessLookupError:
-        return
+        # already terminated
+        return True
     except OSError as e:
         logger.warning("gemini SIGTERM to pgid %d failed for %s: %s", pgid, agent_id, e)
 
     if proc is not None:
         try:
             proc.wait(timeout=5)
-            return
+            return True
         except subprocess.TimeoutExpired:
             pass
     else:
         for _ in range(10):
             if not _is_gemini_pid_alive(pid):
-                return
+                return True
             time.sleep(0.5)
 
     try:
         os.killpg(pgid, signal.SIGKILL)
     except ProcessLookupError:
-        return
+        # already terminated
+        return True
     except OSError as e:
         logger.warning("gemini SIGKILL to pgid %d failed for %s: %s", pgid, agent_id, e)
 
     if proc is not None:
         try:
             proc.wait(timeout=5)
+            return True
         except subprocess.TimeoutExpired:
             logger.warning("gemini proc %d did not exit after SIGKILL", pid)
+            return False
+    for _ in range(10):
+        if not _is_gemini_pid_alive(pid):
+            return True
+        time.sleep(0.5)
+    logger.warning("gemini proc %d still alive after SIGKILL for %s", pid, agent_id)
+    return False
 
 
 def _rebuild_gemini_md(agent_id: str) -> None:
@@ -387,7 +408,13 @@ def reset_session(agent_id: str) -> None:
             "gemini reset_session: terminating live process %d for %s before session deletion",
             pid, agent_id,
         )
-        _terminate_pid_tree(pid, agent_id, proc=None)
+        if not _terminate_pid_tree(pid, agent_id, proc=None):
+            logger.warning(
+                "gemini reset_session for %s: failed to terminate live process %d; "
+                "aborting session deletion to avoid re-creation by in-flight process",
+                agent_id, pid,
+            )
+            return
 
     try:
         _pid_path(agent_id).unlink(missing_ok=True)

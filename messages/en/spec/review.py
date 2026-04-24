@@ -34,6 +34,7 @@ Spec: {spec_path} (rev{current_rev})
 - Look for state machine transition gaps and deadlocks
 - Include only **one** YAML block in your response
 - Verdict selection: critical → P0, major → P1, minor/suggestion → P2. Use APPROVE only when you have zero findings
+- **Always use the `items:` key for the findings list** (do not use alternative names like `findings:`)
 
 ## Output Format
 ```yaml
@@ -85,6 +86,7 @@ Last commit: {last_commit}
 - Severity, section numbers, and YAML format are the same as before
 - Include only **one** YAML block in your response
 - Verdict selection: critical → P0, major → P1, minor/suggestion → P2. Use APPROVE only when you have zero findings
+- **Always use the `items:` key for the findings list** (do not use alternative names like `findings:`)
 
 ## Submission Instructions
 1. Save the YAML file to: {save_path}

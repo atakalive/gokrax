@@ -1,6 +1,7 @@
 """spec_review.py — spec mode レビュー結果パース・判定・統合"""
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from datetime import datetime
@@ -9,6 +10,8 @@ import yaml  # PyYAML (already in deps)
 
 from config import REVIEW_MODES
 from engine.fsm import get_min_reviews
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # 1-A. 定数: VERDICT_ALIASES, SEVERITY_ALIASES, SEVERITY_ORDER
@@ -91,8 +94,10 @@ def parse_review_yaml(raw_text: str, reviewer: str) -> SpecReviewResult:
     - 最初の ```yaml ... ``` ブロックのみ使用
     - verdict/severity は .strip().lower() で正規化してからエイリアス解決
     - verdict/severity の不正値 → parse_success=False, items=[], verdict=""
-    - items が None または キー欠落 → 空リストとして扱い parse_success=True
-      （APPROVEでitems省略は正常動作。§5.5: verdict有効+items空=有効レビュー）
+    - items キー欠落時は findings キーをエイリアスとして許容（WARNING ログ出力）
+    - items: null は欠落とは区別し、findings へのフォールバックは行わない（空リスト扱い）
+    - verdict/items 双方向整合性: APPROVE以外+items空 → parse失敗、APPROVE+items非空 → parse失敗
+    - verdict が APPROVE で items 省略/null は正常動作
     - items が非list型（文字列等） → parse_success=False
     - item 必須キー（id, severity）欠落 → parse_success=False
     """
@@ -114,8 +119,20 @@ def parse_review_yaml(raw_text: str, reviewer: str) -> SpecReviewResult:
     if verdict is None:
         return _fail(raw_text, reviewer)
 
-    # items ガード: None/非list → 失敗
-    raw_items = data.get("items") or []
+    # items 抽出: "items" を優先、なければ "findings" をエイリアスとして許容
+    # - items キーが存在すれば（null 含む）それを使う。findings キーは無視
+    # - items キーが存在しない場合のみ findings キーにフォールバック（WARNING ログ出力）
+    # - どちらも存在しない場合は空リスト（APPROVE 時のみ許容、1-c で検証）
+    raw_items = data.get("items")
+    if raw_items is None and "items" not in data:
+        raw_items = data.get("findings")
+        if raw_items is not None:
+            logger.warning(
+                "reviewer=%s: used 'findings' key instead of 'items' — recovered via alias",
+                reviewer,
+            )
+    if raw_items is None:
+        raw_items = []
     if not isinstance(raw_items, list):
         return _fail(raw_text, reviewer)
 
@@ -146,6 +163,14 @@ def parse_review_yaml(raw_text: str, reviewer: str) -> SpecReviewResult:
             normalized_id=f"{reviewer}:{item_id}",
         ))
 
+    # verdict/items 双方向整合性チェック
+    # - 非APPROVE で items 空: レビュー内容が欠落している（内部矛盾）
+    # - APPROVE で items 非空: 指摘があるのに APPROVE は矛盾
+    if verdict != "APPROVE" and len(items) == 0:
+        return _fail(raw_text, reviewer)
+    if verdict == "APPROVE" and len(items) > 0:
+        return _fail(raw_text, reviewer)
+
     return SpecReviewResult(
         reviewer=reviewer, verdict=verdict, items=items,
         raw_text=raw_text, parse_success=True,
@@ -163,12 +188,20 @@ def validate_received_entry(entry: dict) -> bool:
     - verdict ∈ {"APPROVE", "P0", "P1", "P2"} かつ None でない
     - items が list
     - parse_success が True
+    - verdict/items 双方向整合性: APPROVE以外→items非空必須、APPROVE→items空必須
     """
     if entry.get("verdict") not in ("APPROVE", "P0", "P1", "P2"):
         return False
     if not isinstance(entry.get("items"), list):
         return False
     if entry.get("parse_success") is not True:
+        return False
+    # verdict/items 双方向整合性（parser Fix 1-c と同一の不変条件）
+    items = entry.get("items", [])
+    verdict = entry.get("verdict")
+    if verdict != "APPROVE" and len(items) == 0:
+        return False
+    if verdict == "APPROVE" and len(items) > 0:
         return False
     return True
 
@@ -348,6 +381,8 @@ def build_review_history_entry(spec_config: dict, now: datetime) -> dict:
 
     for reviewer, entry in entries.items():
         if entry.get("status") != "received":
+            continue
+        if not validate_received_entry(entry):
             continue
         # items は dict のリスト（JSON復元後）
         counts: dict[str, int] = {"critical": 0, "major": 0, "minor": 0, "suggestion": 0}

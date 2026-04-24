@@ -179,7 +179,7 @@ class TestCheckSpecReview:
             sc["review_requests"][r]["status"] = "received"
             sc["review_requests"][r]["sent_at"] = _now().isoformat()
         sc["current_reviews"]["entries"]["reviewer1"] = {
-            "verdict": "P0", "items": [], "raw_text": "",
+            "verdict": "P0", "items": [{"id": "C-1", "severity": "critical"}], "raw_text": "",
             "parse_success": True, "status": "received",
         }
         for r in ["reviewer3", "reviewer6", "reviewer5"]:

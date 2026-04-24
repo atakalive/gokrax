@@ -138,9 +138,12 @@ def _set_all_received(sc, verdicts=None):
     """current_reviews.entries と review_requests を全員 received にする。"""
     if verdicts is None:
         verdicts = {r: "APPROVE" for r in _REVIEWERS}
+    def _entry_for(v):
+        items = [] if v == "APPROVE" else [{"id": "C-1", "severity": "critical"}]
+        return _received_entry(v, items=items)
     sc["current_reviews"] = {
         "reviewed_rev": sc.get("current_rev", "1"),
-        "entries": {r: _received_entry(v) for r, v in verdicts.items()},
+        "entries": {r: _entry_for(v) for r, v in verdicts.items()},
     }
     for r in _REVIEWERS:
         sc["review_requests"][r]["status"] = "received"
@@ -821,7 +824,7 @@ class TestCurrentReviewsStructure:
             current_reviews={
                 "reviewed_rev": "1",
                 "entries": {
-                    "reviewer1": _received_entry("P0"),
+                    "reviewer1": _received_entry("P0", items=[{"id": "C-1", "severity": "critical"}]),
                     "reviewer2": _received_entry("APPROVE"),
                 },
             },

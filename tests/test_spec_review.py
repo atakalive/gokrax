@@ -96,7 +96,9 @@ class TestParseReviewYaml:
         assert result.items[0].severity == "critical"
 
     def test_alias_reject_becomes_p0(self):
-        text = self._make_yaml("reject")
+        text = self._make_yaml("reject", [
+            {"id": "C-1", "severity": "critical"},
+        ])
         result = parse_review_yaml(text, "reviewer1")
         assert result.verdict == "P0"
 
@@ -108,7 +110,7 @@ class TestParseReviewYaml:
         assert result.verdict == "APPROVE"
 
     def test_verdict_with_whitespace(self):
-        text = "```yaml\nverdict: '  P1  '\n```"
+        text = "```yaml\nverdict: '  P1  '\nitems:\n  - id: M-1\n    severity: major\n```"
         result = parse_review_yaml(text, "reviewer1")
         assert result.parse_success is True
         assert result.verdict == "P1"
@@ -190,13 +192,58 @@ class TestParseReviewYaml:
         result = parse_review_yaml(text, "reviewer1")
         assert result.parse_success is False
 
+    def test_findings_key_alias(self):
+        """findings: キーが items: のエイリアスとして処理される"""
+        text = '```yaml\nverdict: P0\nfindings:\n  - id: C-1\n    severity: critical\n    section: "§1"\n    title: "Bug"\n    description: "desc"\n```'
+        result = parse_review_yaml(text, "reviewer1")
+        assert result.parse_success is True
+        assert result.verdict == "P0"
+        assert len(result.items) == 1
+        assert result.items[0].id == "C-1"
+
+    def test_verdict_nonAPPROVE_empty_items_fails(self):
+        """verdict が APPROVE 以外で items 空は parse 失敗"""
+        text = "```yaml\nverdict: P0\nitems: []\n```"
+        result = parse_review_yaml(text, "reviewer1")
+        assert result.parse_success is False
+
+    def test_verdict_nonAPPROVE_no_items_key_fails(self):
+        """verdict が APPROVE 以外で items キー欠落は parse 失敗"""
+        text = "```yaml\nverdict: P1\n```"
+        result = parse_review_yaml(text, "reviewer1")
+        assert result.parse_success is False
+
+    def test_verdict_APPROVE_with_items_fails(self):
+        """verdict が APPROVE で items 非空は parse 失敗（矛盾）"""
+        text = '```yaml\nverdict: APPROVE\nitems:\n  - id: C-1\n    severity: critical\n    section: "§1"\n    title: "Bug"\n    description: "desc"\n```'
+        result = parse_review_yaml(text, "reviewer1")
+        assert result.parse_success is False
+
+    def test_findings_alias_warning_logged(self, caplog):
+        """findings: キー使用時に WARNING ログが出る"""
+        import logging
+        text = '```yaml\nverdict: P0\nfindings:\n  - id: C-1\n    severity: critical\n    section: "§1"\n    title: "Bug"\n    description: "desc"\n```'
+        with caplog.at_level(logging.WARNING):
+            parse_review_yaml(text, "test_reviewer")
+        assert any("findings" in r.message and "test_reviewer" in r.message for r in caplog.records)
+
 
 # --- validate_received_entry ---
 
 class TestValidateReceivedEntry:
     def test_valid(self):
-        entry = {"verdict": "P0", "items": [], "parse_success": True}
+        entry = {"verdict": "P0", "items": [{"id": "C-1", "severity": "critical"}], "parse_success": True}
         assert validate_received_entry(entry) is True
+
+    def test_p0_empty_items_invalid(self):
+        """verdict=P0 + items=[] は整合性違反で False"""
+        entry = {"verdict": "P0", "items": [], "parse_success": True}
+        assert validate_received_entry(entry) is False
+
+    def test_approve_nonempty_items_invalid(self):
+        """verdict=APPROVE + items非空は整合性違反で False"""
+        entry = {"verdict": "APPROVE", "items": [{"id": "C-1", "severity": "critical"}], "parse_success": True}
+        assert validate_received_entry(entry) is False
 
     def test_verdict_null(self):
         entry = {"verdict": None, "items": [], "parse_success": True}
@@ -241,11 +288,13 @@ class TestShouldContinueReview:
     def test_one_p0(self):
         entries = self._full_approve_entries()
         entries["reviewer1"]["verdict"] = "P0"
+        entries["reviewer1"]["items"] = [{"id": "C-1", "severity": "critical"}]
         assert should_continue_review(self._config(entries), "full") == "revise"
 
     def test_max_reached_stalled(self):
         entries = self._full_approve_entries()
         entries["reviewer1"]["verdict"] = "P1"
+        entries["reviewer1"]["items"] = [{"id": "M-1", "severity": "major"}]
         cfg = self._config(entries, rev_index=5, max_revise_cycles=5)
         assert should_continue_review(cfg, "full") == "stalled"
 
@@ -325,6 +374,7 @@ class TestShouldContinueReview:
         """rev_index 欠落 → KeyError（Dijkstra P1-2）"""
         entries = self._full_approve_entries()
         entries["reviewer1"]["verdict"] = "P1"
+        entries["reviewer1"]["items"] = [{"id": "M-1", "severity": "major"}]
         cfg = {"current_reviews": {"entries": entries}}
         with pytest.raises(KeyError):
             should_continue_review(cfg, "full")
@@ -462,6 +512,7 @@ class TestBuildReviewHistoryEntry:
                     "reviewer1": {
                         "status": "received",
                         "verdict": "P0",
+                        "parse_success": True,
                         "items": [
                             {"severity": "critical"},
                             {"severity": "major"},
@@ -504,6 +555,7 @@ class TestBuildReviewHistoryEntry:
                     "reviewer1": {
                         "status": "received",
                         "verdict": "P0",
+                        "parse_success": True,
                         "items": ["not-a-dict", {"severity": "critical"}],
                     },
                 },

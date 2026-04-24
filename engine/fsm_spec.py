@@ -23,6 +23,7 @@ from engine.backend_types import SendResult
 from messages import render
 from spec_review import (
     should_continue_review, build_review_history_entry,
+    validate_received_entry,
     merge_reviews, format_merged_report,
     SpecReviewItem, SpecReviewResult,
 )
@@ -182,6 +183,8 @@ def _check_spec_review(
         sev_counts = {"critical": 0, "major": 0, "minor": 0, "suggestion": 0}
         for e in effective_cr.get("entries", {}).values():
             if e.get("status") != "received":
+                continue
+            if not validate_received_entry(e):
                 continue
             for item in e.get("items", []):
                 if isinstance(item, dict) and item.get("severity") in sev_counts:
@@ -660,6 +663,8 @@ def _check_spec_revise(
         reviews_for_merge = []
         for reviewer, entry in entries.items():
             if not isinstance(entry, dict) or entry.get("status") != "received":
+                continue
+            if not validate_received_entry(entry):
                 continue
             items_raw = entry.get("items", []) or []
             review_items = []

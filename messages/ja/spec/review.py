@@ -34,6 +34,7 @@ def initial(project: str, spec_path: str, current_rev: str, GOKRAX_CLI: str, rev
 - ステートマシン遷移の抜け穴・デッドロックを探せ
 - YAMLブロックは応答内で**1つだけ**
 - verdict の選び方: critical → P0, major → P1, minor/suggestion → P2。指摘ゼロの場合のみ APPROVE
+- **指摘リストのキーは必ず `items:` を使うこと**（`findings:` 等の別名は使わない）
 
 ## 出力フォーマット
 ```yaml
@@ -85,6 +86,7 @@ def revision(
 - 重篤度・セクション番号・YAMLフォーマットは前回と同様
 - YAMLブロックは応答内で**1つだけ**
 - verdict の選び方: critical → P0, major → P1, minor/suggestion → P2。指摘ゼロの場合のみ APPROVE
+- **指摘リストのキーは必ず `items:` を使うこと**（`findings:` 等の別名は使わない）
 
 ## レビュー結果の投入手順
 1. YAMLファイルを以下に保存: {save_path}

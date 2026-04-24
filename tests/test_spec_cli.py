@@ -378,7 +378,7 @@ class TestCmdSpecRetry:
                 "aria": {"status": "timeout", "sent_at": "2026-01-01T00:00:00+09:00",
                          "timeout_at": None, "last_nudge_at": None, "response": None},
             },
-            current_reviews={"entries": {"reviewer1": {"verdict": "P0", "items": []}}},
+            current_reviews={"entries": {"reviewer1": {"verdict": "P0", "items": [{"id": "C-1", "severity": "critical"}]}}},
         )
         write_pipeline(path, _make_pipeline(
             state="SPEC_REVIEW_FAILED", spec_mode=True, spec_config=sc

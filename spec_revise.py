@@ -14,6 +14,7 @@ from spec_review import (
     _reset_review_requests,
     build_review_history_entry,
     parse_review_yaml,
+    validate_received_entry,
 )
 
 import yaml
@@ -440,7 +441,7 @@ def build_revise_completion_updates(
     reset_rr: dict[str, dict] = {}
     for reviewer in spec_config.get("review_requests", {}):
         entry = current_entries.get(reviewer, {})
-        if entry.get("verdict") == "APPROVE":
+        if entry.get("verdict") == "APPROVE" and validate_received_entry(entry):
             status = "approved_prior"
         else:
             status = "pending"

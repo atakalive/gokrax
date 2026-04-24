@@ -181,6 +181,7 @@ def send(agent_id: str, message: str, timeout: int) -> SendResult:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             cwd=str(cwd),
+            start_new_session=True,
         )
     except (OSError, FileNotFoundError) as e:
         logger.warning("pi spawn failed for %s: %s", agent_id, e)

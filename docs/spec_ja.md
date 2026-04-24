@@ -292,6 +292,9 @@ IDLE -> INITIALIZE -> DESIGN_PLAN -> DESIGN_REVIEW -> DESIGN_APPROVED -> ASSESSM
 - 実行方法: `watchdog-loop.sh` で 10 秒おきにポーリング
 - PID ファイル: `/tmp/gokrax-watchdog-loop.pid`
 - ロックファイル: `/tmp/gokrax-watchdog-loop.lock`
+- 子 PGID ファイル: `/tmp/gokrax-watchdog-loop-child.pgid` — 現在の iteration の子 PGID。outer bash が trap 完了前に殺された場合に `_stop_loop` が iteration プロセスグループを fallback で SIGKILL するために使用する。
+- SIGTERM 伝搬: `set -m` で job control を有効化し、各 iteration の子 (`flock(1)` + `python3 watchdog.py`) を独立 PGID で起動する。`_shutdown` トラップが PGID に SIGTERM を送り、`wait` で直接子を reap、残存する孫を SIGKILL することで、disable 後に orphan の `flock(1)` / `python3` が残らないようにする。
+- PI backend: `engine/backend_pi.py` の Popen は `start_new_session=True` を使い、PI 送信 subprocess を iteration PGID から切り離して watchdog SIGTERM の巻き添えを免れさせる (CC/Gemini と同じ挙動)。
 
 ### 7.1 メインループ
 

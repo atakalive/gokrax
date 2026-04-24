@@ -292,6 +292,9 @@ Review modes are defined in `REVIEW_MODES` in `settings.py`. See `settings.examp
 - Execution: Polls every 10 seconds via `watchdog-loop.sh`
 - PID file: `/tmp/gokrax-watchdog-loop.pid`
 - Lock file: `/tmp/gokrax-watchdog-loop.lock`
+- Child PGID file: `/tmp/gokrax-watchdog-loop-child.pgid` — current iteration's child PGID, used by `_stop_loop` for fallback SIGKILL of the iteration process group when outer bash is killed before its trap completes.
+- SIGTERM propagation: `set -m` enables job control so each iteration's child (`flock(1)` + `python3 watchdog.py`) runs in an independent PGID. The `_shutdown` trap sends SIGTERM to that PGID, reaps the direct child via `wait`, then SIGKILLs any stragglers, ensuring no orphan `flock(1)` / `python3` processes survive after disable.
+- PI backend: `engine/backend_pi.py` Popen uses `start_new_session=True` so PI send subprocesses are detached from the iteration PGID and survive watchdog SIGTERM (matching CC/Gemini behavior).
 
 ### 7.1 Main Loop
 

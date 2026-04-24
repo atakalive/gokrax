@@ -8,13 +8,14 @@ import argparse
 import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config import (
     PIPELINES_DIR, REVIEWERS, REVIEW_MODES,
     VALID_VERDICTS, VALID_FLAG_VERDICTS,
-    WATCHDOG_LOOP_SCRIPT, WATCHDOG_LOOP_PIDFILE,
+    WATCHDOG_LOOP_SCRIPT, WATCHDOG_LOOP_PIDFILE, WATCHDOG_LOOP_CHILD_PGIDFILE,
     WATCHDOG_LOOP_CRON_MARKER, WATCHDOG_LOOP_CRON_ENTRY,
     GITLAB_NAMESPACE, IMPLEMENTERS,
 )
@@ -47,14 +48,66 @@ def _start_loop():
     _ensure_cron_entry()
 
 
-def _stop_loop():
-    """watchdog-loop.sh プロセスを SIGTERM で停止する。crontab やファイルの後処理は呼び出し側で行う。"""
-    if WATCHDOG_LOOP_PIDFILE.exists():
+def _is_process_alive(pid: int) -> bool:
+    """zombie を除外したプロセス生死判定。/proc/PID/status の State 行で判別。
+
+    kill(2) のシグナル 0 は zombie にも成功を返すため生死判定に不適。
+    /proc 経由で State フィールドを直接読み取り、zombie (Z) を dead 扱いにする。
+    """
+    try:
+        with open(f"/proc/{pid}/status") as f:
+            for line in f:
+                if line.startswith("State:"):
+                    return "Z" not in line
+        return False
+    except OSError:
+        return False
+
+
+def _kill_child_pgid() -> None:
+    """PGIDFILE に記録された iteration 子 PGID を SIGKILL する fallback。"""
+    try:
+        text = WATCHDOG_LOOP_CHILD_PGIDFILE.read_text().strip()
+        if not text:
+            return
+        child_pgid = int(text)
+        os.killpg(child_pgid, signal.SIGKILL)
+    except (OSError, ValueError):
+        pass
+
+
+def _stop_loop(timeout: float = 3.0) -> None:
+    """watchdog-loop.sh プロセスツリーを SIGTERM で停止する。
+
+    1. 外側 bash に SIGTERM
+    2. timeout 秒ポーリングして死亡確認 (zombie-aware: /proc/PID/status で判定)
+    3. 死ななければ SIGKILL escalate
+    4. PGIDFILE に記録された iteration 子 PGID も念のため SIGKILL
+    """
+    if not WATCHDOG_LOOP_PIDFILE.exists():
+        return
+    try:
+        pid = int(WATCHDOG_LOOP_PIDFILE.read_text().strip())
+    except (ValueError, OSError):
+        return
+
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError:
+        pass
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not _is_process_alive(pid):
+            break
+        time.sleep(0.1)
+    else:
         try:
-            pid = int(WATCHDOG_LOOP_PIDFILE.read_text().strip())
-            os.kill(pid, signal.SIGTERM)
-        except (ValueError, OSError):
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
             pass
+
+    _kill_child_pgid()
 
 
 def _ensure_cron_entry():

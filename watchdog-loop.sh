@@ -5,8 +5,11 @@
 # 起動: nohup bash watchdog-loop.sh &
 # 停止: kill $(cat /tmp/gokrax-watchdog-loop.pid)
 
+set -m   # job control を有効化（前景子を独立 PGID にして group-kill 可能にする）
+
 LOCKFILE="/tmp/gokrax-watchdog-loop.lock"
 PIDFILE="/tmp/gokrax-watchdog-loop.pid"
+PGIDFILE="/tmp/gokrax-watchdog-loop-child.pgid"
 INTERVAL=10
 DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -18,18 +21,43 @@ if [ -f "$PIDFILE" ]; then
     _old_pid=$(cat "$PIDFILE" 2>/dev/null)
     if [ -n "$_old_pid" ] && ! kill -0 "$_old_pid" 2>/dev/null; then
         rm -f "$PIDFILE"
+        rm -f "$PGIDFILE"
     fi
 fi
 
 exec 200>"$LOCKFILE"
 flock -n 200 || { echo "Already running"; exit 1; }
 
+CHILD_PGID=""
+SLEEP_PID=""
+
+_shutdown() {
+    if [ -n "$SLEEP_PID" ]; then
+        kill -s TERM "$SLEEP_PID" 2>/dev/null || true
+    fi
+    if [ -n "$CHILD_PGID" ]; then
+        kill -s TERM -- -"$CHILD_PGID" 2>/dev/null || true
+        wait "$CHILD_PGID" 2>/dev/null
+        kill -s KILL -- -"$CHILD_PGID" 2>/dev/null || true
+    fi
+    exit 0
+}
+
+trap '_shutdown' SIGTERM SIGINT
+trap 'rm -f "$PIDFILE" "$PGIDFILE"' EXIT
+
 echo $$ > "$PIDFILE"
-trap 'exit 0' SIGTERM SIGINT
-trap 'rm -f "$PIDFILE"' EXIT
 
 while true; do
     cd "$DIR"
-    flock -n /tmp/gokrax-watchdog.lock bash -c 'exec 200>&-; exec python3 watchdog.py' >> /tmp/gokrax-watchdog.log 2>&1
-    sleep "$INTERVAL"
+    flock -n /tmp/gokrax-watchdog.lock bash -c 'exec 200>&-; exec python3 watchdog.py' >> /tmp/gokrax-watchdog.log 2>&1 &
+    CHILD_PGID=$!
+    echo "$CHILD_PGID" > "$PGIDFILE"
+    wait "$CHILD_PGID"
+    CHILD_PGID=""
+    : > "$PGIDFILE"
+    sleep "$INTERVAL" &
+    SLEEP_PID=$!
+    wait "$SLEEP_PID"
+    SLEEP_PID=""
 done

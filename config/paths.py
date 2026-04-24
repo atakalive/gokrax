@@ -9,6 +9,7 @@ __all__ = [
     "PROJECT_ROOT",
     "AGENT_PROFILES_DIR",
     "WATCHDOG_LOOP_SCRIPT", "WATCHDOG_LOOP_PIDFILE", "WATCHDOG_LOOP_LOCKFILE",
+    "WATCHDOG_LOOP_CHILD_PGIDFILE",
     "WATCHDOG_LOOP_CRON_LOCKFILE", "WATCHDOG_LOOP_CRON_MARKER", "WATCHDOG_LOOP_CRON_ENTRY",
     "LOG_FILE",
     "REVIEW_FILE_DIR",
@@ -29,6 +30,7 @@ AGENT_PROFILES_DIR = _PROJECT_ROOT / "agents"
 WATCHDOG_LOOP_SCRIPT = _PROJECT_ROOT / "watchdog-loop.sh"
 WATCHDOG_LOOP_PIDFILE = Path("/tmp/gokrax-watchdog-loop.pid")
 WATCHDOG_LOOP_LOCKFILE = Path("/tmp/gokrax-watchdog-loop.lock")
+WATCHDOG_LOOP_CHILD_PGIDFILE = Path("/tmp/gokrax-watchdog-loop-child.pgid")
 WATCHDOG_LOOP_CRON_LOCKFILE = Path("/tmp/gokrax-cron-spawn.lock")  # for cron (separate from loop.sh lock)
 WATCHDOG_LOOP_CRON_MARKER = "watchdog-loop"  # marker for grep in crontab lines
 WATCHDOG_LOOP_CRON_ENTRY = (

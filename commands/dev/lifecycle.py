@@ -9,7 +9,7 @@ from config import (
     GLAB_BIN,
     VALID_STATES, VALID_TRANSITIONS, MAX_BATCH,
     GLAB_TIMEOUT, REVIEWERS, REVIEW_MODES, LOCAL_TZ,
-    WATCHDOG_LOOP_PIDFILE, WATCHDOG_LOOP_LOCKFILE,
+    WATCHDOG_LOOP_PIDFILE, WATCHDOG_LOOP_LOCKFILE,  # noqa: F401  (LOCKFILE kept for tests to monkeypatch)
     STATE_PHASE_MAP,
     GITLAB_NAMESPACE, IMPLEMENTERS,
 )
@@ -157,8 +157,11 @@ def cmd_disable(args):
     update_pipeline(path, do_disable)
     if not _any_pj_enabled():
         _stop_loop()
-        for f in [WATCHDOG_LOOP_PIDFILE, WATCHDOG_LOOP_LOCKFILE]:
-            f.unlink(missing_ok=True)
+        WATCHDOG_LOOP_PIDFILE.unlink(missing_ok=True)
+        # Do not unlink LOCKFILE: the running watchdog-loop process tree still
+        # holds the inode via inherited fd 200. Unlinking would let the next
+        # cron firing create the path with a new inode, bypassing the
+        # inode-based flock singleton protection and spawning a duplicate loop.
         print("All projects disabled — watchdog loop stopped (crontab kept for auto-restart).")
     else:
         print(f"{args.project}: watchdog disabled")

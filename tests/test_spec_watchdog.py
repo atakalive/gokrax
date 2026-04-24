@@ -357,6 +357,21 @@ class TestCheckSpecReview:
         assert updates2["review_requests_patch"]["reviewer1"]["status"] == "pending"
         assert updates2["review_requests_patch"]["reviewer2"]["status"] == "pending"
 
+    def test_approved_prior_plus_invalid_received_pauses(self):
+        """approved_prior + invalid received (P0+items=[]) → actual_received=0 → SPEC_PAUSED."""
+        sc = self._base_config(["reviewer1", "reviewer2"])
+        sc["review_requests"]["reviewer1"]["status"] = "approved_prior"
+        sc["review_requests"]["reviewer2"]["status"] = "received"
+        sc["review_requests"]["reviewer2"]["sent_at"] = _now().isoformat()
+        sc["review_requests"]["reviewer2"]["timeout_at"] = (_now() + timedelta(seconds=SPEC_BLOCK_TIMERS["SPEC_REVIEW"])).isoformat()
+        sc["current_reviews"]["entries"]["reviewer2"] = {
+            "verdict": "P0", "items": [], "raw_text": "",
+            "parse_success": True, "status": "received",
+        }
+        data = {"project": "test", "review_mode": "lite"}
+        action = _check_spec_review(sc, _now(), data)
+        assert action.next_state == "SPEC_PAUSED"
+
 
 # --- _check_spec_revise ---
 

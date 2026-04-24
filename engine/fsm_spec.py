@@ -156,7 +156,8 @@ def _check_spec_review(
         # effective_sc/effective_cr は history・severity 集計に使うため汚染しない
         scr_entries = dict(effective_entries)
         actual_received = sum(
-            1 for e in scr_entries.values() if e.get("status") == "received"
+            1 for e in scr_entries.values()
+            if e.get("status") == "received" and validate_received_entry(e)
         )
         if actual_received > 0:
             for reviewer in review_requests:

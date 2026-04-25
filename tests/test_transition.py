@@ -113,6 +113,51 @@ class TestTransitionForce:
         assert data["batch"] == []
         assert data["enabled"] is False
 
+    def test_force_blocked_to_code_review_uses_code_phase_members(self, tmp_pipelines, sample_pipeline):
+        """Issue #331: --force CODE_REVIEW で code フェーズ override の members が
+        notify_reviewers に渡される（reviewer5 が除外され、min_reviews が 3 にキャップされる）。"""
+        from engine.fsm import build_review_config
+        from config import REVIEW_MODES
+
+        sample_pipeline["state"] = "BLOCKED"
+        sample_pipeline["review_mode"] = "full"
+        sample_pipeline["batch"] = [{
+            "issue": 1, "title": "T", "commit": None, "cc_session_id": None,
+            "design_reviews": {}, "code_reviews": {},
+            "added_at": "2025-01-01T00:00:00+09:00",
+        }]
+        sample_pipeline["review_config"] = build_review_config(REVIEW_MODES["full"])
+
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, sample_pipeline)
+
+        from gokrax import cmd_transition
+        args = argparse.Namespace(
+            project="test-pj", to="CODE_REVIEW",
+            actor="cli", force=True, resume=False,
+        )
+        with patch("commands.dev.notify_implementer"), \
+             patch("commands.dev.notify_reviewers") as mock_rev, \
+             patch("commands.dev.notify_discord"):
+            cmd_transition(args)
+
+        mock_rev.assert_called_once()
+
+        pc = mock_rev.call_args.kwargs["phase_config"]
+        assert set(pc["members"]) == {"reviewer1", "reviewer3", "reviewer6"}
+        assert "reviewer5" not in pc["members"]
+        assert pc["min_reviews"] == 3
+
+        assert mock_rev.call_args.kwargs["excluded"] == []
+        assert mock_rev.call_args.kwargs["review_mode"] == "full"
+
+        with open(path) as f:
+            data = json.load(f)
+        assert data["state"] == "CODE_REVIEW"
+        assert data["history"][-1]["from"] == "BLOCKED"
+        assert data["history"][-1]["to"] == "CODE_REVIEW"
+
+
 class TestTransitionNotifications:
     """cmd_transition の通知ロジックのテスト（Issue #16）"""
 

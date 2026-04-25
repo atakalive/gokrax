@@ -78,14 +78,14 @@ class TestCmdBlockedReport:
         with pytest.raises(SystemExit, match="Not in BLOCKED state"):
             cmd_blocked_report(args)
 
-    def test_blocked_report_truncates_at_500(self, tmp_pipelines):
-        """Summary is truncated to 500 characters."""
+    def test_blocked_report_truncates_at_1000(self, tmp_pipelines):
+        """Summary is truncated to 1000 characters."""
         from commands.dev import cmd_blocked_report
 
         path = tmp_pipelines / "test-pj.json"
         _write_pipeline(path, _blocked_pipeline())
 
-        args = SimpleNamespace(project="test-pj", summary="x" * 600)
+        args = SimpleNamespace(project="test-pj", summary="x" * 1200)
         mock_notify = MagicMock()
         with patch("commands.dev.notify_discord", new=mock_notify):
             cmd_blocked_report(args)
@@ -93,7 +93,7 @@ class TestCmdBlockedReport:
         call_msg = mock_notify.call_args[0][0]
         # Extract summary part after "BLOCKED report: "
         summary_part = call_msg.split("BLOCKED report: ", 1)[1]
-        assert len(summary_part) == 500
+        assert len(summary_part) == 1000
 
     def test_blocked_report_rejects_empty_summary(self, tmp_pipelines):
         """Empty/whitespace-only summary raises SystemExit."""

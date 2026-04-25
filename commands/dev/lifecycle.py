@@ -1030,7 +1030,7 @@ def cmd_blocked_report(args) -> None:
     summary = args.summary.strip()
     if not summary:
         raise SystemExit("--summary must not be empty or whitespace-only")
-    summary = summary[:500]
+    summary = summary[:1000]
     q_prefix = "[Queue]" if data.get("queue_mode") else ""
     notify_discord(f"{q_prefix}[{args.project}] BLOCKED report: {summary}")
     print(f"{args.project}: blocked report sent")

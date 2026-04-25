@@ -273,7 +273,7 @@ gokrax blocked-report --pj myproject --summary "Test fails due to dependency ver
 | Option | Required | Description |
 |--------|----------|-------------|
 | `--pj` | Yes | project name |
-| `--summary TEXT` | Yes | block reason / situation description (max 500 chars, must not be empty) |
+| `--summary TEXT` | Yes | block reason / situation description (max 1000 chars, must not be empty) |
 
 Prerequisite: pipeline must be in BLOCKED state.
 Sends summary to Discord. No state transition, no pipeline write.

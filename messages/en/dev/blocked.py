@@ -66,7 +66,7 @@ def blocked_prompt_report(
     return (
         f"Transitioned to BLOCKED from {state}.\n"
         f"Reason: {reason}\n\n"
-        f"Report your situation: what happened and what is needed.\n"
+        f"Report your situation in 800 characters or less: what happened and what is needed.\n"
         f"{GOKRAX_CLI} blocked-report --pj {project} --summary \"<description>\"\n\n"
         f"**[WARNING] Do not move gokrax state on your own. Wait for instructions from the admin.**"
     )

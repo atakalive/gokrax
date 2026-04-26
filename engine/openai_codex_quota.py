@@ -59,10 +59,9 @@ def _load_codex_auth() -> tuple[str, str] | None:
             account_id = entry.get("accountId")
             expires = entry.get("expires")
             if isinstance(access, str) and access and isinstance(account_id, str) and account_id:
-                if isinstance(expires, (int, float)):
-                    if expires / 1000.0 < time.time():
-                        return None
-                return (access, account_id)
+                expired = isinstance(expires, (int, float)) and expires / 1000.0 < time.time()
+                if not expired:
+                    return (access, account_id)
 
     # codex auth (fallback)
     try:

@@ -95,12 +95,13 @@ class TestLoadAuth:
         _write_codex_auth(tmp_paths["codex_auth"])
         assert oq._load_codex_auth() == ("tok_codex", "acct_codex")
 
-    def test_pi_expired_returns_none(self, tmp_paths):
+    def test_pi_expired_falls_through_to_codex(self, tmp_paths):
         _write_pi_auth(tmp_paths["pi_auth"], expires_ms=int((time.time() - 60) * 1000))
-        # Even though codex auth is valid, expired pi auth fails closed (returns None)
-        # per spec: "expires/1000 < time.time() なら期限切れ → None (fail-open)"
         _write_codex_auth(tmp_paths["codex_auth"])
-        # Pi entry hits the expired branch and returns None directly.
+        assert oq._load_codex_auth() == ("tok_codex", "acct_codex")
+
+    def test_pi_expired_no_codex_returns_none(self, tmp_paths):
+        _write_pi_auth(tmp_paths["pi_auth"], expires_ms=int((time.time() - 60) * 1000))
         assert oq._load_codex_auth() is None
 
     def test_codex_expired_returns_none(self, tmp_paths):

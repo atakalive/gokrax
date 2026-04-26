@@ -243,7 +243,7 @@ def get_pro_quota() -> tuple[bool, float, datetime | None]:
         return (False, 0.0, None)
 
 
-def _cache_path(agent_id: str) -> "object":
+def _cache_path(agent_id: str):
     return _paths.GEMINI_QUOTA_CACHE_DIR / f"{agent_id}.json"
 
 

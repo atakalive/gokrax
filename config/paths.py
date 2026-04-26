@@ -20,6 +20,9 @@ __all__ = [
     "CC_AGENT_CONFIG",
     "GEMINI_AGENT_CONFIG",
     "GEMINI_PIDS_DIR",
+    "GEMINI_OAUTH_CREDS",
+    "GEMINI_SETTINGS",
+    "GEMINI_QUOTA_CACHE_DIR",
 ]
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -62,3 +65,8 @@ CC_AGENT_CONFIG = AGENT_PROFILES_DIR / "config_cc.json"
 # gemini backend pids / per-agent config
 GEMINI_PIDS_DIR = _PROJECT_ROOT / ".gemini-pids"
 GEMINI_AGENT_CONFIG = AGENT_PROFILES_DIR / "config_gemini.json"
+
+# gemini OAuth / settings / quota cache
+GEMINI_OAUTH_CREDS = Path.home() / ".gemini" / "oauth_creds.json"
+GEMINI_SETTINGS = Path.home() / ".gemini" / "settings.json"
+GEMINI_QUOTA_CACHE_DIR = Path.home() / ".gokrax" / "quota-cache"

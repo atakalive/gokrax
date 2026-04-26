@@ -1,10 +1,16 @@
 {
   "_comment": {
     "model": "Gemini model name (e.g. 'gemini-2.5-pro', 'gemini-2.5-flash')",
-    "compile-startup-md": "If true, compile IDENTITY.md + INSTRUCTION.md + MEMORY.md into GEMINI.md"
+    "compile-startup-md": "If true, compile IDENTITY.md + INSTRUCTION.md + MEMORY.md into GEMINI.md",
+    "fallback": "If true, route to fallback_backend when Gemini Pro usage >= usage_threshold (Pro model only)",
+    "fallback_backend": "Target backend when fallback triggers ('pi' or 'cc'); ignored if fallback=false",
+    "usage_threshold": "Pro usage percent [0-100]. Default 95"
   },
   "example_reviewer": {
     "model": "gemini-2.5-pro",
-    "compile-startup-md": false
+    "compile-startup-md": false,
+    "fallback": false,
+    "fallback_backend": "",
+    "usage_threshold": 95
   }
 }

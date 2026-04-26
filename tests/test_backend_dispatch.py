@@ -507,6 +507,102 @@ class TestValidateOverrides:
 
 
 # ===========================================================================
+# Gemini quota fallback (resolve_backend cache + send-time API check)
+# ===========================================================================
+
+class TestFallback:
+    @pytest.fixture(autouse=True)
+    def _gemini_default(self, monkeypatch):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "gemini")
+        monkeypatch.setattr(config, "AGENT_BACKEND_OVERRIDE", {})
+
+    def test_resolve_backend_cache_hit_returns_pi(self, monkeypatch):
+        with patch("engine.gemini_quota.resolve_fallback", return_value="pi"):
+            assert backend.resolve_backend("a1") == "pi"
+
+    def test_resolve_backend_cache_miss_returns_gemini(self, monkeypatch):
+        with patch("engine.gemini_quota.resolve_fallback", return_value=""):
+            assert backend.resolve_backend("a1") == "gemini"
+
+    def test_send_should_fallback_active_routes_to_pi(self, monkeypatch):
+        sent = SendResult.OK
+        with patch("engine.gemini_quota.resolve_fallback", return_value=""), \
+             patch("engine.gemini_quota.should_fallback", return_value=(True, "pi", True)) as mock_sf, \
+             patch("engine.backend_pi.send", return_value=sent) as mock_pi, \
+             patch("engine.backend_gemini.send") as mock_gm:
+            result = backend.send("a1", "msg", 30)
+        assert result is sent
+        mock_sf.assert_called_once_with("a1")
+        mock_pi.assert_called_once()
+        mock_gm.assert_not_called()
+
+    def test_send_should_fallback_active_no_new_period(self, monkeypatch):
+        sent = SendResult.OK
+        with patch("engine.gemini_quota.resolve_fallback", return_value=""), \
+             patch("engine.gemini_quota.should_fallback", return_value=(True, "pi", False)), \
+             patch("engine.backend_pi.send", return_value=sent) as mock_pi, \
+             patch("engine.backend_gemini.send") as mock_gm:
+            backend.send("a1", "msg", 30)
+        mock_pi.assert_called_once()
+        mock_gm.assert_not_called()
+
+    def test_send_should_fallback_inactive_routes_to_gemini(self, monkeypatch):
+        sent = SendResult.OK
+        with patch("engine.gemini_quota.resolve_fallback", return_value=""), \
+             patch("engine.gemini_quota.should_fallback", return_value=(False, "", False)), \
+             patch("engine.backend_pi.send") as mock_pi, \
+             patch("engine.backend_gemini.send", return_value=sent) as mock_gm:
+            backend.send("a1", "msg", 30)
+        mock_gm.assert_called_once()
+        mock_pi.assert_not_called()
+
+    def test_send_cache_active_skips_should_fallback(self, monkeypatch):
+        sent = SendResult.OK
+        with patch("engine.gemini_quota.resolve_fallback", return_value="pi"), \
+             patch("engine.gemini_quota.should_fallback") as mock_sf, \
+             patch("engine.backend_pi.send", return_value=sent) as mock_pi:
+            backend.send("a1", "msg", 30)
+        mock_sf.assert_not_called()
+        mock_pi.assert_called_once()
+
+    def test_is_inactive_routes_to_pi_on_cache_active(self, monkeypatch):
+        with patch("engine.gemini_quota.resolve_fallback", return_value="pi"), \
+             patch("engine.backend_pi.is_inactive", return_value=True) as mock_pi_ina, \
+             patch("engine.backend_gemini.is_inactive") as mock_gm_ina:
+            assert backend.is_inactive("a1") is True
+        mock_pi_ina.assert_called_once()
+        mock_gm_ina.assert_not_called()
+
+    def test_reset_session_routes_to_pi_on_cache_active(self, monkeypatch):
+        with patch("engine.gemini_quota.resolve_fallback", return_value="pi"), \
+             patch("engine.backend_pi.reset_session") as mock_pi_reset, \
+             patch("engine.backend_gemini.reset_session") as mock_gm_reset:
+            backend.reset_session("a1")
+        mock_pi_reset.assert_called_once_with("a1")
+        mock_gm_reset.assert_not_called()
+
+    def test_ping_routes_to_pi_on_cache_active(self, monkeypatch):
+        with patch("engine.gemini_quota.resolve_fallback", return_value="pi"), \
+             patch("engine.backend_pi.ping", return_value=True) as mock_pi_ping, \
+             patch("engine.backend_gemini.ping") as mock_gm_ping:
+            assert backend.ping("a1", 5) is True
+        mock_pi_ping.assert_called_once()
+        mock_gm_ping.assert_not_called()
+
+    def test_all_ops_route_to_gemini_when_no_fallback(self, monkeypatch):
+        with patch("engine.gemini_quota.resolve_fallback", return_value=""), \
+             patch("engine.backend_gemini.is_inactive", return_value=False) as mock_gm_ina, \
+             patch("engine.backend_gemini.reset_session") as mock_gm_reset, \
+             patch("engine.backend_gemini.ping", return_value=True) as mock_gm_ping:
+            backend.is_inactive("a1")
+            backend.reset_session("a1")
+            backend.ping("a1", 5)
+        mock_gm_ina.assert_called_once()
+        mock_gm_reset.assert_called_once()
+        mock_gm_ping.assert_called_once()
+
+
+# ===========================================================================
 # Mixed backend reset (per-agent branching)
 # ===========================================================================
 

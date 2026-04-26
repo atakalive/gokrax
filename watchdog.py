@@ -1755,6 +1755,13 @@ def main():
         force=True,
     )
 
+    from engine.backend import validate_overrides
+    from engine.gemini_quota import validate_fallback_config
+    from engine.shared import log as _log
+    validate_overrides()
+    for warn in validate_fallback_config():
+        _log(warn)
+
     # Check Discord commands BEFORE pipeline processing
     # Works even if PIPELINES_DIR doesn't exist
     try:

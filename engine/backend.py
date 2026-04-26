@@ -15,8 +15,9 @@ from engine.shared import log
 
 
 def resolve_backend(agent_id: str) -> str:
-    """Resolve backend for the given agent: override > default.
+    """Resolve backend for the given agent.
 
+    Override > default > gemini quota fallback (cache file read only).
     Raises ValueError if the resolved backend is not in SUPPORTED_BACKENDS.
     """
     backend = config.AGENT_BACKEND_OVERRIDE.get(agent_id, config.DEFAULT_AGENT_BACKEND)
@@ -25,6 +26,11 @@ def resolve_backend(agent_id: str) -> str:
             f"Unsupported backend={backend!r} for agent={agent_id!r}. "
             f"Supported values: {sorted(SUPPORTED_BACKENDS)}"
         )
+    if backend == "gemini":
+        from engine.gemini_quota import resolve_fallback
+        fb = resolve_fallback(agent_id)
+        if fb in SUPPORTED_BACKENDS and fb != "gemini":
+            return fb
     return backend
 
 
@@ -46,6 +52,11 @@ def validate_overrides() -> list[str]:
 def send(agent_id: str, message: str, timeout: int) -> SendResult:
     """Dispatch send to the selected backend."""
     backend = resolve_backend(agent_id)
+    if backend == "gemini":
+        from engine.gemini_quota import should_fallback
+        active, fallback_to, _new_period = should_fallback(agent_id)
+        if active and fallback_to in SUPPORTED_BACKENDS and fallback_to != "gemini":
+            backend = fallback_to
     if backend == "pi":
         from engine.backend_pi import send as pi_send
         return pi_send(agent_id, message, timeout)

@@ -27,7 +27,7 @@ def _block_external_calls(request, tmp_path):
     _helpers.LOG_FILE = tmp_log
 
     module = Path(request.node.fspath).stem
-    if module in ("test_notify", "test_config", "test_short_context", "test_phase_override", "test_run_glab"):
+    if module in ("test_notify", "test_config", "test_short_context", "test_phase_override", "test_run_glab", "test_gemini_quota"):
         yield
         config.LOG_FILE = orig_config
         watchdog.LOG_FILE = orig_watchdog
@@ -48,6 +48,9 @@ def _block_external_calls(request, tmp_path):
          patch("watchdog._start_cc_test_fix"), \
          patch("watchdog.notify_discord"), \
          patch("engine.glab.fetch_issue_state", return_value="opened"), \
+         patch("engine.gemini_quota.resolve_fallback", return_value=""), \
+         patch("engine.gemini_quota.should_fallback", return_value=(False, "", False)), \
+         patch("engine.gemini_quota.get_pro_quota", return_value=(False, 0.0, None)), \
          patch("time.sleep"):
         yield
     config.LOG_FILE = orig_config

@@ -360,6 +360,7 @@ class TestCmdSpecDone:
         assert data["state"] == "IDLE"
         assert data["spec_mode"] is False
         assert data["spec_config"] == {}
+        assert "review_mode" not in data
 
 
 # ── TestCmdSpecRetry ──────────────────────────────────────────────────────────
@@ -780,3 +781,4 @@ class TestCmdSpecStopTOCTOU:
         assert len(stop_entry) == 1
         assert stop_entry[0]["from"] == "SPEC_REVISE"
         assert stop_entry[0]["to"] == "IDLE"
+        assert "review_mode" not in data

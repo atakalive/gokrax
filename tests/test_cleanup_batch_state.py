@@ -41,6 +41,7 @@ def _make_full_data() -> dict:
         "no_cc": True,
         "exclude_high_risk": True,
         "exclude_any_risk": True,
+        "review_mode": "full",
         "assessment": {"domain_risk": "HIGH"},
         # Timeout
         "timeout_extension": 300,
@@ -94,7 +95,9 @@ _CLEANUP_KEYS = {
     "automerge", "p2_fix", "cc_plan_model", "cc_impl_model",
     "keep_context", "keep_ctx_batch", "keep_ctx_intra",
     "comment", "skip_cc_plan", "skip_test", "skip_assess", "skip_design",
-    "no_cc", "exclude_high_risk", "exclude_any_risk", "assessment",
+    "no_cc", "exclude_high_risk", "exclude_any_risk",
+    "review_mode",
+    "assessment",
     "timeout_extension", "extend_count",
     "queue_mode",
     "test_baseline", "_pytest_baseline",

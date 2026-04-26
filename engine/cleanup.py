@@ -49,6 +49,7 @@ def _cleanup_batch_state(data: dict, pj: str) -> None:
     data.pop("no_cc", None)
     data.pop("exclude_high_risk", None)
     data.pop("exclude_any_risk", None)
+    data.pop("review_mode", None)
     data.pop("allow_closed", None)
     data.pop("assessment", None)
     # Timeout

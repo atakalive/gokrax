@@ -324,18 +324,21 @@ def process(path: Path):
         if state == "DONE":
             _done_batch = list(data.get("batch", []))  # save for close
             _done_queue_mode = data.get("queue_mode", False)  # save for _check_queue
+            _done_review_mode = data.get("review_mode", "")
             _cleanup_batch_state(data, pj)
 
         # ASSESSMENT → IDLE (リスクスキップ): クリーンアップ前に通知用データを退避 (Issue #181)
         _skip_assessment = {}
         _skip_batch = []
         _skip_queue_mode = False
+        _skip_review_mode = ""
         if state == "ASSESSMENT" and action.new_state == "IDLE":
             from engine.fsm import _worst_risk
             worst_risk = _worst_risk(data.get("batch", []))
             _skip_assessment = {"domain_risk": worst_risk}
             _skip_batch = list(data.get("batch", []))
             _skip_queue_mode = data.get("queue_mode", False)
+            _skip_review_mode = data.get("review_mode", "")
 
         # ASSESSMENT → IDLE (リスクスキップ): DONE と同等のクリーンアップ (Issue #181)
         if state == "ASSESSMENT" and action.new_state == "IDLE":
@@ -607,7 +610,7 @@ def process(path: Path):
             "implementer": data.get("implementer", IMPLEMENTERS[0]),
             "batch": saved_batch,
             "repo_path": data.get("repo_path", ""),
-            "review_mode": data["review_mode"],
+            "review_mode": _done_review_mode if state == "DONE" else (_skip_review_mode if state == "ASSESSMENT" and action.new_state == "IDLE" else data["review_mode"]),
             "keep_ctx_batch": data.get("keep_ctx_batch", False),
             "keep_ctx_intra": data.get("keep_ctx_intra", False),
             "queue_mode": _done_queue_mode if state == "DONE" else (_skip_queue_mode if state == "ASSESSMENT" and action.new_state == "IDLE" else data.get("queue_mode", False)),
@@ -654,7 +657,7 @@ def process(path: Path):
                 "batch": saved_batch,
                 "gitlab": data.get("gitlab", f"{GITLAB_NAMESPACE}/{pj}"),
                 "repo_path": data.get("repo_path", ""),
-                "review_mode": data["review_mode"],
+                "review_mode": _done_review_mode if state == "DONE" else (_skip_review_mode if state == "ASSESSMENT" and action.new_state == "IDLE" else data["review_mode"]),
                 "base_commit": data.get("base_commit"),
             }
         if action.send_merge_summary:

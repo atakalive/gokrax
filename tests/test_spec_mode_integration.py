@@ -1133,6 +1133,7 @@ class TestSpecDoneAutoTransition:
         assert result["state"] == "IDLE"
         assert result["spec_mode"] is False
         assert result["spec_config"] == {}
+        assert "review_mode" not in result
 
     def test_apply_spec_action_spec_done_history_recorded_once(self, tmp_pipelines):
         """SPEC_DONE → IDLE 遷移時、history に actor=watchdog で1回だけ記録される。"""

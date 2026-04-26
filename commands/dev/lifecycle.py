@@ -635,7 +635,7 @@ def cmd_transition(args):
         implementer = data.get("implementer", IMPLEMENTERS[0])
         repo_path = data.get("repo_path", "")
         review_mode = data.get("review_mode")
-        if not review_mode:
+        if not review_mode and target != "IDLE":
             raise SystemExit(f"review_mode is not set for {args.project}. Set it with: gokrax review-mode --pj {args.project} --mode <mode>")
 
         p2_fix = data.get("p2_fix", False)

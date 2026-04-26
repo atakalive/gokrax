@@ -1222,6 +1222,7 @@ def _apply_spec_action(
                 auto_qrun = sc.get("auto_qrun", False)
                 data["spec_mode"] = False
                 data["spec_config"] = {}
+                data.pop("review_mode", None)
                 data.pop("excluded_reviewers", None)
                 data.pop("min_reviews_override", None)
                 data.pop("review_config", None)

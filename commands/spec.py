@@ -341,6 +341,7 @@ def cmd_spec_done(args):
         data["spec_mode"] = False
         data["spec_config"] = {}
         data["enabled"] = False
+        data.pop("review_mode", None)
         data.pop("excluded_reviewers", None)
         data.pop("min_reviews_override", None)
         data.pop("review_config", None)
@@ -373,6 +374,7 @@ def cmd_spec_stop(args):
         data["spec_config"] = {}
         data["enabled"] = False
         add_history(data, old, "IDLE", actor="cli:spec-stop")
+        data.pop("review_mode", None)
         data.pop("excluded_reviewers", None)
         data.pop("min_reviews_override", None)
         data.pop("review_config", None)

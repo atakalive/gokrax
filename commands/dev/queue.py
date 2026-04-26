@@ -7,13 +7,14 @@ from pipeline_io import (
     add_history, get_path,
 )
 
-from commands.dev.helpers import _reset_to_idle
+from commands.dev.helpers import _reset_to_idle, _log
 
 
 def cmd_qrun(args):
     """キューから次のバッチを実行: pop → cmd_start → オプション保存"""
     from task_queue import pop_next_queue_entry, restore_queue_entry, peek_queue, save_queue_options_to_pipeline, rollback_queue_mode, QueueSkipError
     from config import QUEUE_FILE
+    _log(f"cmd_qrun invoked: queue={args.queue} dry_run={args.dry_run}")
 
     queue_path = Path(args.queue) if args.queue else QUEUE_FILE
 

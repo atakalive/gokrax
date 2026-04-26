@@ -347,6 +347,36 @@ def process(path: Path):
 
         # INITIALIZE→DESIGN_PLAN/DESIGN_APPROVED: Reset REVISE cycle counters + 初期化処理 (Issue #29, #125, #201)
         if state == "INITIALIZE" and action.new_state in ("DESIGN_PLAN", "DESIGN_APPROVED"):
+            # --- closed issue guard (Issue #332) ---
+            if not data.get("allow_closed", False):
+                from engine.glab import fetch_issue_state
+                gitlab = data.get("gitlab", f"{GITLAB_NAMESPACE}/{pj}")
+                closed_in_batch = []
+                unverifiable_in_batch = []
+                for item in data.get("batch", []):
+                    num = item.get("issue") if isinstance(item, dict) else None
+                    if num is None:
+                        continue
+                    issue_state = fetch_issue_state(num, gitlab)
+                    if issue_state == "closed":
+                        closed_in_batch.append(num)
+                    elif issue_state is None:
+                        unverifiable_in_batch.append(num)
+                if closed_in_batch or unverifiable_in_batch:
+                    parts = []
+                    if closed_in_batch:
+                        nums = ", ".join(f"#{n}" for n in closed_in_batch)
+                        parts.append(f"closed: {nums}")
+                    if unverifiable_in_batch:
+                        nums = ", ".join(f"#{n}" for n in unverifiable_in_batch)
+                        parts.append(f"unverifiable (API failure): {nums}")
+                    detail = "; ".join(parts)
+                    log(f"[{pj}] BLOCK INITIALIZE: {detail}")
+                    data["state"] = "BLOCKED"
+                    data["enabled"] = False
+                    add_history(data, "INITIALIZE", "BLOCKED", "watchdog:closed-issue-guard")
+                    notification["closed_guard"] = {"pj": pj, "detail": detail}
+                    return
             data.pop("design_revise_count", None)
             data.pop("code_revise_count", None)
             _cleanup_review_files(pj)
@@ -665,6 +695,12 @@ def process(path: Path):
         return
 
     # === ロック外で通知 ===
+    closed_guard = notification.pop("closed_guard", None)
+    if closed_guard:
+        notify_discord(
+            f"[{closed_guard['pj']}] ⚠️ INITIALIZE blocked: {closed_guard['detail']}. "
+            f"`gokrax reset` で初期化、または意図的なら `--allow-closed` で再起動。"
+        )
     if notification:
         action = notification["action"]
         pj = notification["pj"]
@@ -1055,7 +1091,9 @@ def process(path: Path):
         # DONE→IDLE, ASSESSMENT→IDLE(リスクスキップ) の両方をカバー
         if (action.new_state == "IDLE"
                 and notification.get("queue_mode")):
+            log(f"[{pj}] _check_queue() start (queue_mode={notification.get('queue_mode')})")
             _check_queue()
+            log(f"[{pj}] _check_queue() done")
 
         skip_reset = True  # reset not executed if reset_reviewers=False -> already_reset=False
         if action.reset_reviewers:
@@ -1293,6 +1331,7 @@ def _handle_qrun(msg_id: str):
     import config
     import argparse
 
+    log(f"_handle_qrun start: msg_id={msg_id}")
     # DRY_RUN mode: log only, skip all actions
     if config.DRY_RUN:
         log(f"[dry-run] Discord qrun command skipped (msg_id={msg_id})")

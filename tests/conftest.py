@@ -22,12 +22,16 @@ def _block_external_calls(request, tmp_path):
     tmp_log = tmp_path / "watchdog.log"
     config.LOG_FILE = tmp_log
     watchdog.LOG_FILE = tmp_log
+    import commands.dev.helpers as _helpers
+    orig_helpers = _helpers.LOG_FILE
+    _helpers.LOG_FILE = tmp_log
 
     module = Path(request.node.fspath).stem
     if module in ("test_notify", "test_config", "test_short_context", "test_phase_override", "test_run_glab"):
         yield
         config.LOG_FILE = orig_config
         watchdog.LOG_FILE = orig_watchdog
+        _helpers.LOG_FILE = orig_helpers
         return
     with patch("notify.post_discord", return_value=DiscordPostResult("mock-msg-id")), \
          patch("notify.send_to_agent", return_value=True), \
@@ -48,6 +52,7 @@ def _block_external_calls(request, tmp_path):
         yield
     config.LOG_FILE = orig_config
     watchdog.LOG_FILE = orig_watchdog
+    _helpers.LOG_FILE = orig_helpers
 
 
 @pytest.fixture(autouse=True)

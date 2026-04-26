@@ -25,7 +25,7 @@ from notify import (
     resolve_reviewer_arg,
 )
 
-from commands.dev.helpers import parse_issue_args, _masked_reviewer, _reset_to_idle
+from commands.dev.helpers import parse_issue_args, _masked_reviewer, _reset_to_idle, _log
 
 
 def _pipelines_dir():
@@ -256,21 +256,28 @@ def _fetch_issue_info(issue_num: int, gitlab: str) -> tuple[str, str | None]:
             title = data.get("title", "")
             raw_state = data.get("state")
             if raw_state in ("opened", "closed"):
+                _log(f"_fetch_issue_info(#{issue_num}) → state={raw_state}")
                 return (title, raw_state)
             # 未知の state: None 扱い + 警告
+            _log(f"_fetch_issue_info(#{issue_num}) → unknown state={raw_state!r}")
             print(f"Warning: issue #{issue_num} has unknown state '{raw_state}'",
                   file=sys.stderr)
             return (title, None)
         # glab が非ゼロ終了
+        _log(f"_fetch_issue_info(#{issue_num}) → glab failed rc={result.returncode}")
         print(f"Warning: glab issue show failed for #{issue_num} (rc={result.returncode})",
               file=sys.stderr)
     except subprocess.TimeoutExpired:
+        _log(f"_fetch_issue_info(#{issue_num}) → timeout")
         print(f"Warning: glab issue show timed out for #{issue_num}", file=sys.stderr)
     except FileNotFoundError:
+        _log(f"_fetch_issue_info(#{issue_num}) → glab not found")
         print(f"Warning: glab binary not found: {GLAB_BIN}", file=sys.stderr)
     except UnauthorizedAuthorError:
+        _log(f"_fetch_issue_info(#{issue_num}) → unauthorized author")
         raise
     except Exception as e:
+        _log(f"_fetch_issue_info(#{issue_num}) → error: {e}")
         print(f"Warning: failed to fetch issue #{issue_num}: {e}", file=sys.stderr)
     return ("", None)
 
@@ -315,6 +322,8 @@ def cmd_triage(args):
 
     # --- Phase 3: Discord 通知（SystemExit より前に必ず送信） ---
     # 通知対象: allow_closed=False の場合のみ。allow_closed=True では通知しない。
+    _log(f"cmd_triage: skipped_closed={skipped_closed} survivors={survivors} "
+         f"unverified={unverified} states={list(zip(args.issue, states))}")
     if skipped_closed or unverified:
         from config import DISCORD_CHANNEL
         from notify import post_discord
@@ -385,6 +394,10 @@ def cmd_start(args):
     --issue省略時はGitLab APIでopen issue全件取得。
     """
     args.issue = parse_issue_args(args.issue) if args.issue else args.issue
+    import os
+    _log(f"cmd_start invoked: pj={args.project} issue={args.issue} "
+         f"allow_closed={getattr(args, 'allow_closed', False)} "
+         f"pid={os.getpid()} ppid={os.getppid()}")
     from gokrax import _start_loop
     from config import NONE_TO_FALSE_KEYS, resolve_queue_options
 
@@ -523,6 +536,8 @@ def cmd_start(args):
             data["cc_plan_model"] = args.cc_plan_model
         if getattr(args, "cc_impl_model", None):
             data["cc_impl_model"] = args.cc_impl_model
+        if getattr(args, "allow_closed", False):
+            data["allow_closed"] = True
         if not data.get("review_mode"):
             raise SystemExit(
                 f"review_mode is not set for {args.project}. "

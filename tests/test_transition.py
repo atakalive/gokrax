@@ -113,6 +113,21 @@ class TestTransitionForce:
         assert data["batch"] == []
         assert data["enabled"] is False
 
+    def test_transition_to_idle_clears_review_mode(self, tmp_pipelines, sample_pipeline):
+        """Issue #333: cmd_transition --to IDLE clears review_mode via _reset_to_idle"""
+        sample_pipeline["state"] = "BLOCKED"
+        sample_pipeline["review_mode"] = "full"
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, sample_pipeline)
+        from gokrax import cmd_transition
+        args = argparse.Namespace(project="test-pj", to="IDLE", actor="cli", force=False)
+        with patch("commands.dev.notify_implementer"), patch("commands.dev.notify_reviewers"):
+            cmd_transition(args)
+        with open(path) as f:
+            data = json.load(f)
+        assert data["state"] == "IDLE"
+        assert "review_mode" not in data
+
     def test_force_blocked_to_code_review_uses_code_phase_members(self, tmp_pipelines, sample_pipeline):
         """Issue #331: --force CODE_REVIEW で code フェーズ override の members が
         notify_reviewers に渡される（reviewer5 が除外され、min_reviews が 3 にキャップされる）。"""

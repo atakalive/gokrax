@@ -609,6 +609,7 @@ def cmd_transition(args):
         _set_enabled = getattr(args, "set_enabled", None)
         if isinstance(_set_enabled, bool) and target != "IDLE":
             data["enabled"] = _set_enabled
+        _pre_reset_review_mode = data.get("review_mode", "")
         if target == "IDLE":
             _reset_to_idle(data)
         elif args.force and target in ("DESIGN_REVIEW", "CODE_REVIEW"):
@@ -634,7 +635,7 @@ def cmd_transition(args):
         gitlab = data.get("gitlab", f"{GITLAB_NAMESPACE}/{pj}")
         implementer = data.get("implementer", IMPLEMENTERS[0])
         repo_path = data.get("repo_path", "")
-        review_mode = data.get("review_mode")
+        review_mode = _pre_reset_review_mode if target == "IDLE" else data.get("review_mode")
         if not review_mode and target != "IDLE":
             raise SystemExit(f"review_mode is not set for {args.project}. Set it with: gokrax review-mode --pj {args.project} --mode <mode>")
 

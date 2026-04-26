@@ -254,8 +254,15 @@ def _read_cache(agent_id: str) -> dict | None:
 
 
 def _cache_active(cache: dict | None) -> bool:
-    """Check if a cache dict represents an active fallback period."""
+    """Check if a cache dict represents an active fallback period.
+
+    Validates full schema: active, fallback_to in valid set, and until in future.
+    Invalid or corrupt cache is treated as cache miss.
+    """
     if not cache or not cache.get("active"):
+        return False
+    fb = cache.get("fallback_to")
+    if not isinstance(fb, str) or fb not in _VALID_FALLBACK_BACKENDS:
         return False
     until = cache.get("until")
     if not isinstance(until, str):
@@ -277,8 +284,7 @@ def resolve_fallback(agent_id: str) -> str:
     cache = _read_cache(agent_id)
     if not _cache_active(cache):
         return ""
-    fb = cache.get("fallback_to") if cache else ""
-    return fb if isinstance(fb, str) else ""
+    return cache.get("fallback_to", "")
 
 
 def _load_agent_config() -> dict:
@@ -366,10 +372,7 @@ def should_fallback(agent_id: str) -> tuple[bool, str, bool]:
             fcntl.flock(lock_f.fileno(), fcntl.LOCK_EX)
             existing = _read_cache(agent_id)
             if _cache_active(existing):
-                fb_existing = existing.get("fallback_to") if existing else ""
-                if isinstance(fb_existing, str) and fb_existing:
-                    return (True, fb_existing, False)
-                return (True, fallback_to, False)
+                return (True, existing["fallback_to"], False)
 
             _reset_fallback_backend(agent_id, fallback_to)
 

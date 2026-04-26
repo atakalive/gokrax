@@ -263,6 +263,18 @@ class TestResolveFallback:
         self._write_cache(tmp_paths, "a1", {"active": True, "fallback_to": "pi", "until": until})
         assert gq.resolve_fallback("a1") == "pi"
 
+    def test_invalid_fallback_to_treated_as_miss(self, tmp_paths):
+        """Cache with fallback_to not in valid set is treated as cache miss."""
+        until = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+        self._write_cache(tmp_paths, "a1", {"active": True, "fallback_to": "openclaw", "until": until})
+        assert gq.resolve_fallback("a1") == ""
+
+    def test_missing_fallback_to_treated_as_miss(self, tmp_paths):
+        """Cache without fallback_to key is treated as cache miss."""
+        until = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+        self._write_cache(tmp_paths, "a1", {"active": True, "until": until})
+        assert gq.resolve_fallback("a1") == ""
+
 
 # ---------------------------------------------------------------------------
 # should_fallback

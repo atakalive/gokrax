@@ -1,6 +1,6 @@
 # gokrax -- Development Pipeline Specification
 
-> Official specification based on current code (as of 2026-03-29). All agents must follow this document.
+> Official specification based on current code (as of 2026-04-27). All agents must follow this document.
 > Constant values shown are config defaults. They can be overridden via settings.py (see Chapter 14).
 
 ## 1. Overview
@@ -28,6 +28,8 @@ engine/
   backend_pi.py        -- pi backend (via pi CLI)
   backend_cc.py        -- cc backend (via claude CLI)
   backend_gemini.py    -- gemini backend (via gemini CLI, oneshot)
+  backend_types.py     -- Backend return types (SendResult: OK/BUSY/FAIL)
+  gemini_quota.py      -- Gemini Pro quota detection & fallback cache
   cleanup.py           -- Batch state cleanup shared functions
   filter.py            -- Project/author filtering (allowed authors, issue/comment validation)
 watchdog.py           -- Watchdog loop + Discord command handling
@@ -275,8 +277,9 @@ Review modes are defined in `REVIEW_MODES` in `settings.py`. See `settings.examp
 |----------|-------|-------------|
 | NUDGE_GRACE_SEC | 600 sec | No nudges within this period after a transition |
 | EXTEND_NOTICE_THRESHOLD | 300 sec | When remaining time is below this value, extension instructions are appended to nudges |
-| INACTIVE_THRESHOLD_SEC | 603 sec | Considered inactive if no updates for this many seconds |
+| INACTIVE_THRESHOLD_SEC | 603 sec | Nudge threshold: agent considered inactive if no updates for this many seconds. Not used for send admission — send admission uses live PID ownership (#327) |
 | INACTIVE_THRESHOLD_PLAN_SEC | 900 sec | Nudge interval for implementer during DESIGN_PLAN |
+| BUSY_ESCALATION_SEC | 1800 sec | Spec mode: counts a 30-min sustained `SendResult.BUSY` as one mechanical failure (consumes one retry counter slot) |
 
 ### timeout_extension
 
@@ -306,13 +309,33 @@ Review modes are defined in `REVIEW_MODES` in `settings.py`. See `settings.examp
 
 ### 7.2 Agent Communication Method
 
-Agent sending goes through `send()` / `ping()` in `engine/backend.py`. The backend is determined per agent via `resolve_backend()`:
-- **openclaw**: `engine/backend_openclaw.py` — sends to Gateway via `openclaw gateway call` CLI
-- **pi**: `engine/backend_pi.py` — sends via `pi` CLI. Activity is determined by session file mtime
-- **cc**: `engine/backend_cc.py` — sends via `claude -p` CLI. Activity is determined by PID validity and session JSONL mtime
+Agent sending goes through `send()` / `ping()` in `engine/backend.py`.
+
+**Backend resolution (`resolve_backend(agent_id)` — cache-only, no HTTP):**
+1. `AGENT_BACKEND_OVERRIDE[agent_id]` if present, otherwise `DEFAULT_AGENT_BACKEND`.
+2. If the resolved backend is `gemini`, `engine/gemini_quota.py:resolve_fallback()` is consulted. It only **reads** the cache file `~/.gokrax/quota-cache/<agent_id>.json`; if the cache is active (`active=true`, `fallback_to ∈ {"pi","cc"}`, `until` in the future), that fallback backend is returned. Schema-violating cache (e.g. unknown `fallback_to`) is treated as a miss and `gemini` is used as-is.
+
+**Per-backend behavior:**
+- **openclaw**: `engine/backend_openclaw.py` — sends to Gateway via `openclaw gateway call` CLI.
+- **pi**: `engine/backend_pi.py` — sends via `pi` CLI. Activity is determined by session file mtime.
+- **cc**: `engine/backend_cc.py` — sends via `claude -p` CLI. **Send admission** is gated only by live PID ownership of the session (`/proc/<pid>` + cmdline check). When a live owner is present, `send()` returns `SendResult.BUSY` immediately (no wait, no SIGTERM). The session JSONL mtime is still consulted for nudge/inactivity (§7.3) but no longer affects send admission (#327).
 - **gemini**: `engine/backend_gemini.py` — sends via `gemini` CLI as a oneshot process (1 prompt = 1 process). `send()` launches `gemini` with `subprocess.Popen(cwd=<agent profile dir>)` (the Gemini CLI scopes sessions by cwd). Activity is determined by the pid file plus `/proc/<pid>` existence and cmdline containing `"gemini"`. Session continuation uses `-r latest`; because sessions are per-cwd, each agent requires its own profile dir (`agents/<agent_id>/`) to avoid cross-agent session contamination.
 
 The backend is set via `DEFAULT_AGENT_BACKEND` in `settings.py` (config default: `"openclaw"`, `settings.example.py` recommended: `"pi"`; 4 backends available: openclaw, pi, cc, gemini), with per-agent override via `AGENT_BACKEND_OVERRIDE`.
+
+**Send-time fallback for Gemini Pro quota (`should_fallback()`):**
+
+When `send()` resolves to `gemini`, `engine/gemini_quota.py:should_fallback(agent_id)` is invoked. It may issue an HTTP call to the Code Assist Internal API (`cloudcode-pa.googleapis.com`) to refresh Pro usage and update the cache, then redirect this single send to the fallback backend if the threshold is now exceeded. Fallback fires only when **all** of the following hold for the agent in `agents/config_gemini.json`:
+- `fallback: true`
+- `fallback_backend ∈ {"pi", "cc"}`
+- `model` contains `"pro"` (case-insensitive)
+- Pro usage ≥ `usage_threshold` (0–100, default 95)
+
+Cache file: `~/.gokrax/quota-cache/<agent_id>.json` with shape `{"active": true, "fallback_to": "pi"|"cc", "until": "<ISO-8601>", "reason": "..."}`. Schema-violating entries are treated as cache miss.
+
+Prerequisite: Gemini OAuth credentials (`GEMINI_OAUTH_CREDS`) and Gemini `settings.json` (with `security.auth.selectedType`) must be readable. At watchdog startup, `engine/backend.py:validate_overrides()` and `engine/gemini_quota.py:validate_fallback_config()` log warnings for unknown agents or invalid fallback config.
+
+**`SendResult` (3-valued, `engine/backend_types.py`):** `engine/backend.py:send()` returns `SendResult.{OK, BUSY, FAIL}`. `notify.send_to_agent()` is preserved as a bool wrapper (`True` only when `OK`); the new `notify.send_to_agent_with_status()` returns the raw `SendResult` for callers that need to distinguish BUSY from FAIL (used by spec mode, see §10.1 of `docs/spec_mode_spec.md`).
 
 `send_to_agent()` and `send_to_agent_queued()` are the same function (the latter is an alias).
 Sends `chat.send` to Gateway via `openclaw gateway call` CLI.

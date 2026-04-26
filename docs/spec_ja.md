@@ -1,6 +1,6 @@
 # gokrax -- 開発パイプライン仕様書
 
-> 現行コード (2026-03-29 時点) に基づく正式仕様。全エージェントはこの文書に従うこと。
+> 現行コード (2026-04-27 時点) に基づく正式仕様。全エージェントはこの文書に従うこと。
 > 定数値は config のデフォルト値。settings.py で上書き可能 (14 章参照)。
 
 ## 1. 概要
@@ -28,6 +28,8 @@ engine/
   backend_pi.py        -- pi バックエンド (pi CLI 経由)
   backend_cc.py        -- cc バックエンド (claude CLI 経由)
   backend_gemini.py    -- gemini バックエンド (gemini CLI 経由, oneshot)
+  backend_types.py     -- バックエンド戻り値型 (SendResult: OK/BUSY/FAIL)
+  gemini_quota.py      -- Gemini Pro クォータ検出 & fallback キャッシュ
   cleanup.py           -- バッチ状態クリーンアップ共通関数
   filter.py            -- プロジェクト/著者フィルタリング (許可著者、Issue/コメント検証)
 watchdog.py           -- watchdog ループ + Discord コマンド処理
@@ -275,8 +277,9 @@ IDLE -> INITIALIZE -> DESIGN_PLAN -> DESIGN_REVIEW -> DESIGN_APPROVED -> ASSESSM
 |------|---|------|
 | NUDGE_GRACE_SEC | 600 秒 | 遷移直後はこの期間催促しない |
 | EXTEND_NOTICE_THRESHOLD | 300 秒 | 残り時間がこの値未満で延長案内を催促に付加 |
-| INACTIVE_THRESHOLD_SEC | 603 秒 | この秒数更新がなければ非アクティブ扱い |
+| INACTIVE_THRESHOLD_SEC | 603 秒 | 催促閾値: この秒数更新がなければ非アクティブ扱い。送信可否判定には使われない — 送信可否は live PID 所有権のみで判定する (#327) |
 | INACTIVE_THRESHOLD_PLAN_SEC | 900 秒 | DESIGN_PLAN での実装者催促間隔 |
+| BUSY_ESCALATION_SEC | 1800 秒 | spec mode: 30 分継続した `SendResult.BUSY` を 1 回の機械的失敗としてカウント (retry counter を 1 つ消費) |
 
 ### timeout_extension
 
@@ -306,13 +309,33 @@ IDLE -> INITIALIZE -> DESIGN_PLAN -> DESIGN_REVIEW -> DESIGN_APPROVED -> ASSESSM
 
 ### 7.2 エージェント送信方法
 
-エージェントへの送信は `engine/backend.py` の `send()` / `ping()` を経由する。エージェントごとに `resolve_backend()` でバックエンドを決定する:
-- **openclaw**: `engine/backend_openclaw.py` — `openclaw gateway call` CLI 経由で Gateway に送信
-- **pi**: `engine/backend_pi.py` — `pi` CLI 経由で送信。セッションファイルの mtime でアクティビティを判定
-- **cc**: `engine/backend_cc.py` — `claude -p` CLI 経由で送信。PID の有効性とセッション JSONL の mtime でアクティビティを判定
+エージェントへの送信は `engine/backend.py` の `send()` / `ping()` を経由する。
+
+**Backend 解決 (`resolve_backend(agent_id)` — キャッシュ読み取りのみ、HTTP なし):**
+1. `AGENT_BACKEND_OVERRIDE[agent_id]` があればそれ、なければ `DEFAULT_AGENT_BACKEND`。
+2. 解決された backend が `gemini` の場合のみ `engine/gemini_quota.py:resolve_fallback()` を呼ぶ。これはキャッシュ `~/.gokrax/quota-cache/<agent_id>.json` を **読み取るだけ** で、active (`active=true`、`fallback_to ∈ {"pi","cc"}`、`until` が未来) なら fallback backend を返す。schema 違反 (例: `fallback_to` が valid set 外) のキャッシュは miss 扱いとなり、通常通り `gemini` が使われる。
+
+**Backend ごとの挙動:**
+- **openclaw**: `engine/backend_openclaw.py` — `openclaw gateway call` CLI 経由で Gateway に送信。
+- **pi**: `engine/backend_pi.py` — `pi` CLI 経由で送信。アクティビティはセッションファイルの mtime で判定。
+- **cc**: `engine/backend_cc.py` — `claude -p` CLI 経由で送信。**送信可否** はセッションの live PID 所有権 (`/proc/<pid>` + cmdline チェック) のみで判定する。live owner が居る場合 `send()` は **即座に** `SendResult.BUSY` を返す (待機も SIGTERM も行わない)。セッション JSONL mtime は催促/非アクティブ判定 (§7.3) には引き続き使うが、送信可否には使われなくなった (#327)。
 - **gemini**: `engine/backend_gemini.py` — `gemini` CLI を oneshot プロセスとして起動して送信する（1 プロンプト = 1 プロセス）。`send()` は `subprocess.Popen(cwd=<agent profile dir>)` で `gemini` を起動する（Gemini CLI はセッションを cwd でスコープする）。アクティビティは pid ファイルに加え `/proc/<pid>` の存在と cmdline に `"gemini"` を含むことで判定する。セッション継続は `-r latest` を使用する。セッションは cwd 単位のため、エージェント間のセッション混在を避けるためにエージェントごとに独立した profile dir（`agents/<agent_id>/`）が必要。
 
 バックエンドは `settings.py` の `DEFAULT_AGENT_BACKEND`（config デフォルト: `"openclaw"`、`settings.example.py` 推奨値: `"pi"`、4 種類: openclaw, pi, cc, gemini）で設定し、`AGENT_BACKEND_OVERRIDE` でエージェント単位の上書きが可能。
+
+**送信時の Gemini Pro クォータ fallback (`should_fallback()`):**
+
+`send()` が `gemini` に解決された場合、追加で `engine/gemini_quota.py:should_fallback(agent_id)` が呼ばれる。これは Code Assist Internal API (`cloudcode-pa.googleapis.com`) に HTTP リクエストを発行して Pro 使用率を更新し、閾値超過なら今回の send だけを fallback backend に振り直す。fallback が発動するのは `agents/config_gemini.json` の該当 agent エントリで以下を **全て** 満たすときのみ:
+- `fallback: true`
+- `fallback_backend ∈ {"pi", "cc"}`
+- `model` に `"pro"` を含む (大文字小文字無視)
+- Pro 使用率 ≥ `usage_threshold` (0–100、既定 95)
+
+キャッシュファイル: `~/.gokrax/quota-cache/<agent_id>.json` の形は `{"active": true, "fallback_to": "pi"|"cc", "until": "<ISO-8601>", "reason": "..."}`。schema 違反のエントリは miss 扱い。
+
+前提: Gemini OAuth クレデンシャル (`GEMINI_OAUTH_CREDS`) と Gemini `settings.json` (`security.auth.selectedType` 含む) が読める必要がある。watchdog 起動時に `engine/backend.py:validate_overrides()` と `engine/gemini_quota.py:validate_fallback_config()` が config を検証して、未知 agent や不正 fallback 設定があれば警告ログを出す。
+
+**`SendResult` (3 値、`engine/backend_types.py`):** `engine/backend.py:send()` は `SendResult.{OK, BUSY, FAIL}` を返す。`notify.send_to_agent()` は互換のため bool ラッパーとして残る (`OK` のときのみ `True`)。新 API `notify.send_to_agent_with_status()` は `SendResult` をそのまま返し、BUSY と FAIL を区別したい呼び出し元 (spec mode、`docs/spec_mode_spec_ja.md` §10.1 参照) で使われる。
 
 `send_to_agent()` と `send_to_agent_queued()` は同一関数 (後者はエイリアス)。
 `openclaw gateway call` CLI 経由で Gateway に `chat.send` を送信する。

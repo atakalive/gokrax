@@ -1,7 +1,7 @@
 # gokrax Spec Mode — 仕様書
 
-**Version:** 8.0 (現行コード（2026-03-20時点）に基づく)
-**Date:** 2026-03-20
+**Version:** 8.1 (現行コード（2026-04-27時点）に基づく)
+**Date:** 2026-04-27
 
 ---
 
@@ -17,6 +17,12 @@
 | 6.0 | 2026-03-01 | rev5レビュー反映（Pascal 2件、Leibniz 5件、Dijkstra 2件 → 9件）|
 | 7.0 | 2026-03-01 | rev6レビュー反映（Pascal 2件、Leibniz 5件、Dijkstra 1件 → 7件）。**Critical 0達成** |
 | 8.0 | 2026-03-20 | 実装完了後のコード同期（v7→v8: 定数更新、submitコマンド群追加、§13実装結果に置換）|
+| 8.1 | 2026-04-27 | #327 反映: BUSY シグナル処理（`SpecTransitionAction` の `busy_counter_decrements` / `busy_since_key` フィールド）、`BUSY_ESCALATION_SEC=1800` 定数 |
+
+**v8→v8.1 の主要変更点:**
+
+- **[v8.1] §3.2 定数追加**: `BUSY_ESCALATION_SEC = 1800`（mechanical-failure 昇格までに許容する連続 BUSY の上限）
+- **[v8.1] §10.1 SpecTransitionAction 拡張**: `send_failure_rollback`, `busy_counter_decrements`, `busy_since_key` フィールドを追記。BUSY ロールバック / エスカレーションのフローも記載
 
 **v7→v8 の主要変更点:**
 
@@ -360,6 +366,8 @@ SPEC_REVISE_SELF_REVIEW_PASSES = 2
 MAX_SPEC_RETRIES = 3
 # [v4] Leibniz M-2
 SPEC_REVIEW_RAW_RETENTION_DAYS = 30
+# [v8.1] #327: mechanical-failure 昇格までに許容する連続 BUSY の上限
+BUSY_ESCALATION_SEC = 1800
 ```
 
 ### 3.3 CLI→pipeline 写像表
@@ -969,6 +977,12 @@ class SpecTransitionAction:
     error: str | None = None
     nudge_reviewers: list[str] | None = None   # 催促が必要なレビュアーリスト
     nudge_implementer: bool = False              # implementer催促フラグ
+    send_failure_rollback: dict | None = None    # 送信失敗時に spec_config に適用するロールバック差分
+    busy_counter_decrements: dict[str, int] = field(default_factory=dict)
+    # SendResult.BUSY 受信時に減算する counter キーと減算量。0 にクランプ。retry 消費を巻き戻す
+    busy_since_key: str | None = None
+    # 初回 BUSY の ISO タイムスタンプを保存する pipeline キー。BUSY が無くなったらクリア。
+    # BUSY_ESCALATION_SEC (1800s) 経過後に FAIL に昇格する判定で使用
 
 def check_transition_spec(
     state: str,
@@ -1011,6 +1025,16 @@ def check_transition_spec(
 **通知の発火ルール:** 通知は状態遷移を実行するアクション内で返す。滞在中のwatchdog tickでは通知しない。例:
 - _check_spec_review() が "approved" 判定 → `discord_notify="[Spec] spec承認 (rev{N})"` を含むSpecTransitionActionを返す
 - SPEC_APPROVED滞在中のcheck_transition_spec → `discord_notify=None`
+
+<!-- [v8.1] #327: BUSY シグナル処理 -->
+**BUSY シグナル処理 (#327):** `_apply_spec_action()` は `notify.send_to_agent_with_status()` を経由するため、cc backend で live owner が検出されたときの `SendResult.BUSY` を `FAIL` と区別できる。BUSY を返した agent ごとに以下を行う:
+
+1. `busy_counter_decrements` に列挙された retry counter を指定量だけ減算する（0 にクランプ）。これにより、BUSY 時に消費されかけた retry スロットがロールバックされる — BUSY は「live owner がまだ作業中」と解釈し、失敗としてはカウントしない。
+2. `busy_since_key` が設定されており、まだ pipeline に初回 BUSY のタイムスタンプが入っていなければ、現在時刻をそのキーに記録する。
+3. 次の tick で同じキーのタイムスタンプが `BUSY_ESCALATION_SEC` (1800s) 以上古ければ、BUSY を昇格させて通常の FAIL として処理する（retry counter を 1 つ消費）。これにより無期限にスタックしたリモート owner がパイプラインを停止させ続けるのを防ぐ。
+4. action 内のいずれの agent も BUSY でなくなった (全て OK / FAIL / 昇格済み) 時点で `busy_since_key` をクリアする。
+
+この仕組みは spec revise の self-review 衝突 (#327) — implementer 自身のセッション JSONL 書き込みが旧来の mtime ベース Guard 2 を踏んで live owner を SIGTERM していた — を解消する。
 
 <!-- [v4] Leibniz C-2 / Dijkstra C-1: update_pipeline パターン -->
 **process()内の統合（DCLパターン）:**

@@ -1,7 +1,7 @@
 # gokrax Spec Mode — Specification
 
-**Version:** 8.0 (Based on current code as of 2026-03-20)
-**Date:** 2026-03-20
+**Version:** 8.1 (Based on current code as of 2026-04-27)
+**Date:** 2026-04-27
 
 ---
 
@@ -17,6 +17,12 @@
 | 6.0 | 2026-03-01 | rev5 review feedback (Pascal 2, Leibniz 5, Dijkstra 2 → 9 items) |
 | 7.0 | 2026-03-01 | rev6 review feedback (Pascal 2, Leibniz 5, Dijkstra 1 → 7 items). **Zero Criticals achieved** |
 | 8.0 | 2026-03-20 | Post-implementation code sync (v7→v8: constants updated, submit commands added, §13 replaced with implementation results) |
+| 8.1 | 2026-04-27 | Post-#327 sync: BUSY signal handling (`busy_counter_decrements` / `busy_since_key` fields on `SpecTransitionAction`), `BUSY_ESCALATION_SEC=1800` constant |
+
+**Key changes in v8→v8.1:**
+
+- **[v8.1] §3.2 Constants added**: `BUSY_ESCALATION_SEC = 1800` (max sustained BUSY before mechanical-failure escalation)
+- **[v8.1] §10.1 SpecTransitionAction extended**: `send_failure_rollback`, `busy_counter_decrements`, `busy_since_key` fields documented; BUSY rollback / escalation flow described
 
 **Key changes in v7→v8:**
 
@@ -361,6 +367,8 @@ SPEC_REVISE_SELF_REVIEW_PASSES = 2
 MAX_SPEC_RETRIES = 3
 # [v4] Leibniz M-2
 SPEC_REVIEW_RAW_RETENTION_DAYS = 30
+# [v8.1] #327: max sustained BUSY before mechanical-failure escalation
+BUSY_ESCALATION_SEC = 1800
 ```
 
 ### 3.3 CLI→Pipeline Mapping Table
@@ -970,6 +978,12 @@ class SpecTransitionAction:
     error: str | None = None
     nudge_reviewers: list[str] | None = None   # List of reviewers to nudge
     nudge_implementer: bool = False              # Implementer nudge flag
+    send_failure_rollback: dict | None = None    # spec_config rollback diff applied on send failure
+    busy_counter_decrements: dict[str, int] = field(default_factory=dict)
+    # On SendResult.BUSY: counter keys to decrement (and amount). Clamped to 0. Rolls back retry consumption.
+    busy_since_key: str | None = None
+    # Pipeline key holding first-BUSY ISO timestamp. Cleared when no agent is BUSY.
+    # Triggers FAIL escalation after BUSY_ESCALATION_SEC (1800s).
 
 def check_transition_spec(
     state: str,
@@ -1012,6 +1026,16 @@ def check_transition_spec(
 **Notification firing rule:** Notifications are returned within the action that executes the state transition. Notifications are not sent during watchdog ticks while staying in a state. Examples:
 - _check_spec_review() determines "approved" → returns SpecTransitionAction with `discord_notify="[Spec] spec approved (rev{N})"`
 - check_transition_spec during SPEC_APPROVED stay → `discord_notify=None`
+
+<!-- [v8.1] #327: BUSY signal handling -->
+**BUSY signal handling (#327):** `_apply_spec_action()` invokes `notify.send_to_agent_with_status()` so that `SendResult.BUSY` (live owner detected on cc backend) is distinguishable from `FAIL`. For each agent that returned BUSY:
+
+1. The retry counters listed in `busy_counter_decrements` are decremented by the specified amount (clamped to 0). This rolls back the retry slot that the send attempt would otherwise have consumed — BUSY is treated as "the live owner is still working", not as a failure.
+2. If `busy_since_key` is set and the pipeline does not yet hold a first-BUSY timestamp under that key, the current time is recorded there.
+3. On the next tick, if the same key still holds a timestamp older than `BUSY_ESCALATION_SEC` (1800s), the BUSY is escalated and processed as a regular FAIL (consuming one retry counter slot). This prevents an indefinitely-stuck remote owner from blocking the pipeline.
+4. Once no agent in the action is BUSY (all are OK / FAIL / escalated), `busy_since_key` is cleared.
+
+This mechanism resolves the spec-revise self-review collision (#327) where the implementer's own session JSONL writes used to trip the old mtime-based Guard 2 and SIGTERM the live owner.
 
 <!-- [v4] Leibniz C-2 / Dijkstra C-1: update_pipeline pattern -->
 **Integration in process() (DCL pattern):**

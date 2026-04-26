@@ -1,5 +1,6 @@
 """共通fixture — pipeline JSONのtmpディレクトリ等"""
 
+import contextlib
 import json
 import os as _os
 import pytest
@@ -27,31 +28,38 @@ def _block_external_calls(request, tmp_path):
     _helpers.LOG_FILE = tmp_log
 
     module = Path(request.node.fspath).stem
-    if module in ("test_notify", "test_config", "test_short_context", "test_phase_override", "test_run_glab", "test_gemini_quota"):
+    if module in ("test_notify", "test_config", "test_short_context", "test_phase_override", "test_run_glab", "test_gemini_quota", "test_openai_codex_quota"):
         yield
         config.LOG_FILE = orig_config
         watchdog.LOG_FILE = orig_watchdog
         _helpers.LOG_FILE = orig_helpers
         return
-    with patch("notify.post_discord", return_value=DiscordPostResult("mock-msg-id")), \
-         patch("notify.send_to_agent", return_value=True), \
-         patch("notify.send_to_agent_queued", return_value=True), \
-         patch("notify.ping_agent", return_value=True), \
-         patch("watchdog.send_to_agent", return_value=True), \
-         patch("watchdog.send_to_agent_queued", return_value=True), \
-         patch("watchdog.ping_agent", return_value=True), \
-         patch("engine.fsm.send_to_agent", return_value=True), \
-         patch("engine.reviewer._reset_reviewers", return_value=[]), \
-         patch("engine.reviewer._reset_short_context_reviewers"), \
-         patch("watchdog._start_cc"), \
-         patch("watchdog._start_code_test"), \
-         patch("watchdog._start_cc_test_fix"), \
-         patch("watchdog.notify_discord"), \
-         patch("engine.glab.fetch_issue_state", return_value="opened"), \
-         patch("engine.gemini_quota.resolve_fallback", return_value=""), \
-         patch("engine.gemini_quota.should_fallback", return_value=(False, "", False)), \
-         patch("engine.gemini_quota.get_pro_quota", return_value=(False, 0.0, None)), \
-         patch("time.sleep"):
+    _patches = [
+        patch("notify.post_discord", return_value=DiscordPostResult("mock-msg-id")),
+        patch("notify.send_to_agent", return_value=True),
+        patch("notify.send_to_agent_queued", return_value=True),
+        patch("notify.ping_agent", return_value=True),
+        patch("watchdog.send_to_agent", return_value=True),
+        patch("watchdog.send_to_agent_queued", return_value=True),
+        patch("watchdog.ping_agent", return_value=True),
+        patch("engine.fsm.send_to_agent", return_value=True),
+        patch("engine.reviewer._reset_reviewers", return_value=[]),
+        patch("engine.reviewer._reset_short_context_reviewers"),
+        patch("watchdog._start_cc"),
+        patch("watchdog._start_code_test"),
+        patch("watchdog._start_cc_test_fix"),
+        patch("watchdog.notify_discord"),
+        patch("engine.glab.fetch_issue_state", return_value="opened"),
+        patch("engine.gemini_quota.resolve_fallback", return_value=""),
+        patch("engine.gemini_quota.should_fallback", return_value=(False, "", False)),
+        patch("engine.gemini_quota.get_pro_quota", return_value=(False, 0.0, None)),
+        patch("engine.openai_codex_quota.should_fallback", return_value=(False, "", "", False)),
+        patch("engine.openai_codex_quota.get_codex_usage", return_value=(False, 0.0, None)),
+        patch("time.sleep"),
+    ]
+    with contextlib.ExitStack() as stack:
+        for p in _patches:
+            stack.enter_context(p)
         yield
     config.LOG_FILE = orig_config
     watchdog.LOG_FILE = orig_watchdog

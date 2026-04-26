@@ -1757,9 +1757,12 @@ def main():
 
     from engine.backend import validate_overrides
     from engine.gemini_quota import validate_fallback_config
+    from engine.openai_codex_quota import validate_fallback_config as validate_codex_fallback
     from engine.shared import log as _log
     validate_overrides()
     for warn in validate_fallback_config():
+        _log(warn)
+    for warn in validate_codex_fallback():
         _log(warn)
 
     # Check Discord commands BEFORE pipeline processing

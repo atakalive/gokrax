@@ -23,9 +23,10 @@ import os
 import time
 import urllib.parse
 import urllib.request
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 import config.paths as _paths
+from engine import fallback_cache
 from engine.shared import log
 
 _OAUTH_CLIENT_ID = "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com"
@@ -242,38 +243,23 @@ def get_pro_quota() -> tuple[bool, float, datetime | None]:
         return (False, 0.0, None)
 
 
+def _cache_path(agent_id: str) -> "object":
+    return _paths.GEMINI_QUOTA_CACHE_DIR / f"{agent_id}.json"
+
+
 def _read_cache(agent_id: str) -> dict | None:
     """Read agent quota cache. Return dict or None if missing/corrupt."""
-    path = _paths.GEMINI_QUOTA_CACHE_DIR / f"{agent_id}.json"
-    try:
-        with open(path, "r") as f:
-            data = json.load(f)
-    except (OSError, json.JSONDecodeError):
-        return None
-    return data if isinstance(data, dict) else None
+    return fallback_cache.read_cache(_cache_path(agent_id))
 
 
 def _cache_active(cache: dict | None) -> bool:
-    """Check if a cache dict represents an active fallback period.
-
-    Validates full schema: active, fallback_to in valid set, and until in future.
-    Invalid or corrupt cache is treated as cache miss.
-    """
-    if not cache or not cache.get("active"):
-        return False
-    fb = cache.get("fallback_to")
-    if not isinstance(fb, str) or fb not in _VALID_FALLBACK_BACKENDS:
-        return False
-    until = cache.get("until")
-    if not isinstance(until, str):
-        return False
-    try:
-        until_dt = datetime.fromisoformat(until.replace("Z", "+00:00"))
-        if until_dt.tzinfo is None:
-            until_dt = until_dt.replace(tzinfo=timezone.utc)
-    except ValueError:
-        return False
-    return until_dt > datetime.now(timezone.utc)
+    """Check if a cache dict represents an active fallback period."""
+    return fallback_cache.cache_active(
+        cache,
+        validators={
+            "fallback_to": lambda v: isinstance(v, str) and v in _VALID_FALLBACK_BACKENDS,
+        },
+    )
 
 
 def resolve_fallback(agent_id: str) -> str:
@@ -297,16 +283,6 @@ def _load_agent_config() -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def _atomic_write_cache(agent_id: str, payload: dict) -> None:
-    cache_dir = _paths.GEMINI_QUOTA_CACHE_DIR
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    path = cache_dir / f"{agent_id}.json"
-    tmp = cache_dir / f"{agent_id}.json.tmp"
-    with open(tmp, "w") as f:
-        json.dump(payload, f)
-    os.replace(tmp, path)
-
-
 def _reset_fallback_backend(agent_id: str, fallback_to: str) -> None:
     """Best-effort reset_session on fallback backend. WARN on exception."""
     try:
@@ -319,17 +295,6 @@ def _reset_fallback_backend(agent_id: str, fallback_to: str) -> None:
         _reset(agent_id)
     except Exception as e:
         log(f"WARN gemini_quota: reset_session({agent_id}, {fallback_to}) failed: {e!r}")
-
-
-def _clamp_reset_time(reset_dt: datetime | None) -> datetime:
-    now = datetime.now(timezone.utc)
-    if reset_dt is None:
-        return now + timedelta(hours=1)
-    if reset_dt > now + timedelta(hours=48):
-        return now + timedelta(hours=1)
-    if reset_dt < now:
-        return now + timedelta(minutes=5)
-    return reset_dt
 
 
 def should_fallback(agent_id: str) -> tuple[bool, str, bool]:
@@ -376,7 +341,7 @@ def should_fallback(agent_id: str) -> tuple[bool, str, bool]:
 
             _reset_fallback_backend(agent_id, fallback_to)
 
-            until = _clamp_reset_time(reset_dt)
+            until = fallback_cache.clamp_reset_time(reset_dt)
             pct = int(round(usage_fraction * 100))
             payload = {
                 "active": True,
@@ -384,7 +349,7 @@ def should_fallback(agent_id: str) -> tuple[bool, str, bool]:
                 "until": until.isoformat(),
                 "reason": f"Pro quota {pct}% (>={threshold})",
             }
-            _atomic_write_cache(agent_id, payload)
+            fallback_cache.atomic_write_cache(_cache_path(agent_id), payload)
             return (True, fallback_to, True)
     except Exception as e:
         log(f"WARN gemini_quota: should_fallback({agent_id}) exception: {e!r}")

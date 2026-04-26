@@ -1,9 +1,21 @@
 {
+  "_comment": {
+    "provider": "Provider name passed to pi --model (e.g. 'openai-codex', 'github-copilot')",
+    "model": "Model name (e.g. 'gpt-5.4')",
+    "fallback": "If true, route to fallback_provider/fallback_model when usage >= usage_threshold (openai-codex only)",
+    "fallback_provider": "Target provider when fallback triggers; ignored if fallback=false",
+    "fallback_model": "Target model when fallback triggers; ignored if fallback=false",
+    "usage_threshold": "Codex usage percent [0-100]. Default 95"
+  },
   "impl1": {
     "provider": "openai-codex",
     "model": "gpt-5.4",
     "thinking": "low",
-    "compile-startup-md": false
+    "compile-startup-md": false,
+    "fallback": true,
+    "fallback_provider": "github-copilot",
+    "fallback_model": "gpt-5.4",
+    "usage_threshold": 95
   },
   "reviewer1": {
     "provider": "google-gemini-cli",

@@ -155,6 +155,12 @@ def send(agent_id: str, message: str, timeout: int) -> SendResult:
             "ignoring provider", agent_id,
         )
 
+    if profile.get("provider") == "openai-codex" and profile.get("fallback"):
+        from engine.openai_codex_quota import should_fallback
+        active, fb_provider, fb_model, _new = should_fallback(agent_id)
+        if active and fb_provider and fb_model:
+            profile = {**profile, "provider": fb_provider, "model": fb_model}
+
     model_arg = ""
     if profile.get("provider") and profile.get("model"):
         model_arg = f"{profile['provider']}/{profile['model']}"

@@ -142,6 +142,8 @@ pi --list-models
 nano agents/config_pi.json
 ```
 
+Minimal (no fallback):
+
 ```json
 {
   "impl1": {
@@ -159,6 +161,32 @@ nano agents/config_pi.json
   }
 }
 ```
+
+With openai-codex quota fallback (switches to `github-copilot` when weekly usage >= 95%):
+
+```json
+{
+  "impl1": {
+    "provider": "openai-codex",
+    "model": "gpt-5.4",
+    "thinking": "low",
+    "compile-startup-md": true,
+    "fallback": true,
+    "fallback_provider": "github-copilot",
+    "fallback_model": "gpt-5.4",
+    "usage_threshold": 95
+  },
+  "reviewer1": {
+    "provider": "google-gemini-cli",
+    "model": "gemini-3.1-pro-preview",
+    "thinking": "low",
+    "tools": "read,bash,grep,find,ls",
+    "compile-startup-md": true
+  }
+}
+```
+
+`usage_threshold` is the weekly usage percent at which fallback triggers (default 95). The 5-hour window is not checked. Requires `pi /login openai-codex` or an existing `~/.codex/auth.json` for authentication.
 
 ## 6. Register a Project and Create a Sample Issue
 

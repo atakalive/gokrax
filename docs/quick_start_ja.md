@@ -143,6 +143,8 @@ pi --list-models
 nano agents/config_pi.json
 ```
 
+最小構成 (fallback なし):
+
 ```json
 {
   "impl1": {
@@ -160,6 +162,32 @@ nano agents/config_pi.json
   }
 }
 ```
+
+openai-codex quota fallback あり (weekly 使用率 >= 95% で `github-copilot` に切替):
+
+```json
+{
+  "impl1": {
+    "provider": "openai-codex",
+    "model": "gpt-5.4",
+    "thinking": "low",
+    "compile-startup-md": true,
+    "fallback": true,
+    "fallback_provider": "github-copilot",
+    "fallback_model": "gpt-5.4",
+    "usage_threshold": 95
+  },
+  "reviewer1": {
+    "provider": "google-gemini-cli",
+    "model": "gemini-3.1-pro-preview",
+    "thinking": "low",
+    "tools": "read,bash,grep,find,ls",
+    "compile-startup-md": true
+  }
+}
+```
+
+`usage_threshold` は fallback が発火する weekly 使用率 (デフォルト 95)。5 時間ウィンドウは参照しない。認証には `pi /login openai-codex` または既存の `~/.codex/auth.json` が必要。
 
 ## 6. プロジェクト登録とサンプル Issue
 

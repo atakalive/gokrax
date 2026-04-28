@@ -239,6 +239,46 @@ Keys:
 
 The template is `agents/config_gemini.example.json`.
 
+#### openai-codex quota fallback (`agents/config_pi.json`)
+
+When an agent uses `openai-codex` as its PI provider, gokrax can automatically switch to a different provider (e.g. `github-copilot`) when the weekly ChatGPT quota runs low. This avoids pipeline stalls during quota exhaustion.
+
+To enable, add fallback fields to the agent's profile in `agents/config_pi.json`:
+
+```json
+{
+  "impl1": {
+    "provider": "openai-codex",
+    "model": "gpt-5.4",
+    "thinking": "low",
+    "fallback": true,
+    "fallback_provider": "github-copilot",
+    "fallback_model": "gpt-5.4",
+    "usage_threshold": 95
+  }
+}
+```
+
+Keys:
+- `fallback`: set to `true` to enable quota-based fallback (openai-codex only)
+- `fallback_provider`: target PI provider when fallback triggers
+- `fallback_model`: target model when fallback triggers
+- `usage_threshold`: switch when weekly usage reaches this percent (0-100, default 95)
+
+Authentication (one of the following):
+- **Recommended**: run `pi /login openai-codex`. gokrax reads `~/.pi/agent/auth.json` -- no additional setup needed
+- **Alternative**: if `~/.codex/auth.json` exists (from the Codex CLI), it is used as a fallback credential source. `pi /login` is not required in this case
+- Priority: pi auth is checked first; codex auth is tried only when pi auth is absent or expired
+- Only the **weekly** quota window is checked; the 5-hour window is ignored
+- If authentication is missing or the quota API is unreachable, the original provider continues without error (fail-open)
+- Only `openai-codex` is supported as the source provider; Anthropic backends are not eligible
+
+When fallback activates, the PI session JSONL is reset for the affected agent to avoid carrying stale context to the fallback provider. When the cache expires and the original provider resumes, the session is not reset (same behavior as Gemini fallback).
+
+Cache: `~/.gokrax/quota-cache-codex/<agent_id>.json`. While the cache is active, no HTTP calls are made to check quota.
+
+The template is `agents/config_pi.example.json`. See [#336](https://gitlab.com/atakalive/gokrax/-/issues/336) for implementation details.
+
 ### Installing glab CLI
 
 Used for GitLab Issue operations.

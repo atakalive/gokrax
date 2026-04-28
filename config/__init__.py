@@ -133,6 +133,7 @@ PI_START_GRACE_SEC: int = 30
 CC_BIN: str = "claude"
 CC_START_GRACE_SEC: int = 30
 GEMINI_BIN: str = "gemini"
+KIMI_BIN: str = "kimi"
 
 # 非アクティブ判定 (秒) — nudge 専用の閾値。
 # _is_agent_inactive() が「最後の書き込みからこの秒数経過したら進行中作業が止まっていると

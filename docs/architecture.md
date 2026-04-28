@@ -24,12 +24,14 @@ graph LR
         BE_PI["pi Backend<br/>(engine/backend_pi.py)"]
         BE_CC["cc Backend<br/>(engine/backend_cc.py)"]
         BE_GM["gemini Backend<br/>(engine/backend_gemini.py)"]
+        BE_KM["kimi Backend<br/>(engine/backend_kimi.py)"]
         CC1["Claude Code CLI<br/>(Impl Lead 1)"]
         CC2["Claude Code CLI<br/>(Impl Lead 2)"]
         BD --> BE_OC
         BD --> BE_PI
         BD --> BE_CC
         BD --> BE_GM
+        BD --> BE_KM
         BE_CC --> CC1
         BE_CC --> CC2
     end

@@ -28,6 +28,7 @@ engine/
   backend_pi.py        -- pi バックエンド (pi CLI 経由)
   backend_cc.py        -- cc バックエンド (claude CLI 経由)
   backend_gemini.py    -- gemini バックエンド (gemini CLI 経由, oneshot)
+  backend_kimi.py    -- kimi バックエンド (kimi CLI 経由)
   backend_types.py     -- バックエンド戻り値型 (SendResult: OK/BUSY/FAIL)
   gemini_quota.py      -- Gemini Pro クォータ検出 & fallback キャッシュ
   cleanup.py           -- バッチ状態クリーンアップ共通関数
@@ -48,7 +49,7 @@ messages/             -- テンプレートメッセージ (render() 経由)
 settings.py           -- ユーザー設定 (config override)
 ```
 
-- **エージェント通信**: `engine/backend.py` がルーターとして機能し、エージェントごとに `openclaw`、`pi`、`cc`、`gemini` バックエンドに振り分ける。`settings.py` の `DEFAULT_AGENT_BACKEND` と `AGENT_BACKEND_OVERRIDE` で制御。
+- **エージェント通信**: `engine/backend.py` がルーターとして機能し、エージェントごとに `openclaw`、`pi`、`cc`、`gemini`、`kimi` バックエンドに振り分ける。`settings.py` の `DEFAULT_AGENT_BACKEND` と `AGENT_BACKEND_OVERRIDE` で制御。
 - **pipeline JSON**: `~/.gokrax/pipelines/<project>.json`
 - **watchdog**: `watchdog-loop.sh` で 20 秒おきにポーリング (後述 7 章)
 - **Discord 通知先**: Discord 通知チャンネル（`settings.py` の `DISCORD_CHANNEL` で設定）

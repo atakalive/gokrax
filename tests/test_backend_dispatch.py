@@ -10,7 +10,7 @@ import pytest
 
 import config
 import notify
-from engine import backend, backend_cc, backend_openclaw, backend_pi, reviewer as _reviewer_mod
+from engine import backend, backend_cc, backend_kimi, backend_openclaw, backend_pi, reviewer as _reviewer_mod
 from engine.backend_types import SendResult
 
 # Save real function references before conftest's autouse fixtures replace them
@@ -480,6 +480,12 @@ class TestResolveBackend:
         monkeypatch.setattr(config, "AGENT_BACKEND_OVERRIDE", {"reviewer1": "gemini"})
         assert backend.resolve_backend("reviewer1") == "gemini"
 
+    def test_kimi_accepted_as_backend(self, monkeypatch):
+        """resolve_backend accepts 'kimi' (in SUPPORTED_BACKENDS)."""
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "openclaw")
+        monkeypatch.setattr(config, "AGENT_BACKEND_OVERRIDE", {"reviewer1": "kimi"})
+        assert backend.resolve_backend("reviewer1") == "kimi"
+
 
 # ===========================================================================
 # validate_overrides
@@ -668,6 +674,12 @@ class TestBackendResetSessionDispatch:
             backend.reset_session("reviewer1")
         mock_gm.assert_called_once_with("reviewer1")
 
+    def test_kimi_calls_kimi_reset_session(self, monkeypatch):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "kimi")
+        with patch("engine.backend_kimi.reset_session") as mock_km:
+            backend.reset_session("reviewer1")
+        mock_km.assert_called_once_with("reviewer1")
+
     def test_openclaw_is_noop(self, monkeypatch):
         """openclaw reset_session does not raise."""
         monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "openclaw")
@@ -758,6 +770,34 @@ class TestArchitectureGuard:
         for name in removed:
             assert name not in defined, \
                 f"notify.py still defines {name!r}"
+
+    def test_backend_kimi_does_not_import_engine_shared(self):
+        """engine.backend_kimi must not import engine.shared to avoid cycles."""
+        source = Path(backend_kimi.__file__).read_text()
+        tree = ast.parse(source)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    assert not alias.name.startswith("engine.shared"), \
+                        f"engine.backend_kimi imports {alias.name}"
+            elif isinstance(node, ast.ImportFrom):
+                if node.module and node.module.startswith("engine.shared"):
+                    pytest.fail(
+                        f"engine.backend_kimi imports from {node.module}"
+                    )
+
+    def test_backend_kimi_exposes_send_and_ping(self):
+        """engine/backend_kimi.py must expose send and ping as public API."""
+        source = Path(backend_kimi.__file__).read_text()
+        tree = ast.parse(source)
+        top_level_funcs = set()
+        for node in ast.iter_child_nodes(tree):
+            if isinstance(node, ast.FunctionDef) and not node.name.startswith("_"):
+                top_level_funcs.add(node.name)
+        assert "send" in top_level_funcs, "backend_kimi missing public send()"
+        assert "ping" in top_level_funcs, "backend_kimi missing public ping()"
+        assert "is_inactive" in top_level_funcs, "backend_kimi missing public is_inactive()"
+        assert "reset_session" in top_level_funcs, "backend_kimi missing public reset_session()"
 
     def test_backend_openclaw_exposes_send_and_ping(self):
         """engine/backend_openclaw.py must expose send and ping as public API."""

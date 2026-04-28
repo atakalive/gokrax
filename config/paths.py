@@ -23,6 +23,8 @@ __all__ = [
     "GEMINI_OAUTH_CREDS",
     "GEMINI_SETTINGS",
     "GEMINI_QUOTA_CACHE_DIR",
+    "KIMI_PIDS_DIR",
+    "KIMI_AGENT_CONFIG",
     "PI_AUTH_FILE",
     "CODEX_AUTH_FILE",
     "OPENAI_CODEX_QUOTA_CACHE_DIR",
@@ -68,6 +70,10 @@ CC_AGENT_CONFIG = AGENT_PROFILES_DIR / "config_cc.json"
 # gemini backend pids / per-agent config
 GEMINI_PIDS_DIR = _PROJECT_ROOT / ".gemini-pids"
 GEMINI_AGENT_CONFIG = AGENT_PROFILES_DIR / "config_gemini.json"
+
+# kimi backend pids / per-agent config
+KIMI_PIDS_DIR = _PROJECT_ROOT / ".kimi-pids"
+KIMI_AGENT_CONFIG = AGENT_PROFILES_DIR / "config_kimi.json"
 
 # gemini OAuth / settings / quota cache
 GEMINI_OAUTH_CREDS = Path.home() / ".gemini" / "oauth_creds.json"

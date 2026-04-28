@@ -23,3 +23,8 @@ reports/drafts/
 agents/*/GEMINI.md
 agents/*/.gemini_hash
 agents/config_gemini.json
+!agents/config_kimi.example.json
+.kimi-pids/
+agents/*/KIMI.md
+agents/*/.kimi_hash
+agents/config_kimi.json

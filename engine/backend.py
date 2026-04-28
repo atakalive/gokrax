@@ -1,9 +1,9 @@
 """engine/backend.py - backend dispatch layer for agent communication.
 
-Thin router that delegates to the selected backend (openclaw, pi, or cc).
-Backend is resolved per-agent: AGENT_BACKEND_OVERRIDE[agent_id] takes
-precedence over DEFAULT_AGENT_BACKEND.  Backend-specific state (e.g. pi/cc
-starting markers) lives in the backend module, not here.
+Thin router that delegates to the selected backend (openclaw, pi, cc, gemini,
+or kimi). Backend is resolved per-agent: AGENT_BACKEND_OVERRIDE[agent_id]
+takes precedence over DEFAULT_AGENT_BACKEND.  Backend-specific state (e.g.
+pi/cc starting markers) lives in the backend module, not here.
 """
 
 from __future__ import annotations
@@ -66,6 +66,9 @@ def send(agent_id: str, message: str, timeout: int) -> SendResult:
     elif backend == "gemini":
         from engine.backend_gemini import send as gm_send
         return gm_send(agent_id, message, timeout)
+    elif backend == "kimi":
+        from engine.backend_kimi import send as km_send
+        return km_send(agent_id, message, timeout)
     # openclaw: delegate to the openclaw-specific implementation
     from engine.backend_openclaw import send as oc_send
     return oc_send(agent_id, message, timeout)
@@ -83,6 +86,9 @@ def ping(agent_id: str, timeout: int) -> bool:
     elif backend == "gemini":
         from engine.backend_gemini import ping as gm_ping
         return gm_ping(agent_id, timeout)
+    elif backend == "kimi":
+        from engine.backend_kimi import ping as km_ping
+        return km_ping(agent_id, timeout)
     from engine.backend_openclaw import ping as oc_ping
     return oc_ping(agent_id, timeout)
 
@@ -109,6 +115,9 @@ def is_inactive(agent_id: str, pipeline_data: dict | None = None) -> bool:
     elif backend == "gemini":
         from engine.backend_gemini import is_inactive as gm_is_inactive
         return gm_is_inactive(agent_id, pipeline_data, cc_running=cc_running)
+    elif backend == "kimi":
+        from engine.backend_kimi import is_inactive as km_is_inactive
+        return km_is_inactive(agent_id, pipeline_data, cc_running=cc_running)
 
     # openclaw: preserve original semantics
     if cc_running:
@@ -137,3 +146,6 @@ def reset_session(agent_id: str) -> None:
     elif backend == "gemini":
         from engine.backend_gemini import reset_session as gm_reset
         gm_reset(agent_id)
+    elif backend == "kimi":
+        from engine.backend_kimi import reset_session as km_reset
+        km_reset(agent_id)

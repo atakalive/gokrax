@@ -1,20 +1,18 @@
-"""engine/backend_gemini.py - gemini backend for agent communication.
+"""engine/backend_kimi.py - kimi backend for agent communication.
 
-Provides send/ping/is_inactive/reset_session for agents running via the ``gemini`` CLI.
+Provides send/ping/is_inactive/reset_session for agents running via the ``kimi``
+CLI (Moonshot AI's kimi-cli).
 
-Gemini characteristics:
+Kimi characteristics:
     - Oneshot process (one prompt = one process, completes and exits)
-    - Sessions are managed server-side, scoped per-cwd (project scope); the
-      client cannot specify a session_id.
-    - Continuation: ``-r latest`` resumes the most recent session for the cwd.
-    - List: ``--list-sessions`` (header ``Available sessions for this project (N):``
-      or ``No sessions found for this project.``).
-    - Delete: ``--delete-session <index>``.
+    - Sessions are scoped per-cwd; the client cannot specify a session_id
+    - Continuation: ``-C`` resumes the most recent session for the cwd
+      (best-effort; creates a new session if none exists)
+    - No ``--list-sessions`` / ``--delete-session`` CLI: presence of a previous
+      session is tracked by a local marker file (``<agent>.has_session``)
 
 Liveness invariant:
-    pid file exists, /proc/<pid> exists, and cmdline contains "gemini".
-    No starting-grace mechanism is needed because pid is written immediately
-    after ``Popen`` (no session-file appearance delay to bridge).
+    pid file exists, /proc/<pid> exists, and cmdline contains "kimi".
 """
 
 from __future__ import annotations
@@ -23,7 +21,6 @@ import hashlib
 import json
 import logging
 import os
-import re
 import signal
 import subprocess
 import time
@@ -32,32 +29,32 @@ from pathlib import Path
 import config
 from config import (
     AGENT_PROFILES_DIR,
-    GEMINI_AGENT_CONFIG,
-    GEMINI_PIDS_DIR,
+    KIMI_AGENT_CONFIG,
+    KIMI_PIDS_DIR,
 )
 from engine.backend_types import SendResult
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Per-agent config (agents/config_gemini.json)
+# Per-agent config (agents/config_kimi.json)
 # ---------------------------------------------------------------------------
 _agent_config_cache: dict[str, dict[str, object]] | None = None
 
 
 def _load_config() -> dict[str, dict[str, object]]:
-    """Load and cache agents/config_gemini.json. Called once per process lifetime."""
+    """Load and cache agents/config_kimi.json. Called once per process lifetime."""
     global _agent_config_cache
     if _agent_config_cache is not None:
         return _agent_config_cache
 
     try:
-        text = GEMINI_AGENT_CONFIG.read_text(encoding="utf-8").strip()
+        text = KIMI_AGENT_CONFIG.read_text(encoding="utf-8").strip()
     except FileNotFoundError:
         _agent_config_cache = {}
         return _agent_config_cache
     except OSError as exc:
-        logger.warning("Failed to read %s: %s", GEMINI_AGENT_CONFIG, exc)
+        logger.warning("Failed to read %s: %s", KIMI_AGENT_CONFIG, exc)
         _agent_config_cache = {}
         return _agent_config_cache
 
@@ -68,14 +65,14 @@ def _load_config() -> dict[str, dict[str, object]]:
     try:
         parsed = json.loads(text)
     except json.JSONDecodeError as exc:
-        logger.warning("Invalid JSON in %s: %s", GEMINI_AGENT_CONFIG, exc)
+        logger.warning("Invalid JSON in %s: %s", KIMI_AGENT_CONFIG, exc)
         _agent_config_cache = {}
         return _agent_config_cache
 
     if not isinstance(parsed, dict):
         logger.warning(
             "Expected JSON object in %s, got %s",
-            GEMINI_AGENT_CONFIG, type(parsed).__name__,
+            KIMI_AGENT_CONFIG, type(parsed).__name__,
         )
         _agent_config_cache = {}
         return _agent_config_cache
@@ -86,16 +83,28 @@ def _load_config() -> dict[str, dict[str, object]]:
     if len(_agent_config_cache) < len(parsed):
         skipped = [k for k, v in parsed.items() if not isinstance(v, dict)]
         logger.warning(
-            "Skipped non-dict entries in %s: %s", GEMINI_AGENT_CONFIG, skipped,
+            "Skipped non-dict entries in %s: %s", KIMI_AGENT_CONFIG, skipped,
         )
     return _agent_config_cache
 
 
 def _pid_path(agent_id: str) -> Path:
-    return GEMINI_PIDS_DIR / f"{agent_id}.pid"
+    return KIMI_PIDS_DIR / f"{agent_id}.pid"
 
 
-def _is_gemini_pid_alive(pid: int) -> bool:
+def _session_marker_path(agent_id: str) -> Path:
+    """Per-agent marker recording that a previous send() Popen succeeded.
+
+    The marker's existence means "the previous send() spawned a kimi process
+    successfully". It does NOT guarantee that a Kimi server-side session for
+    this agent's cwd is currently alive — Kimi has no ``--list-sessions``
+    equivalent, so the marker is a best-effort substitute. See module-level
+    notes and Issue #338 for the rationale and stale-marker behavior.
+    """
+    return KIMI_PIDS_DIR / f"{agent_id}.has_session"
+
+
+def _is_kimi_pid_alive(pid: int) -> bool:
     proc_dir = Path(f"/proc/{pid}")
     if not proc_dir.exists():
         return False
@@ -109,41 +118,9 @@ def _is_gemini_pid_alive(pid: int) -> bool:
             s = t.decode("utf-8")
         except UnicodeDecodeError:
             continue
-        if s == "gemini" or s.endswith("/gemini"):
+        if s == "kimi" or s.endswith("/kimi"):
             return True
     return False
-
-
-def _count_sessions(cwd: Path) -> int | None:
-    """Return session count for the cwd-scoped Gemini project.
-
-    Returns:
-        int >= 0: parsed count (explicit "No sessions found" → 0).
-        None: subprocess failure, non-zero exit, or unrecognized stdout
-            (treated as drift — caller decides).
-    """
-    try:
-        r = subprocess.run(
-            [config.GEMINI_BIN, "--list-sessions"],
-            cwd=str(cwd), capture_output=True, text=True, timeout=30,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-    if r.returncode != 0:
-        return None
-    m = re.search(r"Available sessions for this project\s*\((\d+)\)", r.stdout)
-    if m:
-        return int(m.group(1))
-    if "No sessions found for this project" in r.stdout:
-        return 0
-    # Output drift: neither known header matched — surface it so operators can
-    # diagnose format changes in the Gemini CLI.
-    logger.warning(
-        "gemini _count_sessions: unrecognized --list-sessions output (drift); "
-        "stdout head=%r",
-        r.stdout[:200],
-    )
-    return None
 
 
 def _terminate_pid_tree(
@@ -151,23 +128,12 @@ def _terminate_pid_tree(
     agent_id: str,
     proc: subprocess.Popen | None = None,
 ) -> bool:
-    """Best-effort: PGID 単位で SIGTERM→wait→SIGKILL。
-
-    Args:
-        pid: 停止対象プロセスの pid。
-        agent_id: ログ文言用。
-        proc: Popen オブジェクトがあれば wait() に使う。無ければ wait はスキップし、
-              ``_is_gemini_pid_alive`` のポーリングで終了確認する。
-
-    Returns:
-        True when the process is confirmed terminated (or was already gone);
-        False when the process may still be alive after SIGKILL + wait.
-    """
+    """Best-effort: PGID 単位で SIGTERM→wait→SIGKILL。"""
     try:
         pgid = os.getpgid(pid)
     except (OSError, ProcessLookupError) as e:
         logger.warning(
-            "gemini getpgid(%d) failed for %s: %s; falling back to pid-only kill",
+            "kimi getpgid(%d) failed for %s: %s; falling back to pid-only kill",
             pid, agent_id, e,
         )
         pgid = pid
@@ -175,10 +141,9 @@ def _terminate_pid_tree(
     try:
         os.killpg(pgid, signal.SIGTERM)
     except ProcessLookupError:
-        # already terminated
         return True
     except OSError as e:
-        logger.warning("gemini SIGTERM to pgid %d failed for %s: %s", pgid, agent_id, e)
+        logger.warning("kimi SIGTERM to pgid %d failed for %s: %s", pgid, agent_id, e)
 
     if proc is not None:
         try:
@@ -188,40 +153,39 @@ def _terminate_pid_tree(
             pass
     else:
         for _ in range(10):
-            if not _is_gemini_pid_alive(pid):
+            if not _is_kimi_pid_alive(pid):
                 return True
             time.sleep(0.5)
 
     try:
         os.killpg(pgid, signal.SIGKILL)
     except ProcessLookupError:
-        # already terminated
         return True
     except OSError as e:
-        logger.warning("gemini SIGKILL to pgid %d failed for %s: %s", pgid, agent_id, e)
+        logger.warning("kimi SIGKILL to pgid %d failed for %s: %s", pgid, agent_id, e)
 
     if proc is not None:
         try:
             proc.wait(timeout=5)
             return True
         except subprocess.TimeoutExpired:
-            logger.warning("gemini proc %d did not exit after SIGKILL", pid)
+            logger.warning("kimi proc %d did not exit after SIGKILL", pid)
             return False
     for _ in range(10):
-        if not _is_gemini_pid_alive(pid):
+        if not _is_kimi_pid_alive(pid):
             return True
         time.sleep(0.5)
-    logger.warning("gemini proc %d still alive after SIGKILL for %s", pid, agent_id)
+    logger.warning("kimi proc %d still alive after SIGKILL for %s", pid, agent_id)
     return False
 
 
-def _rebuild_gemini_md(agent_id: str) -> None:
-    """Rebuild GEMINI.md from IDENTITY.md + INSTRUCTION.md + MEMORY.md.
+def _rebuild_kimi_md(agent_id: str) -> None:
+    """Rebuild KIMI.md from IDENTITY.md + INSTRUCTION.md + MEMORY.md.
 
     IMPORTANT: This function is a near-exact copy of
-    backend_pi.py:_rebuild_agents_md and backend_kimi.py:_rebuild_kimi_md.
+    backend_pi.py:_rebuild_agents_md and backend_gemini.py:_rebuild_gemini_md.
     The three functions MUST stay in sync beyond filename differences. If you
-    modify the logic here, mirror the change to pi and kimi (and vice versa),
+    modify the logic here, mirror the change to pi and gemini (and vice versa),
     or extract a shared helper.
     """
     try:
@@ -230,7 +194,7 @@ def _rebuild_gemini_md(agent_id: str) -> None:
         compile_flag = agent_profile.get("compile-startup-md", False)
         if not isinstance(compile_flag, bool):
             logger.warning(
-                "_rebuild_gemini_md: compile-startup-md for %s has non-bool value %r; "
+                "_rebuild_kimi_md: compile-startup-md for %s has non-bool value %r; "
                 "treating as False",
                 agent_id, compile_flag,
             )
@@ -259,11 +223,11 @@ def _rebuild_gemini_md(agent_id: str) -> None:
         except FileNotFoundError:
             memory_bytes = b""
 
-        gemini_md_path = profile_dir / "GEMINI.md"
-        hash_path = profile_dir / ".gemini_hash"
+        kimi_md_path = profile_dir / "KIMI.md"
+        hash_path = profile_dir / ".kimi_hash"
 
         if identity_bytes == b"" and instruction_bytes == b"" and memory_bytes == b"":
-            gemini_md_path.unlink(missing_ok=True)
+            kimi_md_path.unlink(missing_ok=True)
             hash_path.unlink(missing_ok=True)
             return
 
@@ -280,7 +244,7 @@ def _rebuild_gemini_md(agent_id: str) -> None:
         except OSError:
             old_hash = ""
 
-        if old_hash == new_hash and gemini_md_path.exists():
+        if old_hash == new_hash and kimi_md_path.exists():
             return
 
         identity_text = identity_bytes.decode("utf-8").rstrip()
@@ -290,31 +254,26 @@ def _rebuild_gemini_md(agent_id: str) -> None:
         parts = [t for t in (identity_text, instruction_text, memory_text) if t]
 
         if not parts:
-            gemini_md_path.unlink(missing_ok=True)
+            kimi_md_path.unlink(missing_ok=True)
             hash_path.unlink(missing_ok=True)
             return
 
         output = "\n\n---\n\n".join(parts) + "\n"
 
-        gemini_md_path.write_text(output, encoding="utf-8")
+        kimi_md_path.write_text(output, encoding="utf-8")
         hash_path.write_text(new_hash + "\n", encoding="utf-8")
     except Exception as exc:
-        logger.warning("_rebuild_gemini_md: failed for %s: %s", agent_id, exc)
+        logger.warning("_rebuild_kimi_md: failed for %s: %s", agent_id, exc)
 
 
 def send(agent_id: str, message: str, timeout: int) -> SendResult:
-    """Fire-and-forget subprocess launch of ``gemini``.
-
-    Returns SendResult.OK on spawn + pid persistence success, SendResult.FAIL
-    otherwise. Profile dir is mandatory (per-agent cwd for session scoping);
-    absence logs a warning and returns SendResult.FAIL.
-    """
+    """Fire-and-forget subprocess launch of ``kimi``."""
     if config.DRY_RUN:
-        logger.info("[dry-run] gemini send skipped (agent=%s)", agent_id)
+        logger.info("[dry-run] kimi send skipped (agent=%s)", agent_id)
         return SendResult.OK
 
-    GEMINI_PIDS_DIR.mkdir(parents=True, exist_ok=True)
-    _rebuild_gemini_md(agent_id)
+    KIMI_PIDS_DIR.mkdir(parents=True, exist_ok=True)
+    _rebuild_kimi_md(agent_id)
 
     config_data = _load_config()
     profile = config_data.get(agent_id, {})
@@ -322,26 +281,25 @@ def send(agent_id: str, message: str, timeout: int) -> SendResult:
     profile_dir = AGENT_PROFILES_DIR / agent_id
     if not profile_dir.is_dir():
         logger.warning(
-            "gemini send refused for %s: profile dir %s does not exist. "
-            "gemini backend requires a dedicated cwd per agent to avoid cross-agent "
+            "kimi send refused for %s: profile dir %s does not exist. "
+            "kimi backend requires a dedicated cwd per agent to avoid cross-agent "
             "session contamination (session is cwd-scoped).",
             agent_id, profile_dir,
         )
         return SendResult.FAIL
     cwd = profile_dir
 
-    has_prev = (_count_sessions(cwd) or 0) > 0
+    has_prev = _session_marker_path(agent_id).exists()
 
-    cmd: list[str] = [
-        config.GEMINI_BIN,
-        "-p", message,
-        "--approval-mode", "yolo",
-    ]
+    # --quiet expands to "--print --output-format text --final-message-only"
+    # which currently implies --yolo, but we pass -y explicitly to remain
+    # robust if that implicit behavior changes in a future kimi release.
+    cmd: list[str] = [config.KIMI_BIN, "--quiet", "-y", "-p", message]
     model = profile.get("model")
     if isinstance(model, str) and model.strip():
         cmd.extend(["-m", model.strip()])
     if has_prev:
-        cmd.extend(["-r", "latest"])
+        cmd.append("-C")
 
     try:
         proc = subprocess.Popen(
@@ -353,29 +311,33 @@ def send(agent_id: str, message: str, timeout: int) -> SendResult:
             start_new_session=True,
         )
     except (OSError, FileNotFoundError) as e:
-        logger.warning("gemini spawn failed for %s: %s", agent_id, e)
+        logger.warning("kimi spawn failed for %s: %s", agent_id, e)
         return SendResult.FAIL
 
     try:
         _pid_path(agent_id).write_text(str(proc.pid))
     except OSError as exc:
         logger.warning(
-            "gemini pid write failed for %s: %s; terminating spawned process group",
+            "kimi pid write failed for %s: %s; terminating spawned process group",
             agent_id, exc,
         )
         if not _terminate_pid_tree(proc.pid, agent_id, proc=proc):
-            # Stray Gemini process could still create/update a cwd-scoped session
-            # that the next send() would resume via -r latest, replaying stale
-            # context. We cannot write a pid file (that is why we are here), so
-            # escalate visibility and require manual intervention.
             logger.error(
-                "gemini send for %s: spawned pid %d could not be terminated "
+                "kimi send for %s: spawned pid %d could not be terminated "
                 "after pid-write failure; session for cwd %s may be contaminated. "
                 "Manual intervention required: kill pid %d and run reset_session "
-                "(or clear --list-sessions) for this agent.",
+                "for this agent.",
                 agent_id, proc.pid, cwd, proc.pid,
             )
         return SendResult.FAIL
+
+    try:
+        _session_marker_path(agent_id).touch()
+    except OSError as exc:
+        logger.warning(
+            "kimi session-marker touch failed for %s: %s; next send will not use -C",
+            agent_id, exc,
+        )
 
     return SendResult.OK
 
@@ -397,18 +359,21 @@ def is_inactive(agent_id: str, pipeline_data: dict | None = None,
     except (OSError, FileNotFoundError, ValueError):
         return True
 
-    return not _is_gemini_pid_alive(pid)
+    return not _is_kimi_pid_alive(pid)
 
 
 def reset_session(agent_id: str) -> None:
     """Best-effort session reset.
 
-    Terminates the recorded live process (if any) BEFORE session deletion so an
-    in-flight oneshot process cannot re-create the session after we delete it.
-    Then deletes the pid file and iterates ``--delete-session <count>`` until
-    ``_count_sessions`` returns 0 (safety-capped at 100 iterations).
+    Terminates the recorded live process (if any), removes the pid file, and
+    removes the local session marker so the next send() will not pass ``-C``.
+    Server/local kimi session storage (``~/.kimi/...``) is NOT touched: kimi
+    has no ``--delete-session`` equivalent and the on-disk session layout is
+    not officially specified, so we avoid reaching into it. Once the marker
+    is gone, the watchdog treats the agent as having no continuable session,
+    which is sufficient in practice.
     """
-    _rebuild_gemini_md(agent_id)
+    _rebuild_kimi_md(agent_id)
 
     try:
         pid_text = _pid_path(agent_id).read_text().strip()
@@ -416,15 +381,14 @@ def reset_session(agent_id: str) -> None:
     except (OSError, FileNotFoundError, ValueError):
         pid = None
 
-    if pid is not None and _is_gemini_pid_alive(pid):
+    if pid is not None and _is_kimi_pid_alive(pid):
         logger.info(
-            "gemini reset_session: terminating live process %d for %s before session deletion",
+            "kimi reset_session: terminating live process %d for %s",
             pid, agent_id,
         )
         if not _terminate_pid_tree(pid, agent_id, proc=None):
             logger.warning(
-                "gemini reset_session for %s: failed to terminate live process %d; "
-                "aborting session deletion to avoid re-creation by in-flight process",
+                "kimi reset_session for %s: failed to terminate live process %d",
                 agent_id, pid,
             )
             return
@@ -433,43 +397,14 @@ def reset_session(agent_id: str) -> None:
         _pid_path(agent_id).unlink(missing_ok=True)
     except OSError as exc:
         logger.warning(
-            "gemini reset_session: failed to delete pid file for %s: %s",
+            "kimi reset_session: failed to delete pid file for %s: %s",
             agent_id, exc,
         )
 
-    profile_dir = AGENT_PROFILES_DIR / agent_id
-    if not profile_dir.is_dir():
+    try:
+        _session_marker_path(agent_id).unlink(missing_ok=True)
+    except OSError as exc:
         logger.warning(
-            "gemini reset_session: profile dir %s does not exist for %s; "
-            "skipping session deletion (no per-agent cwd to scope to)",
-            profile_dir, agent_id,
+            "kimi reset_session: failed to delete session marker for %s: %s",
+            agent_id, exc,
         )
-        return
-    cwd = profile_dir
-
-    for _ in range(100):
-        count = _count_sessions(cwd)
-        if count is None:
-            logger.warning(
-                "gemini reset_session for %s: failed to list sessions; "
-                "aborting deletion to avoid leaving unreset sessions",
-                agent_id,
-            )
-            return
-        if count == 0:
-            return
-        try:
-            subprocess.run(
-                [config.GEMINI_BIN, "--delete-session", str(count)],
-                cwd=str(cwd), capture_output=True, text=True, timeout=30,
-            )
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            logger.warning("gemini --delete-session failed for %s: %s", agent_id, exc)
-            return
-    remaining = _count_sessions(cwd)
-    remaining_str = str(remaining) if remaining is not None else "unknown"
-    logger.warning(
-        "gemini reset_session for %s hit safety cap (100 iterations); "
-        "remaining sessions: %s",
-        agent_id, remaining_str,
-    )

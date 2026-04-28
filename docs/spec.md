@@ -28,6 +28,7 @@ engine/
   backend_pi.py        -- pi backend (via pi CLI)
   backend_cc.py        -- cc backend (via claude CLI)
   backend_gemini.py    -- gemini backend (via gemini CLI, oneshot)
+  backend_kimi.py    -- kimi backend (via kimi CLI)
   backend_types.py     -- Backend return types (SendResult: OK/BUSY/FAIL)
   gemini_quota.py      -- Gemini Pro quota detection & fallback cache
   cleanup.py           -- Batch state cleanup shared functions
@@ -48,7 +49,7 @@ messages/             -- Template messages (via render())
 settings.py           -- User settings (config override)
 ```
 
-- **Agent communication**: `engine/backend.py` acts as a router, dispatching to the `openclaw`, `pi`, `cc`, or `gemini` backend per agent. Controlled by `DEFAULT_AGENT_BACKEND` and `AGENT_BACKEND_OVERRIDE` in `settings.py`.
+- **Agent communication**: `engine/backend.py` acts as a router, dispatching to the `openclaw`, `pi`, `cc`, `gemini`, or `kimi` backend per agent. Controlled by `DEFAULT_AGENT_BACKEND` and `AGENT_BACKEND_OVERRIDE` in `settings.py`.
 - **pipeline JSON**: `~/.gokrax/pipelines/<project>.json`
 - **watchdog**: Polls every 20 seconds via `watchdog-loop.sh` (see Chapter 7)
 - **Discord notification channel**: Configured via `DISCORD_CHANNEL` in `settings.py`

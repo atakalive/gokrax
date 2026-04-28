@@ -1,0 +1,10 @@
+{
+  "_comment": {
+    "model": "Kimi model name (defined in ~/.kimi/config.toml [models] section)",
+    "compile-startup-md": "If true, compile IDENTITY.md + INSTRUCTION.md + MEMORY.md into KIMI.md"
+  },
+  "example_reviewer": {
+    "model": "kimi-k2",
+    "compile-startup-md": false
+  }
+}

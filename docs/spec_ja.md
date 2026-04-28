@@ -23,7 +23,7 @@ engine/
   cc.py                -- Claude Code 自動起動・テスト実行
   reviewer.py          -- レビュアー管理 (tier, pending, revise 判定)
   shared.py            -- 共有ユーティリティ (log, is_cc_running, is_ok_reply)
-  backend.py           -- バックエンドディスパッチ (openclaw/pi/cc/gemini 振り分け)
+  backend.py           -- バックエンドディスパッチ (openclaw/pi/cc/gemini/kimi 振り分け)
   backend_openclaw.py  -- openclaw バックエンド (Gateway CLI 経由)
   backend_pi.py        -- pi バックエンド (pi CLI 経由)
   backend_cc.py        -- cc バックエンド (claude CLI 経由)

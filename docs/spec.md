@@ -23,7 +23,7 @@ engine/
   cc.py                -- Claude Code auto-launch & test execution
   reviewer.py          -- Reviewer management (tier, pending, revise decisions)
   shared.py            -- Shared utilities (log, is_cc_running, is_ok_reply)
-  backend.py           -- Backend dispatch (openclaw/pi/cc/gemini routing)
+  backend.py           -- Backend dispatch (openclaw/pi/cc/gemini/kimi routing)
   backend_openclaw.py  -- openclaw backend (via Gateway CLI)
   backend_pi.py        -- pi backend (via pi CLI)
   backend_cc.py        -- cc backend (via claude CLI)

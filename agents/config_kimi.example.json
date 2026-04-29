@@ -4,7 +4,7 @@
     "compile-startup-md": "If true, compile IDENTITY.md + INSTRUCTION.md + MEMORY.md into KIMI.md"
   },
   "example_reviewer": {
-    "model": "kimi-k2",
+    "model": "kimi-for-coding",
     "compile-startup-md": false
   }
 }

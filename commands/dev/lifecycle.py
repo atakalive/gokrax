@@ -84,17 +84,23 @@ def get_status_text(enabled_only: bool = False) -> str:
         # Show per-issue review progress
         if state in ("DESIGN_REVIEW", "CODE_REVIEW") and batch and has_review_info:
             review_key = "design_reviews" if state == "DESIGN_REVIEW" else "code_reviews"
-            min_rev = phase_config["min_reviews"]
+            min_rev = data.get("min_reviews_override", phase_config["min_reviews"])
+            excluded = set(data.get("excluded_reviewers", []))
             for item in batch:
                 reviews = item.get(review_key, {})
                 done = len(reviews)
-                verdicts = {}
-                for rev in reviews.values():
-                    v = rev.get("verdict", "?")
-                    verdicts[v] = verdicts.get(v, 0) + 1
-                verdict_parts = ", ".join(f"{c} {v}" for v, c in sorted(verdicts.items()))
-                verdict_str = f" ({verdict_parts})" if verdict_parts else ""
-                output.write(f"  #{item['issue']}: {done}/{min_rev} reviews{verdict_str}\n")
+                groups: dict[str, list[str]] = {}
+                for member in phase_config["members"]:
+                    if member in excluded:
+                        continue
+                    if member in reviews:
+                        v = reviews[member].get("verdict", "?")
+                    else:
+                        v = "WAITING"
+                    groups.setdefault(v, []).append(member)
+                verdict_parts = [f"{v}: {' '.join(groups[v])}" for v in sorted(groups)]
+                suffix = (", " + ", ".join(verdict_parts)) if verdict_parts else ""
+                output.write(f"  #{item['issue']}: {done}/{min_rev} reviews{suffix}\n")
 
     return output.getvalue().rstrip()
 

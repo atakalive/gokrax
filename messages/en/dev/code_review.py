@@ -100,7 +100,8 @@ def nudge_review(
     return (
         f"[Remind] {project} review is incomplete. Target: {issues_display}\n"
         f"Submit review for each Issue with the following commands:\n"
-        f"{cmd_lines}"
+        f"{cmd_lines}\n"
+        f"Note: Execute the command via the bash tool. Plain-text suggestions are not recorded and reminders will keep coming."
     )
 
 
@@ -114,5 +115,6 @@ def nudge_dispute(
         f"[Dispute — Response Required]\n"
         f"A dispute has been filed against your verdict in {project}.\n"
         f"Re-evaluate and submit your verdict with --force:\n\n"
-        f"{dispute_lines}"
+        f"{dispute_lines}\n"
+        f"Note: Execute the command via the bash tool with --force. Do not assume a previous submission was already recorded."
     )

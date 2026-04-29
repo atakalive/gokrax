@@ -98,7 +98,8 @@ def nudge_review(
     return (
         f"[Remind] {project} のレビューが未完了です。対象: {issues_display}\n"
         f"以下のコマンドで各 Issue のレビューを報告してください:\n"
-        f"{cmd_lines}"
+        f"{cmd_lines}\n"
+        f"※ コマンドは bash ツールで実際に実行すること。テキスト応答・提示だけでは判定が記録されず催促が止まりません。"
     )
 
 
@@ -112,5 +113,6 @@ def nudge_dispute(
         f"【異議申し立て — 回答催促】\n"
         f"{project} であなたの判定に対して異議が出ています。\n"
         f"再評価した上で --force 付きで判定を報告してください:\n\n"
-        f"{dispute_lines}"
+        f"{dispute_lines}\n"
+        f"※ 上記コマンドは bash ツールで実際に実行すること。前回提出済みと判断せず、必ず --force で再実行する。"
     )

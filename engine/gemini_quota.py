@@ -164,7 +164,7 @@ def _load_code_assist(token: str) -> str | None:
         "metadata": {
             "ideType": "GEMINI_CLI",
             "pluginType": "GEMINI",
-            "platform": "linux",
+            "platform": "LINUX_AMD64",
             "pluginVersion": "n/a",
         },
     }

@@ -14,11 +14,16 @@ from engine.backend_types import SendResult
 from engine.shared import log
 
 
-def resolve_backend(agent_id: str) -> str:
+def resolve_backend(agent_id: str, *, ignore_fallback: bool = False) -> str:
     """Resolve backend for the given agent.
 
     Override > default > gemini quota fallback (cache file read only).
     Raises ValueError if the resolved backend is not in SUPPORTED_BACKENDS.
+
+    If ``ignore_fallback`` is True, skip the gemini quota fallback check
+    and return the configured backend as-is. Used by reset paths that need
+    to operate on the configured backend directly (and additionally on the
+    active fallback target when applicable).
     """
     backend = config.AGENT_BACKEND_OVERRIDE.get(agent_id, config.DEFAULT_AGENT_BACKEND)
     if backend not in SUPPORTED_BACKENDS:
@@ -26,7 +31,7 @@ def resolve_backend(agent_id: str) -> str:
             f"Unsupported backend={backend!r} for agent={agent_id!r}. "
             f"Supported values: {sorted(SUPPORTED_BACKENDS)}"
         )
-    if backend == "gemini":
+    if not ignore_fallback and backend == "gemini":
         from engine.gemini_quota import resolve_fallback
         fb = resolve_fallback(agent_id)
         if fb in SUPPORTED_BACKENDS and fb != "gemini":
@@ -129,6 +134,12 @@ def is_inactive(agent_id: str, pipeline_data: dict | None = None) -> bool:
 def reset_session(agent_id: str) -> None:
     """Dispatch reset_session to the selected backend.
 
+    Resets both the configured backend and (for gemini) any active quota
+    fallback target. This ensures that when a gemini agent has a pi/cc
+    fallback active, both the gemini session and the fallback session are
+    cleared — otherwise stale context could resume on either side when the
+    fallback expires or a phase begins.
+
     For openclaw, this is a no-op (session reset is done via /new message).
     For pi, this is best-effort: deletes the session file and clears the
     starting marker.  Does not terminate processes or wait for quiescence.
@@ -136,16 +147,28 @@ def reset_session(agent_id: str) -> None:
     if an old process recreates the file after reset.
     See backend_pi.reset_session docstring and #246 for design rationale.
     """
-    backend = resolve_backend(agent_id)
-    if backend == "pi":
+    configured = resolve_backend(agent_id, ignore_fallback=True)
+
+    if configured == "pi":
         from engine.backend_pi import reset_session as pi_reset
         pi_reset(agent_id)
-    elif backend == "cc":
+    elif configured == "cc":
         from engine.backend_cc import reset_session as cc_reset
         cc_reset(agent_id)
-    elif backend == "gemini":
+    elif configured == "gemini":
         from engine.backend_gemini import reset_session as gm_reset
         gm_reset(agent_id)
-    elif backend == "kimi":
+    elif configured == "kimi":
         from engine.backend_kimi import reset_session as km_reset
         km_reset(agent_id)
+    # openclaw: no-op (session reset is done via /new message)
+
+    if configured == "gemini":
+        from engine.gemini_quota import resolve_fallback
+        fb = resolve_fallback(agent_id)
+        if fb == "pi":
+            from engine.backend_pi import reset_session as pi_reset
+            pi_reset(agent_id)
+        elif fb == "cc":
+            from engine.backend_cc import reset_session as cc_reset
+            cc_reset(agent_id)

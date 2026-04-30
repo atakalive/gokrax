@@ -367,6 +367,38 @@ class TestReviewerResetDispatch:
             excluded = _real_reset_reviewers(self._phase_config())
         assert excluded == []
 
+    def test_gemini_calls_reset_session_not_new(self, monkeypatch):
+        """gemini backend calls reset_session, not /new."""
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "gemini")
+        monkeypatch.setattr("engine.gemini_quota.resolve_fallback", lambda aid: "")
+        with patch("engine.backend.reset_session") as mock_reset, \
+             patch.object(_reviewer_mod, "send_to_agent_queued") as mock_send:
+            _real_reset_reviewers(self._phase_config())
+        assert mock_reset.call_count > 0
+        mock_send.assert_not_called()
+
+    def test_kimi_calls_reset_session_not_new(self, monkeypatch):
+        """kimi backend calls reset_session, not /new."""
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "kimi")
+        with patch("engine.backend.reset_session") as mock_reset, \
+             patch.object(_reviewer_mod, "send_to_agent_queued") as mock_send:
+            _real_reset_reviewers(self._phase_config())
+        assert mock_reset.call_count > 0
+        mock_send.assert_not_called()
+
+    def test_gemini_reset_returns_empty_excluded(self, monkeypatch):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "gemini")
+        monkeypatch.setattr("engine.gemini_quota.resolve_fallback", lambda aid: "")
+        with patch("engine.backend.reset_session"):
+            excluded = _real_reset_reviewers(self._phase_config())
+        assert excluded == []
+
+    def test_kimi_reset_returns_empty_excluded(self, monkeypatch):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "kimi")
+        with patch("engine.backend.reset_session"):
+            excluded = _real_reset_reviewers(self._phase_config())
+        assert excluded == []
+
     def test_openclaw_reset_waits(self, monkeypatch):
         """Regression: openclaw reset path includes POST_NEW_COMMAND_WAIT_SEC sleep."""
         monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "openclaw")
@@ -420,6 +452,45 @@ class TestShortContextResetDispatch:
         mock_send.assert_not_called()
         mock_sleep.assert_not_called()
         # Assert reset_session call targets and count
+        assert mock_reset.call_count == len(expected_targets)
+        actual_targets = sorted(c[0][0] for c in mock_reset.call_args_list)
+        assert actual_targets == expected_targets
+
+    def test_gemini_calls_reset_session_no_sleep(self, monkeypatch):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "gemini")
+        monkeypatch.setattr("engine.gemini_quota.resolve_fallback", lambda aid: "")
+        from engine.reviewer import get_tier
+        phase_config = self._phase_config()
+        expected_targets = sorted(
+            m for m in phase_config["members"]
+            if get_tier(m) == "short-context" and m in config.AGENTS
+        )
+        assert len(expected_targets) > 0, "Test prerequisite failed: empty target set"
+        with patch("engine.backend.reset_session") as mock_reset, \
+             patch.object(_reviewer_mod, "send_to_agent_queued") as mock_send, \
+             patch("time.sleep") as mock_sleep:
+            _real_reset_short_context(phase_config)
+        mock_send.assert_not_called()
+        mock_sleep.assert_not_called()
+        assert mock_reset.call_count == len(expected_targets)
+        actual_targets = sorted(c[0][0] for c in mock_reset.call_args_list)
+        assert actual_targets == expected_targets
+
+    def test_kimi_calls_reset_session_no_sleep(self, monkeypatch):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "kimi")
+        from engine.reviewer import get_tier
+        phase_config = self._phase_config()
+        expected_targets = sorted(
+            m for m in phase_config["members"]
+            if get_tier(m) == "short-context" and m in config.AGENTS
+        )
+        assert len(expected_targets) > 0, "Test prerequisite failed: empty target set"
+        with patch("engine.backend.reset_session") as mock_reset, \
+             patch.object(_reviewer_mod, "send_to_agent_queued") as mock_send, \
+             patch("time.sleep") as mock_sleep:
+            _real_reset_short_context(phase_config)
+        mock_send.assert_not_called()
+        mock_sleep.assert_not_called()
         assert mock_reset.call_count == len(expected_targets)
         actual_targets = sorted(c[0][0] for c in mock_reset.call_args_list)
         assert actual_targets == expected_targets
@@ -580,12 +651,13 @@ class TestFallback:
         mock_gm_ina.assert_not_called()
 
     def test_reset_session_routes_to_pi_on_cache_active(self, monkeypatch):
+        """Cache-active gemini fallback resets BOTH gemini and the fallback target."""
         with patch("engine.gemini_quota.resolve_fallback", return_value="pi"), \
              patch("engine.backend_pi.reset_session") as mock_pi_reset, \
              patch("engine.backend_gemini.reset_session") as mock_gm_reset:
             backend.reset_session("a1")
         mock_pi_reset.assert_called_once_with("a1")
-        mock_gm_reset.assert_not_called()
+        mock_gm_reset.assert_called_once_with("a1")
 
     def test_ping_routes_to_pi_on_cache_active(self, monkeypatch):
         with patch("engine.gemini_quota.resolve_fallback", return_value="pi"), \
@@ -650,6 +722,34 @@ class TestMixedBackendReset:
         # At least one openclaw agent got /new
         assert len(send_targets) > 0
 
+    def test_mixed_gemini_branches_correctly(self, monkeypatch):
+        """With mixed override, gemini agents get reset_session, openclaw get /new."""
+        mode_config = config.REVIEW_MODES.get("standard", config.REVIEW_MODES.get("full"))
+        members = mode_config["members"]
+        assert len(members) >= 2, "Test prerequisite: need at least 2 members"
+
+        gemini_agent = members[0]
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "openclaw")
+        monkeypatch.setattr(config, "AGENT_BACKEND_OVERRIDE", {gemini_agent: "gemini"})
+        monkeypatch.setattr(config, "DRY_RUN", False)
+        monkeypatch.setattr("engine.gemini_quota.resolve_fallback", lambda aid: "")
+
+        with patch("engine.backend.reset_session") as mock_reset, \
+             patch.object(_reviewer_mod, "send_to_agent_queued", return_value=True) as mock_send, \
+             patch.object(_reviewer_mod, "ping_agent", return_value=True), \
+             patch("time.sleep"):
+            from engine.fsm import _build_phase_config
+            review_mode = "standard" if "standard" in config.REVIEW_MODES else "full"
+            phase_config = _build_phase_config(config.REVIEW_MODES[review_mode], "design")
+            _real_reset_reviewers(phase_config)
+
+        reset_targets = [c[0][0] for c in mock_reset.call_args_list]
+        assert gemini_agent in reset_targets
+
+        send_targets = [c[0][0] for c in mock_send.call_args_list]
+        assert gemini_agent not in send_targets
+        assert len(send_targets) > 0
+
 
 # ===========================================================================
 # Architecture guard
@@ -684,6 +784,26 @@ class TestBackendResetSessionDispatch:
         """openclaw reset_session does not raise."""
         monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "openclaw")
         backend.reset_session("reviewer1")  # should not raise
+
+    def test_gemini_with_fallback_resets_both_backends(self, monkeypatch):
+        """When fallback is active, both gemini and the fallback target are reset."""
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "gemini")
+        with patch("engine.gemini_quota.resolve_fallback", return_value="pi"), \
+             patch("engine.backend_gemini.reset_session") as mock_gm, \
+             patch("engine.backend_pi.reset_session") as mock_pi:
+            backend.reset_session("reviewer1")
+        mock_gm.assert_called_once_with("reviewer1")
+        mock_pi.assert_called_once_with("reviewer1")
+
+    def test_gemini_without_fallback_resets_gemini_only(self, monkeypatch):
+        """When fallback is not active, only the gemini session is reset."""
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "gemini")
+        with patch("engine.gemini_quota.resolve_fallback", return_value=""), \
+             patch("engine.backend_gemini.reset_session") as mock_gm, \
+             patch("engine.backend_pi.reset_session") as mock_pi:
+            backend.reset_session("reviewer1")
+        mock_gm.assert_called_once_with("reviewer1")
+        mock_pi.assert_not_called()
 
 
 # ===========================================================================

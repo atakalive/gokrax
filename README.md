@@ -66,7 +66,7 @@ If critical issues (P0/P1) are raised during review, the pipeline enters a revis
 - **OS**: Linux (including WSL2), macOS
 - **Remote operation**: Possible via Discord regardless of OS
 - **Python**: 3.11 or higher. External dependencies: `requests`, `PyYAML`
-- **Agent framework**: [openclaw](https://github.com/openclaw/openclaw), [pi-coding-agent](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent), [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code), or [Gemini CLI](https://github.com/google-gemini/gemini-cli). Used for LLM agent authentication and prompt dispatch for design, revision, and review
+- **Agent framework**: [openclaw](https://github.com/openclaw/openclaw), [pi-coding-agent](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent), [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code), [Gemini CLI](https://github.com/google-gemini/gemini-cli), or [Kimi CLI](https://github.com/MoonshotAI/kimi-cli). Used for LLM agent authentication and prompt dispatch for design, revision, and review
 - **GitLab**: Issue tracker and code hosting. Requires git push access to managed projects (SSH key or HTTPS token)
 - **[glab CLI](https://gitlab.com/gitlab-org/cli)**: Used for GitLab operations (Issue retrieval/editing, comment retrieval/posting, Issue closing)
 - **[Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code)**: Called internally as the implementation agent (recommended)
@@ -74,7 +74,7 @@ If critical issues (P0/P1) are raised during review, the pipeline enters a revis
 
 ### LLM Providers
 
-gokrax is not tied to any specific LLM provider — any provider that openclaw, pi, cc, or gemini can authenticate with is supported:
+gokrax is not tied to any specific LLM provider — any provider that openclaw, pi, cc, gemini, or kimi can authenticate with is supported:
 
 - Anthropic (Claude)
 - Google (Gemini)
@@ -131,6 +131,7 @@ gokrax requires a backend for agent provider authentication and prompt dispatch.
 - pi-coding-agent
 - Claude Code CLI (cc backend)
 - Gemini CLI (gemini backend)
+- Kimi CLI (kimi backend)
 
 If openclaw is already running in your environment, using it directly is the easiest option. Otherwise, pi is simpler to set up. Claude Code CLI can also be used as a backend for all agent roles, not just implementation. Gemini CLI is a minimal oneshot backend (1 prompt = 1 process) and useful when the Gemini quota is the desired provider.
 

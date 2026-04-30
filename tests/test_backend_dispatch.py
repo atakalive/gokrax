@@ -770,7 +770,8 @@ class TestBackendResetSessionDispatch:
 
     def test_gemini_calls_gemini_reset_session(self, monkeypatch):
         monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "gemini")
-        with patch("engine.backend_gemini.reset_session") as mock_gm:
+        with patch("engine.gemini_quota.resolve_fallback", return_value=""), \
+             patch("engine.backend_gemini.reset_session") as mock_gm:
             backend.reset_session("reviewer1")
         mock_gm.assert_called_once_with("reviewer1")
 

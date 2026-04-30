@@ -166,9 +166,10 @@ def reset_session(agent_id: str) -> None:
     if configured == "gemini":
         from engine.gemini_quota import resolve_fallback
         fb = resolve_fallback(agent_id)
-        if fb == "pi":
-            from engine.backend_pi import reset_session as pi_reset
-            pi_reset(agent_id)
-        elif fb == "cc":
-            from engine.backend_cc import reset_session as cc_reset
-            cc_reset(agent_id)
+        if fb in SUPPORTED_BACKENDS and fb != configured:
+            if fb == "pi":
+                from engine.backend_pi import reset_session as pi_reset
+                pi_reset(agent_id)
+            elif fb == "cc":
+                from engine.backend_cc import reset_session as cc_reset
+                cc_reset(agent_id)

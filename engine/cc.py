@@ -749,32 +749,33 @@ def _start_cc_test_fix(project: str, batch: list, data: dict, pipeline_path: Pat
 def _mark_push_failed(gitlab: str, batch: list[dict], project: str) -> None:
     """push 全リトライ失敗時に各 Issue タイトルに [PUSH FAILED] を付与（best effort）。"""
     import json as _json
-    import subprocess as _sp
-    from config import GLAB_BIN
+    from engine.glab import run_glab
 
     for item in batch:
         issue_num = item.get("issue")
         if not issue_num:
             continue
         try:
-            view_result = _sp.run(
-                [GLAB_BIN, "issue", "view", str(issue_num), "-R", gitlab,
-                 "--output", "json"],
-                capture_output=True, text=True, timeout=30,
+            view_result = run_glab(
+                ["issue", "view", str(issue_num), "-R", gitlab, "--output", "json"],
+                timeout=30,
             )
-            if view_result.returncode != 0:
-                log(f"[{project}] Issue #{issue_num} title fetch failed: {view_result.stderr.strip()}")
+            if not view_result.ok:
+                msg = view_result.stderr.strip() if view_result.stderr else str(view_result.error or "unknown")
+                log(f"[{project}] Issue #{issue_num} title fetch failed: {msg}")
                 continue
             title = _json.loads(view_result.stdout).get("title", "")
             if title.startswith("[PUSH FAILED]"):
                 continue
-            upd_result = _sp.run(
-                [GLAB_BIN, "issue", "update", str(issue_num), "-R", gitlab,
+            upd_result = run_glab(
+                ["issue", "update", str(issue_num), "-R", gitlab,
                  "--title", f"[PUSH FAILED] {title}"],
-                capture_output=True, text=True, timeout=30,
+                timeout=30,
+                retries=1,
             )
-            if upd_result.returncode != 0:
-                log(f"[{project}] Issue #{issue_num} title update failed: {upd_result.stderr.strip()}")
+            if not upd_result.ok:
+                msg = upd_result.stderr.strip() if upd_result.stderr else str(upd_result.error or "unknown")
+                log(f"[{project}] Issue #{issue_num} title update failed: {msg}")
         except Exception as e:
             log(f"[{project}] Issue #{issue_num} title update error: {e}")
 
@@ -783,7 +784,7 @@ def _auto_push_and_close(repo_path: str, gitlab: str, batch: list, project: str)
     """DONE遷移時に git push + issue close を自動実行。"""
     import subprocess as _sp
     import time
-    from config import GLAB_BIN
+    from engine.glab import run_glab
 
     MAX_PUSH_RETRIES = 3
     PUSH_RETRY_DELAY = 3
@@ -819,13 +820,14 @@ def _auto_push_and_close(repo_path: str, gitlab: str, batch: list, project: str)
         if not issue_num:
             continue
         try:
-            result = _sp.run(
-                [GLAB_BIN, "issue", "close", str(issue_num), "-R", gitlab],
-                capture_output=True, text=True, timeout=30,
+            result = run_glab(
+                ["issue", "close", str(issue_num), "-R", gitlab],
+                timeout=30,
             )
-            if result.returncode == 0:
+            if result.ok:
                 log(f"[{project}] Issue #{issue_num} closed")
             else:
-                log(f"[{project}] Issue #{issue_num} close failed: {result.stderr.strip()}")
+                msg = result.stderr.strip() if result.stderr else str(result.error or "unknown")
+                log(f"[{project}] Issue #{issue_num} close failed: {msg}")
         except Exception as e:
             log(f"[{project}] Issue #{issue_num} close error: {e}")

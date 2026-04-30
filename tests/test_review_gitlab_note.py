@@ -1,15 +1,23 @@
-"""tests/test_review_gitlab_note.py — _post_gitlab_note() のリトライ・ログテスト"""
+"""tests/test_review_gitlab_note.py — post_gitlab_note() のテスト (retries=1)。"""
 
 import argparse
 import json
 import sys
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
-import pytest
+from engine.glab import GlabResult
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+
+
+def _ok() -> GlabResult:
+    return GlabResult(ok=True, stdout="", stderr="", returncode=0, error=None)
+
+
+def _fail(stderr: str = "server error") -> GlabResult:
+    return GlabResult(ok=False, stdout="", stderr=stderr, returncode=1, error=None)
 
 
 def _make_pipeline(tmp_pipelines, state="DESIGN_REVIEW"):
@@ -41,25 +49,11 @@ def _make_pipeline(tmp_pipelines, state="DESIGN_REVIEW"):
     return path
 
 
-class TestReviewGitlabNoteRetry:
+class TestReviewGitlabNote:
 
-    def test_retry_success_on_third_attempt(self, tmp_pipelines):
-        """glab が2回失敗→3回目成功: subprocess.run が3回呼ばれ、pipeline に review が記録される。"""
+    def test_success_single_call(self, tmp_pipelines):
+        """run_glab(ok=True): 1回呼び出しで成功し、pipeline に review が記録される。"""
         _make_pipeline(tmp_pipelines)
-
-        call_count = 0
-
-        def mock_run(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            m = MagicMock()
-            if call_count < 3:
-                m.returncode = 1
-                m.stderr = "connection error"
-            else:
-                m.returncode = 0
-                m.stderr = ""
-            return m
 
         import gokrax
         args = argparse.Namespace(
@@ -71,26 +65,20 @@ class TestReviewGitlabNoteRetry:
             force=False,
             phase="design",
         )
-        with patch("notify.subprocess.run", side_effect=mock_run):
-            with patch("notify.time.sleep"):
-                gokrax.cmd_review(args)
+        with patch("notify.run_glab", return_value=_ok()) as run:
+            gokrax.cmd_review(args)
 
-        assert call_count == 3
+        assert run.call_count == 1
 
-        # pipeline JSON に review が記録されていること
         path = tmp_pipelines / "test-pj.json"
         data = json.loads(path.read_text())
         reviews = data["batch"][0]["design_reviews"]
         assert "reviewer1" in reviews
         assert reviews["reviewer1"]["verdict"] == "APPROVE"
 
-    def test_all_fail_pipeline_updated_and_log_warning(self, tmp_pipelines, caplog):
-        """3回全失敗: pipeline JSON には review が記録され、logger に警告が出る。"""
+    def test_failure_pipeline_updated_and_log_warning(self, tmp_pipelines, caplog):
+        """run_glab 失敗: pipeline JSON には review が記録され、logger に警告が出る。"""
         _make_pipeline(tmp_pipelines)
-
-        fail_result = MagicMock()
-        fail_result.returncode = 1
-        fail_result.stderr = "server error"
 
         import gokrax
         args = argparse.Namespace(
@@ -104,19 +92,18 @@ class TestReviewGitlabNoteRetry:
         )
         import logging
         with caplog.at_level(logging.WARNING, logger="gokrax.notify"):
-            with patch("notify.subprocess.run", return_value=fail_result):
-                with patch("notify.time.sleep"):
-                    gokrax.cmd_review(args)
+            with patch("notify.run_glab", return_value=_fail()) as run:
+                gokrax.cmd_review(args)
 
-        # pipeline JSON には review が記録される（失敗でも）
+        assert run.call_count == 1
+
         path = tmp_pipelines / "test-pj.json"
         data = json.loads(path.read_text())
         reviews = data["batch"][0]["design_reviews"]
         assert "reviewer3" in reviews
         assert reviews["reviewer3"]["verdict"] == "P1"
 
-        # logger に警告が出る（post_gitlab_note は logger.error を使用）
-        assert any("3 attempts" in r.message for r in caplog.records)
+        assert any("glab note failed" in r.message for r in caplog.records)
 
 
 class TestReviewForce:
@@ -126,10 +113,6 @@ class TestReviewForce:
         _make_pipeline(tmp_pipelines)
 
         import gokrax
-
-        ok_result = MagicMock()
-        ok_result.returncode = 0
-        ok_result.stderr = ""
 
         # 1回目: reviewer1 が P0 を投稿
         args1 = argparse.Namespace(
@@ -141,10 +124,9 @@ class TestReviewForce:
             force=False,
             phase="design",
         )
-        with patch("notify.subprocess.run", return_value=ok_result):
-            with patch("notify.time.sleep"):
-                with patch("commands.dev.now_iso", return_value="2026-01-01T00:00:00+09:00"):
-                    gokrax.cmd_review(args1)
+        with patch("notify.run_glab", return_value=_ok()):
+            with patch("commands.dev.now_iso", return_value="2026-01-01T00:00:00+09:00"):
+                gokrax.cmd_review(args1)
 
         path = tmp_pipelines / "test-pj.json"
         data = json.loads(path.read_text())
@@ -161,10 +143,9 @@ class TestReviewForce:
             force=True,
             phase="design",
         )
-        with patch("notify.subprocess.run", return_value=ok_result):
-            with patch("notify.time.sleep"):
-                with patch("commands.dev.now_iso", return_value="2026-01-01T01:00:00+09:00"):
-                    gokrax.cmd_review(args2)
+        with patch("notify.run_glab", return_value=_ok()):
+            with patch("commands.dev.now_iso", return_value="2026-01-01T01:00:00+09:00"):
+                gokrax.cmd_review(args2)
 
         data = json.loads(path.read_text())
         assert data["batch"][0]["design_reviews"]["reviewer1"]["verdict"] == "APPROVE"
@@ -176,10 +157,6 @@ class TestReviewForce:
 
         import gokrax
 
-        ok_result = MagicMock()
-        ok_result.returncode = 0
-        ok_result.stderr = ""
-
         # 1回目: reviewer1 が P0 を投稿
         args1 = argparse.Namespace(
             project="test-pj",
@@ -190,18 +167,10 @@ class TestReviewForce:
             force=False,
             phase="design",
         )
-        with patch("notify.subprocess.run", return_value=ok_result):
-            with patch("notify.time.sleep"):
-                gokrax.cmd_review(args1)
+        with patch("notify.run_glab", return_value=_ok()):
+            gokrax.cmd_review(args1)
 
         # 2回目: reviewer1 が APPROVE を --force なしで投稿（スキップされるはず）
-        call_count = 0
-
-        def mock_run_2nd(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            return ok_result
-
         args2 = argparse.Namespace(
             project="test-pj",
             issue=1,
@@ -211,27 +180,22 @@ class TestReviewForce:
             force=False,
             phase="design",
         )
-        with patch("notify.subprocess.run", side_effect=mock_run_2nd):
-            with patch("notify.time.sleep"):
-                gokrax.cmd_review(args2)
+        with patch("notify.run_glab", return_value=_ok()) as run_2nd:
+            gokrax.cmd_review(args2)
 
         # verdict は P0 のまま（上書きされていない）
         path = tmp_pipelines / "test-pj.json"
         data = json.loads(path.read_text())
         assert data["batch"][0]["design_reviews"]["reviewer1"]["verdict"] == "P0"
 
-        # スキップ時は GitLab note 投稿（subprocess.run）が呼ばれない
-        assert call_count == 0
+        # スキップ時は run_glab が呼ばれない
+        assert run_2nd.call_count == 0
 
     def test_force_on_new_reviewer_works_normally(self, tmp_pipelines):
         """--force あり + 新規レビュアー: 通常通りレビューが記録される。"""
         _make_pipeline(tmp_pipelines)
 
         import gokrax
-
-        ok_result = MagicMock()
-        ok_result.returncode = 0
-        ok_result.stderr = ""
 
         args = argparse.Namespace(
             project="test-pj",
@@ -242,9 +206,8 @@ class TestReviewForce:
             force=True,
             phase="design",
         )
-        with patch("notify.subprocess.run", return_value=ok_result):
-            with patch("notify.time.sleep"):
-                gokrax.cmd_review(args)
+        with patch("notify.run_glab", return_value=_ok()):
+            gokrax.cmd_review(args)
 
         path = tmp_pipelines / "test-pj.json"
         data = json.loads(path.read_text())

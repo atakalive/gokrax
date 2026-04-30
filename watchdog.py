@@ -111,7 +111,7 @@ def _check_queue():
         try:
             result = _sp.run(
                 [str(GOKRAX_CLI), "qrun", "--queue", str(queue_path)],
-                capture_output=True, text=True, timeout=180,
+                capture_output=True, text=True, timeout=360,
             )
             if result.returncode == EXIT_QUEUE_SKIP:
                 log("[queue] entry skipped — retrying next entry")
@@ -124,7 +124,7 @@ def _check_queue():
                 log(f"[queue] qrun failed (exit {result.returncode}): {result.stderr.strip()}")
                 return
         except _sp.TimeoutExpired:
-            log("[queue] qrun timeout (>180s)")
+            log("[queue] qrun timeout (>360s)")
             return
         except Exception as e:
             log(f"[queue] qrun error: {e}")

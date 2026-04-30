@@ -1,14 +1,12 @@
-import subprocess
 import sys
-import time
 from datetime import datetime, timedelta
 
 from config import (
-    GLAB_BIN,
-    GLAB_TIMEOUT, REVIEWERS,
+    REVIEWERS,
     STATE_PHASE_MAP,
     GOKRAX_CLI, OWNER_NAME, GITLAB_NAMESPACE, IMPLEMENTERS,
 )
+from engine.glab import run_glab
 from pipeline_io import (
     load_pipeline, update_pipeline,
     now_iso, get_path, find_issue,
@@ -26,58 +24,38 @@ from commands.dev.helpers import (
 
 
 def _update_issue_title_with_assessment(gitlab: str, issue_num: int, complex_level: int, domain_risk: str = "n/a") -> bool:
-    """Issue タイトルの末尾に [Lvl N / {Risk}] を付与。既に付いていれば置換。
-
-    domain_risk の値に応じて No Risk / Low Risk / High Risk を表示。
-    glab issue view で現在のタイトルを取得し、glab issue update で更新。
-    リトライ3回（_post_gitlab_note と同方針）。
-    """
+    """Issue タイトルの末尾に [Lvl N / {Risk}] を付与。既に付いていれば置換。"""
     import re as _re
+    import json as _json
 
-    # [Lvl N / No Risk] 等にマッチ（リスク部分はオプショナル）
     _TAG_RE = r'\[Lvl \d+(?:\s*/\s*(?:No|Low|High)\s+Risk)?\]'
 
-    # 現在のタイトルを取得
+    view_result = run_glab(["issue", "view", str(issue_num), "--output", "json", "-R", gitlab])
+    if not view_result.ok:
+        msg = view_result.stderr.strip() if view_result.stderr else str(view_result.error or "unknown error")
+        _log(f"glab issue view failed for #{issue_num}: {msg}")
+        return False
     try:
-        result = subprocess.run(
-            [GLAB_BIN, "issue", "view", str(issue_num), "--output", "json", "-R", gitlab],
-            capture_output=True, text=True, timeout=GLAB_TIMEOUT,
-        )
-        if result.returncode != 0:
-            _log(f"glab issue view failed for #{issue_num}: {result.stderr.strip()}")
-            return False
-        import json as _json
-        issue_data = _json.loads(result.stdout)
+        issue_data = _json.loads(view_result.stdout)
         current_title = issue_data.get("title", "")
     except Exception as e:
-        _log(f"glab issue view error for #{issue_num}: {e}")
+        _log(f"glab issue view parse error for #{issue_num}: {e}")
         return False
 
-    # 既存タグは先頭・末尾どちらにあっても除去する（異常状態の防御的クリーンアップ）
     new_title = _re.sub(r'^\s*' + _TAG_RE + r'\s*', '', current_title)
     new_title = _re.sub(r'\s*' + _TAG_RE + r'\s*$', '', new_title)
-    # 新規付与は常に末尾
     risk_label = RISK_DISPLAY.get(domain_risk, "")
     if risk_label:
         new_title = f"{new_title} [Lvl {complex_level} / {risk_label}]"
     else:
         new_title = f"{new_title} [Lvl {complex_level}]"
 
-    # タイトル更新（リトライ3回）
-    for attempt in range(3):
-        try:
-            result = subprocess.run(
-                [GLAB_BIN, "issue", "update", str(issue_num), "--title", new_title, "-R", gitlab],
-                capture_output=True, text=True, timeout=GLAB_TIMEOUT,
-            )
-            if result.returncode == 0:
-                return True
-            _log(f"glab issue update failed (attempt {attempt+1}/3) for #{issue_num}: {result.stderr.strip()}")
-        except Exception as e:
-            _log(f"glab issue update error (attempt {attempt+1}/3) for #{issue_num}: {e}")
-        if attempt < 2:
-            time.sleep(3)
-    return False
+    update_result = run_glab(["issue", "update", str(issue_num), "--title", new_title, "-R", gitlab])
+    if not update_result.ok:
+        msg = update_result.stderr.strip() if update_result.stderr else str(update_result.error or "unknown error")
+        _log(f"glab issue update failed for #{issue_num}: {msg}")
+        return False
+    return True
 
 
 def cmd_review(args):

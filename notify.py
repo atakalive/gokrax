@@ -19,6 +19,7 @@ import requests
 import config
 from engine.backend_types import SendResult
 from engine.filter import require_issue_author, UnauthorizedAuthorError
+from engine.glab import run_glab
 from config import (
     GOKRAX_CLI, GLAB_BIN, DISCORD_CHANNEL, DISCORD_BOT_TOKEN,
     AGENTS, REVIEW_MODES, MAX_DIFF_CHARS, GLAB_TIMEOUT,
@@ -454,21 +455,27 @@ def format_review_note_header(
 
 
 def post_gitlab_note(gitlab: str, issue_num: int, body: str) -> bool:
-    """glab issue note を投稿。失敗時は2回リトライ（間隔3秒）。"""
-    for attempt in range(3):
-        try:
-            result = subprocess.run(
-                [GLAB_BIN, "issue", "note", str(issue_num), "-m", body, "-R", gitlab],
-                capture_output=True, text=True, timeout=GLAB_TIMEOUT,
-            )
-            if result.returncode == 0:
-                return True
-            logger.warning("glab note failed (attempt %d/3): %s", attempt + 1, result.stderr.strip())
-        except Exception as e:
-            logger.warning("glab note error (attempt %d/3): %s", attempt + 1, e)
-        if attempt < 2:
-            time.sleep(3)
-    logger.error("GitLab note failed after 3 attempts")
+    """glab issue note を投稿。非冪等のためリトライしない (重複コメント防止)。
+
+    失敗時: pending_notifications 経由の遷移通知のみ at-least-once 再送 (10s 間隔)。
+    watchdog direct (NPASS timeout / assessment / BLOCKED note) および
+    CLI 直接呼び出し (cmd_review 等) では note が欠落し得るが、
+    状態は pipeline JSON に記録済みなので不整合は発生しない。
+    """
+    try:
+        result = run_glab(
+            ["issue", "note", str(issue_num), "-m", body, "-R", gitlab],
+            retries=1,
+        )
+    except Exception as e:
+        logger.warning("glab note failed: %s", e)
+        return False
+    if result.ok:
+        return True
+    if result.error:
+        logger.warning("glab note failed: %s", result.error)
+    else:
+        logger.warning("glab note failed (rc=%s): %s", result.returncode, result.stderr.strip())
     return False
 
 
@@ -664,29 +671,25 @@ def _split_message(text: str, limit: int = 2000) -> list[str]:
 
 def fetch_issue_body(issue_num: int, gitlab: str) -> str | None:
     """GitLab Issue本文を取得（glab issue show --output json）。"""
-    try:
-        result = subprocess.run(
-            [GLAB_BIN, "issue", "show", str(issue_num), "--output", "json", "-R", gitlab],
-            capture_output=True, text=True, timeout=GLAB_TIMEOUT, check=False,
+    result = run_glab(["issue", "show", str(issue_num), "--output", "json", "-R", gitlab])
+    if not result.ok:
+        if isinstance(result.error, FileNotFoundError):
+            raise result.error
+        logger.warning(
+            "glab issue show failed (issue=%d, rc=%s): %s",
+            issue_num, result.returncode,
+            result.stderr.strip() if result.stderr else str(result.error or "unknown"),
         )
-        if result.returncode != 0:
-            logger.warning("glab issue show failed (issue=%d, rc=%d): %s",
-                          issue_num, result.returncode, result.stderr.strip())
-            return None
+        return None
+    try:
         data = json.loads(result.stdout)
         require_issue_author(data)
         return data.get("description", "")
     except UnauthorizedAuthorError:
         logger.error("Unauthorized issue author (issue=%d)", issue_num)
         raise
-    except subprocess.TimeoutExpired:
-        logger.warning("glab issue show timed out (issue=%d)", issue_num)
-        return None
     except json.JSONDecodeError as e:
         logger.warning("glab issue show invalid JSON (issue=%d): %s", issue_num, e)
-        return None
-    except FileNotFoundError:
-        logger.error("glab binary not found: %s", GLAB_BIN)
         return None
 
 

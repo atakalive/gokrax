@@ -390,20 +390,21 @@ class TestFetchIssueBody:
 
     def test_success_returns_description(self, monkeypatch):
         import notify
+        from engine.glab import GlabResult
         monkeypatch.setattr("config.GITLAB_NAMESPACE", "owner")
-        mock_result = MagicMock()
-        mock_result.returncode = 0
-        mock_result.stdout = json.dumps({"description": "Issue body text", "author": {"username": "owner"}})
-        with patch("notify.subprocess.run", return_value=mock_result):
+        mock_result = GlabResult(ok=True, stdout=json.dumps(
+            {"description": "Issue body text", "author": {"username": "owner"}}
+        ), stderr="", returncode=0, error=None)
+        with patch("notify.run_glab", return_value=mock_result):
             result = notify.fetch_issue_body(42, "testns/proj")
         assert result == "Issue body text"
 
     def test_glab_failure_returns_none(self, caplog):
         import notify
-        mock_result = MagicMock()
-        mock_result.returncode = 1
-        mock_result.stderr = "issue not found"
-        with patch("notify.subprocess.run", return_value=mock_result):
+        from engine.glab import GlabResult
+        mock_result = GlabResult(ok=False, stdout="", stderr="issue not found",
+                                  returncode=1, error=None)
+        with patch("notify.run_glab", return_value=mock_result):
             with caplog.at_level(logging.WARNING, logger="gokrax.notify"):
                 result = notify.fetch_issue_body(999, "testns/proj")
         assert result is None
@@ -411,21 +412,25 @@ class TestFetchIssueBody:
 
     def test_empty_description_returns_empty_string(self, monkeypatch):
         import notify
+        from engine.glab import GlabResult
         monkeypatch.setattr("config.GITLAB_NAMESPACE", "owner")
-        mock_result = MagicMock()
-        mock_result.returncode = 0
-        mock_result.stdout = json.dumps({"description": "", "author": {"username": "owner"}})
-        with patch("notify.subprocess.run", return_value=mock_result):
+        mock_result = GlabResult(ok=True, stdout=json.dumps(
+            {"description": "", "author": {"username": "owner"}}
+        ), stderr="", returncode=0, error=None)
+        with patch("notify.run_glab", return_value=mock_result):
             result = notify.fetch_issue_body(10, "testns/proj")
         assert result == ""
 
     def test_timeout_returns_none(self, caplog):
         import notify
-        with patch("notify.subprocess.run", side_effect=subprocess.TimeoutExpired("cmd", 15)):
+        from engine.glab import GlabResult
+        mock_result = GlabResult(ok=False, stdout="", stderr="", returncode=None,
+                                  error=subprocess.TimeoutExpired("cmd", 15))
+        with patch("notify.run_glab", return_value=mock_result):
             with caplog.at_level(logging.WARNING, logger="gokrax.notify"):
                 result = notify.fetch_issue_body(5, "testns/proj")
         assert result is None
-        assert "timed out" in caplog.text
+        assert "glab issue show failed" in caplog.text
 
 
 class TestFetchCommitDiff:

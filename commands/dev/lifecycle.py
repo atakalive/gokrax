@@ -1,14 +1,12 @@
 import argparse
 import json
-import subprocess
 import sys
 
 import os
 
 from config import (
-    GLAB_BIN,
     VALID_STATES, VALID_TRANSITIONS, MAX_BATCH,
-    GLAB_TIMEOUT, REVIEWERS, REVIEW_MODES, LOCAL_TZ,
+    REVIEWERS, REVIEW_MODES, LOCAL_TZ,
     WATCHDOG_LOOP_PIDFILE, WATCHDOG_LOOP_LOCKFILE,  # noqa: F401  (LOCKFILE kept for tests to monkeypatch)
     STATE_PHASE_MAP,
     GITLAB_NAMESPACE, IMPLEMENTERS,
@@ -19,6 +17,7 @@ from pipeline_io import (
     clear_pending_notification, merge_pending_notifications,
 )
 from engine.filter import require_issue_author, UnauthorizedAuthorError
+from engine.glab import run_glab
 from engine.fsm import get_notification_for_state
 from notify import (
     notify_implementer, notify_reviewers, notify_discord,
@@ -218,23 +217,20 @@ def cmd_extend(args):
 
 def _fetch_open_issues(gitlab: str) -> list[tuple[int, str]]:
     """glab issue list でopen issueの (番号, タイトル) リストを取得。"""
+    result = run_glab(["issue", "list", "-R", gitlab, "-O", "json", "-P", "100"])
+    if not result.ok:
+        if isinstance(result.error, FileNotFoundError):
+            raise result.error
+        msg = result.stderr.strip() if result.stderr else str(result.error or "unknown error")
+        print(f"glab issue list failed: {msg}", file=sys.stderr)
+        return []
     try:
-        result = subprocess.run(
-            [GLAB_BIN, "issue", "list", "-R", gitlab,
-             "-O", "json", "-P", "100"],
-            capture_output=True, text=True, timeout=GLAB_TIMEOUT,
-        )
-        if result.returncode != 0:
-            print(f"glab issue list failed: {result.stderr.strip()}", file=sys.stderr)
-            return []
-
-        import json
         issues = json.loads(result.stdout)
         return [
             (issue["iid"], issue.get("title", ""))
             for issue in issues if issue.get("state") == "opened"
         ]
-    except (subprocess.TimeoutExpired, json.JSONDecodeError, KeyError) as e:
+    except (json.JSONDecodeError, KeyError) as e:
         print(f"Failed to fetch open issues: {e}", file=sys.stderr)
         return []
 
@@ -243,49 +239,46 @@ def _fetch_issue_info(issue_num: int, gitlab: str) -> tuple[str, str | None]:
     """GitLab APIでIssueのタイトルとstateを取得。
 
     Returns:
-        (title, state) のタプル。
-        title: Issue タイトル。API失敗時は空文字列。
-        state: "opened" / "closed" / None。
-            - "opened": open issue
-            - "closed": closed issue
-            - None: API失敗（タイムアウト、ネットワークエラー、glab未検出）
-                    または未知の state 値（"opened" でも "closed" でもない）
+        (title, state): state は "opened"/"closed"/None (API失敗 or 未知state)
+    Raises:
+        FileNotFoundError: glab バイナリ未検出 (永続的環境エラー)
+        UnauthorizedAuthorError: Issue author が許可リスト外
     """
     try:
-        result = subprocess.run(
-            [GLAB_BIN, "issue", "show", str(issue_num), "--output", "json", "-R", gitlab],
-            capture_output=True, text=True, timeout=GLAB_TIMEOUT, check=False,
+        result = run_glab(
+            ["issue", "show", str(issue_num), "--output", "json", "-R", gitlab],
+            retries=2,
         )
-        if result.returncode == 0:
-            data = json.loads(result.stdout)
-            require_issue_author(data)
-            title = data.get("title", "")
-            raw_state = data.get("state")
-            if raw_state in ("opened", "closed"):
-                _log(f"_fetch_issue_info(#{issue_num}) → state={raw_state}")
-                return (title, raw_state)
-            # 未知の state: None 扱い + 警告
-            _log(f"_fetch_issue_info(#{issue_num}) → unknown state={raw_state!r}")
-            print(f"Warning: issue #{issue_num} has unknown state '{raw_state}'",
-                  file=sys.stderr)
-            return (title, None)
-        # glab が非ゼロ終了
-        _log(f"_fetch_issue_info(#{issue_num}) → glab failed rc={result.returncode}")
-        print(f"Warning: glab issue show failed for #{issue_num} (rc={result.returncode})",
-              file=sys.stderr)
-    except subprocess.TimeoutExpired:
-        _log(f"_fetch_issue_info(#{issue_num}) → timeout")
-        print(f"Warning: glab issue show timed out for #{issue_num}", file=sys.stderr)
-    except FileNotFoundError:
-        _log(f"_fetch_issue_info(#{issue_num}) → glab not found")
-        print(f"Warning: glab binary not found: {GLAB_BIN}", file=sys.stderr)
     except UnauthorizedAuthorError:
-        _log(f"_fetch_issue_info(#{issue_num}) → unauthorized author")
         raise
     except Exception as e:
         _log(f"_fetch_issue_info(#{issue_num}) → error: {e}")
         print(f"Warning: failed to fetch issue #{issue_num}: {e}", file=sys.stderr)
-    return ("", None)
+        return ("", None)
+    if not result.ok:
+        if isinstance(result.error, FileNotFoundError):
+            raise result.error
+        msg = result.stderr.strip() if result.stderr else str(result.error or "unknown error")
+        _log(f"_fetch_issue_info(#{issue_num}) → glab failed: {msg}")
+        print(f"Warning: glab issue show failed for #{issue_num}: {msg}", file=sys.stderr)
+        return ("", None)
+    try:
+        data = json.loads(result.stdout)
+        require_issue_author(data)
+    except UnauthorizedAuthorError:
+        _log(f"_fetch_issue_info(#{issue_num}) → unauthorized author")
+        raise
+    except (json.JSONDecodeError, ValueError) as e:
+        _log(f"_fetch_issue_info(#{issue_num}) → JSON parse error: {e}")
+        return ("", None)
+    title = data.get("title", "")
+    raw_state = data.get("state")
+    if raw_state in ("opened", "closed"):
+        _log(f"_fetch_issue_info(#{issue_num}) → state={raw_state}")
+        return (title, raw_state)
+    _log(f"_fetch_issue_info(#{issue_num}) → unknown state={raw_state!r}")
+    print(f"Warning: issue #{issue_num} has unknown state '{raw_state}'", file=sys.stderr)
+    return (title, None)
 
 
 def cmd_triage(args):
@@ -294,6 +287,12 @@ def cmd_triage(args):
     data = load_pipeline(get_path(args.project))
     gitlab = data.get("gitlab", f"{GITLAB_NAMESPACE}/{args.project}")
     titles = list(args.title) + [""] * (len(args.issue) - len(args.title))
+
+    if len(args.issue) > MAX_BATCH:
+        raise SystemExit(
+            f"Too many issues ({len(args.issue)}) exceeds MAX_BATCH={MAX_BATCH}. "
+            f"Use explicit --issue to select a subset."
+        )
 
     # --- Phase 1: タイトル＋state 一括取得 ---
     # タイトルが既知の場合でも state 確認のために API を呼ぶ。
@@ -1000,18 +999,16 @@ def cmd_get_comments(args: argparse.Namespace) -> None:
     page = 1
     all_notes: list[dict] = []
     while True:
-        try:
-            result = subprocess.run(
-                [GLAB_BIN, "api",
-                 f"projects/:id/issues/{issue_num}/notes?per_page=100&sort=asc&page={page}",
-                 "-R", gitlab],
-                capture_output=True, text=True, timeout=GLAB_TIMEOUT, check=False,
-            )
-        except subprocess.TimeoutExpired:
-            print(f"Error: glab api timed out for issue #{issue_num}", file=sys.stderr)
-            sys.exit(1)
-        if result.returncode != 0:
-            print(f"Error: glab api failed (rc={result.returncode}): {result.stderr.strip()}", file=sys.stderr)
+        result = run_glab([
+            "api",
+            f"projects/:id/issues/{issue_num}/notes?per_page=100&sort=asc&page={page}",
+            "-R", gitlab,
+        ])
+        if not result.ok:
+            if isinstance(result.error, FileNotFoundError):
+                raise result.error
+            msg = result.stderr.strip() if result.stderr else str(result.error or "unknown error")
+            print(f"Error: glab api failed (rc={result.returncode}): {msg}", file=sys.stderr)
             sys.exit(1)
         try:
             notes = json.loads(result.stdout)

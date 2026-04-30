@@ -66,12 +66,11 @@ def test_fetch_issue_info_rejects_unauthorized(monkeypatch):
     monkeypatch.setattr("config.GITLAB_NAMESPACE", "owner")
     monkeypatch.setattr("config.ALLOWED_GITLAB_AUTHORS", ())
     import commands.dev
-    mock_result = MagicMock()
-    mock_result.returncode = 0
-    mock_result.stdout = json.dumps(
+    from engine.glab import GlabResult
+    mock_result = GlabResult(ok=True, stdout=json.dumps(
         {"title": "evil", "state": "opened", "author": {"username": "attacker"}}
-    )
-    with patch("commands.dev.subprocess.run", return_value=mock_result):
+    ), stderr="", returncode=0, error=None)
+    with patch("commands.dev.lifecycle.run_glab", return_value=mock_result):
         with pytest.raises(UnauthorizedAuthorError):
             commands.dev._fetch_issue_info(1, "ns/proj")
 
@@ -80,12 +79,11 @@ def test_fetch_issue_info_allows_authorized(monkeypatch):
     monkeypatch.setattr("config.GITLAB_NAMESPACE", "owner")
     monkeypatch.setattr("config.ALLOWED_GITLAB_AUTHORS", ())
     import commands.dev
-    mock_result = MagicMock()
-    mock_result.returncode = 0
-    mock_result.stdout = json.dumps(
+    from engine.glab import GlabResult
+    mock_result = GlabResult(ok=True, stdout=json.dumps(
         {"title": "legit", "state": "opened", "author": {"username": "owner"}}
-    )
-    with patch("commands.dev.subprocess.run", return_value=mock_result):
+    ), stderr="", returncode=0, error=None)
+    with patch("commands.dev.lifecycle.run_glab", return_value=mock_result):
         result = commands.dev._fetch_issue_info(1, "ns/proj")
     assert result == ("legit", "opened")
 
@@ -99,12 +97,11 @@ def test_fetch_issue_body_rejects_unauthorized(monkeypatch):
     monkeypatch.setattr("config.GITLAB_NAMESPACE", "owner")
     monkeypatch.setattr("config.ALLOWED_GITLAB_AUTHORS", ())
     import notify
-    mock_result = MagicMock()
-    mock_result.returncode = 0
-    mock_result.stdout = json.dumps(
+    from engine.glab import GlabResult
+    mock_result = GlabResult(ok=True, stdout=json.dumps(
         {"description": "evil body", "author": {"username": "attacker"}}
-    )
-    with patch("notify.subprocess.run", return_value=mock_result):
+    ), stderr="", returncode=0, error=None)
+    with patch("notify.run_glab", return_value=mock_result):
         with pytest.raises(UnauthorizedAuthorError):
             notify.fetch_issue_body(1, "ns/proj")
 
@@ -113,12 +110,11 @@ def test_fetch_issue_body_allows_authorized(monkeypatch):
     monkeypatch.setattr("config.GITLAB_NAMESPACE", "owner")
     monkeypatch.setattr("config.ALLOWED_GITLAB_AUTHORS", ())
     import notify
-    mock_result = MagicMock()
-    mock_result.returncode = 0
-    mock_result.stdout = json.dumps(
+    from engine.glab import GlabResult
+    mock_result = GlabResult(ok=True, stdout=json.dumps(
         {"description": "legit body", "author": {"username": "owner"}}
-    )
-    with patch("notify.subprocess.run", return_value=mock_result):
+    ), stderr="", returncode=0, error=None)
+    with patch("notify.run_glab", return_value=mock_result):
         result = notify.fetch_issue_body(1, "ns/proj")
     assert result == "legit body"
 

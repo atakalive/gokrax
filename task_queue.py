@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Optional
 
 from pipeline_io import load_pipeline, get_path
-from config import REVIEW_MODES, resolve_queue_options, GITLAB_NAMESPACE
+from config import REVIEW_MODES, resolve_queue_options, GITLAB_NAMESPACE, MAX_BATCH
 
 
 class QueueSkipError(Exception):
@@ -97,6 +97,10 @@ def parse_queue_line(line: str) -> dict:
             raise ValueError(f"Invalid issues format (empty element): {issues_raw!r}")
         if any(not p.strip().isdigit() for p in parts):  # numeric check
             raise ValueError(f"Invalid issues format (non-integer): {issues_raw!r}")
+        if len(parts) > MAX_BATCH:
+            raise ValueError(
+                f"Too many issues ({len(parts)}) exceeds MAX_BATCH={MAX_BATCH}: {issues_raw!r}"
+            )
         issues = issues_raw
 
     # オプションパース
@@ -386,6 +390,16 @@ def pop_next_queue_entry(queue_path: Path) -> Optional[dict]:
             continue
 
         gitlab = data.get("gitlab", f"{GITLAB_NAMESPACE}/{project}")
+
+        issues_list = entry["issues"].split(",")
+        if len(issues_list) > MAX_BATCH:
+            print(
+                f"[queue] Skipped entry: {len(issues_list)} issues exceeds MAX_BATCH={MAX_BATCH}",
+                file=sys.stderr,
+            )
+            if _mark_line_done_if_matches(queue_path, original_line):
+                pass
+            continue
 
         from engine.glab import fetch_issue_state
         closed_nums: list[int] = []

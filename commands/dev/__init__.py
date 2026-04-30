@@ -100,6 +100,7 @@ for _n in (
     "mask_agent_name", "resolve_reviewer_arg", "format_review_note_header",
     "load_pipeline", "update_pipeline", "now_iso", "get_path", "find_issue",
     "parse_issue_args", "_log", "_masked_reviewer",
+    "_update_issue_title_with_assessment",
 ):
     if _n in _rv.__dict__:
         _rv.__dict__[_n] = _PatchableRef(_n)

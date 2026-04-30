@@ -11,6 +11,16 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from engine.glab import GlabResult
+
+
+def _glab_ok(stdout: str = "") -> GlabResult:
+    return GlabResult(ok=True, stdout=stdout, stderr="", returncode=0, error=None)
+
+
+def _glab_fail(stderr: str = "fail") -> GlabResult:
+    return GlabResult(ok=False, stdout="", stderr=stderr, returncode=1, error=None)
+
 
 def _write_pipeline(path: Path, data: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -159,10 +169,10 @@ class TestUpdateIssueTitleWithComplexLevel:
         """8-6: 正常系 — domain_risk="none" → [Lvl N / No Risk]"""
         from commands.dev import _update_issue_title_with_assessment
 
-        view_result = MagicMock(returncode=0, stdout=json.dumps({"title": "feat: do something"}))
-        update_result = MagicMock(returncode=0)
+        view_result = _glab_ok(json.dumps({"title": "feat: do something"}))
+        update_result = _glab_ok()
 
-        with patch("subprocess.run", side_effect=[view_result, update_result]) as mock_run:
+        with patch("commands.dev.review.run_glab", side_effect=[view_result, update_result]) as mock_run:
             ok = _update_issue_title_with_assessment("testns/test-pj", 42, 3, "none")
 
         assert ok is True
@@ -174,10 +184,10 @@ class TestUpdateIssueTitleWithComplexLevel:
         """8-7: 既存の [Lvl N / No Risk] を置換（後方互換: 先頭タグの除去確認）"""
         from commands.dev import _update_issue_title_with_assessment
 
-        view_result = MagicMock(returncode=0, stdout=json.dumps({"title": "[Lvl 2 / No Risk] feat: do something"}))
-        update_result = MagicMock(returncode=0)
+        view_result = _glab_ok(json.dumps({"title": "[Lvl 2 / No Risk] feat: do something"}))
+        update_result = _glab_ok()
 
-        with patch("subprocess.run", side_effect=[view_result, update_result]) as mock_run:
+        with patch("commands.dev.review.run_glab", side_effect=[view_result, update_result]) as mock_run:
             ok = _update_issue_title_with_assessment("testns/test-pj", 42, 4, "none")
 
         assert ok is True
@@ -188,10 +198,10 @@ class TestUpdateIssueTitleWithComplexLevel:
         """8-7b: 末尾の既存 [Lvl N / Low Risk] を [Lvl N / No Risk] に置換（domain_risk=none 明示指定）"""
         from commands.dev import _update_issue_title_with_assessment
 
-        view_result = MagicMock(returncode=0, stdout=json.dumps({"title": "feat: do something [Lvl 2 / Low Risk]"}))
-        update_result = MagicMock(returncode=0)
+        view_result = _glab_ok(json.dumps({"title": "feat: do something [Lvl 2 / Low Risk]"}))
+        update_result = _glab_ok()
 
-        with patch("subprocess.run", side_effect=[view_result, update_result]) as mock_run:
+        with patch("commands.dev.review.run_glab", side_effect=[view_result, update_result]) as mock_run:
             ok = _update_issue_title_with_assessment("testns/test-pj", 42, 4, "none")
 
         assert ok is True
@@ -202,10 +212,10 @@ class TestUpdateIssueTitleWithComplexLevel:
         """8-7c: 先頭・末尾両方にタグがある異常状態 — 両方除去して末尾に1つだけ付与"""
         from commands.dev import _update_issue_title_with_assessment
 
-        view_result = MagicMock(returncode=0, stdout=json.dumps({"title": "[Lvl 2 / Low Risk] feat: do something [Lvl 3 / High Risk]"}))
-        update_result = MagicMock(returncode=0)
+        view_result = _glab_ok(json.dumps({"title": "[Lvl 2 / Low Risk] feat: do something [Lvl 3 / High Risk]"}))
+        update_result = _glab_ok()
 
-        with patch("subprocess.run", side_effect=[view_result, update_result]) as mock_run:
+        with patch("commands.dev.review.run_glab", side_effect=[view_result, update_result]) as mock_run:
             ok = _update_issue_title_with_assessment("testns/test-pj", 42, 5, "none")
 
         assert ok is True
@@ -379,10 +389,10 @@ class TestUpdateIssueTitleWithRisk:
         """domain_risk="high" → [Lvl 3 / High Risk] が末尾に付与"""
         from commands.dev import _update_issue_title_with_assessment
 
-        view_result = MagicMock(returncode=0, stdout=json.dumps({"title": "feat: do something"}))
-        update_result = MagicMock(returncode=0)
+        view_result = _glab_ok(json.dumps({"title": "feat: do something"}))
+        update_result = _glab_ok()
 
-        with patch("subprocess.run", side_effect=[view_result, update_result]) as mock_run:
+        with patch("commands.dev.review.run_glab", side_effect=[view_result, update_result]) as mock_run:
             ok = _update_issue_title_with_assessment("testns/test-pj", 42, 3, "high")
 
         assert ok is True
@@ -393,10 +403,10 @@ class TestUpdateIssueTitleWithRisk:
         """domain_risk="none" → [Lvl 3 / No Risk]"""
         from commands.dev import _update_issue_title_with_assessment
 
-        view_result = MagicMock(returncode=0, stdout=json.dumps({"title": "feat: do something"}))
-        update_result = MagicMock(returncode=0)
+        view_result = _glab_ok(json.dumps({"title": "feat: do something"}))
+        update_result = _glab_ok()
 
-        with patch("subprocess.run", side_effect=[view_result, update_result]) as mock_run:
+        with patch("commands.dev.review.run_glab", side_effect=[view_result, update_result]) as mock_run:
             ok = _update_issue_title_with_assessment("testns/test-pj", 42, 3, "none")
 
         assert ok is True
@@ -407,10 +417,10 @@ class TestUpdateIssueTitleWithRisk:
         """既存 [Lvl 2 / Low Risk] → [Lvl 3 / High Risk] に置換"""
         from commands.dev import _update_issue_title_with_assessment
 
-        view_result = MagicMock(returncode=0, stdout=json.dumps({"title": "feat: do something [Lvl 2 / Low Risk]"}))
-        update_result = MagicMock(returncode=0)
+        view_result = _glab_ok(json.dumps({"title": "feat: do something [Lvl 2 / Low Risk]"}))
+        update_result = _glab_ok()
 
-        with patch("subprocess.run", side_effect=[view_result, update_result]) as mock_run:
+        with patch("commands.dev.review.run_glab", side_effect=[view_result, update_result]) as mock_run:
             ok = _update_issue_title_with_assessment("testns/test-pj", 42, 3, "high")
 
         assert ok is True
@@ -421,10 +431,10 @@ class TestUpdateIssueTitleWithRisk:
         """既存 [Lvl 2 / No Risk] → [Lvl 3 / High Risk] に置換"""
         from commands.dev import _update_issue_title_with_assessment
 
-        view_result = MagicMock(returncode=0, stdout=json.dumps({"title": "feat: do something [Lvl 2 / No Risk]"}))
-        update_result = MagicMock(returncode=0)
+        view_result = _glab_ok(json.dumps({"title": "feat: do something [Lvl 2 / No Risk]"}))
+        update_result = _glab_ok()
 
-        with patch("subprocess.run", side_effect=[view_result, update_result]) as mock_run:
+        with patch("commands.dev.review.run_glab", side_effect=[view_result, update_result]) as mock_run:
             ok = _update_issue_title_with_assessment("testns/test-pj", 42, 3, "high")
 
         assert ok is True
@@ -435,10 +445,10 @@ class TestUpdateIssueTitleWithRisk:
         """domain_risk="low" → [Lvl 3 / Low Risk] が末尾に付与"""
         from commands.dev import _update_issue_title_with_assessment
 
-        view_result = MagicMock(returncode=0, stdout=json.dumps({"title": "feat: do something"}))
-        update_result = MagicMock(returncode=0)
+        view_result = _glab_ok(json.dumps({"title": "feat: do something"}))
+        update_result = _glab_ok()
 
-        with patch("subprocess.run", side_effect=[view_result, update_result]) as mock_run:
+        with patch("commands.dev.review.run_glab", side_effect=[view_result, update_result]) as mock_run:
             ok = _update_issue_title_with_assessment("testns/test-pj", 42, 3, "low")
 
         assert ok is True
@@ -449,10 +459,10 @@ class TestUpdateIssueTitleWithRisk:
         """既存 [Lvl 2 / No Risk] → domain_risk="none" で [Lvl 3 / No Risk] に置換"""
         from commands.dev import _update_issue_title_with_assessment
 
-        view_result = MagicMock(returncode=0, stdout=json.dumps({"title": "feat: do something [Lvl 2 / No Risk]"}))
-        update_result = MagicMock(returncode=0)
+        view_result = _glab_ok(json.dumps({"title": "feat: do something [Lvl 2 / No Risk]"}))
+        update_result = _glab_ok()
 
-        with patch("subprocess.run", side_effect=[view_result, update_result]) as mock_run:
+        with patch("commands.dev.review.run_glab", side_effect=[view_result, update_result]) as mock_run:
             ok = _update_issue_title_with_assessment("testns/test-pj", 42, 3, "none")
 
         assert ok is True

@@ -101,7 +101,7 @@ def fetch_issue_state(issue_num: int, gitlab: str) -> str | None:
     None: API 失敗 / JSON パース不能 / state が opened/closed 以外 / Issue 不存在。
     author 検証は行わない（pop 段階では state 判定のみ）。
     """
-    result = run_glab(["issue", "show", str(issue_num), "--output", "json", "-R", gitlab])
+    result = run_glab(["issue", "show", str(issue_num), "--output", "json", "-R", gitlab], retries=2)
     if not result.ok:
         return None
     try:

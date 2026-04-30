@@ -366,6 +366,7 @@ def pop_next_queue_entry(queue_path: Path) -> Optional[dict]:
     """
     closed_skipped: list[tuple[str, list[int]]] = []
     unverified_entries: list[tuple[str, list[int]]] = []
+    overflow_skipped: list[tuple[str, int]] = []
     result: Optional[dict] = None
 
     while True:
@@ -398,7 +399,7 @@ def pop_next_queue_entry(queue_path: Path) -> Optional[dict]:
                 file=sys.stderr,
             )
             if _mark_line_done_if_matches(queue_path, original_line):
-                pass
+                overflow_skipped.append((project, len(issues_list)))
             continue
 
         from engine.glab import fetch_issue_state
@@ -428,7 +429,7 @@ def pop_next_queue_entry(queue_path: Path) -> Optional[dict]:
             break
         continue
 
-    if closed_skipped or unverified_entries:
+    if closed_skipped or unverified_entries or overflow_skipped:
         from notify import post_discord
         from config import DISCORD_CHANNEL
         if DISCORD_CHANNEL:
@@ -440,6 +441,9 @@ def pop_next_queue_entry(queue_path: Path) -> Optional[dict]:
                 nums_str = ", ".join(f"#{n}" for n in nums)
                 post_discord(DISCORD_CHANNEL,
                              f"⚠️ Queue entry proceeded with unverified state: {pj} {nums_str}")
+            for pj, count in overflow_skipped:
+                post_discord(DISCORD_CHANNEL,
+                             f"⚠️ Queue entry skipped: {pj} ({count} issues exceeds MAX_BATCH={MAX_BATCH})")
 
     return result
 

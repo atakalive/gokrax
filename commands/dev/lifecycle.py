@@ -244,17 +244,10 @@ def _fetch_issue_info(issue_num: int, gitlab: str) -> tuple[str, str | None]:
         FileNotFoundError: glab バイナリ未検出 (永続的環境エラー)
         UnauthorizedAuthorError: Issue author が許可リスト外
     """
-    try:
-        result = run_glab(
-            ["issue", "show", str(issue_num), "--output", "json", "-R", gitlab],
-            retries=2,
-        )
-    except UnauthorizedAuthorError:
-        raise
-    except Exception as e:
-        _log(f"_fetch_issue_info(#{issue_num}) → error: {e}")
-        print(f"Warning: failed to fetch issue #{issue_num}: {e}", file=sys.stderr)
-        return ("", None)
+    result = run_glab(
+        ["issue", "show", str(issue_num), "--output", "json", "-R", gitlab],
+        retries=2,
+    )
     if not result.ok:
         if isinstance(result.error, FileNotFoundError):
             raise result.error

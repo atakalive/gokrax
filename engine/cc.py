@@ -771,7 +771,6 @@ def _mark_push_failed(gitlab: str, batch: list[dict], project: str) -> None:
                 ["issue", "update", str(issue_num), "-R", gitlab,
                  "--title", f"[PUSH FAILED] {title}"],
                 timeout=30,
-                retries=1,
             )
             if not upd_result.ok:
                 msg = upd_result.stderr.strip() if upd_result.stderr else str(upd_result.error or "unknown")

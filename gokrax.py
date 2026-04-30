@@ -513,12 +513,16 @@ def main():
     from task_queue import QueueSkipError
     from config import EXIT_QUEUE_SKIP
     from commands.dev.helpers import _log
-    _safe = {k: getattr(args, k) for k in ("project", "to", "queue") if getattr(args, k, None) is not None}
-    _log(
-        f"cli invoked: cmd={args.command} "
-        f"{' '.join(f'{k}={v}' for k, v in _safe.items())} "
-        f"pid={os.getpid()} ppid={os.getppid()}"
-    )
+    try:
+        _parts = [f"cmd={args.command}"]
+        for k in ("spec_command", "project", "to", "queue"):
+            v = getattr(args, k, None)
+            if v is not None:
+                _parts.append(f"{k}={v}")
+        _parts += [f"pid={os.getpid()}", f"ppid={os.getppid()}"]
+        _log("cli invoked: " + " ".join(_parts))
+    except Exception:
+        pass
     try:
         cmds[args.command](args)
     except QueueSkipError as e:

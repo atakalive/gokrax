@@ -1133,7 +1133,11 @@ def process(path: Path):
             import random
 
             def _save_excluded(data: dict) -> None:
-                data["excluded_reviewers"] = excluded
+                raw = data.get("excluded_reviewers")
+                existing = raw if isinstance(raw, list) else []
+                safe_excluded = excluded if isinstance(excluded, list) else []
+                excluded[:] = list(dict.fromkeys(existing + safe_excluded))
+                data["excluded_reviewers"] = list(excluded)
                 data.pop("_transient_dispatch_warned", None)
                 # reviewer_number_map は初回のみ生成（バッチ内で安定させるため）
                 if "reviewer_number_map" not in data:

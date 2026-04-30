@@ -228,7 +228,11 @@ class TestIntersectionClampLogic:
 
         def _save_excluded_replica(data):
             """watchdog.py L933-951 の _save_excluded と同一のロジック"""
-            data["excluded_reviewers"] = excluded
+            raw = data.get("excluded_reviewers")
+            existing = raw if isinstance(raw, list) else []
+            safe_excluded = excluded if isinstance(excluded, list) else []
+            excluded[:] = list(dict.fromkeys(existing + safe_excluded))
+            data["excluded_reviewers"] = list(excluded)
             effective_count = len([m for m in lite_config["members"] if m not in excluded])
             min_reviews = lite_config["min_reviews"]
             if effective_count < min_reviews:

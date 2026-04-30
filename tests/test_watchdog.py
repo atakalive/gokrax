@@ -7094,3 +7094,134 @@ class TestBlockedPromptReport:
 
         assert data["state"] == "BLOCKED"
         mock_send.assert_not_called()
+
+
+class TestExcludedReviewersPersistAcrossPhase:
+    """Issue #347: excluded_reviewers must persist across phase transitions within a batch."""
+
+    def _run_initialize_with_existing_excluded(
+        self, tmp_pipelines, monkeypatch,
+        existing_excluded: list[str],
+        reset_returns: list[str],
+    ) -> dict:
+        from watchdog import process
+
+        mode_config = {
+            "members": ["reviewer1", "reviewer2", "reviewer3"],
+            "min_reviews": 1,
+            "grace_period_sec": 0,
+        }
+        _modes = {"standard": mode_config}
+        monkeypatch.setattr("watchdog.REVIEW_MODES", _modes)
+        monkeypatch.setattr("engine.fsm.REVIEW_MODES", _modes)
+
+        path = tmp_pipelines / "pj.json"
+        data = {
+            "project": "pj", "gitlab": "testns/pj",
+            "state": "INITIALIZE", "enabled": True,
+            "review_mode": "standard",
+            "batch": [{"issue": 1}],
+            "history": [],
+            "repo_path": "/fake/repo",
+            "excluded_reviewers": list(existing_excluded),
+        }
+        path.write_text(json.dumps(data))
+        monkeypatch.setattr("watchdog.PIPELINES_DIR", tmp_pipelines)
+
+        mock_git = MagicMock()
+        mock_git.returncode = 0
+        mock_git.stdout = "abc12345\n"
+
+        with patch("watchdog._reset_reviewers", return_value=reset_returns), \
+             patch("watchdog._has_pytest", return_value=False), \
+             patch("subprocess.run", return_value=mock_git), \
+             patch("watchdog._poll_pytest_baseline"):
+            process(path)
+
+        return json.loads(path.read_text())
+
+    def test_manual_exclude_persists_across_phase_transition(self, tmp_pipelines, monkeypatch):
+        saved = self._run_initialize_with_existing_excluded(
+            tmp_pipelines, monkeypatch,
+            existing_excluded=["reviewer1"],
+            reset_returns=["reviewer3"],
+        )
+        assert set(saved["excluded_reviewers"]) == {"reviewer1", "reviewer3"}
+        assert len(saved["excluded_reviewers"]) == 2
+
+    def test_manual_exclude_dedup_on_overlap(self, tmp_pipelines, monkeypatch):
+        saved = self._run_initialize_with_existing_excluded(
+            tmp_pipelines, monkeypatch,
+            existing_excluded=["reviewer1"],
+            reset_returns=["reviewer1"],
+        )
+        assert saved["excluded_reviewers"] == ["reviewer1"]
+        assert len(saved["excluded_reviewers"]) == 1
+
+    def test_manual_exclude_persists_across_revise_round(self, tmp_pipelines, monkeypatch):
+        from watchdog import process
+        from engine.fsm import TransitionAction
+
+        mode_config = {
+            "members": ["reviewer1", "reviewer2", "reviewer3"],
+            "min_reviews": 1,
+            "grace_period_sec": 0,
+        }
+        _modes = {"standard": mode_config}
+        monkeypatch.setattr("watchdog.REVIEW_MODES", _modes)
+        monkeypatch.setattr("engine.fsm.REVIEW_MODES", _modes)
+
+        path = tmp_pipelines / "pj.json"
+        # All members responded -> no-response auto-exclude does not fire.
+        design_reviews = {r: {"verdict": "revise", "at": ""} for r in mode_config["members"]}
+        data = {
+            "project": "pj", "gitlab": "testns/pj",
+            "state": "DESIGN_REVIEW", "enabled": True,
+            "review_mode": "standard",
+            "batch": [{
+                "issue": 1, "title": "Issue 1", "commit": None,
+                "cc_session_id": None,
+                "design_reviews": design_reviews, "code_reviews": {},
+                "added_at": "2025-01-01T00:00:00+09:00",
+            }],
+            "history": [],
+            "repo_path": "/fake/repo",
+            "excluded_reviewers": ["reviewer1"],
+        }
+        path.write_text(json.dumps(data))
+        monkeypatch.setattr("watchdog.PIPELINES_DIR", tmp_pipelines)
+
+        def _fake_check_transition(state, batch, data=None):
+            return TransitionAction(new_state="DESIGN_REVISE", reset_reviewers=True)
+
+        with patch("watchdog.check_transition", side_effect=_fake_check_transition), \
+             patch("watchdog._reset_short_context_reviewers", lambda *a, **k: None), \
+             patch("watchdog.notify_reviewers", lambda *a, **k: []), \
+             patch("watchdog.notify_discord"), \
+             patch("watchdog.notify_implementer"):
+            process(path)
+
+        saved = json.loads(path.read_text())
+        assert saved["excluded_reviewers"] == ["reviewer1"]
+
+    def test_excluded_cleared_on_new_batch(self, tmp_pipelines, monkeypatch):
+        from watchdog import process
+
+        path = tmp_pipelines / "pj.json"
+        data = {
+            "project": "pj", "gitlab": "testns/pj",
+            "state": "DONE", "enabled": True,
+            "batch": [{"issue": 1}],
+            "history": [],
+            "excluded_reviewers": ["reviewer1"],
+        }
+        path.write_text(json.dumps(data))
+        monkeypatch.setattr("watchdog.PIPELINES_DIR", tmp_pipelines)
+
+        with patch("watchdog.notify_discord"), \
+             patch("watchdog.notify_implementer"), \
+             patch("watchdog.notify_reviewers", lambda *a, **k: []):
+            process(path)
+
+        saved = json.loads(path.read_text())
+        assert "excluded_reviewers" not in saved

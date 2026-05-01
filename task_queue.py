@@ -97,10 +97,6 @@ def parse_queue_line(line: str) -> dict:
             raise ValueError(f"Invalid issues format (empty element): {issues_raw!r}")
         if any(not p.strip().isdigit() for p in parts):  # numeric check
             raise ValueError(f"Invalid issues format (non-integer): {issues_raw!r}")
-        if len(parts) > MAX_BATCH:
-            raise ValueError(
-                f"Too many issues ({len(parts)}) exceeds MAX_BATCH={MAX_BATCH}: {issues_raw!r}"
-            )
         issues = issues_raw
 
     # オプションパース
@@ -624,6 +620,13 @@ def append_entry(queue_path: Path, line: str) -> dict:
         FileNotFoundError: キューファイルが存在しない場合
     """
     entry = parse_queue_line(line)  # validate first
+    issues_raw = entry.get("issues", "")
+    if issues_raw != "all":
+        parts = issues_raw.split(",")
+        if len(parts) > MAX_BATCH:
+            raise ValueError(
+                f"Too many issues ({len(parts)}) exceeds MAX_BATCH={MAX_BATCH}"
+            )
     with open(queue_path, "r+") as f:
         fcntl.flock(f, fcntl.LOCK_EX)
         try:

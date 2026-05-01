@@ -58,6 +58,18 @@ class TestFetchIssueInfo:
         _, kwargs = mock.call_args
         assert kwargs["retries"] == 2
 
+    def test_propagates_permission_error(self):
+        import commands.dev
+        with patch("commands.dev.lifecycle.run_glab", side_effect=PermissionError("denied")):
+            with pytest.raises(PermissionError):
+                commands.dev._fetch_issue_info(42, "testns/proj")
+
+    def test_propagates_os_error(self):
+        import commands.dev
+        with patch("commands.dev.lifecycle.run_glab", side_effect=OSError("disk error")):
+            with pytest.raises(OSError):
+                commands.dev._fetch_issue_info(42, "testns/proj")
+
 
 # --- _fetch_open_issues ---
 

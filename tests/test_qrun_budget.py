@@ -41,16 +41,20 @@ class TestCmdTriageMaxBatchGuard:
         mock.assert_not_called()
 
 
-class TestAppendEntryMaxBatch:
-    def test_rejects_over_max_batch(self, tmp_path):
-        from task_queue import append_entry
+class TestParseQueueLineMaxBatch:
+    def test_rejects_over_max_batch(self):
+        from task_queue import parse_queue_line
         from config import MAX_BATCH
-
-        queue_file = tmp_path / "queue.txt"
-        queue_file.write_text("")
         issues = ",".join(str(i) for i in range(1, MAX_BATCH + 2))
         with pytest.raises(ValueError, match="Too many issues"):
-            append_entry(queue_file, f"gokrax {issues}")
+            parse_queue_line(f"gokrax {issues}")
+
+    def test_allows_over_max_batch_when_validation_disabled(self):
+        from task_queue import parse_queue_line
+        from config import MAX_BATCH
+        issues = ",".join(str(i) for i in range(1, MAX_BATCH + 2))
+        entry = parse_queue_line(f"gokrax {issues}", validate_batch_size=False)
+        assert entry["issues"] == issues
 
 
 class TestPopNextQueueEntryOverflow:

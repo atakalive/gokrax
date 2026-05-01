@@ -42,7 +42,7 @@ def sanitize_comment(raw: str) -> str | None:
     return s if s else None
 
 
-def parse_queue_line(line: str) -> dict:
+def parse_queue_line(line: str, *, validate_batch_size: bool = True) -> dict:
     """キュー行を1行パースする。
 
     形式: PROJECT ISSUES [MODE] [OPTIONS...]
@@ -97,6 +97,10 @@ def parse_queue_line(line: str) -> dict:
             raise ValueError(f"Invalid issues format (empty element): {issues_raw!r}")
         if any(not p.strip().isdigit() for p in parts):  # numeric check
             raise ValueError(f"Invalid issues format (non-integer): {issues_raw!r}")
+        if validate_batch_size and len(parts) > MAX_BATCH:
+            raise ValueError(
+                f"Too many issues ({len(parts)}) exceeds MAX_BATCH={MAX_BATCH}: {issues_raw!r}"
+            )
         issues = issues_raw
 
     # オプションパース
@@ -301,7 +305,7 @@ def _find_next_idle_candidate_readonly(queue_path: Path) -> tuple[int, str, dict
                 if line.strip().startswith("# done:"):
                     continue
                 try:
-                    entry = parse_queue_line(line)
+                    entry = parse_queue_line(line, validate_batch_size=False)
                 except ValueError:
                     continue
                 project = entry["project"]
@@ -569,9 +573,9 @@ def peek_queue(queue_path: Path) -> list[dict]:
             if is_done:
                 # "# done: " prefix を除去してパース
                 actual_line = stripped[7:].strip()
-                entry = parse_queue_line(actual_line)
+                entry = parse_queue_line(actual_line, validate_batch_size=False)
             else:
-                entry = parse_queue_line(line)
+                entry = parse_queue_line(line, validate_batch_size=False)
         except ValueError:
             continue
 
@@ -619,14 +623,7 @@ def append_entry(queue_path: Path, line: str) -> dict:
         ValueError: 行が不正な場合
         FileNotFoundError: キューファイルが存在しない場合
     """
-    entry = parse_queue_line(line)  # validate first
-    issues_raw = entry.get("issues", "")
-    if issues_raw != "all":
-        parts = issues_raw.split(",")
-        if len(parts) > MAX_BATCH:
-            raise ValueError(
-                f"Too many issues ({len(parts)}) exceeds MAX_BATCH={MAX_BATCH}"
-            )
+    entry = parse_queue_line(line)  # validate first (includes MAX_BATCH check)
     with open(queue_path, "r+") as f:
         fcntl.flock(f, fcntl.LOCK_EX)
         try:

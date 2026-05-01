@@ -181,6 +181,27 @@ graph TB
     D1 --> D2 --> D3 --> D4
 ```
 
+### Reviewer Meta Snapshot (`reviewer_meta`)
+
+Pipeline JSON stores a `reviewer_meta` dict mapping each reviewer agent_id to a snapshot of the
+provider/model/think_level resolved at dispatch time. Schema per entry:
+
+```json
+{"backend": "pi", "provider": "github-copilot", "model": "claude-sonnet-4.6",
+ "think_level": "max", "captured_at": "<iso-timestamp>"}
+```
+
+Resolved by `engine.agent_meta._resolve()` from the active backend's `_load_config()` plus
+the openai-codex quota fallback cache (pi only). Updated:
+
+- On `_reset_reviewers()` paths (watchdog `_save_excluded`, `commands/spec.py do_start`,
+  `commands/dev/lifecycle.py` post-reset).
+- Immediately after each successful `send_to_agent()` in `notify.notify_reviewers()`,
+  to capture quota fallback that may have activated mid-batch.
+
+Existing entries are always overwritten with a fresh `captured_at`. Past metrics that
+embedded a snapshot (Issue #340) are unaffected by later config edits.
+
 ### Review Modes Table
 
 Review modes are defined in `settings.py` (`REVIEW_MODES`). See `settings.example.py` for defaults.

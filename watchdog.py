@@ -1139,6 +1139,9 @@ def process(path: Path):
                 excluded[:] = list(dict.fromkeys(existing + safe_excluded))
                 data["excluded_reviewers"] = list(excluded)
                 data.pop("_transient_dispatch_warned", None)
+                from engine.agent_meta import snapshot
+                for r in phase_config["members"]:
+                    snapshot(data, r)
                 # reviewer_number_map は初回のみ生成（バッチ内で安定させるため）
                 if "reviewer_number_map" not in data:
                     # reviewer_number_map: バッチ参加レビュアーにランダム番号を割り当て

@@ -712,6 +712,11 @@ def cmd_transition(args):
             pipeline_data = load_pipeline(get_path(pj))
             phase_config = get_phase_config(pipeline_data, reset_phase)
             _reset_reviewers(phase_config, implementer=impl)
+            from engine.agent_meta import snapshot
+            def _write_snapshots(d: dict) -> None:
+                for r in phase_config["members"]:
+                    snapshot(d, r)
+            update_pipeline(get_path(pj), _write_snapshots)
     if notif.impl_msg:
         phase = STATE_PHASE_MAP.get(args.to, "")
         ok = notify_implementer(ctx["implementer"], f"[gokrax] {pj}: {prefix}{notif.impl_msg}", project=pj, phase=phase)

@@ -959,6 +959,14 @@ def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
                 failed_set.add(r)
                 continue
 
+        # 送信成功直後のスナップショット（Issue #343）
+        from engine.agent_meta import snapshot
+        from pipeline_io import update_pipeline, get_path
+        try:
+            update_pipeline(get_path(project), lambda data, _r=r: snapshot(data, _r))
+        except FileNotFoundError:
+            pass
+
         # メトリクス記録（Issue #81）
         from pipeline_io import append_metric
         phase_key = "code" if "CODE" in state else "design"

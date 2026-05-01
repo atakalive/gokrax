@@ -219,6 +219,9 @@ def cmd_spec_start(args):
             min_reviews = get_min_reviews(phase_config)
             if effective_count < min_reviews:
                 data["min_reviews_override"] = max(1, effective_count)
+        from engine.agent_meta import snapshot
+        for r in phase_config["members"]:
+            snapshot(data, r)
 
     update_pipeline(path, do_start)
     from gokrax import _start_loop

@@ -105,7 +105,7 @@ def test_resolve_stage3_failure_preserves_config(monkeypatch):
     monkeypatch.setattr(
         "engine.backend_pi._load_config",
         lambda: {"k": {"provider": "openai-codex", "model": "gpt-5.4",
-                       "thinking": "medium"}},
+                       "thinking": "medium", "fallback": True}},
     )
 
     def boom(path):
@@ -122,7 +122,8 @@ def test_resolve_pi_fallback_active(monkeypatch, tmp_path):
     monkeypatch.setattr(
         "engine.backend_pi._load_config",
         lambda: {"neumann": {"provider": "openai-codex",
-                              "model": "gpt-5.4", "thinking": "max"}},
+                              "model": "gpt-5.4", "thinking": "max",
+                              "fallback": True}},
     )
     cache_file = tmp_path / "neumann.json"
     monkeypatch.setattr("engine.openai_codex_quota._cache_path",
@@ -137,6 +138,47 @@ def test_resolve_pi_fallback_active(monkeypatch, tmp_path):
     assert meta.provider == "github-copilot"
     assert meta.model == "claude-sonnet-4.6"
     assert meta.think_level == "max"  # config 由来値が保持される
+
+
+def test_resolve_pi_fallback_ignored_non_openai_codex(monkeypatch):
+    """Active fallback cache is ignored when provider is not openai-codex."""
+    _patch_backend(monkeypatch, "pi")
+    monkeypatch.setattr(
+        "engine.backend_pi._load_config",
+        lambda: {"r1": {"provider": "github-copilot",
+                        "model": "claude-sonnet-4.6", "thinking": "max",
+                        "fallback": True}},
+    )
+    monkeypatch.setattr("engine.fallback_cache.read_cache",
+                        lambda path: {"active": True,
+                                      "fallback_provider": "stale-fb",
+                                      "fallback_model": "stale-model"})
+    monkeypatch.setattr("engine.openai_codex_quota._cache_active",
+                        lambda cache: True)
+    meta = _resolve("r1")
+    assert meta.provider == "github-copilot"
+    assert meta.model == "claude-sonnet-4.6"
+
+
+def test_resolve_pi_fallback_ignored_no_fallback_flag(monkeypatch):
+    """Active fallback cache is ignored when config has fallback=false."""
+    _patch_backend(monkeypatch, "pi")
+    monkeypatch.setattr(
+        "engine.backend_pi._load_config",
+        lambda: {"r2": {"provider": "openai-codex",
+                        "model": "gpt-5.4", "thinking": "medium",
+                        "fallback": False}},
+    )
+    monkeypatch.setattr("engine.fallback_cache.read_cache",
+                        lambda path: {"active": True,
+                                      "fallback_provider": "stale-fb",
+                                      "fallback_model": "stale-model"})
+    monkeypatch.setattr("engine.openai_codex_quota._cache_active",
+                        lambda cache: True)
+    meta = _resolve("r2")
+    assert meta.provider == "openai-codex"
+    assert meta.model == "gpt-5.4"
+    assert meta.think_level == "medium"
 
 
 def test_snapshot_idempotent_updates_captured_at(monkeypatch):

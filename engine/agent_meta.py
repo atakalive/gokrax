@@ -69,7 +69,9 @@ def _resolve(agent_id: str) -> AgentMeta:
         return AgentMeta(backend=backend, provider=None, model=None,
                          think_level="", captured_at=now_iso())
 
-    if backend == "pi":
+    if (backend == "pi"
+            and provider == "openai-codex"
+            and entry.get("fallback")):
         try:
             from engine.openai_codex_quota import _cache_path, _cache_active
             from engine import fallback_cache

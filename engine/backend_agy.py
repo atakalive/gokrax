@@ -448,13 +448,23 @@ def _ensure_agy_home(agent_id: str, model: str | None) -> Path | None:
     agent_home = AGENT_PROFILES_DIR / agent_id
     real_home = Path.home()
 
-    # Guard: if .gemini itself (or an intermediate component) is a symlink,
-    # mkdir/write would follow it into the real HOME — destroying HOME
-    # isolation.  Remove the stale symlink so mkdir creates a real directory.
-    for component in (
+    # Guard: if .gemini, intermediate components, or mutable subdirectories
+    # are symlinks, mkdir/write would follow them into the real HOME —
+    # destroying HOME isolation.  Remove stale symlinks so mkdir creates
+    # real directories and agy writes stay per-agent.
+    _MUTABLE_DIRS = (
         agent_home / ".gemini",
         agent_home / ".gemini" / "antigravity-cli",
-    ):
+        agent_home / ".gemini" / "antigravity-cli" / "cache",
+        agent_home / ".gemini" / "antigravity-cli" / "conversations",
+        agent_home / ".gemini" / "antigravity-cli" / "log",
+        agent_home / ".gemini" / "antigravity-cli" / "bin",
+        agent_home / ".gemini" / "antigravity-cli" / "knowledge",
+        agent_home / ".gemini" / "antigravity-cli" / "implicit",
+        agent_home / ".gemini" / "antigravity-cli" / "updater",
+        agent_home / ".gemini" / "antigravity-cli" / "brain",
+    )
+    for component in _MUTABLE_DIRS:
         if component.is_symlink():
             try:
                 component.unlink()

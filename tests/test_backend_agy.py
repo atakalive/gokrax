@@ -237,6 +237,50 @@ class TestSymlinkRepair:
         result = backend_agy._ensure_agy_home(AGENT, "M")
         assert result is None
 
+    def test_mutable_subdir_symlink_does_not_write_to_real_home(
+        self, recorder, tmp_path,
+    ):
+        """If cache/ or conversations/ is a symlink, _ensure_agy_home unlinks
+        it so agy writes stay per-agent and don't escape to real HOME."""
+        profile = _profile_dir()
+        agy_cli = profile / ".gemini" / "antigravity-cli"
+        agy_cli.mkdir(parents=True, exist_ok=True)
+
+        # Make cache/ a symlink to a fake real HOME path
+        fake_real_cache = tmp_path / "real_cache"
+        fake_real_cache.mkdir()
+        cache_dir = agy_cli / "cache"
+        if cache_dir.exists():
+            cache_dir.rmdir()
+        cache_dir.symlink_to(fake_real_cache)
+        assert cache_dir.is_symlink()
+
+        result = backend_agy._ensure_agy_home(AGENT, "TestModel")
+        assert result is not None
+        # cache should now be a real directory
+        assert not cache_dir.is_symlink()
+        assert cache_dir.is_dir()
+        # Real HOME cache dir should remain empty (no writes through symlink)
+        assert list(fake_real_cache.iterdir()) == []
+
+    def test_conversations_symlink_removed_before_agy_launch(
+        self, recorder, tmp_path,
+    ):
+        """conversations/ symlink is removed to prevent per-agent .pb leaking."""
+        profile = _profile_dir()
+        agy_cli = profile / ".gemini" / "antigravity-cli"
+        agy_cli.mkdir(parents=True, exist_ok=True)
+
+        fake_real_convos = tmp_path / "real_conversations"
+        fake_real_convos.mkdir()
+        convos_dir = agy_cli / "conversations"
+        convos_dir.symlink_to(fake_real_convos)
+        assert convos_dir.is_symlink()
+
+        result = backend_agy._ensure_agy_home(AGENT, "M")
+        assert result is not None
+        assert not convos_dir.is_symlink()
+
 
 # ===========================================================================
 # Model fallback semantics

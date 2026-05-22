@@ -1002,6 +1002,21 @@ class TestArchitectureGuard:
         assert "is_inactive" in top_level_funcs, "backend_agy missing public is_inactive()"
         assert "reset_session" in top_level_funcs, "backend_agy missing public reset_session()"
 
+    def test_backend_agy_does_not_import_engine_shared(self):
+        """engine.backend_agy must not import engine.shared to avoid cycles."""
+        source = Path(backend_agy.__file__).read_text()
+        tree = ast.parse(source)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    assert not alias.name.startswith("engine.shared"), \
+                        f"engine.backend_agy imports {alias.name}"
+            elif isinstance(node, ast.ImportFrom):
+                if node.module and node.module.startswith("engine.shared"):
+                    pytest.fail(
+                        f"engine.backend_agy imports from {node.module}"
+                    )
+
     def test_is_agy_pid_alive_implementation(self):
         """engine/backend_agy.py must define _is_agy_pid_alive helper."""
         source = Path(backend_agy.__file__).read_text()

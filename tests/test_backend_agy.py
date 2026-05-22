@@ -190,6 +190,53 @@ class TestSymlinkRepair:
         assert not link.exists()
         assert not link.is_symlink()
 
+    def test_dotgemini_symlink_does_not_pollute_real_home(
+        self, recorder, monkeypatch, tmp_path,
+    ):
+        """If .gemini is a symlink (e.g. from manual setup), _ensure_agy_home
+        must remove it and create a real directory — never writing through
+        the symlink into the real HOME."""
+        profile = _profile_dir()
+        dotgemini = profile / ".gemini"
+        # Remove whatever _reset_module_state created and replace with symlink
+        import shutil
+        if dotgemini.exists():
+            shutil.rmtree(dotgemini)
+        fake_real_home_gemini = tmp_path / "real_home_gemini"
+        fake_real_home_gemini.mkdir()
+        (fake_real_home_gemini / "antigravity-cli").mkdir()
+        dotgemini.symlink_to(fake_real_home_gemini)
+        assert dotgemini.is_symlink()
+
+        result = backend_agy._ensure_agy_home(AGENT, "SomeModel")
+        assert result is not None
+        # .gemini should now be a real directory, not a symlink
+        assert not dotgemini.is_symlink()
+        assert dotgemini.is_dir()
+        # Real HOME dir should NOT have per-agent settings.json
+        assert not (fake_real_home_gemini / "antigravity-cli" / "settings.json").exists()
+
+    def test_dotgemini_symlink_removal_failure_returns_none(
+        self, recorder, monkeypatch, tmp_path,
+    ):
+        """If we cannot remove a .gemini symlink, _ensure_agy_home returns None."""
+        profile = _profile_dir()
+        dotgemini = profile / ".gemini"
+        import shutil
+        if dotgemini.exists():
+            shutil.rmtree(dotgemini)
+        fake_target = tmp_path / "target"
+        fake_target.mkdir()
+        dotgemini.symlink_to(fake_target)
+
+        # Make unlink fail
+        def _failing_unlink(*a, **kw):
+            raise PermissionError("denied")
+        monkeypatch.setattr(type(dotgemini), "unlink", lambda self, *a, **kw: _failing_unlink())
+
+        result = backend_agy._ensure_agy_home(AGENT, "M")
+        assert result is None
+
 
 # ===========================================================================
 # Model fallback semantics

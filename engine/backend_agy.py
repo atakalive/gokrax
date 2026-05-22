@@ -304,16 +304,15 @@ def _remove_stale_gemini_md(agent_id: str) -> bool:
     gemini_md = profile_dir / "GEMINI.md"
     gemini_hash = profile_dir / ".gemini_hash"
 
-    # Remove internal hash metadata. Treat ENOENT as success.
-    if gemini_hash.exists():
-        try:
-            gemini_hash.unlink()
-        except OSError as exc:
-            logger.warning(
-                "agy: failed to delete %s for %s: %s",
-                gemini_hash, agent_id, exc,
-            )
-            return False
+    # Remove internal hash metadata. missing_ok avoids TOCTOU with exists().
+    try:
+        gemini_hash.unlink(missing_ok=True)
+    except OSError as exc:
+        logger.warning(
+            "agy: failed to delete %s for %s: %s",
+            gemini_hash, agent_id, exc,
+        )
+        return False
 
     if not gemini_md.exists():
         return True
@@ -436,7 +435,7 @@ def _ensure_symlink(link_path: Path, target: Path) -> None:
         )
 
 
-def _ensure_agy_home(agent_id: str, model: str | None) -> Path:
+def _ensure_agy_home(agent_id: str, model: str | None) -> Path | None:
     """Idempotently prepare ``agents/<agent_id>/`` as the per-agent HOME.
 
     - Creates ``.gemini/antigravity-cli/cache/`` if missing
@@ -448,6 +447,23 @@ def _ensure_agy_home(agent_id: str, model: str | None) -> Path:
     """
     agent_home = AGENT_PROFILES_DIR / agent_id
     real_home = Path.home()
+
+    # Guard: if .gemini itself (or an intermediate component) is a symlink,
+    # mkdir/write would follow it into the real HOME — destroying HOME
+    # isolation.  Remove the stale symlink so mkdir creates a real directory.
+    for component in (
+        agent_home / ".gemini",
+        agent_home / ".gemini" / "antigravity-cli",
+    ):
+        if component.is_symlink():
+            try:
+                component.unlink()
+            except OSError as exc:
+                logger.warning(
+                    "agy: failed to remove symlink %s blocking HOME isolation: %s",
+                    component, exc,
+                )
+                return None
 
     (agent_home / ".gemini" / "antigravity-cli" / "cache").mkdir(
         parents=True, exist_ok=True,
@@ -512,6 +528,8 @@ def send(agent_id: str, message: str, timeout: int) -> SendResult:
     raw_model = profile.get("model")
     model = raw_model if isinstance(raw_model, str) else None
     agent_home = _ensure_agy_home(agent_id, model)
+    if agent_home is None:
+        return SendResult.FAIL
 
     has_prev = _session_marker_path(agent_id).exists()
 

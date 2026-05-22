@@ -68,6 +68,19 @@ def test_resolve_kimi(monkeypatch):
     assert meta.think_level == ""
 
 
+def test_resolve_agy(monkeypatch):
+    _patch_backend(monkeypatch, "agy")
+    monkeypatch.setattr(
+        "engine.backend_agy._load_config",
+        lambda: {"a1": {"model": "Gemini 3.5 Flash (Medium)"}},
+    )
+    meta = _resolve("a1")
+    assert meta.backend == "agy"
+    assert meta.provider == "google"
+    assert meta.model == "Gemini 3.5 Flash (Medium)"
+    assert meta.think_level == ""
+
+
 def test_resolve_openclaw(monkeypatch):
     _patch_backend(monkeypatch, "openclaw")
     meta = _resolve("oc1")

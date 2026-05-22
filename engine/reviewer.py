@@ -25,7 +25,7 @@ def _reset_reviewers(phase_config: PhaseConfig, implementer: str = "") -> list[s
     """Reset reviewer/implementer sessions before a review cycle.
 
     For openclaw backend: sends /new to each target, waits, then pings free tier.
-    For pi/cc/gemini/kimi backend (all non-openclaw backends): calls reset_session()
+    For pi/cc/gemini/kimi/agy backend (all non-openclaw backends): calls reset_session()
     for each target (no /new, no wait).
 
     Args:
@@ -56,7 +56,7 @@ def _reset_reviewers(phase_config: PhaseConfig, implementer: str = "") -> list[s
             log(f"[/new] ERROR: invalid backend for {r}, skipping")
             excluded.append(r)
             continue
-        if agent_backend in ("pi", "cc", "gemini", "kimi"):
+        if agent_backend in ("pi", "cc", "gemini", "kimi", "agy"):
             log(f"[/new] reset_session for {r} ({agent_backend} backend)")
             _dispatch_reset(r)
         else:
@@ -94,7 +94,7 @@ def _reset_short_context_reviewers(phase_config: PhaseConfig) -> None:
     """Reset short-context tier reviewers before a review cycle.
 
     For openclaw backend: sends /new and waits POST_NEW_COMMAND_WAIT_SEC.
-    For pi/cc/gemini/kimi backend (all non-openclaw backends): calls reset_session()
+    For pi/cc/gemini/kimi/agy backend (all non-openclaw backends): calls reset_session()
     (no /new, no wait).
     """
     from engine.backend import reset_session as _dispatch_reset
@@ -112,7 +112,7 @@ def _reset_short_context_reviewers(phase_config: PhaseConfig) -> None:
         except ValueError:
             log(f"[/new] ERROR: invalid backend for {r} (short-context), skipping")
             continue
-        if agent_backend in ("pi", "cc", "gemini", "kimi"):
+        if agent_backend in ("pi", "cc", "gemini", "kimi", "agy"):
             log(f"[/new] reset_session for {r} (short-context, {agent_backend} backend)")
             _dispatch_reset(r)
         else:

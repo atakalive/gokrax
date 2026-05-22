@@ -61,6 +61,12 @@ def _resolve(agent_id: str) -> AgentMeta:
             provider = "kimi-coder"
             model = entry.get("model")
             think_level = ""
+        elif backend == "agy":
+            from engine.backend_agy import _load_config as _load_agy_config
+            entry = _load_agy_config().get(agent_id, {})
+            provider = "google"
+            model = entry.get("model", "")
+            think_level = ""
         elif backend == "openclaw":
             provider = "openclaw"
             model = None

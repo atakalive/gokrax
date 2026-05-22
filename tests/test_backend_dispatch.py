@@ -10,7 +10,7 @@ import pytest
 
 import config
 import notify
-from engine import backend, backend_cc, backend_kimi, backend_openclaw, backend_pi, reviewer as _reviewer_mod
+from engine import backend, backend_agy, backend_cc, backend_kimi, backend_openclaw, backend_pi, reviewer as _reviewer_mod
 from engine.backend_types import SendResult
 
 # Save real function references before conftest's autouse fixtures replace them
@@ -164,6 +164,13 @@ class TestBackendSendDispatch:
         assert result is SendResult.OK
         mock_gm.assert_called_once_with("reviewer1", "hello", 30)
 
+    def test_agy_send_dispatches_to_backend_agy(self, monkeypatch):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "agy")
+        with patch("engine.backend_agy.send", return_value=SendResult.OK) as mock_agy:
+            result = backend.send("reviewer1", "hello", 30)
+        assert result is SendResult.OK
+        mock_agy.assert_called_once_with("reviewer1", "hello", 30)
+
 
 # ===========================================================================
 # backend.ping dispatch
@@ -197,6 +204,13 @@ class TestBackendPingDispatch:
             result = backend.ping("reviewer1", 20)
         assert result is True
         mock_gm.assert_called_once_with("reviewer1", 20)
+
+    def test_agy_ping_dispatches_to_backend_agy(self, monkeypatch):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "agy")
+        with patch("engine.backend_agy.ping", return_value=True) as mock_agy:
+            result = backend.ping("reviewer1", 20)
+        assert result is True
+        mock_agy.assert_called_once_with("reviewer1", 20)
 
 
 # ===========================================================================
@@ -240,6 +254,15 @@ class TestBackendIsInactiveDispatch:
         assert result is True
         mock_gm.assert_called_once()
         _, kwargs = mock_gm.call_args
+        assert "cc_running" in kwargs
+
+    def test_agy_is_inactive_dispatches_to_backend_agy(self, monkeypatch):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "agy")
+        with patch("engine.backend_agy.is_inactive", return_value=True) as mock_agy:
+            result = backend.is_inactive("reviewer1", {"some": "data"})
+        assert result is True
+        mock_agy.assert_called_once()
+        _, kwargs = mock_agy.call_args
         assert "cc_running" in kwargs
 
     def test_gemini_cc_running_passed(self, monkeypatch):
@@ -386,6 +409,21 @@ class TestReviewerResetDispatch:
         assert mock_reset.call_count > 0
         mock_send.assert_not_called()
 
+    def test_agy_calls_reset_session_not_new(self, monkeypatch):
+        """agy backend calls reset_session, not /new."""
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "agy")
+        with patch("engine.backend.reset_session") as mock_reset, \
+             patch.object(_reviewer_mod, "send_to_agent_queued") as mock_send:
+            _real_reset_reviewers(self._phase_config())
+        assert mock_reset.call_count > 0
+        mock_send.assert_not_called()
+
+    def test_agy_reset_returns_empty_excluded(self, monkeypatch):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "agy")
+        with patch("engine.backend.reset_session"):
+            excluded = _real_reset_reviewers(self._phase_config())
+        assert excluded == []
+
     def test_gemini_reset_returns_empty_excluded(self, monkeypatch):
         monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "gemini")
         monkeypatch.setattr("engine.gemini_quota.resolve_fallback", lambda aid: "")
@@ -495,6 +533,25 @@ class TestShortContextResetDispatch:
         actual_targets = sorted(c[0][0] for c in mock_reset.call_args_list)
         assert actual_targets == expected_targets
 
+    def test_agy_calls_reset_session_no_sleep(self, monkeypatch):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "agy")
+        from engine.reviewer import get_tier
+        phase_config = self._phase_config()
+        expected_targets = sorted(
+            m for m in phase_config["members"]
+            if get_tier(m) == "short-context" and m in config.AGENTS
+        )
+        assert len(expected_targets) > 0, "Test prerequisite failed: empty target set"
+        with patch("engine.backend.reset_session") as mock_reset, \
+             patch.object(_reviewer_mod, "send_to_agent_queued") as mock_send, \
+             patch("time.sleep") as mock_sleep:
+            _real_reset_short_context(phase_config)
+        mock_send.assert_not_called()
+        mock_sleep.assert_not_called()
+        assert mock_reset.call_count == len(expected_targets)
+        actual_targets = sorted(c[0][0] for c in mock_reset.call_args_list)
+        assert actual_targets == expected_targets
+
     def test_cc_calls_reset_session_no_sleep(self, monkeypatch):
         monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "cc")
         from engine.reviewer import get_tier
@@ -556,6 +613,12 @@ class TestResolveBackend:
         monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "openclaw")
         monkeypatch.setattr(config, "AGENT_BACKEND_OVERRIDE", {"reviewer1": "kimi"})
         assert backend.resolve_backend("reviewer1") == "kimi"
+
+    def test_agy_accepted_as_backend(self, monkeypatch):
+        """resolve_backend accepts 'agy' (in SUPPORTED_BACKENDS)."""
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "openclaw")
+        monkeypatch.setattr(config, "AGENT_BACKEND_OVERRIDE", {"reviewer1": "agy"})
+        assert backend.resolve_backend("reviewer1") == "agy"
 
 
 # ===========================================================================
@@ -781,6 +844,12 @@ class TestBackendResetSessionDispatch:
             backend.reset_session("reviewer1")
         mock_km.assert_called_once_with("reviewer1")
 
+    def test_agy_calls_agy_reset_session(self, monkeypatch):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "agy")
+        with patch("engine.backend_agy.reset_session") as mock_agy:
+            backend.reset_session("reviewer1")
+        mock_agy.assert_called_once_with("reviewer1")
+
     def test_openclaw_is_noop(self, monkeypatch):
         """openclaw reset_session does not raise."""
         monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "openclaw")
@@ -919,6 +988,29 @@ class TestArchitectureGuard:
         assert "ping" in top_level_funcs, "backend_kimi missing public ping()"
         assert "is_inactive" in top_level_funcs, "backend_kimi missing public is_inactive()"
         assert "reset_session" in top_level_funcs, "backend_kimi missing public reset_session()"
+
+    def test_backend_agy_exposes_send_and_ping(self):
+        """engine/backend_agy.py must expose send and ping as public API."""
+        source = Path(backend_agy.__file__).read_text()
+        tree = ast.parse(source)
+        top_level_funcs = set()
+        for node in ast.iter_child_nodes(tree):
+            if isinstance(node, ast.FunctionDef) and not node.name.startswith("_"):
+                top_level_funcs.add(node.name)
+        assert "send" in top_level_funcs, "backend_agy missing public send()"
+        assert "ping" in top_level_funcs, "backend_agy missing public ping()"
+        assert "is_inactive" in top_level_funcs, "backend_agy missing public is_inactive()"
+        assert "reset_session" in top_level_funcs, "backend_agy missing public reset_session()"
+
+    def test_is_agy_pid_alive_implementation(self):
+        """engine/backend_agy.py must define _is_agy_pid_alive helper."""
+        source = Path(backend_agy.__file__).read_text()
+        tree = ast.parse(source)
+        names = {
+            n.name for n in ast.iter_child_nodes(tree)
+            if isinstance(n, ast.FunctionDef)
+        }
+        assert "_is_agy_pid_alive" in names
 
     def test_backend_openclaw_exposes_send_and_ping(self):
         """engine/backend_openclaw.py must expose send and ping as public API."""

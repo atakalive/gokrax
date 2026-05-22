@@ -1,0 +1,637 @@
+"""engine/backend_agy.py - agy (antigravity-cli) backend for agent communication.
+
+Provides send/ping/is_inactive/reset_session for agents running via the ``agy``
+CLI (Google antigravity-cli, successor to subscriber gemini-cli).
+
+agy characteristics:
+    - Oneshot process (one prompt = one process, completes and exits)
+    - Sessions are scoped per-cwd; no ``--list-sessions`` / ``--delete-session``
+    - Continuation: ``-c`` / ``--continue`` resumes the most recent cwd session
+    - Model is selected via ``~/.gemini/antigravity-cli/settings.json``
+      (no CLI flag). We set ``HOME`` per-agent so each agent has its own
+      settings.json without polluting the real HOME.
+    - ``--print-timeout 24h`` is fixed to avoid premature default 5m termination
+    - ``AGY_CLI_DISABLE_AUTO_UPDATE=1`` suppresses auto-update writes to HOME
+    - Reads both ``AGENTS.md`` and ``GEMINI.md``: we generate ``AGENTS.md`` and
+      strip any stale ``GEMINI.md`` before launch.
+
+Liveness invariant:
+    pid file exists, /proc/<pid> exists, and cmdline contains "agy".
+
+Note (quota): agy quota is exposed only via gRPC
+``/google.gca.aicode.v1main.PredictionService/FetchQuotaStatus`` (per the
+binary's embedded strings). The interactive ``/usage`` / ``/stats`` slash
+commands don't work in ``-p`` mode and no cache file exists. v1 of this
+backend does not implement quota fetch; revisit if/when a stable mechanism
+becomes available.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import logging
+import os
+import signal
+import subprocess
+import time
+from pathlib import Path
+
+import config
+from config import (
+    AGENT_PROFILES_DIR,
+    AGY_AGENT_CONFIG,
+    AGY_PIDS_DIR,
+)
+from engine.backend_types import SendResult
+
+logger = logging.getLogger(__name__)
+
+# Symlinks from per-agent HOME (.gemini/) into the real HOME. Limited to
+# read-only auth/identity files so mutable per-agent state (conversations,
+# cache, log, etc.) stays per-agent and cannot leak into the real HOME.
+#
+# Maintenance: if agy changes its auth filenames (e.g. ``credentials.json``),
+# update this list. Authentication failures after an agy upgrade are the
+# canonical sign that this list is stale.
+_SHARED_SYMLINKS: list[str] = [
+    ".gemini/oauth_creds.json",
+    ".gemini/google_accounts.json",
+    ".gemini/installation_id",
+    ".gemini/antigravity-cli/installation_id",
+]
+
+# ---------------------------------------------------------------------------
+# Per-agent config (agents/config_agy.json)
+# ---------------------------------------------------------------------------
+_agent_config_cache: dict[str, dict[str, object]] | None = None
+
+
+def _load_config() -> dict[str, dict[str, object]]:
+    """Load and cache agents/config_agy.json. Called once per process lifetime."""
+    global _agent_config_cache
+    if _agent_config_cache is not None:
+        return _agent_config_cache
+
+    try:
+        text = AGY_AGENT_CONFIG.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        _agent_config_cache = {}
+        return _agent_config_cache
+    except OSError as exc:
+        logger.warning("Failed to read %s: %s", AGY_AGENT_CONFIG, exc)
+        _agent_config_cache = {}
+        return _agent_config_cache
+
+    if not text:
+        _agent_config_cache = {}
+        return _agent_config_cache
+
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as exc:
+        logger.warning("Invalid JSON in %s: %s", AGY_AGENT_CONFIG, exc)
+        _agent_config_cache = {}
+        return _agent_config_cache
+
+    if not isinstance(parsed, dict):
+        logger.warning(
+            "Expected JSON object in %s, got %s",
+            AGY_AGENT_CONFIG, type(parsed).__name__,
+        )
+        _agent_config_cache = {}
+        return _agent_config_cache
+
+    _agent_config_cache = {
+        k: v for k, v in parsed.items() if isinstance(v, dict)
+    }
+    if len(_agent_config_cache) < len(parsed):
+        skipped = [k for k, v in parsed.items() if not isinstance(v, dict)]
+        logger.warning(
+            "Skipped non-dict entries in %s: %s", AGY_AGENT_CONFIG, skipped,
+        )
+    return _agent_config_cache
+
+
+def _pid_path(agent_id: str) -> Path:
+    return AGY_PIDS_DIR / f"{agent_id}.pid"
+
+
+def _session_marker_path(agent_id: str) -> Path:
+    """Per-agent marker recording that a previous send() Popen succeeded.
+
+    Existence means "previous send() spawned agy successfully". agy has no
+    ``--list-sessions`` equivalent, so the marker is a best-effort substitute
+    used to decide whether to pass ``-c``.
+    """
+    return AGY_PIDS_DIR / f"{agent_id}.has_session"
+
+
+def _is_agy_pid_alive(pid: int) -> bool:
+    proc_dir = Path(f"/proc/{pid}")
+    if not proc_dir.exists():
+        return False
+    try:
+        cmdline_bytes = (proc_dir / "cmdline").read_bytes()
+    except (OSError, FileNotFoundError):
+        return False
+    tokens = cmdline_bytes.split(b"\0")
+    for t in tokens:
+        try:
+            s = t.decode("utf-8")
+        except UnicodeDecodeError:
+            continue
+        if s == "agy" or s.endswith("/agy"):
+            return True
+    return False
+
+
+def _terminate_pid_tree(
+    pid: int,
+    agent_id: str,
+    proc: subprocess.Popen | None = None,
+) -> bool:
+    """Best-effort: PGID-wide SIGTERM → wait → SIGKILL."""
+    try:
+        pgid = os.getpgid(pid)
+    except (OSError, ProcessLookupError) as e:
+        logger.warning(
+            "agy getpgid(%d) failed for %s: %s; falling back to pid-only kill",
+            pid, agent_id, e,
+        )
+        pgid = pid
+
+    try:
+        os.killpg(pgid, signal.SIGTERM)
+    except ProcessLookupError:
+        return True
+    except OSError as e:
+        logger.warning("agy SIGTERM to pgid %d failed for %s: %s", pgid, agent_id, e)
+
+    if proc is not None:
+        try:
+            proc.wait(timeout=5)
+            return True
+        except subprocess.TimeoutExpired:
+            pass
+    else:
+        for _ in range(10):
+            if not _is_agy_pid_alive(pid):
+                return True
+            time.sleep(0.5)
+
+    try:
+        os.killpg(pgid, signal.SIGKILL)
+    except ProcessLookupError:
+        return True
+    except OSError as e:
+        logger.warning("agy SIGKILL to pgid %d failed for %s: %s", pgid, agent_id, e)
+
+    if proc is not None:
+        try:
+            proc.wait(timeout=5)
+            return True
+        except subprocess.TimeoutExpired:
+            logger.warning("agy proc %d did not exit after SIGKILL", pid)
+            return False
+    for _ in range(10):
+        if not _is_agy_pid_alive(pid):
+            return True
+        time.sleep(0.5)
+    logger.warning("agy proc %d still alive after SIGKILL for %s", pid, agent_id)
+    return False
+
+
+def _rebuild_agy_md(agent_id: str) -> None:
+    """Rebuild AGENTS.md from IDENTITY.md + INSTRUCTION.md + MEMORY.md.
+
+    IMPORTANT: This function is a near-exact copy of
+    backend_pi.py:_rebuild_agents_md, backend_gemini.py:_rebuild_gemini_md, and
+    backend_kimi.py:_rebuild_kimi_md. The four functions MUST stay in sync
+    beyond filename differences. If you modify the logic here, mirror the
+    change to pi, gemini and kimi (and vice versa), or extract a shared helper.
+    """
+    try:
+        config_data = _load_config()
+        agent_profile = config_data.get(agent_id, {})
+        compile_flag = agent_profile.get("compile-startup-md", False)
+        if not isinstance(compile_flag, bool):
+            logger.warning(
+                "_rebuild_agy_md: compile-startup-md for %s has non-bool value %r; "
+                "treating as False",
+                agent_id, compile_flag,
+            )
+            compile_flag = False
+        if not compile_flag:
+            return
+
+        profile_dir = AGENT_PROFILES_DIR / agent_id
+        if not profile_dir.is_dir():
+            return
+
+        instruction_path = profile_dir / "INSTRUCTION.md"
+        memory_path = profile_dir / "MEMORY.md"
+        identity_path = profile_dir / "IDENTITY.md"
+
+        try:
+            identity_bytes = identity_path.read_bytes()
+        except FileNotFoundError:
+            identity_bytes = b""
+        try:
+            instruction_bytes = instruction_path.read_bytes()
+        except FileNotFoundError:
+            instruction_bytes = b""
+        try:
+            memory_bytes = memory_path.read_bytes()
+        except FileNotFoundError:
+            memory_bytes = b""
+
+        agy_md_path = profile_dir / "AGENTS.md"
+        hash_path = profile_dir / ".agy_hash"
+
+        if identity_bytes == b"" and instruction_bytes == b"" and memory_bytes == b"":
+            agy_md_path.unlink(missing_ok=True)
+            hash_path.unlink(missing_ok=True)
+            return
+
+        new_hash = hashlib.sha256(
+            len(identity_bytes).to_bytes(8, "big")
+            + identity_bytes
+            + len(instruction_bytes).to_bytes(8, "big")
+            + instruction_bytes
+            + memory_bytes,
+        ).hexdigest()
+
+        try:
+            old_hash = hash_path.read_text(encoding="utf-8").strip()
+        except OSError:
+            old_hash = ""
+
+        if old_hash == new_hash and agy_md_path.exists():
+            return
+
+        identity_text = identity_bytes.decode("utf-8").rstrip()
+        instruction_text = instruction_bytes.decode("utf-8").rstrip()
+        memory_text = memory_bytes.decode("utf-8").rstrip()
+
+        parts = [t for t in (identity_text, instruction_text, memory_text) if t]
+
+        if not parts:
+            agy_md_path.unlink(missing_ok=True)
+            hash_path.unlink(missing_ok=True)
+            return
+
+        output = "\n\n---\n\n".join(parts) + "\n"
+
+        agy_md_path.write_text(output, encoding="utf-8")
+        hash_path.write_text(new_hash + "\n", encoding="utf-8")
+    except Exception as exc:
+        logger.warning("_rebuild_agy_md: failed for %s: %s", agent_id, exc)
+
+
+def _remove_stale_gemini_md(agent_id: str) -> bool:
+    """Remove stale ``GEMINI.md`` / ``.gemini_hash`` before launching agy.
+
+    agy reads both ``AGENTS.md`` and ``GEMINI.md``. After gemini→agy migration
+    the cwd may still contain a stale ``GEMINI.md`` (possibly user-edited),
+    which would contaminate agy's context. We always preserve ``GEMINI.md``
+    by atomically hard-linking it to a timestamped backup before deletion.
+
+    Returns True on success (caller may proceed), False on failure (caller
+    must abort send to avoid contamination).
+    """
+    profile_dir = AGENT_PROFILES_DIR / agent_id
+    gemini_md = profile_dir / "GEMINI.md"
+    gemini_hash = profile_dir / ".gemini_hash"
+
+    # Remove internal hash metadata. Treat ENOENT as success.
+    if gemini_hash.exists():
+        try:
+            gemini_hash.unlink()
+        except OSError as exc:
+            logger.warning(
+                "agy: failed to delete %s for %s: %s",
+                gemini_hash, agent_id, exc,
+            )
+            return False
+
+    if not gemini_md.exists():
+        return True
+
+    backup = profile_dir / f"GEMINI.md.bak.{time.time_ns()}"
+    try:
+        os.link(gemini_md, backup)
+    except FileExistsError:
+        logger.warning(
+            "agy: backup target %s already exists for %s; refusing to overwrite",
+            backup, agent_id,
+        )
+        return False
+    except OSError as exc:
+        logger.warning(
+            "agy: failed to hard-link %s -> %s for %s: %s",
+            gemini_md, backup, agent_id, exc,
+        )
+        return False
+
+    try:
+        gemini_md.unlink()
+    except OSError as exc:
+        logger.warning(
+            "agy: failed to unlink %s after backup for %s: %s",
+            gemini_md, agent_id, exc,
+        )
+        return False
+
+    logger.warning(
+        "agy: preserved stale GEMINI.md for %s as %s",
+        agent_id, backup,
+    )
+    return True
+
+
+def _cleanup_old_conversations(agent_id: str, max_age_days: int = 30) -> None:
+    """Delete per-agent ``.pb`` conversations older than max_age_days."""
+    conversations_dir = (
+        AGENT_PROFILES_DIR / agent_id / ".gemini" / "antigravity-cli" / "conversations"
+    )
+    if not conversations_dir.is_dir():
+        return
+    cutoff = time.time() - max_age_days * 86400
+    for pb_file in conversations_dir.glob("*.pb"):
+        try:
+            if pb_file.stat().st_mtime < cutoff:
+                pb_file.unlink()
+        except OSError as exc:
+            logger.warning(
+                "agy: failed to remove old conversation %s: %s", pb_file, exc,
+            )
+
+
+def _ensure_symlink(link_path: Path, target: Path) -> None:
+    """Ensure link_path is a symlink pointing to target (idempotent).
+
+    agents/<agent_id>/.gemini/ is owned entirely by backend_agy, so we
+    prioritize repair: regular files or wrong-target links found there
+    are replaced with the correct symlink whenever target exists.
+    """
+    if not target.exists() and not target.is_symlink():
+        logger.warning(
+            "agy: shared symlink target missing: %s (skipping %s)",
+            target, link_path,
+        )
+        return
+
+    link_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if link_path.is_symlink():
+        try:
+            current = os.readlink(link_path)
+        except OSError:
+            current = None
+        if current == str(target):
+            if target.exists():
+                return
+            # broken symlink to right target — repair below
+        try:
+            link_path.unlink()
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            logger.warning(
+                "agy: failed to remove existing symlink %s: %s", link_path, exc,
+            )
+            return
+    elif link_path.exists():
+        try:
+            if link_path.is_dir():
+                import shutil
+                shutil.rmtree(link_path)
+            else:
+                link_path.unlink()
+        except OSError as exc:
+            logger.warning(
+                "agy: failed to remove %s for symlink repair: %s",
+                link_path, exc,
+            )
+            return
+
+    try:
+        link_path.symlink_to(target)
+    except FileExistsError:
+        # Concurrent send race: verify final state is correct.
+        try:
+            if link_path.is_symlink() and os.readlink(link_path) == str(target):
+                return
+        except OSError:
+            pass
+        logger.warning(
+            "agy: symlink %s exists after race but does not match %s",
+            link_path, target,
+        )
+    except OSError as exc:
+        logger.warning(
+            "agy: failed to create symlink %s -> %s: %s",
+            link_path, target, exc,
+        )
+
+
+def _ensure_agy_home(agent_id: str, model: str | None) -> Path:
+    """Idempotently prepare ``agents/<agent_id>/`` as the per-agent HOME.
+
+    - Creates ``.gemini/antigravity-cli/cache/`` if missing
+    - Ensures shared auth/identity symlinks into the real HOME
+    - Writes per-agent ``antigravity-cli/settings.json`` (base merged from
+      real HOME, with model/trustedWorkspaces overridden)
+
+    Returns the agent profile dir (to be used as ``HOME`` and ``cwd``).
+    """
+    agent_home = AGENT_PROFILES_DIR / agent_id
+    real_home = Path.home()
+
+    (agent_home / ".gemini" / "antigravity-cli" / "cache").mkdir(
+        parents=True, exist_ok=True,
+    )
+
+    for rel_path in _SHARED_SYMLINKS:
+        _ensure_symlink(agent_home / rel_path, real_home / rel_path)
+
+    settings_path = agent_home / ".gemini" / "antigravity-cli" / "settings.json"
+    real_settings_path = real_home / ".gemini" / "antigravity-cli" / "settings.json"
+
+    try:
+        base_settings = json.loads(real_settings_path.read_text(encoding="utf-8"))
+        if not isinstance(base_settings, dict):
+            base_settings = {}
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        base_settings = {}
+
+    settings: dict = {**base_settings}
+    settings["trustedWorkspaces"] = [str(agent_home)]
+
+    if model and model.strip():
+        settings["model"] = model.strip()
+    # else: keep whatever model came from base_settings (if any). If base
+    # also had no model, the key is absent and agy uses its built-in default.
+
+    new_text = json.dumps(settings, indent=2, ensure_ascii=False) + "\n"
+    try:
+        old_text = settings_path.read_text(encoding="utf-8")
+    except (FileNotFoundError, OSError):
+        old_text = ""
+    if old_text != new_text:
+        settings_path.write_text(new_text, encoding="utf-8")
+
+    return agent_home
+
+
+def send(agent_id: str, message: str, timeout: int) -> SendResult:
+    """Fire-and-forget subprocess launch of ``agy``."""
+    if config.DRY_RUN:
+        logger.info("[dry-run] agy send skipped (agent=%s)", agent_id)
+        return SendResult.OK
+
+    AGY_PIDS_DIR.mkdir(parents=True, exist_ok=True)
+    _rebuild_agy_md(agent_id)
+    if not _remove_stale_gemini_md(agent_id):
+        return SendResult.FAIL
+
+    config_data = _load_config()
+    profile = config_data.get(agent_id, {})
+
+    profile_dir = AGENT_PROFILES_DIR / agent_id
+    if not profile_dir.is_dir():
+        logger.warning(
+            "agy send refused for %s: profile dir %s does not exist. "
+            "agy backend requires a dedicated cwd per agent to avoid "
+            "cross-agent session contamination (session is cwd-scoped).",
+            agent_id, profile_dir,
+        )
+        return SendResult.FAIL
+
+    raw_model = profile.get("model")
+    model = raw_model if isinstance(raw_model, str) else None
+    agent_home = _ensure_agy_home(agent_id, model)
+
+    has_prev = _session_marker_path(agent_id).exists()
+
+    cmd: list[str] = [
+        config.AGY_BIN,
+        "--print-timeout", "24h",
+        "-p", message,
+        "--dangerously-skip-permissions",
+    ]
+    if has_prev:
+        cmd.append("-c")
+
+    env = os.environ.copy()
+    env["HOME"] = str(agent_home)
+    env["AGY_CLI_DISABLE_AUTO_UPDATE"] = "1"
+
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            cwd=str(agent_home),
+            start_new_session=True,
+            env=env,
+        )
+    except (OSError, FileNotFoundError) as e:
+        logger.warning("agy spawn failed for %s: %s", agent_id, e)
+        return SendResult.FAIL
+
+    try:
+        _pid_path(agent_id).write_text(str(proc.pid))
+    except OSError as exc:
+        logger.warning(
+            "agy pid write failed for %s: %s; terminating spawned process group",
+            agent_id, exc,
+        )
+        if not _terminate_pid_tree(proc.pid, agent_id, proc=proc):
+            logger.error(
+                "agy send for %s: spawned pid %d could not be terminated "
+                "after pid-write failure; session for cwd %s may be "
+                "contaminated. Manual intervention required: kill pid %d "
+                "and run reset_session for this agent.",
+                agent_id, proc.pid, agent_home, proc.pid,
+            )
+        return SendResult.FAIL
+
+    try:
+        _session_marker_path(agent_id).touch()
+    except OSError as exc:
+        logger.warning(
+            "agy session-marker touch failed for %s: %s; next send will not use -c",
+            agent_id, exc,
+        )
+
+    return SendResult.OK
+
+
+def ping(agent_id: str, timeout: int) -> bool:
+    """Always returns True. Signature parity only."""
+    return True
+
+
+def is_inactive(agent_id: str, pipeline_data: dict | None = None,
+                *, cc_running: bool = False) -> bool:
+    """Return whether the agent should be considered inactive."""
+    if cc_running:
+        return False
+
+    try:
+        pid_text = _pid_path(agent_id).read_text().strip()
+        pid = int(pid_text)
+    except (OSError, FileNotFoundError, ValueError):
+        return True
+
+    return not _is_agy_pid_alive(pid)
+
+
+def reset_session(agent_id: str) -> None:
+    """Best-effort session reset.
+
+    Terminates the recorded live process (if any), removes the pid file and
+    local session marker, and prunes ``.pb`` conversations older than 30 days
+    from the per-agent conversations directory. Per-agent settings.json and
+    shared symlinks are NOT touched (next send re-establishes them).
+    """
+    _rebuild_agy_md(agent_id)
+
+    try:
+        pid_text = _pid_path(agent_id).read_text().strip()
+        pid = int(pid_text)
+    except (OSError, FileNotFoundError, ValueError):
+        pid = None
+
+    if pid is not None and _is_agy_pid_alive(pid):
+        logger.info(
+            "agy reset_session: terminating live process %d for %s",
+            pid, agent_id,
+        )
+        if not _terminate_pid_tree(pid, agent_id, proc=None):
+            logger.warning(
+                "agy reset_session for %s: failed to terminate live process %d",
+                agent_id, pid,
+            )
+            return
+
+    try:
+        _pid_path(agent_id).unlink(missing_ok=True)
+    except OSError as exc:
+        logger.warning(
+            "agy reset_session: failed to delete pid file for %s: %s",
+            agent_id, exc,
+        )
+
+    try:
+        _session_marker_path(agent_id).unlink(missing_ok=True)
+    except OSError as exc:
+        logger.warning(
+            "agy reset_session: failed to delete session marker for %s: %s",
+            agent_id, exc,
+        )
+
+    _cleanup_old_conversations(agent_id)

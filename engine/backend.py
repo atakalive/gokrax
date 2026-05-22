@@ -74,6 +74,9 @@ def send(agent_id: str, message: str, timeout: int) -> SendResult:
     elif backend == "kimi":
         from engine.backend_kimi import send as km_send
         return km_send(agent_id, message, timeout)
+    elif backend == "agy":
+        from engine.backend_agy import send as agy_send
+        return agy_send(agent_id, message, timeout)
     # openclaw: delegate to the openclaw-specific implementation
     from engine.backend_openclaw import send as oc_send
     return oc_send(agent_id, message, timeout)
@@ -94,6 +97,9 @@ def ping(agent_id: str, timeout: int) -> bool:
     elif backend == "kimi":
         from engine.backend_kimi import ping as km_ping
         return km_ping(agent_id, timeout)
+    elif backend == "agy":
+        from engine.backend_agy import ping as agy_ping
+        return agy_ping(agent_id, timeout)
     from engine.backend_openclaw import ping as oc_ping
     return oc_ping(agent_id, timeout)
 
@@ -123,6 +129,9 @@ def is_inactive(agent_id: str, pipeline_data: dict | None = None) -> bool:
     elif backend == "kimi":
         from engine.backend_kimi import is_inactive as km_is_inactive
         return km_is_inactive(agent_id, pipeline_data, cc_running=cc_running)
+    elif backend == "agy":
+        from engine.backend_agy import is_inactive as agy_is_inactive
+        return agy_is_inactive(agent_id, pipeline_data, cc_running=cc_running)
 
     # openclaw: preserve original semantics
     if cc_running:
@@ -161,6 +170,9 @@ def reset_session(agent_id: str) -> None:
     elif configured == "kimi":
         from engine.backend_kimi import reset_session as km_reset
         km_reset(agent_id)
+    elif configured == "agy":
+        from engine.backend_agy import reset_session as agy_reset
+        agy_reset(agent_id)
     # openclaw: no-op (session reset is done via /new message)
 
     if configured == "gemini":

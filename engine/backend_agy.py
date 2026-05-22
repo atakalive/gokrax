@@ -448,23 +448,26 @@ def _ensure_agy_home(agent_id: str, model: str | None) -> Path | None:
     agent_home = AGENT_PROFILES_DIR / agent_id
     real_home = Path.home()
 
-    # Guard: if .gemini, intermediate components, or mutable subdirectories
-    # are symlinks, mkdir/write would follow them into the real HOME —
-    # destroying HOME isolation.  Remove stale symlinks so mkdir creates
-    # real directories and agy writes stay per-agent.
-    _MUTABLE_DIRS = (
+    # Guard: if .gemini, intermediate components, mutable subdirectories,
+    # or mutable files are symlinks, mkdir/write would follow them into the
+    # real HOME — destroying HOME isolation.  Remove stale symlinks so mkdir
+    # creates real directories and writes stay per-agent.
+    _agy_cli = agent_home / ".gemini" / "antigravity-cli"
+    _MUTABLE_PATHS = (
         agent_home / ".gemini",
-        agent_home / ".gemini" / "antigravity-cli",
-        agent_home / ".gemini" / "antigravity-cli" / "cache",
-        agent_home / ".gemini" / "antigravity-cli" / "conversations",
-        agent_home / ".gemini" / "antigravity-cli" / "log",
-        agent_home / ".gemini" / "antigravity-cli" / "bin",
-        agent_home / ".gemini" / "antigravity-cli" / "knowledge",
-        agent_home / ".gemini" / "antigravity-cli" / "implicit",
-        agent_home / ".gemini" / "antigravity-cli" / "updater",
-        agent_home / ".gemini" / "antigravity-cli" / "brain",
+        _agy_cli,
+        _agy_cli / "cache",
+        _agy_cli / "conversations",
+        _agy_cli / "log",
+        _agy_cli / "bin",
+        _agy_cli / "knowledge",
+        _agy_cli / "implicit",
+        _agy_cli / "updater",
+        _agy_cli / "brain",
+        _agy_cli / "settings.json",
+        _agy_cli / "last_check.timestamp",
     )
-    for component in _MUTABLE_DIRS:
+    for component in _MUTABLE_PATHS:
         if component.is_symlink():
             try:
                 component.unlink()

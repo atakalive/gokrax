@@ -281,6 +281,29 @@ class TestSymlinkRepair:
         assert result is not None
         assert not convos_dir.is_symlink()
 
+    def test_settings_json_symlink_does_not_overwrite_real_home(
+        self, recorder, tmp_path,
+    ):
+        """If settings.json is a symlink, _ensure_agy_home unlinks it so the
+        write doesn't escape to real HOME's settings.json."""
+        profile = _profile_dir()
+        agy_cli = profile / ".gemini" / "antigravity-cli"
+        agy_cli.mkdir(parents=True, exist_ok=True)
+
+        real_settings = tmp_path / "real_settings.json"
+        real_settings.write_text('{"model": "original"}')
+        settings_link = agy_cli / "settings.json"
+        settings_link.symlink_to(real_settings)
+        assert settings_link.is_symlink()
+
+        result = backend_agy._ensure_agy_home(AGENT, "OverrideModel")
+        assert result is not None
+        assert not settings_link.is_symlink()
+        # Real HOME settings must be untouched
+        assert json.loads(real_settings.read_text()) == {"model": "original"}
+        # Per-agent settings must have the override
+        assert json.loads(settings_link.read_text())["model"] == "OverrideModel"
+
 
 # ===========================================================================
 # Model fallback semantics

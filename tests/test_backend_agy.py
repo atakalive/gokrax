@@ -38,6 +38,7 @@ def _reset_module_state(monkeypatch, tmp_path):
     (fake_home / ".gemini" / "google_accounts.json").write_text("{}")
     (fake_home / ".gemini" / "installation_id").write_text("real-id")
     (fake_home / ".gemini" / "antigravity-cli" / "installation_id").write_text("agy-id")
+    (fake_home / ".gemini" / "antigravity-cli" / "antigravity-oauth-token").write_text("{}")
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: fake_home))
     yield
 
@@ -104,6 +105,29 @@ class TestSendArgv:
         assert backend_agy.send(AGENT, "hi", 30) is SendResult.OK
         assert recorder["popen_calls"] == []
 
+    def test_send_includes_add_dir_flag(self, recorder):
+        backend_agy.send(AGENT, "hi", 30)
+        argv = recorder["popen_calls"][0]["cmd"]
+        idx = argv.index("--add-dir")
+        assert argv[idx + 1] == str(_profile_dir())
+
+    def test_send_busy_while_live_process_exists(self, recorder, monkeypatch):
+        backend_agy.AGY_PIDS_DIR.mkdir(parents=True, exist_ok=True)
+        backend_agy._pid_path(AGENT).write_text("9999")
+        monkeypatch.setattr(backend_agy, "_is_agy_pid_alive", lambda p: True)
+
+        rebuild_calls: list = []
+        monkeypatch.setattr(
+            backend_agy, "_rebuild_agy_md",
+            lambda aid: rebuild_calls.append(aid),
+        )
+
+        result = backend_agy.send(AGENT, "hi", 30)
+        assert result is SendResult.BUSY
+        assert recorder["popen_calls"] == []
+        # Workspace operations must not run when live process detected
+        assert rebuild_calls == []
+
 
 # ===========================================================================
 # HOME isolation & settings.json merge
@@ -162,6 +186,15 @@ class TestHomeIsolation:
         import os
         assert os.readlink(link) == str(Path.home() / ".gemini" / "oauth_creds.json")
 
+    def test_antigravity_oauth_token_symlinked_from_real_home(self, recorder):
+        backend_agy.send(AGENT, "hi", 30)
+        link = _profile_dir() / ".gemini" / "antigravity-cli" / "antigravity-oauth-token"
+        assert link.is_symlink()
+        import os
+        assert os.readlink(link) == str(
+            Path.home() / ".gemini" / "antigravity-cli" / "antigravity-oauth-token"
+        )
+
     def test_ensure_agy_home_is_idempotent(self, recorder):
         backend_agy._ensure_agy_home(AGENT, "X")
         link = _profile_dir() / ".gemini" / "oauth_creds.json"
@@ -172,6 +205,20 @@ class TestHomeIsolation:
 
 
 class TestSymlinkRepair:
+    def test_agent_home_root_symlink_refuses_send(
+        self, recorder, monkeypatch, tmp_path,
+    ):
+        import shutil as _shutil
+        profile = _profile_dir()
+        if profile.exists():
+            _shutil.rmtree(profile)
+        real_target = tmp_path / "real_agent"
+        real_target.mkdir()
+        profile.symlink_to(real_target)
+        result = backend_agy.send(AGENT, "hi", 30)
+        assert result is SendResult.FAIL
+        assert recorder["popen_calls"] == []
+
     def test_ensure_symlink_replaces_regular_file_with_symlink(self, tmp_path):
         target = tmp_path / "target.txt"
         target.write_text("real")
@@ -434,49 +481,98 @@ class TestResetSession:
         backend_agy.reset_session(AGENT)
         assert settings.read_text() == '{"keep": "me"}'
 
-    def test_reset_session_cleans_old_pb_files(self, monkeypatch):
-        import os
+    def test_reset_session_purges_conversations_directory(self, monkeypatch):
         conv_dir = _profile_dir() / ".gemini" / "antigravity-cli" / "conversations"
         conv_dir.mkdir(parents=True)
         old = conv_dir / "old.pb"
         old.write_text("x")
-        old_t = (Path(__file__).stat().st_mtime - 100 * 86400)
-        os.utime(old, (old_t, old_t))
+        recent = conv_dir / "recent.pb"
+        recent.write_text("y")
         monkeypatch.setattr(backend_agy, "_is_agy_pid_alive", lambda p: False)
         backend_agy.reset_session(AGENT)
         assert not old.exists()
+        assert not recent.exists()
+        assert not conv_dir.exists()
 
-    def test_reset_session_keeps_recent_pb_files(self, monkeypatch):
-        conv_dir = _profile_dir() / ".gemini" / "antigravity-cli" / "conversations"
-        conv_dir.mkdir(parents=True)
-        recent = conv_dir / "recent.pb"
-        recent.write_text("x")
-        monkeypatch.setattr(backend_agy, "_is_agy_pid_alive", lambda p: False)
+    def test_reset_session_noop_when_agent_home_is_symlink(
+        self, monkeypatch, tmp_path,
+    ):
+        import shutil as _shutil
+        profile = _profile_dir()
+        if profile.exists():
+            _shutil.rmtree(profile)
+        real_target = tmp_path / "real_agent"
+        real_target.mkdir()
+        profile.symlink_to(real_target)
+
+        terminate_calls: list = []
+        monkeypatch.setattr(
+            backend_agy, "_terminate_pid_tree",
+            lambda *a, **k: terminate_calls.append(a) or True,
+        )
+        backend_agy.AGY_PIDS_DIR.mkdir(parents=True, exist_ok=True)
+        backend_agy._pid_path(AGENT).write_text("1234")
+        backend_agy._session_marker_path(AGENT).touch()
+        monkeypatch.setattr(backend_agy, "_is_agy_pid_alive", lambda p: True)
+
         backend_agy.reset_session(AGENT)
-        assert recent.exists()
+        assert terminate_calls == []
+        assert backend_agy._pid_path(AGENT).exists()
+        assert backend_agy._session_marker_path(AGENT).exists()
 
-
-class TestCleanupLogs:
-    def test_cleanup_logs_warning_on_oserror(self, monkeypatch, caplog):
-        conv_dir = _profile_dir() / ".gemini" / "antigravity-cli" / "conversations"
+    def test_reset_session_skips_purge_when_agent_home_is_symlink(
+        self, monkeypatch, tmp_path,
+    ):
+        import shutil as _shutil
+        profile = _profile_dir()
+        if profile.exists():
+            _shutil.rmtree(profile)
+        real_target = tmp_path / "real_agent"
+        real_target.mkdir()
+        conv_dir = real_target / ".gemini" / "antigravity-cli" / "conversations"
         conv_dir.mkdir(parents=True)
-        pb = conv_dir / "x.pb"
-        pb.write_text("x")
-        import os
-        old_t = (Path(__file__).stat().st_mtime - 100 * 86400)
-        os.utime(pb, (old_t, old_t))
+        (conv_dir / "x.pb").write_text("keep")
+        profile.symlink_to(real_target)
+        # Direct test of _purge_conversations_on_reset
+        backend_agy._purge_conversations_on_reset(AGENT)
+        assert (conv_dir / "x.pb").exists()
 
-        orig_unlink = Path.unlink
+    def test_reset_session_skips_purge_when_gemini_is_symlink(
+        self, monkeypatch, tmp_path,
+    ):
+        profile = _profile_dir()
+        fake_real = tmp_path / "real_gemini"
+        (fake_real / "antigravity-cli" / "conversations").mkdir(parents=True)
+        (fake_real / "antigravity-cli" / "conversations" / "x.pb").write_text("keep")
+        (profile / ".gemini").symlink_to(fake_real)
+        backend_agy._purge_conversations_on_reset(AGENT)
+        assert (fake_real / "antigravity-cli" / "conversations" / "x.pb").exists()
 
-        def boom(self, *a, **k):
-            if self.name == "x.pb":
-                raise OSError("no perm")
-            return orig_unlink(self, *a, **k)
+    def test_reset_session_skips_purge_when_antigravity_cli_is_symlink(
+        self, tmp_path,
+    ):
+        profile = _profile_dir()
+        gemini = profile / ".gemini"
+        gemini.mkdir()
+        fake_cli = tmp_path / "real_cli"
+        (fake_cli / "conversations").mkdir(parents=True)
+        (fake_cli / "conversations" / "x.pb").write_text("keep")
+        (gemini / "antigravity-cli").symlink_to(fake_cli)
+        backend_agy._purge_conversations_on_reset(AGENT)
+        assert (fake_cli / "conversations" / "x.pb").exists()
 
-        monkeypatch.setattr(Path, "unlink", boom)
-        with caplog.at_level(logging.WARNING, logger="engine.backend_agy"):
-            backend_agy._cleanup_old_conversations(AGENT)
-        assert any("failed to remove old conversation" in r.message for r in caplog.records)
+    def test_reset_session_skips_purge_when_conv_dir_is_symlink(
+        self, tmp_path,
+    ):
+        profile = _profile_dir()
+        cli_dir = profile / ".gemini" / "antigravity-cli"
+        cli_dir.mkdir(parents=True)
+        fake_conv = tmp_path / "real_conv"
+        fake_conv.mkdir()
+        (fake_conv / "x.pb").write_text("keep")
+        (cli_dir / "conversations").symlink_to(fake_conv)
+        backend_agy._purge_conversations_on_reset(AGENT)
+        assert (fake_conv / "x.pb").exists()
 
 
 # ===========================================================================
@@ -659,3 +755,133 @@ class TestTerminatePidTree:
         proc.wait.return_value = 0
         backend_agy._terminate_pid_tree(1234, AGENT, proc=proc)
         assert calls == [backend_agy.signal.SIGTERM]
+
+
+# ===========================================================================
+# Concurrent send / reset (flock + live-process guard)
+# ===========================================================================
+
+class TestConcurrentSend:
+    def test_concurrent_send_serialized_by_flock(self, monkeypatch):
+        """Two concurrent sends must serialize via flock and both spawn."""
+        import threading
+        # Live-process check returns False so neither send is rejected as BUSY.
+        monkeypatch.setattr(backend_agy, "_is_agy_pid_alive", lambda p: False)
+
+        popen_calls: list[dict] = []
+        in_popen = threading.Event()
+        release_popen = threading.Event()
+        call_index = {"i": 0}
+        lock = threading.Lock()
+
+        class FakeProc:
+            def __init__(self, pid):
+                self.pid = pid
+            def wait(self, timeout=None):
+                return 0
+
+        def fake_popen(cmd, **kwargs):
+            with lock:
+                call_index["i"] += 1
+                idx = call_index["i"]
+            popen_calls.append({"cmd": list(cmd), "idx": idx})
+            if idx == 1:
+                in_popen.set()
+                # Wait so thread 2 attempts to spawn while we hold the lock
+                release_popen.wait(timeout=2.0)
+            return FakeProc(pid=4000 + idx)
+
+        monkeypatch.setattr(subprocess, "Popen", fake_popen)
+
+        results: list = []
+
+        def runner():
+            results.append(backend_agy.send(AGENT, "hi", 30))
+
+        t1 = threading.Thread(target=runner)
+        t2 = threading.Thread(target=runner)
+        t1.start()
+        assert in_popen.wait(timeout=2.0), "thread 1 should enter Popen"
+        t2.start()
+        # Give thread 2 time to attempt the lock and block on flock
+        import time as _t
+        _t.sleep(0.1)
+        # Only thread 1's Popen should have run so far
+        assert len(popen_calls) == 1
+        release_popen.set()
+        t1.join(timeout=5.0)
+        t2.join(timeout=5.0)
+        assert len(popen_calls) == 2
+        assert all(r is SendResult.OK for r in results)
+
+    def test_reset_session_blocks_concurrent_send(self, monkeypatch):
+        import threading
+        # Both sequences will see no live agy
+        monkeypatch.setattr(backend_agy, "_is_agy_pid_alive", lambda p: False)
+
+        events = {
+            "reset_entered": threading.Event(),
+            "release_reset": threading.Event(),
+            "send_done": threading.Event(),
+        }
+
+        original_purge = backend_agy._purge_conversations_on_reset
+
+        def slow_purge(agent_id):
+            events["reset_entered"].set()
+            events["release_reset"].wait(timeout=2.0)
+            original_purge(agent_id)
+
+        monkeypatch.setattr(
+            backend_agy, "_purge_conversations_on_reset", slow_purge,
+        )
+
+        popen_calls: list = []
+
+        class FakeProc:
+            pid = 4242
+            def wait(self, timeout=None):
+                return 0
+
+        def fake_popen(cmd, **kwargs):
+            popen_calls.append(cmd)
+            return FakeProc()
+
+        monkeypatch.setattr(subprocess, "Popen", fake_popen)
+
+        def reset_runner():
+            backend_agy.reset_session(AGENT)
+
+        def send_runner():
+            backend_agy.send(AGENT, "hi", 30)
+            events["send_done"].set()
+
+        t_reset = threading.Thread(target=reset_runner)
+        t_reset.start()
+        assert events["reset_entered"].wait(timeout=2.0)
+
+        t_send = threading.Thread(target=send_runner)
+        t_send.start()
+        import time as _t
+        _t.sleep(0.1)
+        # send must be blocked by reset's lock
+        assert popen_calls == []
+        events["release_reset"].set()
+        t_reset.join(timeout=5.0)
+        t_send.join(timeout=5.0)
+        assert len(popen_calls) == 1
+
+    def test_dry_run_bypasses_flock(self, monkeypatch, recorder):
+        import contextlib as _c
+        monkeypatch.setattr(config, "DRY_RUN", True)
+        lock_calls: list = []
+
+        @_c.contextmanager
+        def fake_lock(agent_id):
+            lock_calls.append(agent_id)
+            yield
+
+        monkeypatch.setattr(backend_agy, "_per_agent_lock", fake_lock)
+        result = backend_agy.send(AGENT, "hi", 30)
+        assert result is SendResult.OK
+        assert lock_calls == []

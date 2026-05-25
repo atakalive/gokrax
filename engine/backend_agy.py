@@ -28,10 +28,13 @@ becomes available.
 
 from __future__ import annotations
 
+import contextlib
+import fcntl
 import hashlib
 import json
 import logging
 import os
+import shutil
 import signal
 import subprocess
 import time
@@ -59,6 +62,7 @@ _SHARED_SYMLINKS: list[str] = [
     ".gemini/google_accounts.json",
     ".gemini/installation_id",
     ".gemini/antigravity-cli/installation_id",
+    ".gemini/antigravity-cli/antigravity-oauth-token",
 ]
 
 # ---------------------------------------------------------------------------
@@ -125,6 +129,22 @@ def _session_marker_path(agent_id: str) -> Path:
     used to decide whether to pass ``-c``.
     """
     return AGY_PIDS_DIR / f"{agent_id}.has_session"
+
+
+def _agent_lock_path(agent_id: str) -> Path:
+    return AGY_PIDS_DIR / f"{agent_id}.lock"
+
+
+@contextlib.contextmanager
+def _per_agent_lock(agent_id: str):
+    AGY_PIDS_DIR.mkdir(parents=True, exist_ok=True)
+    lock_path = _agent_lock_path(agent_id)
+    with open(lock_path, "a") as f:
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
 
 def _is_agy_pid_alive(pid: int) -> bool:
@@ -349,22 +369,33 @@ def _remove_stale_gemini_md(agent_id: str) -> bool:
     return True
 
 
-def _cleanup_old_conversations(agent_id: str, max_age_days: int = 30) -> None:
-    """Delete per-agent ``.pb`` conversations older than max_age_days."""
-    conversations_dir = (
-        AGENT_PROFILES_DIR / agent_id / ".gemini" / "antigravity-cli" / "conversations"
-    )
-    if not conversations_dir.is_dir():
+def _purge_conversations_on_reset(agent_id: str) -> None:
+    agent_home = AGENT_PROFILES_DIR / agent_id
+    if agent_home.is_symlink():
+        logger.warning(
+            "reset_session: skipping conversations purge for %s "
+            "(agent_home is symlink)", agent_id,
+        )
         return
-    cutoff = time.time() - max_age_days * 86400
-    for pb_file in conversations_dir.glob("*.pb"):
-        try:
-            if pb_file.stat().st_mtime < cutoff:
-                pb_file.unlink()
-        except OSError as exc:
+    gemini_dir = agent_home / ".gemini"
+    cli_dir = gemini_dir / "antigravity-cli"
+    conv_dir = cli_dir / "conversations"
+    for path, label in [
+        (gemini_dir, ".gemini"),
+        (cli_dir, "antigravity-cli"),
+        (conv_dir, "conversations"),
+    ]:
+        if path.is_symlink():
             logger.warning(
-                "agy: failed to remove old conversation %s: %s", pb_file, exc,
+                "reset_session: skipping conversations purge for %s "
+                "(symlink at %s)", agent_id, label,
             )
+            return
+    if conv_dir.is_dir():
+        try:
+            shutil.rmtree(conv_dir)
+        except OSError as e:
+            logger.warning("Failed to purge conversations: %s", e)
 
 
 def _ensure_symlink(link_path: Path, target: Path) -> None:
@@ -404,7 +435,6 @@ def _ensure_symlink(link_path: Path, target: Path) -> None:
     elif link_path.exists():
         try:
             if link_path.is_dir():
-                import shutil
                 shutil.rmtree(link_path)
             else:
                 link_path.unlink()
@@ -446,6 +476,14 @@ def _ensure_agy_home(agent_id: str, model: str | None) -> Path | None:
     Returns the agent profile dir (to be used as ``HOME`` and ``cwd``).
     """
     agent_home = AGENT_PROFILES_DIR / agent_id
+
+    if agent_home.is_symlink():
+        logger.warning(
+            "agy: agent_home is a symlink (potential HOME escape): %s",
+            agent_home,
+        )
+        return None
+
     real_home = Path.home()
 
     # Guard: if .gemini, intermediate components, mutable subdirectories,
@@ -515,90 +553,115 @@ def _ensure_agy_home(agent_id: str, model: str | None) -> Path | None:
 
 
 def send(agent_id: str, message: str, timeout: int) -> SendResult:
-    """Fire-and-forget subprocess launch of ``agy``."""
+    """Fire-and-forget subprocess launch of ``agy``.
+
+    At most one live agy process per agent is allowed. If a previous
+    agy process is still running, the send is refused (returns BUSY).
+    The caller (watchdog/fsm) retries on the next poll cycle after
+    is_inactive() confirms the process has exited.
+    """
     if config.DRY_RUN:
         logger.info("[dry-run] agy send skipped (agent=%s)", agent_id)
         return SendResult.OK
-
-    AGY_PIDS_DIR.mkdir(parents=True, exist_ok=True)
-    _rebuild_agy_md(agent_id)
-    if not _remove_stale_gemini_md(agent_id):
-        return SendResult.FAIL
-
-    config_data = _load_config()
-    profile = config_data.get(agent_id, {})
-
-    profile_dir = AGENT_PROFILES_DIR / agent_id
-    if not profile_dir.is_dir():
-        logger.warning(
-            "agy send refused for %s: profile dir %s does not exist. "
-            "agy backend requires a dedicated cwd per agent to avoid "
-            "cross-agent session contamination (session is cwd-scoped).",
-            agent_id, profile_dir,
-        )
-        return SendResult.FAIL
-
-    raw_model = profile.get("model")
-    model = raw_model if isinstance(raw_model, str) else None
-    agent_home = _ensure_agy_home(agent_id, model)
-    if agent_home is None:
-        return SendResult.FAIL
-
-    has_prev = _session_marker_path(agent_id).exists()
-
-    cmd: list[str] = [
-        config.AGY_BIN,
-        "--print-timeout", "24h",
-        "-p", message,
-        "--dangerously-skip-permissions",
-    ]
-    if has_prev:
-        cmd.append("-c")
-
-    env = os.environ.copy()
-    env["HOME"] = str(agent_home)
-    env["AGY_CLI_DISABLE_AUTO_UPDATE"] = "1"
-
-    try:
-        proc = subprocess.Popen(
-            cmd,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            cwd=str(agent_home),
-            start_new_session=True,
-            env=env,
-        )
-    except (OSError, FileNotFoundError) as e:
-        logger.warning("agy spawn failed for %s: %s", agent_id, e)
-        return SendResult.FAIL
-
-    try:
-        _pid_path(agent_id).write_text(str(proc.pid))
-    except OSError as exc:
-        logger.warning(
-            "agy pid write failed for %s: %s; terminating spawned process group",
-            agent_id, exc,
-        )
-        if not _terminate_pid_tree(proc.pid, agent_id, proc=proc):
-            logger.error(
-                "agy send for %s: spawned pid %d could not be terminated "
-                "after pid-write failure; session for cwd %s may be "
-                "contaminated. Manual intervention required: kill pid %d "
-                "and run reset_session for this agent.",
-                agent_id, proc.pid, agent_home, proc.pid,
+    with _per_agent_lock(agent_id):
+        agent_home = AGENT_PROFILES_DIR / agent_id
+        if agent_home.is_symlink():
+            logger.warning(
+                "agy: agent_home is a symlink (potential HOME escape): %s",
+                agent_home,
             )
-        return SendResult.FAIL
+            return SendResult.FAIL
 
-    try:
-        _session_marker_path(agent_id).touch()
-    except OSError as exc:
-        logger.warning(
-            "agy session-marker touch failed for %s: %s; next send will not use -c",
-            agent_id, exc,
-        )
+        try:
+            existing_pid_text = _pid_path(agent_id).read_text().strip()
+            existing_pid = int(existing_pid_text)
+        except (OSError, FileNotFoundError, ValueError):
+            existing_pid = None
+        if existing_pid is not None and _is_agy_pid_alive(existing_pid):
+            logger.info(
+                "agy send: live process %d still running for %s; "
+                "refusing to spawn",
+                existing_pid, agent_id,
+            )
+            return SendResult.BUSY
 
-    return SendResult.OK
+        _rebuild_agy_md(agent_id)
+        if not _remove_stale_gemini_md(agent_id):
+            return SendResult.FAIL
+
+        config_data = _load_config()
+        profile = config_data.get(agent_id, {})
+
+        if not agent_home.is_dir():
+            logger.warning(
+                "agy send refused for %s: profile dir %s does not exist. "
+                "agy backend requires a dedicated cwd per agent to avoid "
+                "cross-agent session contamination (session is cwd-scoped).",
+                agent_id, agent_home,
+            )
+            return SendResult.FAIL
+
+        raw_model = profile.get("model")
+        model = raw_model if isinstance(raw_model, str) else None
+        if _ensure_agy_home(agent_id, model) is None:
+            return SendResult.FAIL
+
+        has_prev = _session_marker_path(agent_id).exists()
+
+        cmd: list[str] = [
+            config.AGY_BIN,
+            "--add-dir", str(agent_home),
+            "--print-timeout", "24h",
+            "-p", message,
+            "--dangerously-skip-permissions",
+        ]
+        if has_prev:
+            cmd.append("-c")
+
+        env = os.environ.copy()
+        env["HOME"] = str(agent_home)
+        env["AGY_CLI_DISABLE_AUTO_UPDATE"] = "1"
+
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                cwd=str(agent_home),
+                start_new_session=True,
+                env=env,
+            )
+        except (OSError, FileNotFoundError) as e:
+            logger.warning("agy spawn failed for %s: %s", agent_id, e)
+            return SendResult.FAIL
+
+        try:
+            _pid_path(agent_id).write_text(str(proc.pid))
+        except OSError as exc:
+            logger.warning(
+                "agy pid write failed for %s: %s; terminating spawned process group",
+                agent_id, exc,
+            )
+            if not _terminate_pid_tree(proc.pid, agent_id, proc=proc):
+                logger.error(
+                    "agy send for %s: spawned pid %d could not be terminated "
+                    "after pid-write failure; session for cwd %s may be "
+                    "contaminated. Manual intervention required: kill pid %d "
+                    "and run reset_session for this agent.",
+                    agent_id, proc.pid, agent_home, proc.pid,
+                )
+            return SendResult.FAIL
+
+        try:
+            _session_marker_path(agent_id).touch()
+        except OSError as exc:
+            logger.warning(
+                "agy session-marker touch failed for %s: %s; next send will not use -c",
+                agent_id, exc,
+            )
+
+        return SendResult.OK
 
 
 def ping(agent_id: str, timeout: int) -> bool:
@@ -625,44 +688,54 @@ def reset_session(agent_id: str) -> None:
     """Best-effort session reset.
 
     Terminates the recorded live process (if any), removes the pid file and
-    local session marker, and prunes ``.pb`` conversations older than 30 days
-    from the per-agent conversations directory. Per-agent settings.json and
-    shared symlinks are NOT touched (next send re-establishes them).
+    local session marker, and purges the per-agent conversations directory.
+    Per-agent settings.json and shared symlinks are NOT touched (next send
+    re-establishes them).
     """
-    _rebuild_agy_md(agent_id)
-
-    try:
-        pid_text = _pid_path(agent_id).read_text().strip()
-        pid = int(pid_text)
-    except (OSError, FileNotFoundError, ValueError):
-        pid = None
-
-    if pid is not None and _is_agy_pid_alive(pid):
-        logger.info(
-            "agy reset_session: terminating live process %d for %s",
-            pid, agent_id,
-        )
-        if not _terminate_pid_tree(pid, agent_id, proc=None):
+    with _per_agent_lock(agent_id):
+        agent_home = AGENT_PROFILES_DIR / agent_id
+        if agent_home.is_symlink():
             logger.warning(
-                "agy reset_session for %s: failed to terminate live process %d",
-                agent_id, pid,
+                "agy reset_session: agent_home is a symlink "
+                "(potential HOME escape): %s",
+                agent_home,
             )
             return
 
-    try:
-        _pid_path(agent_id).unlink(missing_ok=True)
-    except OSError as exc:
-        logger.warning(
-            "agy reset_session: failed to delete pid file for %s: %s",
-            agent_id, exc,
-        )
+        _rebuild_agy_md(agent_id)
 
-    try:
-        _session_marker_path(agent_id).unlink(missing_ok=True)
-    except OSError as exc:
-        logger.warning(
-            "agy reset_session: failed to delete session marker for %s: %s",
-            agent_id, exc,
-        )
+        try:
+            pid_text = _pid_path(agent_id).read_text().strip()
+            pid = int(pid_text)
+        except (OSError, FileNotFoundError, ValueError):
+            pid = None
 
-    _cleanup_old_conversations(agent_id)
+        if pid is not None and _is_agy_pid_alive(pid):
+            logger.info(
+                "agy reset_session: terminating live process %d for %s",
+                pid, agent_id,
+            )
+            if not _terminate_pid_tree(pid, agent_id, proc=None):
+                logger.warning(
+                    "agy reset_session for %s: failed to terminate live process %d",
+                    agent_id, pid,
+                )
+                return
+
+        try:
+            _pid_path(agent_id).unlink(missing_ok=True)
+        except OSError as exc:
+            logger.warning(
+                "agy reset_session: failed to delete pid file for %s: %s",
+                agent_id, exc,
+            )
+
+        try:
+            _session_marker_path(agent_id).unlink(missing_ok=True)
+        except OSError as exc:
+            logger.warning(
+                "agy reset_session: failed to delete session marker for %s: %s",
+                agent_id, exc,
+            )
+
+        _purge_conversations_on_reset(agent_id)

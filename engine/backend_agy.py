@@ -38,6 +38,7 @@ import shutil
 import signal
 import subprocess
 import time
+from collections.abc import Generator
 from pathlib import Path
 
 import config
@@ -136,7 +137,7 @@ def _agent_lock_path(agent_id: str) -> Path:
 
 
 @contextlib.contextmanager
-def _per_agent_lock(agent_id: str):
+def _per_agent_lock(agent_id: str) -> Generator[None, None, None]:
     AGY_PIDS_DIR.mkdir(parents=True, exist_ok=True)
     lock_path = _agent_lock_path(agent_id)
     with open(lock_path, "a") as f:

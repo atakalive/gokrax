@@ -31,6 +31,7 @@ from config import (
     AGENT_PROFILES_DIR,
     KIMI_AGENT_CONFIG,
     KIMI_PIDS_DIR,
+    REVIEW_FILE_DIR,
 )
 from engine.backend_types import SendResult
 
@@ -273,6 +274,7 @@ def send(agent_id: str, message: str, timeout: int) -> SendResult:
         return SendResult.OK
 
     KIMI_PIDS_DIR.mkdir(parents=True, exist_ok=True)
+    REVIEW_FILE_DIR.mkdir(parents=True, exist_ok=True)
     _rebuild_kimi_md(agent_id)
 
     config_data = _load_config()
@@ -294,7 +296,12 @@ def send(agent_id: str, message: str, timeout: int) -> SendResult:
     # --quiet expands to "--print --output-format text --final-message-only"
     # which currently implies --yolo, but we pass -y explicitly to remain
     # robust if that implicit behavior changes in a future kimi release.
-    cmd: list[str] = [config.KIMI_BIN, "--quiet", "-y", "-p", message]
+    cmd: list[str] = [
+        config.KIMI_BIN,
+        "--quiet", "-y", "--afk",
+        "--add-dir", str(REVIEW_FILE_DIR),
+        "-p", message,
+    ]
     model = profile.get("model")
     if isinstance(model, str) and model.strip():
         cmd.extend(["-m", model.strip()])

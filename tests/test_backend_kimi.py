@@ -29,6 +29,8 @@ def _reset_module_state(monkeypatch, tmp_path):
     (profiles / AGENT).mkdir(parents=True)
     monkeypatch.setattr(backend_kimi, "KIMI_PIDS_DIR", pids)
     monkeypatch.setattr(backend_kimi, "AGENT_PROFILES_DIR", profiles)
+    review = tmp_path / "review"
+    monkeypatch.setattr(backend_kimi, "REVIEW_FILE_DIR", review)
     yield
 
 
@@ -154,6 +156,26 @@ class TestSend:
         assert len(terminate_calls) == 1
         # marker MUST NOT be created when pid persistence fails
         assert not backend_kimi._session_marker_path(AGENT).exists()
+
+    def test_afk_in_argv(self, recorder):
+        """--afk must be present so watchdog runs are treated as no-user."""
+        backend_kimi.send(AGENT, "hi", 30)
+        argv = recorder["popen_calls"][0]
+        assert "--afk" in argv
+
+    def test_add_dir_review_file_dir(self, recorder):
+        """--add-dir REVIEW_FILE_DIR must be present so kimi can read/write
+        externalized review files."""
+        backend_kimi.send(AGENT, "hi", 30)
+        argv = recorder["popen_calls"][0]
+        idx = argv.index("--add-dir")
+        assert argv[idx + 1] == str(backend_kimi.REVIEW_FILE_DIR)
+
+    def test_review_file_dir_created(self, recorder):
+        """send() must create REVIEW_FILE_DIR if it doesn't exist."""
+        assert not backend_kimi.REVIEW_FILE_DIR.exists()
+        backend_kimi.send(AGENT, "hi", 30)
+        assert backend_kimi.REVIEW_FILE_DIR.is_dir()
 
 
 # ===========================================================================

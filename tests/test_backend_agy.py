@@ -203,6 +203,53 @@ class TestHomeIsolation:
         backend_agy._ensure_agy_home(AGENT, "X")
         assert link.is_symlink()
 
+    def test_mcp_config_zero_byte_seeded(self, recorder):
+        cfg_dir = _profile_dir() / ".gemini" / "config"
+        cfg_dir.mkdir(parents=True)
+        mcp = cfg_dir / "mcp_config.json"
+        mcp.write_text("")
+        assert mcp.stat().st_size == 0
+        result = backend_agy._ensure_agy_home(AGENT, None)
+        assert result is not None
+        assert mcp.read_text() == "{}\n"
+
+    def test_mcp_config_valid_not_overwritten(self, recorder):
+        cfg_dir = _profile_dir() / ".gemini" / "config"
+        cfg_dir.mkdir(parents=True)
+        mcp = cfg_dir / "mcp_config.json"
+        mcp.write_text('{"servers":{}}')
+        result = backend_agy._ensure_agy_home(AGENT, None)
+        assert result is not None
+        assert mcp.read_text() == '{"servers":{}}'
+
+    def test_cli_log_rotation_keeps_latest_10(self, recorder):
+        import os as _os
+        log_dir = _profile_dir() / ".gemini" / "antigravity-cli" / "log"
+        log_dir.mkdir(parents=True)
+        logs = []
+        for i in range(11):
+            p = log_dir / f"cli-2026010{i // 10}_{i:06d}.log"
+            p.write_text(f"log{i}")
+            _os.utime(p, (1000 + i, 1000 + i))
+            logs.append(p)
+        result = backend_agy._ensure_agy_home(AGENT, None)
+        assert result is not None
+        remaining = sorted(log_dir.glob("cli-*.log"))
+        assert len(remaining) == 10
+        # Oldest (logs[0], mtime=1000) should be gone
+        assert not logs[0].exists()
+        # Newest must remain
+        assert logs[-1].exists()
+
+    def test_cli_log_rotation_survives_broken_symlink(self, recorder, tmp_path):
+        log_dir = _profile_dir() / ".gemini" / "antigravity-cli" / "log"
+        log_dir.mkdir(parents=True)
+        (log_dir / "cli-normal.log").write_text("ok")
+        broken = log_dir / "cli-broken.log"
+        broken.symlink_to(tmp_path / "nonexistent_target_for_broken_symlink")
+        result = backend_agy._ensure_agy_home(AGENT, None)
+        assert result is not None
+
 
 class TestSymlinkRepair:
     def test_agent_home_root_symlink_refuses_send(
@@ -327,6 +374,24 @@ class TestSymlinkRepair:
         result = backend_agy._ensure_agy_home(AGENT, "M")
         assert result is not None
         assert not convos_dir.is_symlink()
+
+    def test_antigravitycli_symlink_removed_by_mutable_paths_guard(
+        self, recorder, tmp_path,
+    ):
+        """`.antigravitycli/` (agy 1.0.2 writes project ID symlinks here) must
+        be unlinked if it is a symlink pointing outside agent_home."""
+        profile = _profile_dir()
+        fake_target = tmp_path / "real_antigravitycli"
+        fake_target.mkdir()
+        link = profile / ".antigravitycli"
+        link.symlink_to(fake_target)
+        assert link.is_symlink()
+
+        result = backend_agy._ensure_agy_home(AGENT, "M")
+        assert result is not None
+        assert not link.is_symlink()
+        # Real target should not have received any writes through the symlink
+        assert list(fake_target.iterdir()) == []
 
     def test_settings_json_symlink_does_not_overwrite_real_home(
         self, recorder, tmp_path,
@@ -533,8 +598,8 @@ class TestResetSession:
         conv_dir.mkdir(parents=True)
         (conv_dir / "x.pb").write_text("keep")
         profile.symlink_to(real_target)
-        # Direct test of _purge_conversations_on_reset
-        backend_agy._purge_conversations_on_reset(AGENT)
+        # Direct test of _purge_session_data_on_reset
+        backend_agy._purge_session_data_on_reset(AGENT)
         assert (conv_dir / "x.pb").exists()
 
     def test_reset_session_skips_purge_when_gemini_is_symlink(
@@ -545,7 +610,7 @@ class TestResetSession:
         (fake_real / "antigravity-cli" / "conversations").mkdir(parents=True)
         (fake_real / "antigravity-cli" / "conversations" / "x.pb").write_text("keep")
         (profile / ".gemini").symlink_to(fake_real)
-        backend_agy._purge_conversations_on_reset(AGENT)
+        backend_agy._purge_session_data_on_reset(AGENT)
         assert (fake_real / "antigravity-cli" / "conversations" / "x.pb").exists()
 
     def test_reset_session_skips_purge_when_antigravity_cli_is_symlink(
@@ -558,8 +623,35 @@ class TestResetSession:
         (fake_cli / "conversations").mkdir(parents=True)
         (fake_cli / "conversations" / "x.pb").write_text("keep")
         (gemini / "antigravity-cli").symlink_to(fake_cli)
-        backend_agy._purge_conversations_on_reset(AGENT)
+        backend_agy._purge_session_data_on_reset(AGENT)
         assert (fake_cli / "conversations" / "x.pb").exists()
+
+    def test_reset_session_purges_brain_directory(self, monkeypatch):
+        cli_dir = _profile_dir() / ".gemini" / "antigravity-cli"
+        conv_dir = cli_dir / "conversations"
+        brain_dir = cli_dir / "brain"
+        conv_dir.mkdir(parents=True)
+        brain_dir.mkdir(parents=True)
+        (conv_dir / "abc.pb").write_text("c")
+        (brain_dir / "abc").mkdir()
+        (brain_dir / "abc" / "memory.bin").write_text("b")
+        monkeypatch.setattr(backend_agy, "_is_agy_pid_alive", lambda p: False)
+        backend_agy.reset_session(AGENT)
+        assert not conv_dir.exists()
+        assert not brain_dir.exists()
+
+    def test_reset_session_skips_purge_when_brain_is_symlink(
+        self, tmp_path,
+    ):
+        profile = _profile_dir()
+        cli_dir = profile / ".gemini" / "antigravity-cli"
+        cli_dir.mkdir(parents=True)
+        fake_brain = tmp_path / "real_brain"
+        fake_brain.mkdir()
+        (fake_brain / "kept.bin").write_text("keep")
+        (cli_dir / "brain").symlink_to(fake_brain)
+        backend_agy._purge_session_data_on_reset(AGENT)
+        assert (fake_brain / "kept.bin").exists()
 
     def test_reset_session_skips_purge_when_conv_dir_is_symlink(
         self, tmp_path,
@@ -571,7 +663,7 @@ class TestResetSession:
         fake_conv.mkdir()
         (fake_conv / "x.pb").write_text("keep")
         (cli_dir / "conversations").symlink_to(fake_conv)
-        backend_agy._purge_conversations_on_reset(AGENT)
+        backend_agy._purge_session_data_on_reset(AGENT)
         assert (fake_conv / "x.pb").exists()
 
 
@@ -659,11 +751,36 @@ class TestStaleGeminiMd:
         monkeypatch.setattr(backend_agy.time, "time_ns", lambda: fixed_ns)
         bak = pd / f"GEMINI.md.bak.{fixed_ns}"
         bak.write_text("existing backup")
+        # Simulate cleanup failure so the pre-existing bak survives, exercising
+        # the os.link FileExistsError defensive guard.
+        orig_unlink = Path.unlink
+
+        def fail_for_bak(self, *a, **k):
+            if self.name.startswith("GEMINI.md.bak."):
+                raise PermissionError("denied")
+            return orig_unlink(self, *a, **k)
+
+        monkeypatch.setattr(Path, "unlink", fail_for_bak)
         result = backend_agy._remove_stale_gemini_md(AGENT)
         assert result is False
         assert bak.read_text() == "existing backup"
         # Original GEMINI.md must remain (we did not unlink it on failure)
         assert gmd.exists()
+
+    def test_old_baks_cleaned_up_keeping_only_latest(self):
+        pd = _profile_dir()
+        old1 = pd / "GEMINI.md.bak.111"
+        old2 = pd / "GEMINI.md.bak.222"
+        old1.write_text("old1")
+        old2.write_text("old2")
+        (pd / "GEMINI.md").write_text("current")
+        ok = backend_agy._remove_stale_gemini_md(AGENT)
+        assert ok is True
+        assert not old1.exists()
+        assert not old2.exists()
+        baks = list(pd.glob("GEMINI.md.bak.*"))
+        assert len(baks) == 1
+        assert baks[0].read_text() == "current"
 
     def test_edited_gemini_md_with_hash_still_preserved(self):
         pd = _profile_dir()
@@ -825,7 +942,7 @@ class TestConcurrentSend:
             "send_done": threading.Event(),
         }
 
-        original_purge = backend_agy._purge_conversations_on_reset
+        original_purge = backend_agy._purge_session_data_on_reset
 
         def slow_purge(agent_id):
             events["reset_entered"].set()
@@ -833,7 +950,7 @@ class TestConcurrentSend:
             original_purge(agent_id)
 
         monkeypatch.setattr(
-            backend_agy, "_purge_conversations_on_reset", slow_purge,
+            backend_agy, "_purge_session_data_on_reset", slow_purge,
         )
 
         popen_calls: list = []

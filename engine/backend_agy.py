@@ -338,6 +338,9 @@ def _remove_stale_gemini_md(agent_id: str) -> bool:
     if not gemini_md.exists():
         return True
 
+    for old_bak in profile_dir.glob("GEMINI.md.bak.*"):
+        with contextlib.suppress(OSError):
+            old_bak.unlink()
     backup = profile_dir / f"GEMINI.md.bak.{time.time_ns()}"
     try:
         os.link(gemini_md, backup)
@@ -370,25 +373,27 @@ def _remove_stale_gemini_md(agent_id: str) -> bool:
     return True
 
 
-def _purge_conversations_on_reset(agent_id: str) -> None:
+def _purge_session_data_on_reset(agent_id: str) -> None:
     agent_home = AGENT_PROFILES_DIR / agent_id
     if agent_home.is_symlink():
         logger.warning(
-            "reset_session: skipping conversations purge for %s "
+            "reset_session: skipping session data purge for %s "
             "(agent_home is symlink)", agent_id,
         )
         return
     gemini_dir = agent_home / ".gemini"
     cli_dir = gemini_dir / "antigravity-cli"
     conv_dir = cli_dir / "conversations"
+    brain_dir = cli_dir / "brain"
     for path, label in [
         (gemini_dir, ".gemini"),
         (cli_dir, "antigravity-cli"),
         (conv_dir, "conversations"),
+        (brain_dir, "brain"),
     ]:
         if path.is_symlink():
             logger.warning(
-                "reset_session: skipping conversations purge for %s "
+                "reset_session: skipping session data purge for %s "
                 "(symlink at %s)", agent_id, label,
             )
             return
@@ -397,6 +402,11 @@ def _purge_conversations_on_reset(agent_id: str) -> None:
             shutil.rmtree(conv_dir)
         except OSError as e:
             logger.warning("Failed to purge conversations: %s", e)
+    if brain_dir.is_dir():
+        try:
+            shutil.rmtree(brain_dir)
+        except OSError as e:
+            logger.warning("Failed to purge brain: %s", e)
 
 
 def _ensure_symlink(link_path: Path, target: Path) -> None:
@@ -492,8 +502,22 @@ def _ensure_agy_home(agent_id: str, model: str | None) -> Path | None:
     # real HOME — destroying HOME isolation.  Remove stale symlinks so mkdir
     # creates real directories and writes stay per-agent.
     _agy_cli = agent_home / ".gemini" / "antigravity-cli"
+    _gemini_config = agent_home / ".gemini" / "config"
+    # Ordering constraint: parents MUST precede children. The guard iterates
+    # this tuple and unlinks symlinks. If a child were checked first while its
+    # parent is still a symlink, child.unlink() would resolve the parent
+    # symlink and delete a file inside the real HOME — a destructive leak.
+    # Maintenance: this whitelist tracks paths observed in agy 1.0.2.
+    # After an agy upgrade, run the agent once and diff agent_home to detect
+    # new write targets. Auth failures or unexpected symlinks after upgrade
+    # are the canonical sign that this list is stale.
     _MUTABLE_PATHS = (
         agent_home / ".gemini",
+        agent_home / ".antigravitycli",
+        _gemini_config,
+        _gemini_config / "mcp_config.json",
+        _gemini_config / ".migrated",
+        _gemini_config / "projects",
         _agy_cli,
         _agy_cli / "cache",
         _agy_cli / "conversations",
@@ -505,6 +529,8 @@ def _ensure_agy_home(agent_id: str, model: str | None) -> Path | None:
         _agy_cli / "brain",
         _agy_cli / "settings.json",
         _agy_cli / "last_check.timestamp",
+        _agy_cli / "cli.log",
+        _agy_cli / "keybindings.json",
     )
     for component in _MUTABLE_PATHS:
         if component.is_symlink():
@@ -549,6 +575,38 @@ def _ensure_agy_home(agent_id: str, model: str | None) -> Path | None:
         old_text = ""
     if old_text != new_text:
         settings_path.write_text(new_text, encoding="utf-8")
+
+    _gemini_config.mkdir(parents=True, exist_ok=True)
+    mcp_cfg = _gemini_config / "mcp_config.json"
+    try:
+        needs_seed = not mcp_cfg.exists() or mcp_cfg.stat().st_size == 0
+    except OSError:
+        needs_seed = True
+    if needs_seed:
+        try:
+            mcp_cfg.write_text("{}\n", encoding="utf-8")
+        except OSError as exc:
+            logger.warning(
+                "agy: failed to seed mcp_config.json for %s: %s",
+                agent_id, exc,
+            )
+
+    log_dir = agent_home / ".gemini" / "antigravity-cli" / "log"
+    if log_dir.is_dir():
+        def _safe_mtime(p: Path) -> float:
+            try:
+                return p.stat().st_mtime
+            except OSError:
+                return 0.0
+
+        cli_logs = sorted(
+            log_dir.glob("cli-*.log"),
+            key=_safe_mtime,
+            reverse=True,
+        )
+        for stale in cli_logs[10:]:
+            with contextlib.suppress(OSError):
+                stale.unlink()
 
     return agent_home
 
@@ -739,4 +797,4 @@ def reset_session(agent_id: str) -> None:
                 agent_id, exc,
             )
 
-        _purge_conversations_on_reset(agent_id)
+        _purge_session_data_on_reset(agent_id)

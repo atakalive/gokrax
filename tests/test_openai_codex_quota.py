@@ -218,6 +218,117 @@ class TestGetUsage:
             ok, used, reset = oq.get_codex_usage()
         assert (ok, used, reset) == (False, 0.0, None)
 
+    def test_new_schema_secondary_window_used_percent(self, tmp_paths):
+        """New API schema: rate_limit.secondary_window.used_percent (direct used %),
+        reset_at as Unix seconds. Mirrors the actual chatgpt.com response shape."""
+        _write_pi_auth(tmp_paths["pi_auth"])
+        reset_sec = int(time.time() + 86400 * 2)
+        resp = _mk_response({
+            "rate_limit": {
+                "allowed": True,
+                "limit_reached": False,
+                "primary_window": {
+                    "used_percent": 29,
+                    "limit_window_seconds": 18000,
+                    "reset_at": int(time.time() + 3600),
+                },
+                "secondary_window": {
+                    "used_percent": 85,
+                    "limit_window_seconds": 604800,
+                    "reset_after_seconds": 195583,
+                    "reset_at": reset_sec,
+                },
+            },
+        })
+        with patch("urllib.request.urlopen", return_value=resp):
+            ok, used, reset = oq.get_codex_usage()
+        assert ok is True
+        assert used == pytest.approx(85.0)
+        assert reset == datetime.fromtimestamp(reset_sec, tz=timezone.utc)
+
+    def test_new_schema_reset_after_seconds(self, tmp_paths):
+        """reset_after_seconds is used when reset_at absent."""
+        _write_pi_auth(tmp_paths["pi_auth"])
+        resp = _mk_response({
+            "rate_limit": {
+                "secondary_window": {
+                    "used_percent": 90,
+                    "reset_after_seconds": 3600,
+                },
+            },
+        })
+        before = datetime.now(timezone.utc)
+        with patch("urllib.request.urlopen", return_value=resp):
+            ok, used, reset = oq.get_codex_usage()
+        after = datetime.now(timezone.utc)
+        assert ok is True
+        assert used == pytest.approx(90.0)
+        assert reset is not None
+        assert before + timedelta(seconds=3590) <= reset <= after + timedelta(seconds=3610)
+
+    def test_new_schema_used_percent_takes_precedence_over_legacy(self, tmp_paths):
+        """When both used_percent and percent_left are present (mixed shape), the
+        direct used_percent wins."""
+        _write_pi_auth(tmp_paths["pi_auth"])
+        resp = _mk_response({
+            "rate_limit": {
+                "secondary_window": {"used_percent": 77, "percent_left": 99},
+            },
+        })
+        with patch("urllib.request.urlopen", return_value=resp):
+            ok, used, _ = oq.get_codex_usage()
+        assert ok is True
+        assert used == pytest.approx(77.0)
+
+    def test_secondary_window_preferred_over_legacy_weekly(self, tmp_paths):
+        """When both secondary_window (new) and weekly (legacy) coexist, new wins."""
+        _write_pi_auth(tmp_paths["pi_auth"])
+        resp = _mk_response({
+            "rate_limit": {
+                "secondary_window": {"used_percent": 70},
+                "weekly": {"percent_left": 50},
+            },
+        })
+        with patch("urllib.request.urlopen", return_value=resp):
+            ok, used, _ = oq.get_codex_usage()
+        assert ok is True
+        assert used == pytest.approx(70.0)
+
+    def test_silent_paths_now_log(self, tmp_paths):
+        """Each formerly-silent shape-mismatch branch must emit a WARN log line."""
+        _write_pi_auth(tmp_paths["pi_auth"])
+        # missing window key entirely
+        resp = _mk_response({"rate_limit": {"primary_window": {"used_percent": 5}}})
+        with patch("urllib.request.urlopen", return_value=resp), \
+             patch("engine.openai_codex_quota.log") as mock_log:
+            ok, _, _ = oq.get_codex_usage()
+        assert ok is False
+        assert mock_log.called
+        msg = mock_log.call_args[0][0]
+        assert "weekly window key not found" in msg
+        assert "primary_window" in msg
+
+    def test_new_schema_at_euler_threshold_triggers(self, tmp_paths):
+        """Integration: real-world euler scenario — secondary_window.used_percent=85,
+        threshold=80 → fallback fires and cache is written."""
+        _write_pi_auth(tmp_paths["pi_auth"])
+        _write_pi_cfg(tmp_paths["pi_cfg"], usage_threshold=80,
+                      fallback_provider="github-copilot", fallback_model="gpt-5.4")
+        resp = _mk_response({
+            "rate_limit": {
+                "secondary_window": {
+                    "used_percent": 85,
+                    "reset_at": int(time.time() + 86400 * 2),
+                },
+            },
+        })
+        with patch("urllib.request.urlopen", return_value=resp), \
+             patch("engine.backend_pi.reset_session"):
+            active, fb_p, fb_m, new = oq.should_fallback("impl1")
+        assert (active, fb_p, fb_m, new) == (True, "github-copilot", "gpt-5.4", True)
+        cache = json.loads((tmp_paths["cache_dir"] / "impl1.json").read_text())
+        assert cache["reason"] == "Codex usage 85% (>=80)"
+
 
 # ---------------------------------------------------------------------------
 # should_fallback

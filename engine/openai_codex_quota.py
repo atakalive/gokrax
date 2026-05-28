@@ -18,7 +18,7 @@ import json
 import math
 import time
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import config.paths as _paths
 from engine import fallback_cache
@@ -87,6 +87,43 @@ def _load_codex_auth() -> tuple[str, str] | None:
     return (access, account_id)
 
 
+def _parse_reset(wk: dict) -> datetime | None:
+    """Parse weekly reset time from the window dict.
+
+    Supports (in order): reset_at as Unix seconds (int/float, new schema),
+    reset_after_seconds (int/float, new schema, relative), reset_time_ms
+    (int/float, legacy, milliseconds), reset_at as ISO-8601 string (legacy).
+    """
+    reset_at = wk.get("reset_at")
+    if isinstance(reset_at, (int, float)) and not isinstance(reset_at, bool):
+        try:
+            return datetime.fromtimestamp(float(reset_at), tz=timezone.utc)
+        except (OverflowError, OSError, ValueError):
+            return None
+    reset_after = wk.get("reset_after_seconds")
+    if isinstance(reset_after, (int, float)) and not isinstance(reset_after, bool):
+        try:
+            return datetime.now(timezone.utc) + timedelta(seconds=float(reset_after))
+        except (OverflowError, OSError, ValueError):
+            return None
+    reset_ms = wk.get("reset_time_ms")
+    if isinstance(reset_ms, (int, float)) and not isinstance(reset_ms, bool):
+        try:
+            return datetime.fromtimestamp(reset_ms / 1000.0, tz=timezone.utc)
+        except (OverflowError, OSError, ValueError):
+            return None
+    if isinstance(reset_at, str):
+        try:
+            s = reset_at.replace("Z", "+00:00")
+            dt = datetime.fromisoformat(s)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt
+        except ValueError:
+            return None
+    return None
+
+
 def get_codex_usage() -> tuple[bool, float, datetime | None]:
     """Fetch openai-codex weekly quota usage.
 
@@ -116,40 +153,51 @@ def get_codex_usage() -> tuple[bool, float, datetime | None]:
             log(f"WARN openai_codex_quota: GET {_USAGE_URL} failed: {e!r}")
             return (False, 0.0, None)
         if not isinstance(payload, dict):
+            log(f"WARN openai_codex_quota: payload not dict; type={type(payload).__name__}")
             return (False, 0.0, None)
         rl = payload.get("rate_limit") or payload.get("rate_limits") or {}
         if not isinstance(rl, dict):
+            log(f"WARN openai_codex_quota: rate_limit invalid; type={type(rl).__name__}")
             return (False, 0.0, None)
-        wk = rl.get("weekly") or rl.get("secondary") or {}
-        if not isinstance(wk, dict):
+        wk = rl.get("secondary_window") or rl.get("weekly") or rl.get("secondary") or {}
+        if not isinstance(wk, dict) or not wk:
+            log(
+                f"WARN openai_codex_quota: weekly window key not found; "
+                f"rate_limit_keys={sorted(rl.keys())[:20]}"
+            )
             return (False, 0.0, None)
 
-        raw = wk.get("percent_left", wk.get("remaining_percent"))
-        try:
-            val = float(raw)
-        except (TypeError, ValueError):
-            return (False, 0.0, None)
-        if not math.isfinite(val):
-            return (False, 0.0, None)
-        val = max(0.0, min(100.0, val))
-        used_percent = 100.0 - val
+        used_raw = wk.get("used_percent")
+        if used_raw is not None:
+            try:
+                used_percent = float(used_raw)
+            except (TypeError, ValueError):
+                log(
+                    f"WARN openai_codex_quota: non-numeric used_percent={used_raw!r}; "
+                    f"window_keys={sorted(wk.keys())[:20]}"
+                )
+                return (False, 0.0, None)
+            if not math.isfinite(used_percent):
+                log(f"WARN openai_codex_quota: non-finite used_percent={used_raw!r}")
+                return (False, 0.0, None)
+            used_percent = max(0.0, min(100.0, used_percent))
+        else:
+            left_raw = wk.get("percent_left", wk.get("remaining_percent"))
+            try:
+                left = float(left_raw)
+            except (TypeError, ValueError):
+                log(
+                    f"WARN openai_codex_quota: no usable percent in window; "
+                    f"window_keys={sorted(wk.keys())[:20]} percent_left={left_raw!r}"
+                )
+                return (False, 0.0, None)
+            if not math.isfinite(left):
+                log(f"WARN openai_codex_quota: non-finite percent_left={left_raw!r}")
+                return (False, 0.0, None)
+            left = max(0.0, min(100.0, left))
+            used_percent = 100.0 - left
 
-        reset_dt: datetime | None = None
-        reset_ms = wk.get("reset_time_ms")
-        if isinstance(reset_ms, (int, float)):
-            try:
-                reset_dt = datetime.fromtimestamp(reset_ms / 1000.0, tz=timezone.utc)
-            except (OverflowError, OSError, ValueError):
-                reset_dt = None
-        elif isinstance(wk.get("reset_at"), str):
-            try:
-                s = wk["reset_at"].replace("Z", "+00:00")
-                reset_dt = datetime.fromisoformat(s)
-                if reset_dt.tzinfo is None:
-                    reset_dt = reset_dt.replace(tzinfo=timezone.utc)
-            except ValueError:
-                reset_dt = None
-        return (True, used_percent, reset_dt)
+        return (True, used_percent, _parse_reset(wk))
     except Exception as e:
         log(f"WARN openai_codex_quota: get_codex_usage exception: {e!r}")
         return (False, 0.0, None)

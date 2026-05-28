@@ -28,3 +28,4 @@ agents/config_gemini.json
 agents/*/KIMI.md
 agents/*/.kimi_hash
 agents/config_kimi.json
+.agy-pids/

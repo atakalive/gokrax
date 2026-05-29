@@ -342,10 +342,11 @@ class TestNegativeCache:
     def test_cleared_on_success(self, tmp_paths):
         self._write_cfg(tmp_paths)
         _write_token(tmp_paths["token"])
-        aq._write_negative_cache("a1")
-        # token mtime unchanged but TTL valid -> need to expire neg cache for HTTP to run;
-        # instead delete it directly to simulate clear path via successful call
-        aq._negative_cache_path("a1").unlink()
+        cd = tmp_paths["cache_dir"]
+        cd.mkdir(parents=True, exist_ok=True)
+        past = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
+        aq._negative_cache_path("a1").write_text(json.dumps({"until": past}))
+        assert aq._negative_cache_active("a1") is False
         with patch("urllib.request.urlopen", side_effect=_quota_responses(gemini_rem=0.5)):
             aq.should_fallback("a1")
         assert not aq._negative_cache_path("a1").exists()

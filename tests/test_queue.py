@@ -1,7 +1,9 @@
 """tests/test_queue.py — queue.py のテスト"""
 
+import argparse
 import json
 import sys
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 import tempfile
@@ -16,7 +18,9 @@ from task_queue import (
     parse_queue_line, pop_next_queue_entry, restore_queue_entry, peek_queue,
     get_active_entries, append_entry, delete_entry, replace_entry, sanitize_comment,
     save_queue_options_to_pipeline, rollback_queue_mode,
+    _find_next_idle_candidate_readonly,
 )
+from commands.dev.queue import _start_queue_wait, cmd_qrun  # noqa: E402
 
 
 class TestParseQueueLine:
@@ -394,6 +398,60 @@ class TestParseQueueLine:
         assert result["issues"] == "1"
         assert result["cc_plan_model"] == "sonnet"
 
+    def test_wait_duration_minutes(self):
+        result = parse_queue_line("wait 60m")
+        assert result["type"] == "wait"
+        assert result["wait_seconds"] == 3600
+        assert result["wait_display"] == "60m"
+        assert result["original_line"] == "wait 60m"
+
+    def test_wait_duration_hours(self):
+        result = parse_queue_line("wait 2h")
+        assert result["type"] == "wait"
+        assert result["wait_seconds"] == 7200
+        assert result["wait_display"] == "2h"
+
+    def test_wait_duration_combined(self):
+        result = parse_queue_line("wait 1h30m")
+        assert result["type"] == "wait"
+        assert result["wait_seconds"] == 5400
+
+    def test_wait_until_time(self):
+        result = parse_queue_line("wait until 22:00")
+        assert result["type"] == "wait_until"
+        assert result["wait_time"] == "22:00"
+        assert result["wait_datetime"] is None
+
+    def test_wait_until_datetime(self):
+        result = parse_queue_line("wait until 2026-06-01 14:00")
+        assert result["type"] == "wait_until"
+        assert result["wait_time"] is None
+        assert result["wait_datetime"] == "2026-06-01 14:00"
+
+    def test_wait_no_args(self):
+        with pytest.raises(ValueError, match="wait requires duration"):
+            parse_queue_line("wait")
+
+    def test_wait_invalid_duration(self):
+        with pytest.raises(ValueError, match="Invalid wait duration"):
+            parse_queue_line("wait 60s")
+
+    def test_wait_zero_duration(self):
+        with pytest.raises(ValueError, match="wait duration must be > 0"):
+            parse_queue_line("wait 0m")
+
+    def test_wait_until_invalid_time(self):
+        with pytest.raises(ValueError, match="Invalid time format"):
+            parse_queue_line("wait until 25:00")
+
+    def test_wait_until_no_time(self):
+        with pytest.raises(ValueError, match="wait until requires"):
+            parse_queue_line("wait until")
+
+    def test_wait_extra_tokens(self):
+        with pytest.raises(ValueError, match="extra tokens"):
+            parse_queue_line("wait 60m extra")
+
 
 class TestPopNextQueueEntry:
     """pop_next_queue_entry() のテスト"""
@@ -494,6 +552,24 @@ class TestPopNextQueueEntry:
         # Pipeline ファイルを作らない → FileNotFoundError
         entry = pop_next_queue_entry(queue_file)
         assert entry is None
+
+    def test_wait_entry_returned_without_idle_check(self, tmp_path):
+        """wait 行は IDLE チェックなしで返される"""
+        queue = tmp_path / "q.txt"
+        queue.write_text("wait 30m\n")
+        result = _find_next_idle_candidate_readonly(queue)
+        assert result is not None
+        _, _, entry = result
+        assert entry["type"] == "wait"
+
+    def test_pop_wait_entry(self, tmp_path):
+        """wait 行が pop されて done 化される"""
+        queue = tmp_path / "q.txt"
+        queue.write_text("wait 60m\n")
+        entry = pop_next_queue_entry(queue)
+        assert entry is not None
+        assert entry["type"] == "wait"
+        assert queue.read_text().startswith("# done:")
 
 
 class TestRestoreQueueEntry:
@@ -968,6 +1044,16 @@ def _make_entry(idx=0, project="Foo", issues="1,2", mode="full", **kwargs):
 
 
 class TestGetQstatusText:
+
+    def test_wait_entry_display(self):
+        entries = [{"type": "wait", "original_line": "wait 60m", "index": 0}]
+        text = get_qstatus_text(entries)
+        assert "[0] wait 60m" in text
+
+    def test_wait_until_entry_display(self):
+        entries = [{"type": "wait_until", "original_line": "wait until 22:00", "index": 0}]
+        text = get_qstatus_text(entries)
+        assert "[0] wait until 22:00" in text
 
     def test_no_running_no_star_line(self):
         """running=None の場合 [*] 行が出ない（後方互換）。"""
@@ -1865,3 +1951,165 @@ class TestCmdTransitionSetEnabled:
         data = _json.loads(path.read_text())
         assert data["state"] == "INITIALIZE"
         assert data["enabled"] is False
+
+
+class TestStartQueueWait:
+    """_start_queue_wait() のテスト"""
+
+    def test_start_queue_wait_past_datetime_raises(self, monkeypatch, tmp_path):
+        """過去日時指定で ValueError。wait ファイルは書かれない"""
+        monkeypatch.setattr("config.QUEUE_WAIT_FILE", tmp_path / "wait.json")
+        monkeypatch.setattr("config.LOCAL_TZ", timezone(timedelta(hours=9)))
+        monkeypatch.setattr("config.DISCORD_CHANNEL", "")
+        entry = {
+            "type": "wait_until",
+            "wait_time": None,
+            "wait_datetime": "2020-01-01 00:00",
+            "original_line": "wait until 2020-01-01 00:00",
+        }
+        with pytest.raises(ValueError, match="past"):
+            _start_queue_wait(entry)
+        assert not (tmp_path / "wait.json").exists()
+
+    def test_start_queue_wait_duration_writes_file(self, monkeypatch, tmp_path):
+        """正常系: wait ファイルが書き出される"""
+        wait_file = tmp_path / "wait.json"
+        monkeypatch.setattr("config.QUEUE_WAIT_FILE", wait_file)
+        monkeypatch.setattr("config.DISCORD_CHANNEL", "")
+        monkeypatch.setattr("config.LOCAL_TZ", timezone(timedelta(hours=9)))
+        entry = {
+            "type": "wait",
+            "wait_seconds": 3600,
+            "wait_display": "60m",
+            "original_line": "wait 60m",
+        }
+        _start_queue_wait(entry)
+        assert wait_file.exists()
+        data = json.loads(wait_file.read_text())
+        assert "deadline_utc" in data
+        assert "started_utc" in data
+
+    def test_start_queue_wait_notification_failure_does_not_rollback(self, monkeypatch, tmp_path):
+        """Discord 通知が失敗しても wait ファイルは残る（commit point は file write）"""
+        wait_file = tmp_path / "wait.json"
+        monkeypatch.setattr("config.QUEUE_WAIT_FILE", wait_file)
+        monkeypatch.setattr("config.LOCAL_TZ", timezone(timedelta(hours=9)))
+        monkeypatch.setattr("config.DISCORD_CHANNEL", "test-channel")
+        def _raise(*a, **kw):
+            raise ConnectionError("network error")
+        monkeypatch.setattr("notify.post_discord", _raise)
+        entry = {
+            "type": "wait",
+            "wait_seconds": 3600,
+            "wait_display": "60m",
+            "original_line": "wait 60m",
+        }
+        _start_queue_wait(entry)  # 例外を投げない
+        assert wait_file.exists()
+
+
+class TestCmdQrunWait:
+    """cmd_qrun の wait 分岐テスト"""
+
+    def test_cmd_qrun_wait_failure_restores_entry_and_cleans_wait_file(self, tmp_path, monkeypatch):
+        """_start_queue_wait が失敗したらエントリが復元され、wait ファイルも残らない"""
+        queue = tmp_path / "q.txt"
+        queue.write_text("wait until 2020-01-01 00:00\n")
+        wait_file = tmp_path / "wait.json"
+        monkeypatch.setattr("config.QUEUE_FILE", queue)
+        monkeypatch.setattr("config.QUEUE_WAIT_FILE", wait_file)
+        monkeypatch.setattr("config.LOCAL_TZ", timezone(timedelta(hours=9)))
+        monkeypatch.setattr("config.DISCORD_CHANNEL", "")
+        args = argparse.Namespace(queue=None, dry_run=False)
+        with pytest.raises(SystemExit):
+            cmd_qrun(args)
+        content = queue.read_text()
+        assert not content.startswith("# done:")
+        assert not wait_file.exists()
+
+    def test_dry_run_shows_wait_entry(self, tmp_path, monkeypatch, capsys):
+        """dry-run で wait エントリが表示される"""
+        queue = tmp_path / "q.txt"
+        queue.write_text("wait 60m\n")
+        monkeypatch.setattr("config.QUEUE_FILE", queue)
+        args = argparse.Namespace(queue=None, dry_run=True)
+        cmd_qrun(args)
+        out = capsys.readouterr().out
+        assert "wait 60m" in out
+
+
+class TestCheckQueueWaitExpiry:
+    """watchdog._check_queue_wait_expiry() / _load_wait_info() のテスト"""
+
+    def test_check_queue_wait_expiry_not_expired(self, monkeypatch, tmp_path):
+        """期限前は何もしない"""
+        import watchdog
+        wait_file = tmp_path / "wait.json"
+        future = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+        wait_file.write_text(json.dumps({"deadline_utc": future}))
+        monkeypatch.setattr("config.QUEUE_WAIT_FILE", wait_file)
+        watchdog._check_queue_wait_expiry()
+        assert wait_file.exists()
+
+    def test_check_queue_wait_expiry_expired(self, monkeypatch, tmp_path):
+        """期限切れでファイル削除 + _check_queue 呼び出し"""
+        import watchdog
+        wait_file = tmp_path / "wait.json"
+        past = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+        wait_file.write_text(json.dumps({"deadline_utc": past}))
+        monkeypatch.setattr("config.QUEUE_WAIT_FILE", wait_file)
+        monkeypatch.setattr("config.DISCORD_CHANNEL", "")
+        called = []
+        monkeypatch.setattr("watchdog._check_queue", lambda: called.append(True))
+        watchdog._check_queue_wait_expiry()
+        assert not wait_file.exists()
+        assert called
+
+    def test_check_queue_wait_expiry_corrupt_file_resumes_queue(self, monkeypatch, tmp_path):
+        """corrupt wait file でもファイル削除 + _check_queue 呼び出し"""
+        import watchdog
+        wait_file = tmp_path / "wait.json"
+        wait_file.write_text("not valid json{{{")
+        monkeypatch.setattr("config.QUEUE_WAIT_FILE", wait_file)
+        called = []
+        monkeypatch.setattr("watchdog._check_queue", lambda: called.append(True))
+        watchdog._check_queue_wait_expiry()
+        assert not wait_file.exists()
+        assert called
+
+    def test_check_queue_wait_expiry_naive_datetime_resumes_queue(self, monkeypatch, tmp_path):
+        """timezone なし ISO 文字列は corrupt 扱いでファイル削除 + _check_queue 呼び出し"""
+        import watchdog
+        wait_file = tmp_path / "wait.json"
+        wait_file.write_text(json.dumps({"deadline_utc": "2026-05-30T14:00:00"}))
+        monkeypatch.setattr("config.QUEUE_WAIT_FILE", wait_file)
+        called = []
+        monkeypatch.setattr("watchdog._check_queue", lambda: called.append(True))
+        watchdog._check_queue_wait_expiry()
+        assert not wait_file.exists()
+        assert called
+
+    def test_load_wait_info_naive_datetime_returns_none(self, monkeypatch, tmp_path):
+        """_load_wait_info は timezone なし ISO 文字列で None を返す"""
+        import watchdog
+        wait_file = tmp_path / "wait.json"
+        wait_file.write_text(json.dumps({"deadline_utc": "2026-05-30T14:00:00"}))
+        monkeypatch.setattr("config.QUEUE_WAIT_FILE", wait_file)
+        assert watchdog._load_wait_info() is None
+
+    def test_check_queue_wait_expiry_notification_failure_still_calls_check_queue(self, monkeypatch, tmp_path):
+        """Discord 通知が失敗しても wait ファイルは削除され _check_queue は呼ばれる"""
+        import watchdog
+        wait_file = tmp_path / "wait.json"
+        past = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+        wait_file.write_text(json.dumps({"deadline_utc": past}))
+        monkeypatch.setattr("config.QUEUE_WAIT_FILE", wait_file)
+        monkeypatch.setattr("config.DISCORD_CHANNEL", "test-channel")
+        def _raise(*a, **kw):
+            raise ConnectionError("network error")
+        monkeypatch.setattr("notify.post_discord", _raise)
+        called = []
+        monkeypatch.setattr("watchdog._check_queue", lambda: called.append(True))
+        watchdog._check_queue_wait_expiry()
+        assert not wait_file.exists()
+        assert called

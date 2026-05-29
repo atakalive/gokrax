@@ -89,6 +89,22 @@ _ERROR_COUNTS_PATH = Path("/tmp/gokrax-error-counts.json")
 _ERROR_NOTIFY_THRESHOLD = 3
 
 
+def _load_wait_info() -> dict | None:
+    from config import QUEUE_WAIT_FILE
+    if not QUEUE_WAIT_FILE.exists():
+        return None
+    try:
+        import json
+        from datetime import datetime
+        data = json.loads(QUEUE_WAIT_FILE.read_text())
+        parsed = datetime.fromisoformat(data["deadline_utc"])
+        if parsed.tzinfo is None:
+            return None
+        return data
+    except (json.JSONDecodeError, OSError, KeyError, TypeError, ValueError):
+        return None
+
+
 def _check_queue():
     """キューから次のタスクを起動 (DONE→IDLE後、または SPEC_DONE→IDLE後に呼ばれる)。
 
@@ -106,6 +122,10 @@ def _check_queue():
     queue_path = QUEUE_FILE
     if not queue_path.exists():
         return
+
+    from config import QUEUE_WAIT_FILE
+    if QUEUE_WAIT_FILE.exists():
+        return  # wait 中は次エントリを起動しない
 
     while True:
         try:
@@ -129,6 +149,35 @@ def _check_queue():
         except Exception as e:
             log(f"[queue] qrun error: {e}")
             return
+
+
+def _check_queue_wait_expiry():
+    """wait ファイルの期限を確認し、期限到達なら次のキュー処理を起動する。"""
+    from config import QUEUE_WAIT_FILE, DISCORD_CHANNEL
+    from datetime import timezone
+    if not QUEUE_WAIT_FILE.exists():
+        return
+    try:
+        data = json.loads(QUEUE_WAIT_FILE.read_text())
+        deadline = _datetime.fromisoformat(data["deadline_utc"])
+        if deadline.tzinfo is None:
+            raise ValueError("naive datetime in wait file")
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+        QUEUE_WAIT_FILE.unlink(missing_ok=True)
+        log("[queue-wait] corrupt wait file removed, resuming queue")
+        _check_queue()
+        return
+    if _datetime.now(timezone.utc) < deadline:
+        return  # まだ待機中
+    QUEUE_WAIT_FILE.unlink(missing_ok=True)
+    log("[queue-wait] wait expired, resuming queue")
+    try:
+        from notify import post_discord
+        if DISCORD_CHANNEL:
+            post_discord(DISCORD_CHANNEL, "✅ Queue wait complete, resuming")
+    except Exception:
+        pass  # best-effort: 通知失敗でも _check_queue は必ず呼ぶ
+    _check_queue()
 
 
 def process(path: Path):
@@ -1373,6 +1422,18 @@ def _handle_qrun(msg_id: str):
             log(f"[qrun] Queue empty (msg_id={msg_id})")
             return
 
+        if entry.get("type") in ("wait", "wait_until"):
+            try:
+                from commands.dev.queue import _start_queue_wait
+                _start_queue_wait(entry)
+            except Exception as e:
+                from config import QUEUE_WAIT_FILE
+                QUEUE_WAIT_FILE.unlink(missing_ok=True)
+                restore_queue_entry(QUEUE_FILE, entry["original_line"])
+                post_discord(DISCORD_CHANNEL, f"qrun: wait failed, entry restored: {e}")
+                log(f"[qrun] wait failed: {e} (msg_id={msg_id})")
+            return
+
         project = entry["project"]
         issues = entry["issues"]
         mode = entry.get("mode")
@@ -1470,10 +1531,11 @@ def _handle_qstatus(msg_id: str):
 
     entries = get_active_entries(QUEUE_FILE)
     running = _get_running_info()
-    if not entries and not running:
+    wait_info = _load_wait_info()
+    if not entries and not running and not wait_info:
         post_discord(DISCORD_CHANNEL, "Queue empty")
     else:
-        text = get_qstatus_text(entries, running=running)
+        text = get_qstatus_text(entries, running=running, wait_info=wait_info)
         post_discord(DISCORD_CHANNEL, f"```\n{text}\n```")
     log(f"Processed Discord qstatus command (msg_id={msg_id})")
 
@@ -1526,7 +1588,8 @@ def _handle_qadd(msg_id: str, content: str):
 
     entries = get_active_entries(QUEUE_FILE)
     running = _get_running_info()
-    text = get_qstatus_text(entries, running=running)
+    wait_info = _load_wait_info()
+    text = get_qstatus_text(entries, running=running, wait_info=wait_info)
     added_text = "\n".join(f"  {a}" for a in added)
     post_discord(DISCORD_CHANNEL, f"Added {len(added)} entries:\n{added_text}\n```\n{text}\n```")
     log(f"Processed Discord qadd command ({len(added)} entries, msg_id={msg_id})")
@@ -1567,8 +1630,9 @@ def _handle_qdel(msg_id: str, content: str):
     orig = result.get("original_line", "?")
     entries = get_active_entries(QUEUE_FILE)
     running = _get_running_info()
-    if entries or running:
-        text = get_qstatus_text(entries, running=running)
+    wait_info = _load_wait_info()
+    if entries or running or wait_info:
+        text = get_qstatus_text(entries, running=running, wait_info=wait_info)
         post_discord(DISCORD_CHANNEL, f"Deleted: {orig}\n```\n{text}\n```")
     else:
         post_discord(DISCORD_CHANNEL, f"Deleted: {orig}\nQueue empty")
@@ -1615,7 +1679,8 @@ def _handle_qedit(msg_id: str, content: str):
 
     entries = get_active_entries(QUEUE_FILE)
     running = _get_running_info()
-    text = get_qstatus_text(entries, running=running)
+    wait_info = _load_wait_info()
+    text = get_qstatus_text(entries, running=running, wait_info=wait_info)
     post_discord(DISCORD_CHANNEL, f"Replaced [{target}]: {new_line}\n```\n{text}\n```")
     log(f"Processed Discord qedit command (msg_id={msg_id})")
 
@@ -1790,6 +1855,11 @@ def main():
         check_discord_commands()
     except Exception as e:
         log(f"[discord-commands] ERROR: {e}")
+
+    try:
+        _check_queue_wait_expiry()
+    except Exception as e:
+        log(f"[queue-wait] ERROR: {e}")
 
     # Early exit if no pipelines
     if not PIPELINES_DIR.exists():

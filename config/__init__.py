@@ -26,6 +26,7 @@ GITLAB_NAMESPACE: str = "YOUR_NAMESPACE"  # i.e., gitlab.com/YOUR_NAMESPACE/Proj
 ALLOWED_GITLAB_AUTHORS: tuple[str, ...] = ()
 OPENCLAW_GATEWAY_PORT: int = int(os.environ.get("OPENCLAW_GATEWAY_PORT", "18789"))
 QUEUE_FILE = PROJECT_ROOT / "gokrax-queue.txt"
+QUEUE_WAIT_FILE = Path("/tmp/gokrax-queue-wait.json")
 EXIT_QUEUE_SKIP = 75
 
 # Discord (must be set in settings.py)

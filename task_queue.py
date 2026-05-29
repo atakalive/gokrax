@@ -9,6 +9,7 @@ import os
 import re
 import tempfile
 import sys
+from datetime import datetime as _dt_cls
 from pathlib import Path
 from typing import Optional
 
@@ -40,6 +41,89 @@ def sanitize_comment(raw: str) -> str | None:
     # Markdown コードブロック崩れ抑止: ``` を `\u200b`` に置換
     s = s.replace("```", "`\u200b``")
     return s if s else None
+
+
+def _parse_wait_line(tokens: list[str], line: str) -> dict:
+    """`wait ...` 行を専用パースする。
+
+    形式:
+        wait DURATION          — 経過時間待機 (例: wait 60m, wait 2h, wait 1h30m)
+        wait until HH:MM       — 次の HH:MM まで待機
+        wait until YYYY-MM-DD HH:MM — 絶対日時まで待機
+
+    Args:
+        tokens: stripped.split() の結果リスト
+        line: 元の行文字列
+
+    Returns:
+        type="wait" または type="wait_until" の dict
+
+    Raises:
+        ValueError: 形式不正
+    """
+    if len(tokens) < 2:
+        raise ValueError(
+            "wait requires duration or 'until' (e.g. wait 60m, wait until 22:00)"
+        )
+
+    if tokens[1] == "until":
+        if len(tokens) < 3:
+            raise ValueError("wait until requires time (e.g. wait until 22:00)")
+        if len(tokens) == 3:
+            # 時刻のみ (HH:MM)
+            time_token = tokens[2]
+            if not re.match(r"^([01]\d|2[0-3]):([0-5]\d)$", time_token):
+                raise ValueError(f"Invalid time format: {time_token!r} (expected HH:MM)")
+            return {
+                "type": "wait_until",
+                "wait_time": time_token,
+                "wait_datetime": None,
+                "original_line": line.rstrip("\n"),
+            }
+        if len(tokens) == 4:
+            # 日付+時刻 (YYYY-MM-DD HH:MM)
+            date_token = tokens[2]
+            time_token = tokens[3]
+            try:
+                _dt_cls.strptime(date_token, "%Y-%m-%d")
+            except ValueError:
+                raise ValueError(f"Invalid date format: {date_token!r} (expected YYYY-MM-DD)")
+            if not re.match(r"^([01]\d|2[0-3]):([0-5]\d)$", time_token):
+                raise ValueError(f"Invalid time format: {time_token!r} (expected HH:MM)")
+            return {
+                "type": "wait_until",
+                "wait_time": None,
+                "wait_datetime": f"{date_token} {time_token}",
+                "original_line": line.rstrip("\n"),
+            }
+        raise ValueError("wait until has extra tokens")
+
+    # 経過時間待機
+    duration_token = tokens[1]
+    m = re.match(r"^(?:(\d+)h)?(?:(\d+)m)?$", duration_token)
+    if not m or (m.group(1) is None and m.group(2) is None):
+        # until でも duration でもない第2トークンの判定
+        if not m:
+            raise ValueError(
+                f"Invalid wait duration: {duration_token!r} (expected e.g. 60m, 2h, 1h30m)"
+            )
+        raise ValueError(
+            f"Unknown wait format: {duration_token!r} (expected duration like 60m or 'until')"
+        )
+    hours = int(m.group(1)) if m.group(1) else 0
+    minutes = int(m.group(2)) if m.group(2) else 0
+    wait_seconds = hours * 3600 + minutes * 60
+    if wait_seconds <= 0:
+        raise ValueError("wait duration must be > 0")
+    if len(tokens) > 2:
+        rest = tokens[2:]
+        raise ValueError(f"wait duration has extra tokens: {rest!r}")
+    return {
+        "type": "wait",
+        "wait_seconds": wait_seconds,
+        "wait_display": duration_token,
+        "original_line": line.rstrip("\n"),
+    }
 
 
 def parse_queue_line(line: str, *, validate_batch_size: bool = True) -> dict:
@@ -76,6 +160,8 @@ def parse_queue_line(line: str, *, validate_batch_size: bool = True) -> dict:
 
     # トークン分割
     tokens = stripped.split()
+    if tokens[0] == "wait":
+        return _parse_wait_line(tokens, line)
     if len(tokens) < 2:
         raise ValueError(f"Invalid queue line (need PROJECT ISSUES): {line!r}")
 
@@ -308,6 +394,8 @@ def _find_next_idle_candidate_readonly(queue_path: Path) -> tuple[int, str, dict
                     entry = parse_queue_line(line, validate_batch_size=False)
                 except ValueError:
                     continue
+                if entry.get("type") in ("wait", "wait_until"):
+                    return (i, line, entry)
                 project = entry["project"]
                 try:
                     pipeline_path = get_path(project)
@@ -374,6 +462,12 @@ def pop_next_queue_entry(queue_path: Path) -> Optional[dict]:
         if found is None:
             break
         _line_idx, original_line, entry = found
+
+        if entry.get("type") in ("wait", "wait_until"):
+            if _mark_line_done_if_matches(queue_path, original_line):
+                result = entry
+                break
+            continue
 
         if entry.get("allow_closed", False) or entry.get("issues") == "all":
             if _mark_line_done_if_matches(queue_path, original_line):

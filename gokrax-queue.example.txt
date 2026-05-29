@@ -13,3 +13,10 @@
 # gokrax 12 full impl=opus p2-fix  # for difficult issue
 # gokrax 13 standard keep-ctx-all  # issue #13 uses the context of previous batch #12
 # gokrax 34,35,36 lite  # for easy issue
+#
+# Wait entries:
+# wait 60m           # wait 60 minutes before next task
+# wait 2h            # wait 2 hours
+# wait 1h30m         # wait 1 hour 30 minutes
+# wait until 22:00   # wait until next 22:00 (LOCAL_TZ)
+# wait until 2026-06-01 09:00  # wait until specific date+time

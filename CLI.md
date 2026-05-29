@@ -436,6 +436,8 @@ gokrax qstatus
 ```bash
 gokrax qadd myproject 33,34 lite no-automerge comment=note
 gokrax qadd myproject 33,34 lite allow-closed
+gokrax qadd wait 30m
+gokrax qadd wait until 22:00
 gokrax qadd --file entries.txt
 echo "myproject 33 full" | gokrax qadd --stdin
 

@@ -1,5 +1,6 @@
 import argparse
 import sys
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 from pipeline_io import (
@@ -8,6 +9,69 @@ from pipeline_io import (
 )
 
 from commands.dev.helpers import _reset_to_idle, _log
+
+
+def _load_wait_info() -> dict | None:
+    from config import QUEUE_WAIT_FILE
+    if not QUEUE_WAIT_FILE.exists():
+        return None
+    try:
+        import json
+        from datetime import datetime
+        data = json.loads(QUEUE_WAIT_FILE.read_text())
+        parsed = datetime.fromisoformat(data["deadline_utc"])
+        if parsed.tzinfo is None:
+            return None
+        return data
+    except (json.JSONDecodeError, OSError, KeyError, TypeError, ValueError):
+        return None
+
+
+def _start_queue_wait(entry: dict) -> None:
+    """wait エントリの待機を開始する。
+
+    commit point は wait ファイル書き込み成功。deadline 計算・ファイル書き込みの
+    失敗は例外として呼び出し元に伝播する。Discord 通知・標準出力は best-effort。
+    """
+    import config
+
+    if entry["type"] == "wait":
+        deadline = datetime.now(timezone.utc) + timedelta(seconds=entry["wait_seconds"])
+    elif entry.get("wait_time"):
+        now_local = datetime.now(config.LOCAL_TZ)
+        hour, minute = map(int, entry["wait_time"].split(":"))
+        target = now_local.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if target <= now_local:
+            target += timedelta(days=1)
+        deadline = target.astimezone(timezone.utc)
+    else:
+        dt = datetime.strptime(entry["wait_datetime"], "%Y-%m-%d %H:%M")
+        target = dt.replace(tzinfo=config.LOCAL_TZ)
+        if target <= datetime.now(config.LOCAL_TZ):
+            raise ValueError(f"wait until: target is in the past: {entry['wait_datetime']}")
+        deadline = target.astimezone(timezone.utc)
+
+    # commit point: wait ファイル書き込み
+    import json
+    from config import QUEUE_WAIT_FILE
+    QUEUE_WAIT_FILE.write_text(json.dumps({
+        "deadline_utc": deadline.isoformat(),
+        "started_utc": datetime.now(timezone.utc).isoformat(),
+        "original_line": entry["original_line"],
+    }))
+
+    # Discord 通知 (best-effort)
+    try:
+        from config import DISCORD_CHANNEL
+        from notify import post_discord
+        if DISCORD_CHANNEL:
+            local_deadline = deadline.astimezone(config.LOCAL_TZ)
+            post_discord(DISCORD_CHANNEL, f"⏳ Queue waiting until {local_deadline.strftime('%Y-%m-%d %H:%M')} ({entry['original_line']})")
+    except Exception:
+        pass
+
+    local_deadline = deadline.astimezone(config.LOCAL_TZ)
+    print(f"[qrun] Queue wait started: {entry['original_line']} (until {local_deadline.strftime('%Y-%m-%d %H:%M')})")
 
 
 def cmd_qrun(args):
@@ -25,6 +89,10 @@ def cmd_qrun(args):
             print("Queue empty")
             return
         for e in entries:
+            if e.get("type") in ("wait", "wait_until"):
+                done = " [DONE]" if e.get("done") else ""
+                print(f"{e['original_line']}{done}")
+                continue
             done = " [DONE]" if e.get("done") else ""
             mode = f" mode={e['mode']}" if e.get("mode") else ""
             opts = []
@@ -68,6 +136,17 @@ def cmd_qrun(args):
     entry = pop_next_queue_entry(queue_path)
     if not entry:
         print("Queue empty or no executable entries")
+        return
+
+    if entry.get("type") in ("wait", "wait_until"):
+        try:
+            _start_queue_wait(entry)
+        except Exception as e:
+            from config import QUEUE_WAIT_FILE
+            QUEUE_WAIT_FILE.unlink(missing_ok=True)
+            restore_queue_entry(queue_path, entry["original_line"])
+            print(f"[qrun] wait failed, entry restored: {e}", file=sys.stderr)
+            raise SystemExit(1)
         return
 
     # cmd_start 引数を構築
@@ -205,9 +284,25 @@ def _get_running_info() -> "dict | None":
     return candidates[0] if candidates else None
 
 
-def get_qstatus_text(entries: list[dict], running: "dict | None" = None) -> str:
+def get_qstatus_text(entries: list[dict], running: "dict | None" = None, wait_info: "dict | None" = None) -> str:
     """active エントリのフォーマット済み文字列を返す。"""
     lines = []
+    if wait_info:
+        from datetime import datetime, timezone
+        import config
+        deadline = datetime.fromisoformat(wait_info["deadline_utc"])
+        local_deadline = deadline.astimezone(config.LOCAL_TZ)
+        remaining = deadline - datetime.now(timezone.utc)
+        if remaining.total_seconds() > 0:
+            hours, rem = divmod(int(remaining.total_seconds()), 3600)
+            minutes = rem // 60
+            if hours > 0:
+                remaining_str = f"{hours}h{minutes:02d}m"
+            else:
+                remaining_str = f"{minutes}m"
+        else:
+            remaining_str = "expired"
+        lines.append(f"[*] wait until {local_deadline.strftime('%H:%M')} ({remaining_str} remaining)")
     if running:
         parts = [running["project"]]
         if running.get("issues"):
@@ -249,6 +344,9 @@ def get_qstatus_text(entries: list[dict], running: "dict | None" = None) -> str:
         lines.append(f"[*] {' '.join(parts)}")
     for e in entries:
         idx = e.get("index", 0)
+        if e.get("type") in ("wait", "wait_until"):
+            lines.append(f"[{idx}] {e['original_line']}")
+            continue
         parts = [e["project"], e["issues"]]
         if e.get("mode"):
             parts.append(e["mode"])
@@ -294,10 +392,11 @@ def cmd_qstatus(args):
     queue_path = Path(args.queue) if args.queue else QUEUE_FILE
     entries = get_active_entries(queue_path)
     running = _get_running_info()
-    if not entries and not running:
+    wait_info = _load_wait_info()
+    if not entries and not running and not wait_info:
         print("Queue empty")
         return
-    print(get_qstatus_text(entries, running=running))
+    print(get_qstatus_text(entries, running=running, wait_info=wait_info))
 
 
 def cmd_qadd(args):
@@ -347,9 +446,10 @@ def cmd_qadd(args):
     # 追加後の状態表示
     entries = get_active_entries(queue_path)
     running = _get_running_info()
+    wait_info = _load_wait_info()
     for a in added:
         print(f"Added: {a}")
-    print(get_qstatus_text(entries, running=running))
+    print(get_qstatus_text(entries, running=running, wait_info=wait_info))
 
 
 def cmd_qdel(args):
@@ -378,10 +478,11 @@ def cmd_qdel(args):
     # 削除後の状態表示
     entries = get_active_entries(queue_path)
     running = _get_running_info()
+    wait_info = _load_wait_info()
     orig = result.get("original_line", "?")
     print(f"Deleted: {orig}")
-    if entries or running:
-        print(get_qstatus_text(entries, running=running))
+    if entries or running or wait_info:
+        print(get_qstatus_text(entries, running=running, wait_info=wait_info))
     else:
         print("Queue empty")
 
@@ -419,7 +520,8 @@ def cmd_qedit(args):
     print(f"Replaced [{display_target}]: {new_line}")
     entries = get_active_entries(queue_path)
     running = _get_running_info()
-    if entries or running:
-        print(get_qstatus_text(entries, running=running))
+    wait_info = _load_wait_info()
+    if entries or running or wait_info:
+        print(get_qstatus_text(entries, running=running, wait_info=wait_info))
     else:
         print("Queue empty")

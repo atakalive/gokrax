@@ -65,7 +65,7 @@ Issue → 設計計画 → 設計レビュー → 実装 → コードレビュ�
 - **OS**: Linux（WSL2 含む）、macOS
 - **操作**: Discord 経由で OS を問わず可能
 - **Python**: 3.11 以上。外部依存: `requests`, `PyYAML`
-- **エージェント基盤**: [openclaw](https://github.com/openclaw/openclaw)、[pi-coding-agent](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent)、[Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code)、[Gemini CLI](https://github.com/google-gemini/gemini-cli)、または [Kimi CLI](https://github.com/MoonshotAI/kimi-cli)。設計・修正・レビューを実行する LLM エージェントの認証・プロンプト送出のために使用
+- **エージェント基盤**: [openclaw](https://github.com/openclaw/openclaw)、[pi-coding-agent](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent)、[Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code)、[Gemini CLI](https://github.com/google-gemini/gemini-cli)、[Kimi CLI](https://github.com/MoonshotAI/kimi-cli)、または [Antigravity CLI](https://antigravity.google) (agy)。設計・修正・レビューを実行する LLM エージェントの認証・プロンプト送出のために使用
 - **GitLab**: Issue トラッカーおよびコードホスティング。管理下プロジェクトへの git push 権限が必要（SSH 鍵 または HTTPS トークン）
 - **[glab CLI](https://gitlab.com/gitlab-org/cli)**: GitLab 操作（Issue 取得/編集、コメント取得/投稿、Issue close）に使用
 - **[Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code)**: 実装作業エージェントとして内部で呼び出し（推奨）
@@ -73,7 +73,7 @@ Issue → 設計計画 → 設計レビュー → 実装 → コードレビュ�
 
 ### LLM プロバイダ
 
-gokrax は特定の LLM プロバイダに依存せず、openclaw、pi、cc、gemini、kimi が認証可能なプロバイダは使用可能：
+gokrax は特定の LLM プロバイダに依存せず、openclaw、pi、cc、gemini、kimi、agy が認証可能なプロバイダは使用可能：
 
 - Anthropic（Claude）
 - Google（Gemini）
@@ -129,8 +129,9 @@ gokrax は、エージェントのプロバイダ認証・プロンプト送出�
 - Claude Code CLI (cc バックエンド)
 - Gemini CLI (gemini バックエンド)
 - Kimi CLI (kimi バックエンド)
+- Antigravity CLI (agy バックエンド) — Google Antigravity の oneshot CLI (subscriber 版 gemini-cli の後継)
 
-ユーザーの環境で既に openclaw が動作しているなら、そのまま openclaw を使用するのが簡単である。そうでなければ pi のほうがセットアップが簡単である。Claude Code CLI は実装だけでなく全エージェントロールのバックエンドとしても使用可能。Gemini CLI は oneshot backend（1 プロンプト = 1 プロセス）で、Gemini クォータを使いたい場合に便利。
+ユーザーの環境で既に openclaw が動作しているなら、そのまま openclaw を使用するのが簡単である。そうでなければ pi のほうがセットアップが簡単である。Claude Code CLI は実装だけでなく全エージェントロールのバックエンドとしても使用可能。Gemini CLI は oneshot backend（1 プロンプト = 1 プロセス）で、Gemini クォータを使いたい場合に便利。Antigravity CLI (agy) も oneshot backend で、`AGENTS.md`（場合により `GEMINI.md` も）を読み、モデルは `~/.gemini/antigravity-cli/settings.json` で指定する（`-p` モードで `/usage` スラッシュコマンドは使えない）。
 
 なお、gokrax に参加するエージェントは最低でも 2体は必要となる（実装者、レビュアー）。
 
@@ -177,9 +178,10 @@ agents/
 │   ├── IDENTITY.md       # 名前など
 │   ├── INSTRUCTION.md    # 役割・ルール・レビュー指針
 │   ├── MEMORY.md         # 教訓・既知の問題
-│   ├── AGENTS.md         # IDENTITY + INSTRUCTION + MEMORY で自動生成
+│   ├── AGENTS.md         # IDENTITY + INSTRUCTION + MEMORY で自動生成（pi / agy 用）
 │   ├── CLAUDE.md         # cc backend 用（自動生成）
 │   ├── GEMINI.md         # gemini backend 用（自動生成）
+│   ├── KIMI.md           # kimi backend 用（自動生成）
 │   └── .agents_hash      # ファイル内容更新の検出用（自動生成）
 ├── reviewer2/
 │   └── ...
@@ -187,11 +189,11 @@ agents/
     └── ...
 ```
 
-`IDENTITY.md`, `INSTRUCTION.md`, `MEMORY.md` から各 backend 用の起動ファイルが自動生成される（backend ごとに生成先ファイルが異なる: pi → `AGENTS.md`, cc → `CLAUDE.md`, gemini → `GEMINI.md`）。いずれも内容更新時かつ当該 backend の `compile-startup-md: true` のときのみ生成されるため、これらの生成ファイルを直接編集する必要はない。
+`IDENTITY.md`, `INSTRUCTION.md`, `MEMORY.md` から各 backend 用の起動ファイルが自動生成される（backend ごとに生成先ファイルが異なる: pi → `AGENTS.md`、cc → `CLAUDE.md`、gemini → `GEMINI.md`、kimi → `KIMI.md`、agy → `AGENTS.md`）。いずれも内容更新時かつ当該 backend の `compile-startup-md: true` のときのみ生成されるため、これらの生成ファイルを直接編集する必要はない。agy は同階層の `GEMINI.md` も読むため、`gemini→agy` 移行時に古い `GEMINI.md` が残っている場合は `.bak` として退避し、エージェントの cwd からは取り除いてから起動する。
 
 #### エージェントごとのモデル設定
 
-各 backend の設定ファイルでエージェントごとにプロバイダ・モデル・thinking レベル・使用ツールを設定する: `agents/config_pi.json` (pi)、`agents/config_cc.json` (cc)、`agents/config_gemini.json` (gemini)。openclaw backend は gokrax 側の per-agent 設定ファイルを持たず、エージェント設定は openclaw Gateway 側で管理される。各エージェントは、自身に解決された backend の設定ファイル内で `agent_id` をキーにエントリを参照する。レビュアーも gokrax に完了報告を行うため、`bash` が必要（`INSTRUCTION.md` で書き込み禁止の指示はしてある）。実装者の使用ツール指定は不要（=> 全て許可）。
+各 backend の設定ファイルでエージェントごとにプロバイダ・モデル・thinking レベル・使用ツールを設定する: `agents/config_pi.json` (pi)、`agents/config_cc.json` (cc)、`agents/config_gemini.json` (gemini)、`agents/config_kimi.json` (kimi)、`agents/config_agy.json` (agy)。openclaw backend は gokrax 側の per-agent 設定ファイルを持たず、エージェント設定は openclaw Gateway 側で管理される。各エージェントは、自身に解決された backend の設定ファイル内で `agent_id` をキーにエントリを参照する。レビュアーも gokrax に完了報告を行うため、`bash` が必要（`INSTRUCTION.md` で書き込み禁止の指示はしてある）。実装者の使用ツール指定は不要（=> 全て許可）。
 
 `pi --list-models` で現在有効なプロバイダ・モデルの一覧を出せる。
 
@@ -276,6 +278,31 @@ fallback 発火時、対象エージェントの PI session JSONL がリセッ�
 キャッシュ: `~/.gokrax/quota-cache-codex/<agent_id>.json`。キャッシュ有効中は quota 確認の HTTP を打たない。
 
 テンプレートは `agents/config_pi.example.json`。実装の詳細は [#336](https://gitlab.com/atakalive/gokrax/-/issues/336) を参照。
+
+#### agy quota fallback (`agents/config_agy.json`)
+
+`agy` バックエンドは gemini と同様の proactive REST quota fallback をサポートする。agy エージェントの使用率が閾値に達した場合、その send に限って fallback backend に振り直す。
+
+```json
+{
+  "impl1": {
+    "model": "gemini-3.1-pro-preview",
+    "compile-startup-md": false,
+    "fallback": true,
+    "fallback_backend": "pi",
+    "usage_threshold": 95
+  }
+}
+```
+
+キー:
+- `fallback`: quota ベース fallback を有効にする場合 `true`
+- `fallback_backend`: `{"pi", "cc", "kimi", "openclaw"}` のいずれか
+- `usage_threshold`: この使用率（%）に達したら切り替える（0-100、既定 95）
+
+quota は Code Assist REST エンドポイント `cloudcode-pa.googleapis.com:fetchAvailableModels` を agy 自身の OAuth token で叩いて取得する。OAuth token ファイルは読み取り専用（in-memory refresh のみ — gokrax からは書き戻さない）。負キャッシュで API 失敗を throttle し、OAuth token ファイルの mtime 変化で無効化する。watchdog 起動時に `engine/agy_quota.py:validate_fallback_config()` が config を検証して警告ログを出す。
+
+キャッシュディレクトリ: `AGY_QUOTA_CACHE_DIR`（`config/paths.py` 参照）。実装の詳細は [#356](https://gitlab.com/atakalive/gokrax/-/issues/356) を参照。
 
 ### glab CLI のインストール
 
@@ -553,7 +580,7 @@ gokrax init --pj myproject --gitlab user/myproject --repo-path /path/to/repo --i
 
 ### エージェント定義
 
-エージェント ID を登録する。以降は、ここで設定されたエージェント名を使用する。各 backend の per-agent 設定ファイル (`agents/config_{pi,cc,gemini}.json`) でキーとして参照される。openclaw backend は gokrax 側の per-agent config を持たず、ここで登録した ID で識別されるが、モデル・認証は openclaw Gateway 側で管理される。
+エージェント ID を登録する。以降は、ここで設定されたエージェント名を使用する。各 backend の per-agent 設定ファイル (`agents/config_{pi,cc,gemini,kimi,agy}.json`) でキーとして参照される。openclaw backend は gokrax 側の per-agent config を持たず、ここで登録した ID で識別されるが、モデル・認証は openclaw Gateway 側で管理される。
 
 ```python
 # レビュアー名
@@ -581,9 +608,15 @@ DEFAULT_AGENT_BACKEND = "cc"
 # Gemini CLI バックエンドで動かす場合
 DEFAULT_AGENT_BACKEND = "gemini"
 
-# エージェントごとに混在させる場合
+# Kimi CLI バックエンドで動かす場合
+DEFAULT_AGENT_BACKEND = "kimi"
+
+# Antigravity CLI バックエンドで動かす場合
+DEFAULT_AGENT_BACKEND = "agy"
+
+# エージェントごとに混在させる場合（openclaw / pi / cc / gemini / kimi / agy から選択）
 DEFAULT_AGENT_BACKEND = "pi"
-AGENT_BACKEND_OVERRIDE = {"impl1": "openclaw", "reviewer2": "gemini"}
+AGENT_BACKEND_OVERRIDE = {"impl1": "openclaw", "reviewer2": "gemini", "reviewer3": "kimi", "reviewer4": "agy"}
 ```
 
 ### レビュアーティア

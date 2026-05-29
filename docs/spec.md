@@ -1,6 +1,6 @@
 # gokrax -- Development Pipeline Specification
 
-> Official specification based on current code (as of 2026-04-27). All agents must follow this document.
+> Official specification based on current code (as of 2026-05-29). All agents must follow this document.
 > Constant values shown are config defaults. They can be overridden via settings.py (see Chapter 14).
 
 ## 1. Overview
@@ -18,21 +18,27 @@ config/               -- Packaged module
   states.py            -- State transition tables & pipeline constants
   paths.py             -- File path & directory constants
 engine/
-  fsm.py               -- Normal mode state transition logic (pure functions)
-  fsm_spec.py          -- Spec mode state transition logic
-  cc.py                -- Claude Code auto-launch & test execution
-  reviewer.py          -- Reviewer management (tier, pending, revise decisions)
-  shared.py            -- Shared utilities (log, is_cc_running, is_ok_reply)
-  backend.py           -- Backend dispatch (openclaw/pi/cc/gemini/kimi routing)
-  backend_openclaw.py  -- openclaw backend (via Gateway CLI)
-  backend_pi.py        -- pi backend (via pi CLI)
-  backend_cc.py        -- cc backend (via claude CLI)
-  backend_gemini.py    -- gemini backend (via gemini CLI, oneshot)
-  backend_kimi.py    -- kimi backend (via kimi CLI)
-  backend_types.py     -- Backend return types (SendResult: OK/BUSY/FAIL)
-  gemini_quota.py      -- Gemini Pro quota detection & fallback cache
-  cleanup.py           -- Batch state cleanup shared functions
-  filter.py            -- Project/author filtering (allowed authors, issue/comment validation)
+  fsm.py                  -- Normal mode state transition logic (pure functions)
+  fsm_spec.py             -- Spec mode state transition logic
+  cc.py                   -- Claude Code auto-launch & test execution
+  reviewer.py             -- Reviewer management (tier, pending, revise decisions)
+  agent_meta.py           -- Reviewer metadata snapshot (provider/model/think_level)
+  shared.py               -- Shared utilities (log, is_cc_running, is_ok_reply)
+  backend.py              -- Backend dispatch (openclaw/pi/cc/gemini/kimi/agy routing)
+  backend_openclaw.py     -- openclaw backend (via Gateway CLI)
+  backend_pi.py           -- pi backend (via pi CLI)
+  backend_cc.py           -- cc backend (via claude CLI)
+  backend_gemini.py       -- gemini backend (via gemini CLI, oneshot)
+  backend_kimi.py         -- kimi backend (via kimi CLI)
+  backend_agy.py          -- agy backend (via antigravity-cli, oneshot)
+  backend_types.py        -- Backend return types (SendResult: OK/BUSY/FAIL)
+  gemini_quota.py         -- Gemini Pro quota detection & fallback cache
+  openai_codex_quota.py   -- OpenAI Codex (ChatGPT) quota detection & fallback (pi backend)
+  agy_quota.py            -- agy quota detection & fallback (proactive REST)
+  fallback_cache.py       -- Quota fallback cache primitives
+  glab.py                 -- GitLab CLI / API wrapper
+  cleanup.py              -- Batch state cleanup shared functions
+  filter.py               -- Project/author filtering (allowed authors, issue/comment validation)
 watchdog.py           -- Watchdog loop + Discord command handling
 notify.py             -- Agent notifications + Discord posting (via CLI)
 pipeline_io.py        -- JSON read/write (exclusive lock + atomic write)
@@ -49,7 +55,7 @@ messages/             -- Template messages (via render())
 settings.py           -- User settings (config override)
 ```
 
-- **Agent communication**: `engine/backend.py` acts as a router, dispatching to the `openclaw`, `pi`, `cc`, `gemini`, or `kimi` backend per agent. Controlled by `DEFAULT_AGENT_BACKEND` and `AGENT_BACKEND_OVERRIDE` in `settings.py`.
+- **Agent communication**: `engine/backend.py` acts as a router, dispatching to the `openclaw`, `pi`, `cc`, `gemini`, `kimi`, or `agy` backend per agent. Controlled by `DEFAULT_AGENT_BACKEND` and `AGENT_BACKEND_OVERRIDE` in `settings.py`.
 - **pipeline JSON**: `~/.gokrax/pipelines/<project>.json`
 - **watchdog**: Polls every 20 seconds via `watchdog-loop.sh` (see Chapter 7)
 - **Discord notification channel**: Configured via `DISCORD_CHANNEL` in `settings.py`
@@ -314,15 +320,17 @@ Agent sending goes through `send()` / `ping()` in `engine/backend.py`.
 
 **Backend resolution (`resolve_backend(agent_id)` — cache-only, no HTTP):**
 1. `AGENT_BACKEND_OVERRIDE[agent_id]` if present, otherwise `DEFAULT_AGENT_BACKEND`.
-2. If the resolved backend is `gemini`, `engine/gemini_quota.py:resolve_fallback()` is consulted. It only **reads** the cache file `~/.gokrax/quota-cache/<agent_id>.json`; if the cache is active (`active=true`, `fallback_to ∈ {"pi","cc"}`, `until` in the future), that fallback backend is returned. Schema-violating cache (e.g. unknown `fallback_to`) is treated as a miss and `gemini` is used as-is.
+2. If the resolved backend is `gemini`, `engine/gemini_quota.py:resolve_fallback()` is consulted. If `agy`, `engine/agy_quota.py:resolve_fallback()` is consulted. Each only **reads** the cache file `~/.gokrax/quota-cache/<agent_id>.json`; if the cache is active (`active=true`, `fallback_to` ∈ permitted set, `until` in the future), that fallback backend is returned. Schema-violating cache (e.g. unknown `fallback_to`) is treated as a miss and the original backend is used as-is.
 
 **Per-backend behavior:**
 - **openclaw**: `engine/backend_openclaw.py` — sends to Gateway via `openclaw gateway call` CLI.
 - **pi**: `engine/backend_pi.py` — sends via `pi` CLI. Activity is determined by session file mtime.
 - **cc**: `engine/backend_cc.py` — sends via `claude -p` CLI. **Send admission** is gated only by live PID ownership of the session (`/proc/<pid>` + cmdline check). When a live owner is present, `send()` returns `SendResult.BUSY` immediately (no wait, no SIGTERM). The session JSONL mtime is still consulted for nudge/inactivity (§7.3) but no longer affects send admission (#327).
 - **gemini**: `engine/backend_gemini.py` — sends via `gemini` CLI as a oneshot process (1 prompt = 1 process). `send()` launches `gemini` with `subprocess.Popen(cwd=<agent profile dir>)` (the Gemini CLI scopes sessions by cwd). Activity is determined by the pid file plus `/proc/<pid>` existence and cmdline containing `"gemini"`. Session continuation uses `-r latest`; because sessions are per-cwd, each agent requires its own profile dir (`agents/<agent_id>/`) to avoid cross-agent session contamination.
+- **kimi**: `engine/backend_kimi.py` — sends via `kimi` CLI as a oneshot process. Liveness uses pid file + `/proc/<pid>` + cmdline contains `"kimi"`. `send()` invokes with `--afk` and `--add-dir REVIEW_FILE_DIR` so reviewer artifacts are readable.
+- **agy**: `engine/backend_agy.py` — sends via `agy` (antigravity-cli) as a oneshot process. Model is selected via `~/.gemini/antigravity-cli/settings.json`; `HOME` is set per-agent so each agent has its own settings.json without polluting the real HOME. Liveness uses pid file + `/proc/<pid>` + cmdline contains `"agy"`. `agy` reads both `AGENTS.md` and `GEMINI.md`, so we generate `AGENTS.md` and strip any stale `GEMINI.md` before launch. `--print-timeout 24h` is fixed and `AGY_CLI_DISABLE_AUTO_UPDATE=1` is set.
 
-The backend is set via `DEFAULT_AGENT_BACKEND` in `settings.py` (config default: `"openclaw"`, `settings.example.py` recommended: `"pi"`; 4 backends available: openclaw, pi, cc, gemini), with per-agent override via `AGENT_BACKEND_OVERRIDE`.
+The backend is set via `DEFAULT_AGENT_BACKEND` in `settings.py` (config default: `"openclaw"`, `settings.example.py` recommended: `"pi"`; 6 backends available: openclaw, pi, cc, gemini, kimi, agy), with per-agent override via `AGENT_BACKEND_OVERRIDE`.
 
 **Send-time fallback for Gemini Pro quota (`should_fallback()`):**
 
@@ -335,6 +343,14 @@ When `send()` resolves to `gemini`, `engine/gemini_quota.py:should_fallback(agen
 Cache file: `~/.gokrax/quota-cache/<agent_id>.json` with shape `{"active": true, "fallback_to": "pi"|"cc", "until": "<ISO-8601>", "reason": "..."}`. Schema-violating entries are treated as cache miss.
 
 Prerequisite: Gemini OAuth credentials (`GEMINI_OAUTH_CREDS`) and Gemini `settings.json` (with `security.auth.selectedType`) must be readable. At watchdog startup, `engine/backend.py:validate_overrides()` and `engine/gemini_quota.py:validate_fallback_config()` log warnings for unknown agents or invalid fallback config.
+
+**Send-time fallback for OpenAI Codex quota (pi backend, `engine/openai_codex_quota.py`):**
+
+When `send()` resolves to `pi` and the active provider per `agents/config_pi.json` is `openai-codex`, `should_fallback(agent_id)` may call ChatGPT's `/wham/usage` endpoint to refresh the weekly quota. If usage ≥ threshold, the send is redirected to a fallback backend. Eligibility requires the per-agent entry to specify `fallback`, `fallback_provider`, `fallback_model`, and a `usage_threshold` (0–100). Cache directory: `OPENAI_CODEX_QUOTA_CACHE_DIR` (see `config/paths.py`). Anthropic backends are not eligible as the source provider. On fallback activation the pi session JSONL is reset for the affected agent so stale context is not carried into the fallback provider.
+
+**Send-time fallback for agy quota (`engine/agy_quota.py`) — #356:**
+
+When `send()` resolves to `agy`, `should_fallback(agent_id)` may call the Code Assist REST endpoint `cloudcode-pa.googleapis.com:fetchAvailableModels` (using agy's own OAuth token — read-only file + in-memory refresh, never written back) to refresh quota state. Fallback fires when usage ≥ threshold; permitted `fallback_backend` is one of `{"pi", "cc", "kimi", "openclaw"}`. A negative cache throttles API failures and is invalidated when the OAuth token file's mtime changes. Cache directory: `AGY_QUOTA_CACHE_DIR`. OAuth token path: `AGY_OAUTH_TOKEN` (both in `config/paths.py`). At watchdog startup, `engine/agy_quota.py:validate_fallback_config()` logs warnings for invalid configurations. `engine/backend.py` wires agy fallback into `resolve_backend()`, `send()`, and `reset_session()` so behavior parallels the gemini path.
 
 **`SendResult` (3-valued, `engine/backend_types.py`):** `engine/backend.py:send()` returns `SendResult.{OK, BUSY, FAIL}`. `notify.send_to_agent()` is preserved as a bool wrapper (`True` only when `OK`); the new `notify.send_to_agent_with_status()` returns the raw `SendResult` for callers that need to distinguish BUSY from FAIL (used by spec mode, see §10.1 of `docs/spec_mode_spec.md`).
 
@@ -578,6 +594,21 @@ PROJECT ISSUES [MODE] [OPTIONS...]
 | exclude-any-risk | Exclude Issues with domain_risk other than none |
 
 - Queue operations are executed atomically with `fcntl` locks
+
+### Wait Entries (#357)
+
+In addition to task rows, the queue file accepts **wait entries** that throttle execution. They are useful for avoiding LLM provider 5-hour rate limits during hands-free runs.
+
+```
+wait DURATION       # e.g. wait 30m, wait 2h, wait 1h30m
+wait until TIME     # e.g. wait until 22:00, wait until 2026-06-01 09:00
+```
+
+- `DURATION` supports `m` (minutes) and `h` (hours), optionally combined (e.g. `1h30m`).
+- `TIME` accepts `HH:MM` (next occurrence in `LOCAL_TZ`) or `YYYY-MM-DD HH:MM` (absolute timestamp in `LOCAL_TZ`).
+- Parsing: `_parse_wait_line()` in `task_queue.py`; `parse_queue_line()` dispatches wait rows transparently.
+- When a wait row is popped, `_start_queue_wait()` (`commands/dev/queue.py`) records the wait info atomically (commit point = wait file write at `QUEUE_WAIT_FILE` from `config/__init__.py`). The IDLE precondition is bypassed for wait rows.
+- The watchdog's `_check_queue_wait_expiry()` polls for expiry; on expiry the next qrun proceeds. `_load_wait_info()` and `get_qstatus_text()` expose wait state to qstatus / qadd / qedit / qdel.
 
 ## 13. CODE_TEST Gate
 

@@ -18,7 +18,7 @@ def render(template: str, macro: str, lang: str | None = None, **kwargs) -> str:
     """テンプレートのmacro関数を呼び出してプロンプト文字列を返す。
 
     Args:
-        template: ステート名（例: "spec_review", "design_revise"）
+        template: テンプレート名（"<mode>.<template>" のドット区切り。例: "spec.review", "dev.design_revise"）
         macro: 関数名（例: "initial", "nudge", "notify_start"）
         lang: 言語コード（デフォルト: config.PROMPT_LANG or "en"）
         **kwargs: テンプレート関数に渡す引数

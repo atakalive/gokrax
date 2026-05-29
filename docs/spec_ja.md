@@ -1,6 +1,6 @@
 # gokrax -- 開発パイプライン仕様書
 
-> 現行コード (2026-04-27 時点) に基づく正式仕様。全エージェントはこの文書に従うこと。
+> 現行コード (2026-05-29 時点) に基づく正式仕様。全エージェントはこの文書に従うこと。
 > 定数値は config のデフォルト値。settings.py で上書き可能 (14 章参照)。
 
 ## 1. 概要
@@ -18,21 +18,27 @@ config/               -- パッケージ化済み
   states.py            -- 状態遷移テーブル・パイプライン定数
   paths.py             -- ファイルパス・ディレクトリ定数
 engine/
-  fsm.py               -- 通常モード状態遷移判定 (純粋関数)
-  fsm_spec.py          -- spec モード状態遷移判定
-  cc.py                -- Claude Code 自動起動・テスト実行
-  reviewer.py          -- レビュアー管理 (tier, pending, revise 判定)
-  shared.py            -- 共有ユーティリティ (log, is_cc_running, is_ok_reply)
-  backend.py           -- バックエンドディスパッチ (openclaw/pi/cc/gemini/kimi 振り分け)
-  backend_openclaw.py  -- openclaw バックエンド (Gateway CLI 経由)
-  backend_pi.py        -- pi バックエンド (pi CLI 経由)
-  backend_cc.py        -- cc バックエンド (claude CLI 経由)
-  backend_gemini.py    -- gemini バックエンド (gemini CLI 経由, oneshot)
-  backend_kimi.py    -- kimi バックエンド (kimi CLI 経由)
-  backend_types.py     -- バックエンド戻り値型 (SendResult: OK/BUSY/FAIL)
-  gemini_quota.py      -- Gemini Pro クォータ検出 & fallback キャッシュ
-  cleanup.py           -- バッチ状態クリーンアップ共通関数
-  filter.py            -- プロジェクト/著者フィルタリング (許可著者、Issue/コメント検証)
+  fsm.py                  -- 通常モード状態遷移判定 (純粋関数)
+  fsm_spec.py             -- spec モード状態遷移判定
+  cc.py                   -- Claude Code 自動起動・テスト実行
+  reviewer.py             -- レビュアー管理 (tier, pending, revise 判定)
+  agent_meta.py           -- レビュアーのメタ情報スナップショット (provider/model/think_level)
+  shared.py               -- 共有ユーティリティ (log, is_cc_running, is_ok_reply)
+  backend.py              -- バックエンドディスパッチ (openclaw/pi/cc/gemini/kimi/agy 振り分け)
+  backend_openclaw.py     -- openclaw バックエンド (Gateway CLI 経由)
+  backend_pi.py           -- pi バックエンド (pi CLI 経由)
+  backend_cc.py           -- cc バックエンド (claude CLI 経由)
+  backend_gemini.py       -- gemini バックエンド (gemini CLI 経由, oneshot)
+  backend_kimi.py         -- kimi バックエンド (kimi CLI 経由)
+  backend_agy.py          -- agy バックエンド (antigravity-cli 経由, oneshot)
+  backend_types.py        -- バックエンド戻り値型 (SendResult: OK/BUSY/FAIL)
+  gemini_quota.py         -- Gemini Pro クォータ検出 & fallback キャッシュ
+  openai_codex_quota.py   -- OpenAI Codex (ChatGPT) クォータ検出 & fallback (pi backend)
+  agy_quota.py            -- agy クォータ検出 & fallback (proactive REST)
+  fallback_cache.py       -- クォータ fallback キャッシュのプリミティブ
+  glab.py                 -- GitLab CLI / API ラッパー
+  cleanup.py              -- バッチ状態クリーンアップ共通関数
+  filter.py               -- プロジェクト/著者フィルタリング (許可著者、Issue/コメント検証)
 watchdog.py           -- watchdog ループ + Discord コマンド処理
 notify.py             -- エージェント通知 + Discord 投稿 (CLI 経由)
 pipeline_io.py        -- JSON 読み書き (排他ロック + atomic write)
@@ -49,7 +55,7 @@ messages/             -- テンプレートメッセージ (render() 経由)
 settings.py           -- ユーザー設定 (config override)
 ```
 
-- **エージェント通信**: `engine/backend.py` がルーターとして機能し、エージェントごとに `openclaw`、`pi`、`cc`、`gemini`、`kimi` バックエンドに振り分ける。`settings.py` の `DEFAULT_AGENT_BACKEND` と `AGENT_BACKEND_OVERRIDE` で制御。
+- **エージェント通信**: `engine/backend.py` がルーターとして機能し、エージェントごとに `openclaw`、`pi`、`cc`、`gemini`、`kimi`、`agy` バックエンドに振り分ける。`settings.py` の `DEFAULT_AGENT_BACKEND` と `AGENT_BACKEND_OVERRIDE` で制御。
 - **pipeline JSON**: `~/.gokrax/pipelines/<project>.json`
 - **watchdog**: `watchdog-loop.sh` で 20 秒おきにポーリング (後述 7 章)
 - **Discord 通知先**: Discord 通知チャンネル（`settings.py` の `DISCORD_CHANNEL` で設定）
@@ -314,15 +320,17 @@ IDLE -> INITIALIZE -> DESIGN_PLAN -> DESIGN_REVIEW -> DESIGN_APPROVED -> ASSESSM
 
 **Backend 解決 (`resolve_backend(agent_id)` — キャッシュ読み取りのみ、HTTP なし):**
 1. `AGENT_BACKEND_OVERRIDE[agent_id]` があればそれ、なければ `DEFAULT_AGENT_BACKEND`。
-2. 解決された backend が `gemini` の場合のみ `engine/gemini_quota.py:resolve_fallback()` を呼ぶ。これはキャッシュ `~/.gokrax/quota-cache/<agent_id>.json` を **読み取るだけ** で、active (`active=true`、`fallback_to ∈ {"pi","cc"}`、`until` が未来) なら fallback backend を返す。schema 違反 (例: `fallback_to` が valid set 外) のキャッシュは miss 扱いとなり、通常通り `gemini` が使われる。
+2. 解決された backend が `gemini` の場合は `engine/gemini_quota.py:resolve_fallback()`、`agy` の場合は `engine/agy_quota.py:resolve_fallback()` を呼ぶ。これらはキャッシュ `~/.gokrax/quota-cache/<agent_id>.json` を **読み取るだけ** で、active (`active=true`、`fallback_to` が許可セット内、`until` が未来) なら fallback backend を返す。schema 違反 (例: `fallback_to` が valid set 外) のキャッシュは miss 扱いとなり、元の backend がそのまま使われる。
 
 **Backend ごとの挙動:**
 - **openclaw**: `engine/backend_openclaw.py` — `openclaw gateway call` CLI 経由で Gateway に送信。
 - **pi**: `engine/backend_pi.py` — `pi` CLI 経由で送信。アクティビティはセッションファイルの mtime で判定。
 - **cc**: `engine/backend_cc.py` — `claude -p` CLI 経由で送信。**送信可否** はセッションの live PID 所有権 (`/proc/<pid>` + cmdline チェック) のみで判定する。live owner が居る場合 `send()` は **即座に** `SendResult.BUSY` を返す (待機も SIGTERM も行わない)。セッション JSONL mtime は催促/非アクティブ判定 (§7.3) には引き続き使うが、送信可否には使われなくなった (#327)。
 - **gemini**: `engine/backend_gemini.py` — `gemini` CLI を oneshot プロセスとして起動して送信する（1 プロンプト = 1 プロセス）。`send()` は `subprocess.Popen(cwd=<agent profile dir>)` で `gemini` を起動する（Gemini CLI はセッションを cwd でスコープする）。アクティビティは pid ファイルに加え `/proc/<pid>` の存在と cmdline に `"gemini"` を含むことで判定する。セッション継続は `-r latest` を使用する。セッションは cwd 単位のため、エージェント間のセッション混在を避けるためにエージェントごとに独立した profile dir（`agents/<agent_id>/`）が必要。
+- **kimi**: `engine/backend_kimi.py` — `kimi` CLI を oneshot プロセスとして起動して送信する。アクティビティは pid ファイル + `/proc/<pid>` + cmdline に `"kimi"` を含むことで判定。`send()` は `--afk` と `--add-dir REVIEW_FILE_DIR` を付与してレビュー成果物を読めるようにしている。
+- **agy**: `engine/backend_agy.py` — `agy` (antigravity-cli) を oneshot プロセスとして起動して送信する。モデルは `~/.gemini/antigravity-cli/settings.json` で選択する仕組みのため、`HOME` をエージェント別に切替え、各エージェントが独立した settings.json を持てるようにして実 HOME を汚染しない。アクティビティは pid ファイル + `/proc/<pid>` + cmdline に `"agy"` を含むことで判定。`agy` は `AGENTS.md` と `GEMINI.md` の両方を読むため、起動前に `AGENTS.md` を生成し、古い `GEMINI.md` は退避する。`--print-timeout 24h` を固定し、`AGY_CLI_DISABLE_AUTO_UPDATE=1` を設定する。
 
-バックエンドは `settings.py` の `DEFAULT_AGENT_BACKEND`（config デフォルト: `"openclaw"`、`settings.example.py` 推奨値: `"pi"`、4 種類: openclaw, pi, cc, gemini）で設定し、`AGENT_BACKEND_OVERRIDE` でエージェント単位の上書きが可能。
+バックエンドは `settings.py` の `DEFAULT_AGENT_BACKEND`（config デフォルト: `"openclaw"`、`settings.example.py` 推奨値: `"pi"`、6 種類: openclaw, pi, cc, gemini, kimi, agy）で設定し、`AGENT_BACKEND_OVERRIDE` でエージェント単位の上書きが可能。
 
 **送信時の Gemini Pro クォータ fallback (`should_fallback()`):**
 
@@ -335,6 +343,14 @@ IDLE -> INITIALIZE -> DESIGN_PLAN -> DESIGN_REVIEW -> DESIGN_APPROVED -> ASSESSM
 キャッシュファイル: `~/.gokrax/quota-cache/<agent_id>.json` の形は `{"active": true, "fallback_to": "pi"|"cc", "until": "<ISO-8601>", "reason": "..."}`。schema 違反のエントリは miss 扱い。
 
 前提: Gemini OAuth クレデンシャル (`GEMINI_OAUTH_CREDS`) と Gemini `settings.json` (`security.auth.selectedType` 含む) が読める必要がある。watchdog 起動時に `engine/backend.py:validate_overrides()` と `engine/gemini_quota.py:validate_fallback_config()` が config を検証して、未知 agent や不正 fallback 設定があれば警告ログを出す。
+
+**送信時の OpenAI Codex クォータ fallback (pi backend、`engine/openai_codex_quota.py`):**
+
+`send()` が `pi` に解決され、かつ `agents/config_pi.json` の該当エージェントの provider が `openai-codex` の場合、`should_fallback(agent_id)` が ChatGPT の `/wham/usage` エンドポイントを叩いて週単位 quota を更新する。使用率が閾値を超えていれば今回の send だけを fallback backend に振り直す。発動条件は当該エージェントの per-agent 設定で `fallback` / `fallback_provider` / `fallback_model` / `usage_threshold` (0–100) が揃っていること。キャッシュディレクトリ: `OPENAI_CODEX_QUOTA_CACHE_DIR` (`config/paths.py`)。Anthropic 系 backend は source provider として対象外。fallback 発火時、対象エージェントの PI session JSONL がリセットされ、fallback provider に古い context が持ち越されるのを防ぐ。
+
+**送信時の agy クォータ fallback (`engine/agy_quota.py`) — #356:**
+
+`send()` が `agy` に解決された場合、`should_fallback(agent_id)` が Code Assist REST エンドポイント `cloudcode-pa.googleapis.com:fetchAvailableModels` を叩いて quota 状態を更新する (agy 自身の OAuth token を使用 — read-only file + in-memory refresh、書き戻し無し)。使用率が閾値を超えれば今回の send だけを fallback backend に振り直す。許可される `fallback_backend` は `{"pi", "cc", "kimi", "openclaw"}` のいずれか。負キャッシュで API 失敗を throttle し、OAuth token ファイルの mtime 変化で無効化する。キャッシュディレクトリ: `AGY_QUOTA_CACHE_DIR`、OAuth token パス: `AGY_OAUTH_TOKEN` (どちらも `config/paths.py`)。watchdog 起動時に `engine/agy_quota.py:validate_fallback_config()` が config を検証して警告ログを出す。`engine/backend.py` は agy fallback を `resolve_backend()` / `send()` / `reset_session()` に配線しており、gemini と並列の挙動になる。
 
 **`SendResult` (3 値、`engine/backend_types.py`):** `engine/backend.py:send()` は `SendResult.{OK, BUSY, FAIL}` を返す。`notify.send_to_agent()` は互換のため bool ラッパーとして残る (`OK` のときのみ `True`)。新 API `notify.send_to_agent_with_status()` は `SendResult` をそのまま返し、BUSY と FAIL を区別したい呼び出し元 (spec mode、`docs/spec_mode_spec_ja.md` §10.1 参照) で使われる。
 
@@ -578,6 +594,21 @@ PROJECT ISSUES [MODE] [OPTIONS...]
 | exclude-any-risk | domain_risk が none 以外の Issue を除外 |
 
 - キュー操作は `fcntl` ロックでアトミックに実行される
+
+### wait エントリ (#357)
+
+タスク行に加えて、キューファイルは実行スロットルのための **wait 行** を受け付ける。hands-free 実行で LLM プロバイダの 5 時間レート制限を回避する用途に使う。
+
+```
+wait DURATION       # 例: wait 30m, wait 2h, wait 1h30m
+wait until TIME     # 例: wait until 22:00, wait until 2026-06-01 09:00
+```
+
+- `DURATION` は `m` (分) / `h` (時間) を組み合わせ可 (例: `1h30m`)。
+- `TIME` は `HH:MM` (次回該当時刻、`LOCAL_TZ` 基準) または `YYYY-MM-DD HH:MM` (絶対時刻、`LOCAL_TZ` 基準)。
+- パース: `task_queue.py` の `_parse_wait_line()`。`parse_queue_line()` が wait 行を透過的に振り分ける。
+- wait 行を pop すると `commands/dev/queue.py` の `_start_queue_wait()` が wait 情報をアトミックに記録する (コミット点は `config/__init__.py` の `QUEUE_WAIT_FILE` への書き込み)。wait 行については IDLE 前提条件を bypass する。
+- watchdog の `_check_queue_wait_expiry()` が満了を監視し、満了時に次の qrun が進行する。`_load_wait_info()` / `get_qstatus_text()` が wait 状態を qstatus / qadd / qedit / qdel に伝搬する。
 
 ## 13. CODE_TEST ゲート
 

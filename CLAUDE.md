@@ -8,9 +8,10 @@ Development pipeline automation tool. Automates the cycle of Issue creation → 
 
 ```
 # === CLI ===
-gokrax.py              # CLI entry point (all command definitions)
-commands/dev/          # Dev mode CLI subcommands (package)
+gokrax.py              # CLI entry point (parser definitions; subcommand bodies re-exported)
+commands/dev/          # Dev mode CLI subcommand implementations (package)
 commands/spec.py       # Spec mode CLI subcommands
+commands/issue_ops.py  # `issue-update` implementation (GitLab issue body replace)
 
 # === Watchdog daemon ===
 watchdog.py            # Main loop (process), Discord handler, queue management
@@ -19,15 +20,23 @@ watchdog.py            # Main loop (process), Discord handler, queue management
 # === engine/ — Core logic extracted from watchdog ===
 engine/shared.py       # Shared utilities for watchdog/gokrax
 engine/reviewer.py     # Reviewer management (selection, reset, etc.)
+engine/agent_meta.py   # Reviewer agent metadata snapshot (provider/model/think_level)
 engine/cc.py           # CC CLI automation (plan/impl launch, pytest baseline)
 engine/fsm.py          # Dev mode state transitions (check_transition, etc.)
 engine/fsm_spec.py     # Spec mode state transitions (check_transition_spec, etc.)
 engine/backend.py      # Backend abstraction layer (dispatch)
-engine/backend_openclaw.py  # OpenClaw backend implementation
-engine/backend_pi.py   # PI (Project Interpreter) backend implementation
-engine/backend_cc.py   # CC backend (via claude CLI)
-engine/backend_gemini.py  # Gemini CLI backend implementation
-engine/backend_kimi.py    # Kimi CLI backend implementation
+engine/backend_types.py     # Shared backend return type (SendResult: OK/BUSY/FAIL)
+engine/backend_openclaw.py  # openclaw backend implementation
+engine/backend_pi.py   # pi (pi-coding-agent) backend implementation
+engine/backend_cc.py   # cc backend (via claude CLI)
+engine/backend_gemini.py    # Gemini CLI backend implementation
+engine/backend_kimi.py      # Kimi CLI backend implementation
+engine/backend_agy.py       # agy (Antigravity CLI) backend implementation
+engine/gemini_quota.py      # Gemini Pro quota detection & fallback
+engine/openai_codex_quota.py # OpenAI Codex (ChatGPT) quota detection & fallback (pi backend)
+engine/agy_quota.py         # agy quota detection & fallback (proactive REST)
+engine/fallback_cache.py    # Quota fallback cache primitives
+engine/glab.py         # GitLab CLI / API wrapper
 engine/cleanup.py      # Batch state cleanup
 engine/filter.py       # Project/author filtering
 
@@ -58,7 +67,11 @@ messages_custom/       # User-customized prompts (same structure as messages/, o
 
 # === Agents ===
 agents/                # Agent profiles (IDENTITY/INSTRUCTION/MEMORY)
-  config_pi.json       # PI backend configuration
+  config_pi.json       # pi backend per-agent configuration
+  config_cc.json       # cc backend per-agent configuration
+  config_gemini.json   # gemini backend per-agent configuration
+  config_kimi.json     # kimi backend per-agent configuration
+  config_agy.json      # agy backend per-agent configuration
 
 # === Other ===
 reviews/               # Externalized review request files
@@ -103,6 +116,7 @@ ruff check *.py engine/ config/ commands/ messages/ tests/
 - **Do not call `time.sleep()` directly in test code.** `time.sleep` is globally mocked in conftest. Production code sleep calls accumulate during tests and cause timeouts.
 - To verify sleep behavior, use `patch("time.sleep") as mock_sleep` and assert call count/arguments.
 - **Do not make external calls (Discord, agent send) in tests.** Mocked globally in conftest via `_block_external_calls`. When adding new external call functions, add corresponding mocks to conftest.
+  - **Mock exemption modules:** `test_notify`, `test_config`, `test_short_context`, `test_phase_override`, `test_run_glab`, `test_gemini_quota`, `test_openai_codex_quota`, `test_agy_quota`. These bypass the global mocks because they exercise the internal implementations directly. New quota/notification tests that need real wiring should be added to this exemption list in `tests/conftest.py`.
 - **Patch the binding target after `from ... import`, not the source module.** If `watchdog.py` does `from engine.cc import _start_cc`, then `patch("engine.cc._start_cc")` is ineffective. Use `patch("watchdog._start_cc")` instead. `from X import Y` binds at module load time, so patching the source module does not affect existing bindings.
 - **Do not call `_reset_reviewers` / `_reset_short_context_reviewers` in tests.** Mocked in conftest. For direct testing, configure mocks individually as in `test_short_context.py`.
 
@@ -140,8 +154,9 @@ The following gokrax CLI commands cause pipeline halt or state corruption. Never
 - `gokrax start` / `gokrax qrun` — Starts a new batch
 
 ### Known Quirks
-- `cmd_transition` in `gokrax.py` (CLI path) and `do_transition` in `watchdog.py` (watchdog path) are separate code paths. Fixing only one may not affect the primary path.
-- `cmd_qrun` (CLI) and `_handle_qrun` (Discord) have the same dual-path issue.
+- CLI subcommand bodies (`cmd_transition`, `cmd_qrun`, etc.) live in `commands/dev/` (`lifecycle.py`, `queue.py`, ...). `gokrax.py` only re-exports them, so don't grep `gokrax.py` for the implementation — follow the import.
+- `cmd_transition` (CLI, `commands/dev/lifecycle.py`) and `do_transition` (watchdog, `watchdog.py`) are separate code paths. Fixing only one may not affect the primary path.
+- `cmd_qrun` (CLI, `commands/dev/queue.py`) and `_handle_qrun` (Discord, `watchdog.py`) have the same dual-path issue.
 
 ## GitLab
 

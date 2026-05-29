@@ -1,6 +1,6 @@
 # gokrax — Architecture & State Machine Diagrams
 
-> Last updated: 2026-03-29
+> Last updated: 2026-05-29
 
 ## 1. System Architecture (Overall Flow)
 
@@ -25,6 +25,10 @@ graph LR
         BE_CC["cc Backend<br/>(engine/backend_cc.py)"]
         BE_GM["gemini Backend<br/>(engine/backend_gemini.py)"]
         BE_KM["kimi Backend<br/>(engine/backend_kimi.py)"]
+        BE_AGY["agy Backend<br/>(engine/backend_agy.py)"]
+        QF_GM["Gemini Quota Fallback<br/>(engine/gemini_quota.py)"]
+        QF_CDX["OpenAI Codex Quota Fallback<br/>(engine/openai_codex_quota.py)"]
+        QF_AGY["agy Quota Fallback<br/>(engine/agy_quota.py)"]
         CC1["Claude Code CLI<br/>(Impl Lead 1)"]
         CC2["Claude Code CLI<br/>(Impl Lead 2)"]
         BD --> BE_OC
@@ -32,6 +36,10 @@ graph LR
         BD --> BE_CC
         BD --> BE_GM
         BD --> BE_KM
+        BD --> BE_AGY
+        BE_PI -. quota >= threshold .-> QF_CDX
+        BE_GM -. Pro usage >= threshold .-> QF_GM
+        BE_AGY -. usage >= threshold .-> QF_AGY
         BE_CC --> CC1
         BE_CC --> CC2
     end
@@ -192,7 +200,8 @@ provider/model/think_level resolved at dispatch time. Schema per entry:
 ```
 
 Resolved by `engine.agent_meta._resolve()` from the active backend's `_load_config()` plus
-the openai-codex quota fallback cache (pi only). Updated:
+quota fallback caches for `openai-codex` (pi only, `engine/openai_codex_quota.py`),
+Gemini Pro (`engine/gemini_quota.py`), and agy (`engine/agy_quota.py`). Updated:
 
 - On `_reset_reviewers()` paths (watchdog `_save_excluded`, `commands/spec.py do_start`,
   `commands/dev/lifecycle.py` post-reset).
@@ -291,7 +300,8 @@ Reviewers not listed in `n_pass` default to 1 pass.
 ```mermaid
 graph TD
     START["Watchdog Loop<br/>(20s interval)"] --> DISCORD["Check Discord<br/>commands"]
-    DISCORD --> QUEUE["Check queue<br/>(auto-pop)"]
+    DISCORD --> WAIT_CHK["Check queue<br/>wait expiry<br/>(_check_queue_wait_expiry)"]
+    WAIT_CHK --> QUEUE["Check queue<br/>(auto-pop)"]
     QUEUE --> SCAN["Scan all pipeline.json files"]
     SCAN --> CHECK{"Active issue<br/>found?"}
     CHECK -->|No| IDLE_CHECK{"All projects<br/>DONE/IDLE?"}
@@ -459,7 +469,7 @@ See `settings.example.py` `DEFAULT_QUEUE_OPTIONS` for defaults.
 
 ### Discord Integration
 
-Watchdog's `check_discord_commands()` processes queue commands (`qrun`, `qstatus`, `qadd`, `qdel`, `qedit`) from Discord.
+Watchdog's `check_discord_commands()` processes queue commands (`qrun`, `qstatus`, `qadd`, `qdel`, `qedit`) from Discord. Wait rows (`wait DURATION` / `wait until TIME`, #357) are accepted via `qadd` and surface in `qstatus` via `_load_wait_info()`.
 
 ### QueueSkipError Retry
 

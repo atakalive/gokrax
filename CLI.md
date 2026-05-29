@@ -118,6 +118,10 @@ gokrax start --pj myproject --mode standard
 | `--exclude-any-risk` | No | skip batch if domain_risk != none (superset of --exclude-high-risk) |
 | `--no-exclude-any-risk` | No | explicitly do not skip any-risk batches |
 | `--allow-closed` | No | allow closed issues in batch (skip closed-issue filtering) |
+| `--automerge` | No | auto-merge after CODE_APPROVED without owner confirmation |
+| `--no-automerge` | No | explicitly require owner confirmation before merge (negates `--automerge`) |
+
+Defaults for the skip / context / automerge flags come from `DEFAULT_QUEUE_OPTIONS` in `settings.py` (per-project values in `PROJECT_QUEUE_OPTIONS` take precedence). Passing the flag here overrides the default for this batch only.
 
 Prerequisite: project must be in IDLE state.
 
@@ -388,6 +392,20 @@ gokrax get-comments --pj myproject --issue 17
 
 Retrieves all non-system comments for the specified GitLab issue, filtered by allowed authors (`ALLOWED_GITLAB_AUTHORS` + `GITLAB_NAMESPACE`). Comments are printed in chronological order with author and timestamp headers.
 
+### `issue-update` -- Replace a GitLab issue body from a file
+
+```bash
+gokrax issue-update --pj myproject --issue 17 --body-file path/to/new-body.md
+```
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--pj` | Yes | project name |
+| `--issue N` | Yes | issue number |
+| `--body-file PATH` | Yes | path to a file whose contents become the new issue body |
+
+Reads the file at `--body-file` (UTF-8) and replaces the GitLab issue body wholesale via the issues API. Useful when agents need to record consolidated notes, design summaries, or revised acceptance criteria back to the canonical issue. The previous body is overwritten — caller is responsible for preserving any content that should remain. Implemented in `commands/issue_ops.py`.
+
 ### `cc-start` -- Record CC process PID
 
 ```bash
@@ -452,6 +470,29 @@ gokrax qadd myproject 50,51 standard-x2
 | `--stdin` | No | read entries from stdin |
 | `--queue QUEUE` | No | queue file path |
 
+#### Wait Entries (#357)
+
+Wait entries throttle queue execution. They sit in the queue as ordinary rows but, when popped, the watchdog holds further `qrun` activity until the wait expires. Useful for avoiding LLM provider 5-hour rate limits during hands-free runs.
+
+Syntax:
+
+```
+wait DURATION       # e.g. wait 30m, wait 2h, wait 1h30m
+wait until TIME     # e.g. wait until 22:00, wait until 2026-06-01 09:00
+```
+
+| Form | Description |
+|------|-------------|
+| `wait <DURATION>` | Wait the given duration. `<DURATION>` accepts `m` (minutes), `h` (hours), or combinations like `1h30m`. |
+| `wait until <HH:MM>` | Wait until the next occurrence of `HH:MM` in `LOCAL_TZ`. |
+| `wait until <YYYY-MM-DD HH:MM>` | Wait until the absolute timestamp in `LOCAL_TZ`. |
+
+Behavior:
+- Parsed by `_parse_wait_line()` in `task_queue.py`; the same `parse_queue_line()` dispatches both task rows and wait rows.
+- When a wait row is popped, `_start_queue_wait()` (`commands/dev/queue.py`) writes wait info atomically to `QUEUE_WAIT_FILE` (`config/__init__.py`). The IDLE precondition is bypassed for wait rows.
+- The watchdog's `_check_queue_wait_expiry()` polls for expiry; on expiry the next qrun proceeds.
+- `qstatus`, `qadd`, `qedit`, `qdel` all surface wait rows via `_load_wait_info()` / `get_qstatus_text()`.
+
 ### `qdel` -- Delete a queue entry
 
 ```bash
@@ -490,6 +531,33 @@ gokrax qedit last myproject 50 standard
 | **REJECT** | Fundamentally flawed. Equivalent to P0 (rarely used). |
 
 ---
+
+## Agent Backends
+
+gokrax routes every agent send through one of six backends, selected by `DEFAULT_AGENT_BACKEND` (default fallback when no override matches) and `AGENT_BACKEND_OVERRIDE` (per-agent map) in `settings.py`.
+
+| Backend | Source | Notes |
+|---------|--------|-------|
+| `openclaw` | openclaw Gateway | per-agent config lives on the Gateway side; no `agents/config_openclaw.json` |
+| `pi` | pi-coding-agent CLI | `agents/config_pi.json`; supports `openai-codex` quota fallback (see README) |
+| `cc` | Claude Code CLI | `agents/config_cc.json` |
+| `gemini` | Gemini CLI (oneshot) | `agents/config_gemini.json`; supports Gemini Pro quota fallback |
+| `kimi` | Kimi CLI (oneshot) | `agents/config_kimi.json` |
+| `agy` | Antigravity CLI (oneshot) | `agents/config_agy.json`; supports proactive REST quota fallback |
+
+Example mix:
+
+```python
+DEFAULT_AGENT_BACKEND = "pi"
+AGENT_BACKEND_OVERRIDE = {
+    "impl1": "openclaw",
+    "reviewer2": "gemini",
+    "reviewer3": "kimi",
+    "reviewer4": "agy",
+}
+```
+
+Backend resolution is performed in `engine/backend.py:resolve_backend()`. The watchdog logs `validate_overrides()` warnings at startup for unknown agent IDs or invalid fallback configs.
 
 ## Skill Settings
 
@@ -594,7 +662,7 @@ gokrax spec start --pj <PROJECT> --spec <PATH> --implementer <AGENT>
 | `--no-queue` | No | skip queue generation |
 | `--skip-review` | No | skip review (immediately APPROVED) |
 | `--max-cycles MAX_CYCLES` | No | max REVIEW <-> REVISE loop count |
-| `--review-mode {full,standard,lite,min}` | No | review mode |
+| `--review-mode MODE` | No | review mode (any non-`skip` key from `REVIEW_MODES` in `settings.py`). Unlike `start --mode`, `spec start --review-mode` excludes `skip` — spec mode always requires at least one reviewer pass on the spec, so a no-review run is forbidden by design. |
 | `--model MODEL` | No | CC model override |
 | `--auto-continue` | No | skip owner confirmation after APPROVED, auto-proceed to ISSUE_SUGGESTION |
 | `--auto-qrun` | No | auto-run queue after spec completion |

@@ -1202,6 +1202,15 @@ def process(path: Path):
             notify_phase = STATE_PHASE_MAP.get(action.new_state or "", "design")
             pipeline_data = load_pipeline(get_path(pj))
             phase_config = get_phase_config(pipeline_data, notify_phase)
+            from engine.backend import soft_reap
+            prev_submitted = {r for reviews in prev_reviews.values() for r in reviews}
+            for r in phase_config["members"]:
+                if r in excluded or r not in prev_submitted:
+                    continue
+                try:
+                    soft_reap(r)
+                except Exception as e:
+                    log(f"[{pj}] soft-reap failed for {r}: {e}")
             try:
                 failed = notify_reviewers(
                     pj, action.new_state, notification["batch"], notification["gitlab"],

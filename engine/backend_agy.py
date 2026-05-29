@@ -743,6 +743,42 @@ def is_inactive(agent_id: str, pipeline_data: dict | None = None,
     return not _is_agy_pid_alive(pid)
 
 
+def soft_reap(agent_id: str) -> None:
+    """Terminate a lingering live agy process while PRESERVING session context.
+
+    Unlike reset_session(), does NOT purge conversations/brain and does NOT
+    remove the session marker — only the finished/hung process is killed and
+    the pid file cleared, so the next send() resumes the same conversation via -c.
+
+    Safety: agy pid files are per agent_id (global, not per project). The
+    caller must ensure the live process belongs to its own project to avoid
+    killing another project's active review. The canonical usage filters
+    targets via prev_reviews (project-scoped P0/P1/P2/REJECT submitter set
+    built before clear_reviews in do_transition).
+    """
+    if config.DRY_RUN:
+        return
+    with _per_agent_lock(agent_id):
+        try:
+            pid = int(_pid_path(agent_id).read_text().strip())
+        except (OSError, ValueError):
+            pid = None
+        if pid is not None and _is_agy_pid_alive(pid):
+            if not _terminate_pid_tree(pid, agent_id, proc=None):
+                logger.warning(
+                    "agy soft_reap: failed to terminate live process %d for %s; "
+                    "keeping pid file to preserve BUSY guard", pid, agent_id,
+                )
+                return
+        try:
+            _pid_path(agent_id).unlink(missing_ok=True)
+        except OSError as exc:
+            logger.warning(
+                "agy soft_reap: failed to delete pid file for %s: %s",
+                agent_id, exc,
+            )
+
+
 def reset_session(agent_id: str) -> None:
     """Best-effort session reset.
 

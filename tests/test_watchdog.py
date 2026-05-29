@@ -6425,6 +6425,135 @@ class TestNotifyReviewersFailedExcluded:
         assert "_transient_dispatch_warned" not in result
 
 
+# ── Issue #354: REVISE→REVIEW 再依頼前の soft-reap 統合テスト ──────────────
+
+class TestSoftReapBeforeRedispatch:
+    """Issue #354: REVISE→REVIEW 再依頼直前、前回ラウンドの P0/P1/P2/REJECT
+    提出者にのみ soft_reap が呼ばれることを検証する。"""
+
+    def _setup_pipeline(self, tmp_path, monkeypatch, batch, state, members) -> Path:
+        import pipeline_io
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        test_standard = {"members": members, "min_reviews": len(members), "grace_period_sec": 0}
+        _modes = {"standard": test_standard}
+        monkeypatch.setattr("watchdog.REVIEW_MODES", _modes)
+        monkeypatch.setattr("engine.fsm.REVIEW_MODES", _modes)
+
+        path = tmp_path / "test-pj.json"
+        pipeline_data = {
+            "project": "test-pj", "state": state,
+            "enabled": True, "batch": batch,
+            "implementer": "implementer1",
+            "gitlab": "testns/test-pj",
+            "history": [], "created_at": "", "updated_at": "",
+            "review_mode": "standard",
+            "excluded_reviewers": [],
+        }
+        _write_pipeline(path, pipeline_data)
+        return path
+
+    def test_only_prev_submitters_reaped_revise_to_review(self, tmp_path, monkeypatch):
+        """REVISE→REVIEW: P0/P1/REJECT 提出者は reap、APPROVE 提出者は対象外。"""
+        from tests.conftest import TEST_REVIEWERS
+        r1, r2, r3 = TEST_REVIEWERS[0], TEST_REVIEWERS[1], TEST_REVIEWERS[2]
+
+        batch = _make_batch(1, design_ready=True)
+        batch[0]["design_reviews"] = {
+            r1: {"verdict": "P0", "at": ""},
+            r2: {"verdict": "APPROVE", "at": ""},
+            r3: {"verdict": "P1", "at": ""},
+        }
+        batch[0]["design_revised"] = True
+        path = self._setup_pipeline(
+            tmp_path, monkeypatch, batch, "DESIGN_REVISE", [r1, r2, r3],
+        )
+        from watchdog import process
+
+        reaped: list[str] = []
+        monkeypatch.setattr("watchdog.notify_reviewers", lambda *a, **k: [])
+        monkeypatch.setattr("watchdog._start_cc", lambda *a, **k: None)
+        with patch("engine.backend.soft_reap", side_effect=reaped.append):
+            process(path)
+
+        assert set(reaped) == {r1, r3}
+        assert r2 not in reaped
+
+    def test_reject_submitter_reaped(self, tmp_path, monkeypatch):
+        """REJECT 経路の回帰: REJECT 提出者は prev_submitted に含まれ reap される。"""
+        from tests.conftest import TEST_REVIEWERS
+        r1, r2 = TEST_REVIEWERS[0], TEST_REVIEWERS[1]
+
+        batch = _make_batch(1, design_ready=True)
+        batch[0]["design_reviews"] = {
+            r1: {"verdict": "REJECT", "at": ""},
+            r2: {"verdict": "APPROVE", "at": ""},
+        }
+        batch[0]["design_revised"] = True
+        path = self._setup_pipeline(
+            tmp_path, monkeypatch, batch, "DESIGN_REVISE", [r1, r2],
+        )
+        from watchdog import process
+
+        reaped: list[str] = []
+        monkeypatch.setattr("watchdog.notify_reviewers", lambda *a, **k: [])
+        monkeypatch.setattr("watchdog._start_cc", lambda *a, **k: None)
+        with patch("engine.backend.soft_reap", side_effect=reaped.append):
+            process(path)
+
+        assert reaped == [r1]
+
+    def test_excluded_member_not_reaped(self, tmp_path, monkeypatch):
+        """excluded メンバーは prev_submitted にいても reap されない。"""
+        from tests.conftest import TEST_REVIEWERS
+        r1, r2 = TEST_REVIEWERS[0], TEST_REVIEWERS[1]
+
+        batch = _make_batch(1, design_ready=True)
+        batch[0]["design_reviews"] = {
+            r1: {"verdict": "P0", "at": ""},
+            r2: {"verdict": "P0", "at": ""},
+        }
+        batch[0]["design_revised"] = True
+        path = self._setup_pipeline(
+            tmp_path, monkeypatch, batch, "DESIGN_REVISE", [r1, r2],
+        )
+        # mark r2 excluded
+        import json as _json
+        data = _json.loads(path.read_text())
+        data["excluded_reviewers"] = [r2]
+        path.write_text(_json.dumps(data))
+
+        from watchdog import process
+
+        reaped: list[str] = []
+        monkeypatch.setattr("watchdog.notify_reviewers", lambda *a, **k: [])
+        monkeypatch.setattr("watchdog._start_cc", lambda *a, **k: None)
+        with patch("engine.backend.soft_reap", side_effect=reaped.append):
+            process(path)
+
+        assert reaped == [r1]
+
+    def test_round1_no_reap(self, tmp_path, monkeypatch):
+        """初回依頼 (prev_reviews 空) では誰も reap されない。"""
+        from tests.conftest import TEST_REVIEWERS
+        r1, r2 = TEST_REVIEWERS[0], TEST_REVIEWERS[1]
+
+        batch = _make_batch(1, design_ready=True)
+        path = self._setup_pipeline(
+            tmp_path, monkeypatch, batch, "DESIGN_PLAN", [r1, r2],
+        )
+        from watchdog import process
+
+        reaped: list[str] = []
+        monkeypatch.setattr("watchdog.notify_reviewers", lambda *a, **k: [])
+        monkeypatch.setattr("watchdog._start_cc", lambda *a, **k: None)
+        with patch("engine.backend.soft_reap", side_effect=reaped.append):
+            process(path)
+
+        assert reaped == []
+
+
 # ── Issue #273: DESIGN_PLAN 催促レート制限の閾値切り替えテスト ──────────────
 
 class TestNudgeRateLimitThreshold:

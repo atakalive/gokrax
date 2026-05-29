@@ -140,6 +140,15 @@ def is_inactive(agent_id: str, pipeline_data: dict | None = None) -> bool:
     return _is_agent_inactive_openclaw(agent_id)
 
 
+def soft_reap(agent_id: str) -> None:
+    """Context-preserving process reap. No-op for backends without a
+    one-live-process model (e.g. openclaw gateway queue)."""
+    configured = resolve_backend(agent_id, ignore_fallback=True)
+    if configured == "agy":
+        from engine.backend_agy import soft_reap as agy_soft_reap
+        agy_soft_reap(agent_id)
+
+
 def reset_session(agent_id: str) -> None:
     """Dispatch reset_session to the selected backend.
 

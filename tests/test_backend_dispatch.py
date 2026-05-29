@@ -21,6 +21,7 @@ _real_send_to_agent = notify.send_to_agent
 _real_ping_agent = notify.ping_agent
 _real_backend_send = backend.send
 _real_backend_ping = backend.ping
+_real_backend_soft_reap = backend.soft_reap
 
 
 # ---------------------------------------------------------------------------
@@ -874,6 +875,50 @@ class TestBackendResetSessionDispatch:
             backend.reset_session("reviewer1")
         mock_gm.assert_called_once_with("reviewer1")
         mock_pi.assert_not_called()
+
+
+class TestBackendSoftReapDispatch:
+    @pytest.fixture(autouse=True)
+    def _restore_real_soft_reap(self, monkeypatch):
+        """conftest mocks engine.backend.soft_reap; restore the real dispatcher
+        so we can test the dispatch logic itself."""
+        monkeypatch.setattr(backend, "soft_reap", _real_backend_soft_reap)
+
+    def test_agy_calls_agy_soft_reap(self, monkeypatch):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "agy")
+        with patch("engine.backend_agy.soft_reap") as mock_agy:
+            backend.soft_reap("reviewer1")
+        mock_agy.assert_called_once_with("reviewer1")
+
+    def test_pi_is_noop(self, monkeypatch):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "pi")
+        with patch("engine.backend_agy.soft_reap") as mock_agy:
+            backend.soft_reap("reviewer1")  # should not raise
+        mock_agy.assert_not_called()
+
+    def test_cc_is_noop(self, monkeypatch):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "cc")
+        with patch("engine.backend_agy.soft_reap") as mock_agy:
+            backend.soft_reap("reviewer1")
+        mock_agy.assert_not_called()
+
+    def test_gemini_is_noop(self, monkeypatch):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "gemini")
+        with patch("engine.backend_agy.soft_reap") as mock_agy:
+            backend.soft_reap("reviewer1")
+        mock_agy.assert_not_called()
+
+    def test_kimi_is_noop(self, monkeypatch):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "kimi")
+        with patch("engine.backend_agy.soft_reap") as mock_agy:
+            backend.soft_reap("reviewer1")
+        mock_agy.assert_not_called()
+
+    def test_openclaw_is_noop(self, monkeypatch):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "openclaw")
+        with patch("engine.backend_agy.soft_reap") as mock_agy:
+            backend.soft_reap("reviewer1")
+        mock_agy.assert_not_called()
 
 
 # ===========================================================================

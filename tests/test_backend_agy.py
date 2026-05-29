@@ -667,6 +667,116 @@ class TestResetSession:
         assert (fake_conv / "x.pb").exists()
 
 
+class TestSoftReap:
+    def test_terminates_live_process_and_removes_pid(self, monkeypatch):
+        monkeypatch.setattr(backend_agy, "_is_agy_pid_alive", lambda p: True)
+        calls: list = []
+        monkeypatch.setattr(
+            backend_agy, "_terminate_pid_tree",
+            lambda pid, agent_id, proc=None: calls.append(pid) or True,
+        )
+        backend_agy.AGY_PIDS_DIR.mkdir(parents=True, exist_ok=True)
+        backend_agy._pid_path(AGENT).write_text("5555")
+        backend_agy._session_marker_path(AGENT).touch()
+        backend_agy.soft_reap(AGENT)
+        assert calls == [5555]
+        assert not backend_agy._pid_path(AGENT).exists()
+
+    def test_preserves_conversations_and_session_marker(self, monkeypatch):
+        # Differentiate from reset_session: context-preserving primitives must
+        # NOT be invoked.
+        purge_calls: list = []
+        monkeypatch.setattr(
+            backend_agy, "_purge_session_data_on_reset",
+            lambda agent_id: purge_calls.append(agent_id),
+        )
+        cli_dir = _profile_dir() / ".gemini" / "antigravity-cli"
+        conv_dir = cli_dir / "conversations"
+        conv_dir.mkdir(parents=True)
+        (conv_dir / "abc.pb").write_text("keep")
+        monkeypatch.setattr(backend_agy, "_is_agy_pid_alive", lambda p: True)
+        monkeypatch.setattr(
+            backend_agy, "_terminate_pid_tree",
+            lambda pid, agent_id, proc=None: True,
+        )
+        backend_agy.AGY_PIDS_DIR.mkdir(parents=True, exist_ok=True)
+        backend_agy._pid_path(AGENT).write_text("5555")
+        backend_agy._session_marker_path(AGENT).touch()
+        backend_agy.soft_reap(AGENT)
+        assert purge_calls == []
+        assert backend_agy._session_marker_path(AGENT).exists()
+        assert (conv_dir / "abc.pb").read_text() == "keep"
+        assert not backend_agy._pid_path(AGENT).exists()
+
+    def test_kill_failure_keeps_pid_and_early_returns(self, monkeypatch):
+        monkeypatch.setattr(backend_agy, "_is_agy_pid_alive", lambda p: True)
+        monkeypatch.setattr(
+            backend_agy, "_terminate_pid_tree",
+            lambda pid, agent_id, proc=None: False,
+        )
+        backend_agy.AGY_PIDS_DIR.mkdir(parents=True, exist_ok=True)
+        backend_agy._pid_path(AGENT).write_text("5555")
+        backend_agy._session_marker_path(AGENT).touch()
+        backend_agy.soft_reap(AGENT)
+        # pid file kept to preserve the BUSY guard (prevents double-spawn)
+        assert backend_agy._pid_path(AGENT).exists()
+        assert backend_agy._session_marker_path(AGENT).exists()
+
+    def test_stale_pid_dead_process_removed_marker_kept(self, monkeypatch):
+        monkeypatch.setattr(backend_agy, "_is_agy_pid_alive", lambda p: False)
+        terminate_calls: list = []
+        monkeypatch.setattr(
+            backend_agy, "_terminate_pid_tree",
+            lambda *a, **k: terminate_calls.append(a) or True,
+        )
+        backend_agy.AGY_PIDS_DIR.mkdir(parents=True, exist_ok=True)
+        backend_agy._pid_path(AGENT).write_text("9999")
+        backend_agy._session_marker_path(AGENT).touch()
+        backend_agy.soft_reap(AGENT)
+        assert terminate_calls == []
+        assert not backend_agy._pid_path(AGENT).exists()
+        assert backend_agy._session_marker_path(AGENT).exists()
+
+    def test_noop_when_no_pid_file(self, monkeypatch):
+        backend_agy.AGY_PIDS_DIR.mkdir(parents=True, exist_ok=True)
+        # No exception should be raised when there is no live process.
+        backend_agy.soft_reap(AGENT)
+        assert not backend_agy._pid_path(AGENT).exists()
+
+    def test_dry_run_returns_immediately(self, monkeypatch):
+        monkeypatch.setattr(config, "DRY_RUN", True)
+        terminate_calls: list = []
+        monkeypatch.setattr(
+            backend_agy, "_terminate_pid_tree",
+            lambda *a, **k: terminate_calls.append(a) or True,
+        )
+        backend_agy.AGY_PIDS_DIR.mkdir(parents=True, exist_ok=True)
+        backend_agy._pid_path(AGENT).write_text("5555")
+        backend_agy.soft_reap(AGENT)
+        assert terminate_calls == []
+        # pid untouched in dry-run
+        assert backend_agy._pid_path(AGENT).exists()
+
+    def test_pid_unlink_oserror_logs_and_does_not_raise(
+        self, monkeypatch, caplog,
+    ):
+        monkeypatch.setattr(backend_agy, "_is_agy_pid_alive", lambda p: False)
+        backend_agy.AGY_PIDS_DIR.mkdir(parents=True, exist_ok=True)
+        backend_agy._pid_path(AGENT).write_text("9999")
+
+        orig_unlink = Path.unlink
+
+        def _fail_unlink(self, *a, **k):
+            if self == backend_agy._pid_path(AGENT):
+                raise OSError("permission denied")
+            return orig_unlink(self, *a, **k)
+
+        monkeypatch.setattr(Path, "unlink", _fail_unlink)
+        with caplog.at_level(logging.WARNING):
+            backend_agy.soft_reap(AGENT)
+        assert any("failed to delete pid file" in r.message for r in caplog.records)
+
+
 # ===========================================================================
 # AGENTS.md compile
 # ===========================================================================

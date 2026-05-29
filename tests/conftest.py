@@ -45,6 +45,7 @@ def _block_external_calls(request, tmp_path):
         patch("engine.fsm.send_to_agent", return_value=True),
         patch("engine.reviewer._reset_reviewers", return_value=[]),
         patch("engine.reviewer._reset_short_context_reviewers"),
+        patch("engine.backend.soft_reap"),
         patch("watchdog._start_cc"),
         patch("watchdog._start_code_test"),
         patch("watchdog._start_cc_test_fix"),

@@ -744,6 +744,84 @@ class TestFallback:
         mock_gm_ping.assert_called_once()
 
 
+class TestAgyFallback:
+    @pytest.fixture(autouse=True)
+    def _agy_default(self, monkeypatch):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "agy")
+        monkeypatch.setattr(config, "AGENT_BACKEND_OVERRIDE", {})
+
+    def test_resolve_backend_cache_hit_returns_pi(self, monkeypatch):
+        with patch("engine.agy_quota.resolve_fallback", return_value="pi"):
+            assert backend.resolve_backend("a1") == "pi"
+
+    def test_resolve_backend_cache_miss_returns_agy(self, monkeypatch):
+        with patch("engine.agy_quota.resolve_fallback", return_value=""):
+            assert backend.resolve_backend("a1") == "agy"
+
+    def test_send_should_fallback_active_routes_to_pi(self, monkeypatch):
+        sent = SendResult.OK
+        with patch("engine.agy_quota.resolve_fallback", return_value=""), \
+             patch("engine.agy_quota.should_fallback", return_value=(True, "pi", True)) as mock_sf, \
+             patch("engine.backend_pi.send", return_value=sent) as mock_pi, \
+             patch("engine.backend_agy.send") as mock_agy:
+            result = backend.send("a1", "msg", 30)
+        assert result is sent
+        mock_sf.assert_called_once_with("a1")
+        mock_pi.assert_called_once()
+        mock_agy.assert_not_called()
+
+    def test_send_should_fallback_inactive_routes_to_agy(self, monkeypatch):
+        sent = SendResult.OK
+        with patch("engine.agy_quota.resolve_fallback", return_value=""), \
+             patch("engine.agy_quota.should_fallback", return_value=(False, "", False)), \
+             patch("engine.backend_pi.send") as mock_pi, \
+             patch("engine.backend_agy.send", return_value=sent) as mock_agy:
+            backend.send("a1", "msg", 30)
+        mock_agy.assert_called_once()
+        mock_pi.assert_not_called()
+
+    def test_send_cache_active_skips_should_fallback(self, monkeypatch):
+        sent = SendResult.OK
+        with patch("engine.agy_quota.resolve_fallback", return_value="pi"), \
+             patch("engine.agy_quota.should_fallback") as mock_sf, \
+             patch("engine.backend_pi.send", return_value=sent) as mock_pi:
+            backend.send("a1", "msg", 30)
+        mock_sf.assert_not_called()
+        mock_pi.assert_called_once()
+
+    def test_is_inactive_routes_to_pi_on_cache_active(self, monkeypatch):
+        with patch("engine.agy_quota.resolve_fallback", return_value="pi"), \
+             patch("engine.backend_pi.is_inactive", return_value=True) as mock_pi_ina, \
+             patch("engine.backend_agy.is_inactive") as mock_agy_ina:
+            assert backend.is_inactive("a1") is True
+        mock_pi_ina.assert_called_once()
+        mock_agy_ina.assert_not_called()
+
+    def test_reset_session_routes_to_both_on_cache_active(self, monkeypatch):
+        with patch("engine.agy_quota.resolve_fallback", return_value="pi"), \
+             patch("engine.backend_pi.reset_session") as mock_pi_reset, \
+             patch("engine.backend_agy.reset_session") as mock_agy_reset:
+            backend.reset_session("a1")
+        mock_pi_reset.assert_called_once_with("a1")
+        mock_agy_reset.assert_called_once_with("a1")
+
+    def test_reset_session_cache_inactive_resets_agy_only(self, monkeypatch):
+        with patch("engine.agy_quota.resolve_fallback", return_value=""), \
+             patch("engine.backend_pi.reset_session") as mock_pi_reset, \
+             patch("engine.backend_agy.reset_session") as mock_agy_reset:
+            backend.reset_session("a1")
+        mock_agy_reset.assert_called_once_with("a1")
+        mock_pi_reset.assert_not_called()
+
+    def test_ping_routes_to_pi_on_cache_active(self, monkeypatch):
+        with patch("engine.agy_quota.resolve_fallback", return_value="pi"), \
+             patch("engine.backend_pi.ping", return_value=True) as mock_pi_ping, \
+             patch("engine.backend_agy.ping") as mock_agy_ping:
+            assert backend.ping("a1", 5) is True
+        mock_pi_ping.assert_called_once()
+        mock_agy_ping.assert_not_called()
+
+
 # ===========================================================================
 # Mixed backend reset (per-agent branching)
 # ===========================================================================

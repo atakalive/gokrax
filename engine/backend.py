@@ -36,6 +36,11 @@ def resolve_backend(agent_id: str, *, ignore_fallback: bool = False) -> str:
         fb = resolve_fallback(agent_id)
         if fb in SUPPORTED_BACKENDS and fb != "gemini":
             return fb
+    if not ignore_fallback and backend == "agy":
+        from engine.agy_quota import resolve_fallback
+        fb = resolve_fallback(agent_id)
+        if fb in SUPPORTED_BACKENDS and fb != "agy":
+            return fb
     return backend
 
 
@@ -61,6 +66,11 @@ def send(agent_id: str, message: str, timeout: int) -> SendResult:
         from engine.gemini_quota import should_fallback
         active, fallback_to, _new_period = should_fallback(agent_id)
         if active and fallback_to in SUPPORTED_BACKENDS and fallback_to != "gemini":
+            backend = fallback_to
+    if backend == "agy":
+        from engine.agy_quota import should_fallback as agy_should_fallback
+        active, fallback_to, _new_period = agy_should_fallback(agent_id)
+        if active and fallback_to in SUPPORTED_BACKENDS and fallback_to != "agy":
             backend = fallback_to
     if backend == "pi":
         from engine.backend_pi import send as pi_send
@@ -194,3 +204,18 @@ def reset_session(agent_id: str) -> None:
             elif fb == "cc":
                 from engine.backend_cc import reset_session as cc_reset
                 cc_reset(agent_id)
+
+    if configured == "agy":
+        from engine.agy_quota import resolve_fallback as agy_resolve_fallback
+        fb = agy_resolve_fallback(agent_id)
+        if fb in SUPPORTED_BACKENDS and fb != configured:
+            if fb == "pi":
+                from engine.backend_pi import reset_session as pi_reset
+                pi_reset(agent_id)
+            elif fb == "cc":
+                from engine.backend_cc import reset_session as cc_reset
+                cc_reset(agent_id)
+            elif fb == "kimi":
+                from engine.backend_kimi import reset_session as km_reset
+                km_reset(agent_id)
+            # openclaw: no-op (session reset via /new)

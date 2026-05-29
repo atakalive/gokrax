@@ -27,6 +27,8 @@ __all__ = [
     "KIMI_AGENT_CONFIG",
     "AGY_PIDS_DIR",
     "AGY_AGENT_CONFIG",
+    "AGY_OAUTH_TOKEN",
+    "AGY_QUOTA_CACHE_DIR",
     "PI_AUTH_FILE",
     "CODEX_AUTH_FILE",
     "OPENAI_CODEX_QUOTA_CACHE_DIR",
@@ -80,6 +82,8 @@ KIMI_AGENT_CONFIG = AGENT_PROFILES_DIR / "config_kimi.json"
 # agy (antigravity-cli) backend pids / per-agent config
 AGY_PIDS_DIR = _PROJECT_ROOT / ".agy-pids"
 AGY_AGENT_CONFIG = AGENT_PROFILES_DIR / "config_agy.json"
+AGY_OAUTH_TOKEN = Path.home() / ".gemini" / "antigravity-cli" / "antigravity-oauth-token"
+AGY_QUOTA_CACHE_DIR = Path.home() / ".gokrax" / "quota-cache-agy"
 
 # gemini OAuth / settings / quota cache
 GEMINI_OAUTH_CREDS = Path.home() / ".gemini" / "oauth_creds.json"

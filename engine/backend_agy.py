@@ -18,12 +18,8 @@ agy characteristics:
 Liveness invariant:
     pid file exists, /proc/<pid> exists, and cmdline contains "agy".
 
-Note (quota): agy quota is exposed only via gRPC
-``/google.gca.aicode.v1main.PredictionService/FetchQuotaStatus`` (per the
-binary's embedded strings). The interactive ``/usage`` / ``/stats`` slash
-commands don't work in ``-p`` mode and no cache file exists. v1 of this
-backend does not implement quota fetch; revisit if/when a stable mechanism
-becomes available.
+Note (quota): agy quota is fetched via proactive REST
+(cloudcode-pa.googleapis.com :fetchAvailableModels). See engine/agy_quota.py.
 """
 
 from __future__ import annotations

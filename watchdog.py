@@ -1430,7 +1430,10 @@ def _handle_qrun(msg_id: str):
                 from config import QUEUE_WAIT_FILE
                 QUEUE_WAIT_FILE.unlink(missing_ok=True)
                 restore_queue_entry(QUEUE_FILE, entry["original_line"])
-                post_discord(DISCORD_CHANNEL, f"qrun: wait failed, entry restored: {e}")
+                try:
+                    post_discord(DISCORD_CHANNEL, f"qrun: wait failed, entry restored: {e}")
+                except Exception:
+                    pass
                 log(f"[qrun] wait failed: {e} (msg_id={msg_id})")
             return
 

@@ -41,6 +41,11 @@ def resolve_backend(agent_id: str, *, ignore_fallback: bool = False) -> str:
         fb = resolve_fallback(agent_id)
         if fb in SUPPORTED_BACKENDS and fb != "agy":
             return fb
+    if not ignore_fallback and backend == "kimi":
+        from engine.kimi_quota import resolve_fallback
+        fb = resolve_fallback(agent_id)
+        if fb in SUPPORTED_BACKENDS and fb != "kimi":
+            return fb
     return backend
 
 
@@ -72,6 +77,16 @@ def send(agent_id: str, message: str, timeout: int) -> SendResult:
         active, fallback_to, _new_period = agy_should_fallback(agent_id)
         if active and fallback_to in SUPPORTED_BACKENDS and fallback_to != "agy":
             backend = fallback_to
+    if backend == "kimi":
+        # Guard: only evaluate kimi quota fallback when kimi IS the agent's
+        # configured backend. When kimi is itself a fallback target (e.g. agy→kimi),
+        # skip — prevents transitive fallback (agy→kimi→pi) and state view
+        # inconsistency between send() and resolve_backend/ping/reset_session.
+        if resolve_backend(agent_id, ignore_fallback=True) == "kimi":
+            from engine.kimi_quota import should_fallback as kimi_should_fallback
+            active, fallback_to, _new_period = kimi_should_fallback(agent_id)
+            if active and fallback_to in SUPPORTED_BACKENDS and fallback_to != "kimi":
+                backend = fallback_to
     if backend == "pi":
         from engine.backend_pi import send as pi_send
         return pi_send(agent_id, message, timeout)
@@ -218,4 +233,16 @@ def reset_session(agent_id: str) -> None:
             elif fb == "kimi":
                 from engine.backend_kimi import reset_session as km_reset
                 km_reset(agent_id)
+            # openclaw: no-op (session reset via /new)
+
+    if configured == "kimi":
+        from engine.kimi_quota import resolve_fallback as kimi_resolve_fallback
+        fb = kimi_resolve_fallback(agent_id)
+        if fb in SUPPORTED_BACKENDS and fb != configured:
+            if fb == "pi":
+                from engine.backend_pi import reset_session as pi_reset
+                pi_reset(agent_id)
+            elif fb == "cc":
+                from engine.backend_cc import reset_session as cc_reset
+                cc_reset(agent_id)
             # openclaw: no-op (session reset via /new)

@@ -1881,6 +1881,9 @@ def main():
     from engine.agy_quota import validate_fallback_config as validate_agy_fallback
     for warn in validate_agy_fallback():
         _log(warn)
+    from engine.kimi_quota import validate_fallback_config as validate_kimi_fallback
+    for warn in validate_kimi_fallback():
+        _log(warn)
 
     # Check Discord commands BEFORE pipeline processing
     # Works even if PIPELINES_DIR doesn't exist

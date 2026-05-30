@@ -1,7 +1,10 @@
 {
   "_comment": {
     "model": "Kimi model key (provider/model format, as defined in ~/.kimi/config.toml [models] section)",
-    "compile-startup-md": "If true, compile IDENTITY.md + INSTRUCTION.md + MEMORY.md into KIMI.md"
+    "compile-startup-md": "If true, compile IDENTITY.md + INSTRUCTION.md + MEMORY.md into KIMI.md",
+    "fallback": "If true, enable quota-based fallback to fallback_backend when usage exceeds usage_threshold",
+    "fallback_backend": "Backend to fall back to: pi, cc, or openclaw. Quota-aware backends (gemini/agy) are excluded to prevent transitive fallback chains",
+    "usage_threshold": "Usage percentage (0-100) at which to trigger fallback (default: 95)"
   },
   "example_reviewer": {
     "model": "kimi-code/kimi-for-coding",

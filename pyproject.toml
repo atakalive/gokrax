@@ -1,0 +1,22 @@
+[tool.ruff]
+target-version = "py311"        # match documented minimum: README.md:68 "Python: 3.11 or higher"
+force-exclude = true            # honor excludes even when files are passed explicitly (e.g. `*.py`)
+extend-exclude = ["./settings.py"]  # user-private, .gitignore'd machine config — root-only (not recursive)
+
+[tool.ruff.lint]
+# Pin the default rule set explicitly so a future ruff major version cannot
+# silently add or remove rules.
+select = ["E4", "E7", "E9", "F"]
+
+# Intentional project layout — not a defect:
+#   E402 import-not-at-top (sys.path.insert in tests, deferred imports in gokrax.py/pipeline_io.py)
+#   Production E402 occurrences (5 total) are all intentional deferred imports in gokrax.py (4)
+#   and pipeline_io.py (1).
+ignore = ["E402"]
+
+[tool.ruff.lint.per-file-ignores]
+# Test scaffolding: unused imports/vars and intentional inline style are low-value noise.
+# F601/F811 stay flagged (real bugs / real shadowing).
+"tests/**" = ["F401", "F841", "E401", "E701", "E702"]
+# Package re-export hubs and the dynamic `from settings import *` loader (config/__init__.py).
+"**/__init__.py" = ["F401", "F403", "F405"]

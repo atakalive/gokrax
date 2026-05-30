@@ -283,3 +283,110 @@ class TestNudgeTemplate:
         assert "REFRESH" in out
         assert "GUIDE" in out
         assert "Anonymous review" in out
+
+
+# ===========================================================================
+# watchdog nudge wiring: refresher/phase/guidance reach send_to_agent_queued
+# ===========================================================================
+
+class TestWatchdogNudgeWiring:
+    """Verify watchdog's nudge loop passes refresher, phase_note, guidance,
+    and anonymity to the message delivered via send_to_agent_queued.
+    Covers DESIGN_REVIEW and CODE_REVIEW to guard the is_code branch."""
+
+    @staticmethod
+    def _make_pipeline(tmp_path, state: str, reviewer: str,
+                       repo_path: str = "", base_commit: str = "") -> Path:
+        import json
+        from datetime import datetime, timedelta, timezone
+        from config import NUDGE_GRACE_SEC
+
+        entered_at = (datetime.now(timezone.utc) - timedelta(seconds=NUDGE_GRACE_SEC + 60)).isoformat()
+        review_key = "design_reviews" if "DESIGN" in state else "code_reviews"
+        other_key = "code_reviews" if "DESIGN" in state else "design_reviews"
+        batch = [{
+            "issue": 42,
+            "title": "Test",
+            review_key: {},
+            other_key: {},
+        }]
+        data = {
+            "project": "test-pj",
+            "state": state,
+            "enabled": True,
+            "review_mode": "min",
+            "batch": batch,
+            "implementer": "implementer1",
+            "history": [{"from": "PREV", "to": state, "at": entered_at, "actor": "watchdog"}],
+            "created_at": "2025-01-01T00:00:00+09:00",
+            "updated_at": "2025-01-01T00:00:00+09:00",
+        }
+        if repo_path:
+            data["repo_path"] = repo_path
+        if base_commit:
+            data["base_commit"] = base_commit
+        path = tmp_path / "test-pj.json"
+        path.write_text(json.dumps(data))
+        return path
+
+    def test_design_review_nudge_contains_refresher_and_instructions(
+        self, tmp_path, monkeypatch,
+    ):
+        import config
+        import pipeline_io
+        from unittest.mock import patch
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        path = self._make_pipeline(tmp_path, "DESIGN_REVIEW", "reviewer1")
+
+        from watchdog import process
+        sent_msgs: list[str] = []
+        def capture_send(agent_id, msg, timeout=30):
+            sent_msgs.append(msg)
+            return True
+
+        with patch("watchdog.send_to_agent_queued", side_effect=capture_send), \
+             patch("watchdog._is_agent_inactive", return_value=True), \
+             patch("watchdog.notify_discord"):
+            process(path)
+
+        assert len(sent_msgs) == 1, f"Expected 1 nudge, got {len(sent_msgs)}"
+        msg = sent_msgs[0]
+        assert "glab issue view 42" in msg, "refresher: glab issue view"
+        assert "get-comments" in msg, "refresher: get-comments"
+        assert "Anonymous review" in msg, "anonymity constraint"
+        assert "DESIGN_REVIEW" in msg or "設計レビュー" in msg or "design review" in msg.lower(), "phase note"
+
+    def test_code_review_nudge_contains_diff_refresher(
+        self, tmp_path, monkeypatch,
+    ):
+        import config
+        import pipeline_io
+        from unittest.mock import patch
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+
+        path = self._make_pipeline(
+            tmp_path, "CODE_REVIEW", "reviewer1",
+            repo_path="/tmp/repo", base_commit="abc123",
+        )
+
+        from watchdog import process
+        sent_msgs: list[str] = []
+        def capture_send(agent_id, msg, timeout=30):
+            sent_msgs.append(msg)
+            return True
+
+        with patch("watchdog.send_to_agent_queued", side_effect=capture_send), \
+             patch("watchdog._is_agent_inactive", return_value=True), \
+             patch("watchdog.notify_discord"):
+            process(path)
+
+        assert len(sent_msgs) == 1, f"Expected 1 nudge, got {len(sent_msgs)}"
+        msg = sent_msgs[0]
+        assert "glab issue view 42" in msg, "refresher: glab issue view"
+        assert "get-comments" in msg, "refresher: get-comments"
+        assert "git -C /tmp/repo diff abc123..HEAD" in msg, "refresher: git diff"
+        assert "git -C /tmp/repo log --oneline abc123..HEAD" in msg, "refresher: git log"
+        assert "Anonymous review" in msg, "anonymity constraint"

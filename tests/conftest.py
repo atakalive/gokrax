@@ -192,7 +192,11 @@ def _override_config_names(monkeypatch):
     for attr, val in _config_overrides.items():
         if hasattr(config, attr):
             monkeypatch.setattr(config, attr, val)
-    # Patch modules that import these at module level
+    # Patch modules that bind these config values at import time
+    # (`from config import REVIEWERS/REVIEW_MODES/...`). If you add such a
+    # module, add it here too, or its binding won't see these overrides
+    # (see CLAUDE.md "Testing Rules"). spec_review / engine.fsm_spec are
+    # listed for exactly this reason.
     for mod_name in ("notify", "engine.reviewer", "engine.fsm", "engine.fsm_spec",
                       "spec_review", "task_queue",
                       "commands.dev", "commands.dev.lifecycle", "commands.dev.review",

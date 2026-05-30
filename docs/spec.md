@@ -529,6 +529,14 @@ This is the highest priority rule. Tests must never touch the production watchdo
 | `time.sleep` | mocked | Prevent cumulative test timeout |
 | `config.PIPELINES_DIR` | monkeypatched to `tmp_path` | Do not touch production pipeline JSON |
 | `config.LOG_FILE` / `watchdog.LOG_FILE` | redirected to `tmp_path` | Do not pollute production logs |
+| `config` (entire `settings.py`) | `GOKRAX_SETTINGS` → `tests/hermetic_settings.py` (set in conftest before config import) | Tests never read the developer's local `settings.py` |
+
+#### Hermetic Test Config
+
+- The suite loads the committed `tests/hermetic_settings.py` instead of the developer's local `settings.py`: `tests/conftest.py` sets `GOKRAX_SETTINGS` to it before `config` is first imported. Test pass/fail must never depend on a personal `settings.py`.
+- `tests/hermetic_settings.py` is the single source of truth for the `TEST_*` constants (`REVIEWERS`, `REVIEW_MODES`, `GITLAB_NAMESPACE`, …) that `conftest.py` imports. Pin any config value a test needs there — do not rely on config defaults or your local settings.
+- The test contract is English (`PROMPT_LANG="en"`); assert the English text production emits. Do not hardcode Japanese prompt/notification strings, real `GOKRAX_CLI` paths, Discord IDs, or real agent names in tests.
+- If a module binds config values at import (`from config import REVIEWERS/REVIEW_MODES/...`), add it to the module re-patch loop in `conftest.py`'s `_override_config_names`, or its binding won't see the test overrides.
 
 #### When Adding New External Side Effects
 
@@ -541,6 +549,7 @@ This is the highest priority rule. Tests must never touch the production watchdo
 - To verify sleep behavior, use `patch("time.sleep") as mock_sleep` and assert call count/arguments
 - Do not execute external communication (Discord, agent sending) in tests. Mocked in conftest via `_block_external_calls`
 - Do not execute `_reset_reviewers` / `_reset_short_context_reviewers` in tests. Mocked in conftest
+- Do not depend on the developer's `settings.py` or assert Japanese output; the suite is hermetic (`tests/hermetic_settings.py`, `PROMPT_LANG="en"`)
 
 ## 11. Prohibited Actions
 

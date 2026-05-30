@@ -529,6 +529,14 @@ spec_config の詳細は `docs/spec_mode_spec.md` を参照。
 | `time.sleep` | mock 化 | テスト累積タイムアウト防止 |
 | `config.PIPELINES_DIR` | `tmp_path` に monkeypatch | 本番の pipeline JSON に触れない |
 | `config.LOG_FILE` / `watchdog.LOG_FILE` | `tmp_path` にリダイレクト | 本番ログを汚さない |
+| `config` (`settings.py` 全体) | `GOKRAX_SETTINGS` → `tests/hermetic_settings.py`（config の最初の import 前に conftest で設定） | テストは開発者ローカルの `settings.py` を読まない |
+
+#### hermetic なテスト設定
+
+- スイートは開発者ローカルの `settings.py` ではなくコミット済みの `tests/hermetic_settings.py` を読む。`tests/conftest.py` が config の最初の import 前に `GOKRAX_SETTINGS` をそこに向ける。テストの pass/fail が個人の `settings.py` に依存してはならない。
+- `tests/hermetic_settings.py` は `conftest.py` が import する `TEST_*` 定数（`REVIEWERS`, `REVIEW_MODES`, `GITLAB_NAMESPACE`, …）の単一ソース。テストが必要とする config 値はそこに固定する。config デフォルトやローカル設定に依存しない。
+- テスト契約は英語（`PROMPT_LANG="en"`）。本番が出力する英語文字列を assert する。日本語のプロンプト/通知文字列、実 `GOKRAX_CLI` パス、Discord ID、実エージェント名をテストに直書きしない。
+- モジュールが import 時に config 値をバインドする場合（`from config import REVIEWERS/REVIEW_MODES/...`）、`conftest.py` の `_override_config_names` の再パッチループに追加する。さもないとそのバインディングにテストの上書きが届かない。
 
 #### 新しい外部副作用を追加するとき
 
@@ -541,6 +549,7 @@ spec_config の詳細は `docs/spec_mode_spec.md` を参照。
 - sleep の動作を検証したい場合は `patch("time.sleep") as mock_sleep` で呼び出し回数・引数を assert する
 - 外部通信 (Discord, agent 送信) はテストで実行するな。conftest の `_block_external_calls` でモック済み
 - `_reset_reviewers` / `_reset_short_context_reviewers` はテストで実行するな。conftest でモック済み
+- 開発者の `settings.py` に依存したり日本語出力を assert するな。スイートは hermetic（`tests/hermetic_settings.py`, `PROMPT_LANG="en"`）
 
 ## 11. 禁止事項
 

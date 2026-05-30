@@ -17,7 +17,7 @@ COMMAND_BOT_USER_ID = ""        # If you send commands via 3rd-party Discord too
 GITLAB_NAMESPACE: str = "YOUR_NAMESPACE"           # i.e., YOUR_NAMESPACE of gitlab.com/YOUR_NAMESPACE/ProjectName/
 GOKRAX_CLI = Path.home() / ".local/bin/gokrax"     # must be symbolic link to gokrax.py
 
-DEFAULT_AGENT_BACKEND = "pi"    # one of: "openclaw", "pi", "cc", "gemini", "kimi", "agy"
+DEFAULT_AGENT_BACKEND = "openclaw"    # one of: "openclaw", "pi", "cc", "gemini", "kimi", "agy"
 AGENT_BACKEND_OVERRIDE = {}     # per-agent override, e.g. {"impl1": "openclaw", "reviewer1": "cc", "reviewer2": "kimi", "reviewer3": "agy"}
 
 # openclaw settings (if using openclaw backend)

@@ -3,6 +3,7 @@
 import json
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -17,6 +18,15 @@ def write_pipeline(path: Path, data: dict):
 
 
 class TestTriageMultiIssue:
+
+    @pytest.fixture(autouse=True)
+    def _mock_fetch_issue_info(self):
+        # cmd_triage now fetches each issue's title+state from GitLab (Phase 1).
+        # Mock it (the conftest guard blocks real glab) so these tests exercise
+        # only the batch-add logic. ("", "opened") => issues survive the
+        # closed-filter and the arg-supplied / padded-empty titles are kept.
+        with patch("commands.dev._fetch_issue_info", return_value=("", "opened")):
+            yield
 
     def test_multiple_issues_added(self, tmp_pipelines, sample_pipeline):
         """複数Issue一括投入 → 全件バッチに追加されること"""
@@ -81,11 +91,11 @@ class TestTriageMultiIssue:
         write_pipeline(path, sample_pipeline)
         from gokrax import cmd_triage
         import argparse
-        args = argparse.Namespace(project="test-pj", issue=[1, 2, 3], title=["機能A"])
+        args = argparse.Namespace(project="test-pj", issue=[1, 2, 3], title=["FeatureA"])
         cmd_triage(args)
         with open(path) as f:
             data = json.load(f)
-        assert data["batch"][0]["title"] == "機能A"
+        assert data["batch"][0]["title"] == "FeatureA"
         assert data["batch"][1]["title"] == ""
         assert data["batch"][2]["title"] == ""
 

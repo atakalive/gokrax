@@ -218,6 +218,7 @@ class TestDevbarCLIIntegration:
 
         r = self._run("review", "--project", "test-pj", "--issue", "10",
                        "--reviewer", _real_reviewer, "--verdict", "APPROVE", "--summary", "LGTM",
+                       "--phase", "design",
                        pipelines_dir=tmp_pipelines)
         assert r.returncode == 0
         with open(path) as f:

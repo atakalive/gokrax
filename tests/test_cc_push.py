@@ -248,7 +248,9 @@ class TestTitleUpdateNonZeroExitContinues:
             stdout=json.dumps({"title": "Title2"}),
             stderr="",
         )
-        update_fail = _fail(stderr="permission denied")
+        # Use a permanent error ("403 forbidden") so run_glab does not retry the
+        # failed update; issue #1 fails once, issue #2 then succeeds => 2 calls.
+        update_fail = _fail(stderr="403 forbidden")
         update_ok = _ok()
 
         view_results = [view_ok_1, view_ok_2]

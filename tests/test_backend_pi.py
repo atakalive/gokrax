@@ -478,7 +478,9 @@ class TestIsInactive:
         assert result is False
 
     def test_returns_true_when_mtime_stale(self, tmp_sessions, monkeypatch):
-        monkeypatch.setattr(config, "INACTIVE_THRESHOLD_SEC", 300)
+        # Patch the binding target: backend_pi does `from config import
+        # INACTIVE_THRESHOLD_SEC`, so patching config.* would not be seen here.
+        monkeypatch.setattr("engine.backend_pi.INACTIVE_THRESHOLD_SEC", 300)
         session_file = tmp_sessions / "reviewer1.jsonl"
         session_file.write_text("{}")
         import os

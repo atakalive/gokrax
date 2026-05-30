@@ -885,7 +885,9 @@ class TestIsInactive:
 
     def test_dead_pid_stale_mtime_returns_true(self, tmp_sessions, monkeypatch, tmp_path):
         """Dead PID + stale jsonl mtime => inactive."""
-        monkeypatch.setattr(config, "INACTIVE_THRESHOLD_SEC", 300)
+        # Patch the binding target: backend_cc does `from config import
+        # INACTIVE_THRESHOLD_SEC`, so patching config.* would not be seen here.
+        monkeypatch.setattr("engine.backend_cc.INACTIVE_THRESHOLD_SEC", 300)
         monkeypatch.setattr("engine.backend_cc.AGENT_PROFILES_DIR", tmp_path / "agents")
         d = tmp_sessions / "reviewer1"
         d.mkdir(parents=True)

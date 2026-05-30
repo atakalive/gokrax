@@ -88,7 +88,7 @@ def test_review_done_note_masked(tmp_pipelines, monkeypatch):
 
     monkeypatch.setattr("config.MASK_AGENT_NAMES", True)
     monkeypatch.setattr("config.REVIEWERS", ["alice"])
-    monkeypatch.setattr("commands.dev.REVIEWERS", ["alice"])
+    monkeypatch.setattr("commands.dev.review.REVIEWERS", ["alice"])
     monkeypatch.setattr("config.REVIEW_MODES", {
         "standard": {
             "members": ["alice"],
@@ -113,6 +113,7 @@ def test_review_done_note_masked(tmp_pipelines, monkeypatch):
         summary="LGTM",
         force=False,
         round=None,
+        phase="code",
     )
 
     mock_note = MagicMock(return_value=True)
@@ -138,7 +139,7 @@ def test_dispute_note_masked(tmp_pipelines, monkeypatch):
 
     monkeypatch.setattr("config.MASK_AGENT_NAMES", True)
     monkeypatch.setattr("config.REVIEWERS", ["alice"])
-    monkeypatch.setattr("commands.dev.REVIEWERS", ["alice"])
+    monkeypatch.setattr("commands.dev.review.REVIEWERS", ["alice"])
     monkeypatch.setattr("config.REVIEW_MODES", {
         "standard": {
             "members": ["alice"],
@@ -320,7 +321,7 @@ def test_review_done_note_round2(tmp_pipelines, monkeypatch):
 
     monkeypatch.setattr("config.MASK_AGENT_NAMES", True)
     monkeypatch.setattr("config.REVIEWERS", ["alice"])
-    monkeypatch.setattr("commands.dev.REVIEWERS", ["alice"])
+    monkeypatch.setattr("commands.dev.review.REVIEWERS", ["alice"])
     monkeypatch.setattr("config.REVIEW_MODES", {
         "standard": {
             "members": ["alice"],
@@ -345,6 +346,7 @@ def test_review_done_note_round2(tmp_pipelines, monkeypatch):
         summary="問題あり",
         force=False,
         round=None,
+        phase="code",
     )
 
     mock_note = MagicMock(return_value=True)
@@ -370,7 +372,7 @@ def test_review_done_note_npass(tmp_pipelines, monkeypatch):
 
     monkeypatch.setattr("config.MASK_AGENT_NAMES", True)
     monkeypatch.setattr("config.REVIEWERS", ["alice"])
-    monkeypatch.setattr("commands.dev.REVIEWERS", ["alice"])
+    monkeypatch.setattr("commands.dev.review.REVIEWERS", ["alice"])
     monkeypatch.setattr("config.REVIEW_MODES", {
         "standard": {
             "members": ["alice"],
@@ -397,6 +399,7 @@ def test_review_done_note_npass(tmp_pipelines, monkeypatch):
         summary="LGTM",
         force=True,
         round=None,
+        phase="code",
     )
 
     mock_note = MagicMock(return_value=True)

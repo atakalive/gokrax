@@ -6559,6 +6559,14 @@ class TestSoftReapBeforeRedispatch:
 class TestNudgeRateLimitThreshold:
     """DESIGN_PLAN 状態の催促レート制限に INACTIVE_THRESHOLD_PLAN_SEC を使うことを検証"""
 
+    @pytest.fixture(autouse=True)
+    def _pin_thresholds(self, monkeypatch):
+        # watchdog binds these via `from config import ...`; pin the bindings to
+        # fixed values so the cases below assert the threshold-selection logic
+        # (PLAN vs default) independently of the production threshold numbers.
+        monkeypatch.setattr("watchdog.INACTIVE_THRESHOLD_PLAN_SEC", 600)
+        monkeypatch.setattr("watchdog.INACTIVE_THRESHOLD_SEC", 303)
+
     def _make_pipeline(self, tmp_path, state: str, last_nudge_seconds_ago: int) -> Path:
         """テスト用パイプライン JSON を作成する。"""
         import json

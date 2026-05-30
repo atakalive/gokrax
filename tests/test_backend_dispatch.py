@@ -286,6 +286,9 @@ class TestBackendIsInactiveDispatch:
     def test_regression_openclaw_inactive_path_unchanged(self, monkeypatch, tmp_path):
         """Regression: openclaw inactivity check uses sessions.json as before."""
         monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "openclaw")
+        # Patch the binding target: engine.shared does `from config import
+        # INACTIVE_THRESHOLD_SEC`; the 600s-stale session must exceed it.
+        monkeypatch.setattr("engine.shared.INACTIVE_THRESHOLD_SEC", 300)
         import json
         from datetime import datetime
         sessions_dir = tmp_path / "reviewer1" / "sessions"

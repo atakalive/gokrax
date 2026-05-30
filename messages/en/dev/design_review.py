@@ -83,18 +83,29 @@ def nudge_review(
     project: str,
     issues_display: str,
     cmd_lines: str,
+    refresher_cmds: str = "",
+    phase_note: str = "",
+    guidance: str = "",
     **_kw,
 ) -> str:
     """Review reminder message (watchdog.py review reminder block).
 
     issues_display is pre-assembled by the caller (e.g. "#1, #2").
     """
-    return (
+    base = (
         f"[Remind] {project} review is incomplete. Target: {issues_display}\n"
         f"Submit review for each Issue with the following commands:\n"
         f"{cmd_lines}\n"
-        f"Note: Execute the command via the bash tool. Plain-text suggestions are not recorded and reminders will keep coming."
+        f"Note: Execute the command via the bash tool. Plain-text suggestions are not recorded and reminders will keep coming.\n"
+        f"\n⚠️ Anonymous review: do not include your name or agent name in --summary."
     )
+    if phase_note:
+        base += f"\n{phase_note}"
+    if guidance:
+        base += f"\n\n{guidance}"
+    if refresher_cmds:
+        base += f"\n\n[Context refresh — re-read if needed]\n{refresher_cmds}"
+    return base
 
 
 def notify_nudge_reviewers(project: str, reviewers: str, q_prefix: str = "", **_kw) -> str:

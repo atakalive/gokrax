@@ -284,7 +284,7 @@ IDLE -> INITIALIZE -> DESIGN_PLAN -> DESIGN_REVIEW -> DESIGN_APPROVED -> ASSESSM
 |------|---|------|
 | NUDGE_GRACE_SEC | 600 秒 | 遷移直後はこの期間催促しない |
 | EXTEND_NOTICE_THRESHOLD | 300 秒 | 残り時間がこの値未満で延長案内を催促に付加 |
-| INACTIVE_THRESHOLD_SEC | 603 秒 | 催促閾値: この秒数更新がなければ非アクティブ扱い。送信可否判定には使われない — 送信可否は live PID 所有権のみで判定する (#327) |
+| INACTIVE_THRESHOLD_SEC | 603 秒 | 催促閾値: この秒数更新がなければ非アクティブ扱い。agy バックエンドでは生存プロセスの活動ファイル (conversations/*.pb, pid ファイル, cli.log) がこの閾値以上 stale な場合ハングとみなし、次回 send 時に reap する（pid kill + pid ファイル削除、セッションは `-c` 継続のため保持）。terminate 失敗時は pid ファイルを保持し BUSY を返す（二重プロセス防止）。バックエンド別の非活動判定: pi はセッションファイル mtime; cc は PID+cmdline 所有権＋mtime フォールバック; gemini/kimi は PID+cmdline のみ; agy（本修正後）は PID 生存＋活動ファイル mtime staleness。**制限事項**: (1) cli.log への書き込みだけが続くハングは stale 検知をすり抜ける; (2) 正常プロセスが 603 秒超会話ターン未更新の場合は誤 reap されるが `-c` 継続によりデータ損失なし; (3) agy が .pb 未生成のままハングした場合、催促には refresher commands (glab issue view + gokrax get-comments)・phase 固有の注記・レビュー観点・匿名制約が含まれ固定指示は復元可能だが、初回配信固有の動的コンテキスト（前ラウンド指摘の構造化要約等）は失われる。 |
 | INACTIVE_THRESHOLD_PLAN_SEC | 900 秒 | DESIGN_PLAN での実装者催促間隔 |
 | BUSY_ESCALATION_SEC | 1800 秒 | spec mode: 30 分継続した `SendResult.BUSY` を 1 回の機械的失敗としてカウント (retry counter を 1 つ消費) |
 

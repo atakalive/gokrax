@@ -834,10 +834,40 @@ def process(path: Path):
                         review_command(pj, num, reviewer, round_num=round_num if round_num > 0 else None,
                                        phase="code" if is_code else "design") for num in normal_pending_issues
                     )
+
+                    # §3-6: refresher commands (same pattern as NPASS notify.py:325-341)
+                    gitlab_ref = pipeline_data.get("gitlab", "")
+                    gitlab_flag = f" -R {gitlab_ref}" if gitlab_ref else ""
+                    view_cmds = [f"`glab issue view {n}{gitlab_flag}`" for n in normal_pending_issues]
+                    note_cmds = [f"`{GOKRAX_CLI} get-comments --pj {pj} --issue {n}`" for n in normal_pending_issues]
+                    refresher_lines = (
+                        "Issue body: " + ", ".join(view_cmds) + "\n"
+                        "Previous comments: " + ", ".join(note_cmds)
+                    )
+                    if is_code:
+                        repo_path = pipeline_data.get("repo_path", "")
+                        base_commit = pipeline_data.get("base_commit", "")
+                        if repo_path and base_commit:
+                            refresher_lines += (
+                                f"\nDiff: `git -C {repo_path} diff {base_commit}..HEAD`"
+                                f"\nCommits: `git -C {repo_path} log --oneline {base_commit}..HEAD`"
+                            )
+
+                    # §3-6: phase-specific fixed instructions (reuse existing message funcs)
+                    from messages import render as _render_msg
+                    nudge_phase_note = "" if is_code else _render_msg("dev.design_review", "phase_note")
+                    nudge_guidance = _render_msg(
+                        "dev.code_review" if is_code else "dev.design_review",
+                        "guidance_code" if is_code else "guidance_design",
+                    )
+
                     msg_parts.append(render(review_module, "nudge_review",
                         project=pj,
                         issues_display=", ".join(f"#{n}" for n in normal_pending_issues),
                         cmd_lines=cmd_lines,
+                        refresher_cmds=refresher_lines,
+                        phase_note=nudge_phase_note,
+                        guidance=nudge_guidance,
                     ))
 
                 msg = "\n\n".join(msg_parts)

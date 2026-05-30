@@ -42,6 +42,7 @@ from config import (
     AGENT_PROFILES_DIR,
     AGY_AGENT_CONFIG,
     AGY_PIDS_DIR,
+    INACTIVE_THRESHOLD_SEC,
 )
 from engine.backend_types import SendResult
 
@@ -161,6 +162,36 @@ def _is_agy_pid_alive(pid: int) -> bool:
         if s == "agy" or s.endswith("/agy"):
             return True
     return False
+
+
+def _agy_last_activity(agent_id: str) -> float | None:
+    """Return the most recent mtime among agy activity files, or None.
+
+    Considers only files updated by the agent's own working session:
+      - newest ``conversations/*.pb`` mtime (updated on conversation turns)
+      - the pid file mtime (most recent spawn time; doubles as the
+        launch-grace floor so a freshly spawned process is never reaped
+        before its first ``.pb`` is written)
+      - ``cli.log`` mtime (fallback right after spawn before any ``.pb``)
+
+    Files updated by unrelated activity (last_check.timestamp, updater/,
+    cache/, brain/, settings.json) are intentionally excluded.
+    """
+    cli_dir = AGENT_PROFILES_DIR / agent_id / ".gemini" / "antigravity-cli"
+    candidates: list[Path] = []
+    conv_dir = cli_dir / "conversations"
+    if conv_dir.is_dir():
+        candidates.extend(conv_dir.glob("*.pb"))
+    candidates.append(_pid_path(agent_id))
+    candidates.append(cli_dir / "cli.log")
+
+    mtimes: list[float] = []
+    for path in candidates:
+        try:
+            mtimes.append(path.stat().st_mtime)
+        except (OSError, FileNotFoundError):
+            continue
+    return max(mtimes) if mtimes else None
 
 
 def _terminate_pid_tree(
@@ -633,12 +664,41 @@ def send(agent_id: str, message: str, timeout: int) -> SendResult:
         except (OSError, FileNotFoundError, ValueError):
             existing_pid = None
         if existing_pid is not None and _is_agy_pid_alive(existing_pid):
-            logger.info(
-                "agy send: live process %d still running for %s; "
-                "refusing to spawn",
+            la = _agy_last_activity(agent_id)
+            if la is not None and (time.time() - la) < INACTIVE_THRESHOLD_SEC:
+                logger.info(
+                    "agy send: live process %d still running for %s; "
+                    "refusing to spawn",
+                    existing_pid, agent_id,
+                )
+                return SendResult.BUSY          # active → keep #327 dual-spawn guard
+            # stale = hang: inline reap (do NOT call soft_reap → avoids flock
+            # self-deadlock from re-acquiring the held _per_agent_lock)
+            logger.warning(
+                "agy send: live process %d stale for %s; reaping",
                 existing_pid, agent_id,
             )
-            return SendResult.BUSY
+            if not _terminate_pid_tree(existing_pid, agent_id, proc=None):
+                logger.warning(
+                    "agy send: failed to terminate stale process %d for %s; "
+                    "keeping BUSY guard",
+                    existing_pid, agent_id,
+                )
+                return SendResult.BUSY          # terminate failed → keep pid (no dual spawn)
+            _pid_path(agent_id).unlink(missing_ok=True)
+            # has_session preserved → has_prev=True below keeps -c continuation
+            # Warn if no .pb (lost context observability)
+            conv_dir = (
+                AGENT_PROFILES_DIR / agent_id / ".gemini"
+                / "antigravity-cli" / "conversations"
+            )
+            if not (conv_dir.is_dir() and any(conv_dir.glob("*.pb"))):
+                logger.warning(
+                    "agy send: no .pb found after reap for %s; "
+                    "review context may be lost — nudge refresher commands "
+                    "will provide recovery",
+                    agent_id,
+                )
 
         _rebuild_agy_md(agent_id)
         if not _remove_stale_gemini_md(agent_id):
@@ -736,7 +796,12 @@ def is_inactive(agent_id: str, pipeline_data: dict | None = None,
     except (OSError, FileNotFoundError, ValueError):
         return True
 
-    return not _is_agy_pid_alive(pid)
+    if not _is_agy_pid_alive(pid):
+        return True                             # dead → inactive (legacy agy behavior)
+
+    # Alive: treat as inactive only if activity files are stale (hang detection)
+    la = _agy_last_activity(agent_id)
+    return la is None or (time.time() - la) >= INACTIVE_THRESHOLD_SEC
 
 
 def soft_reap(agent_id: str) -> None:

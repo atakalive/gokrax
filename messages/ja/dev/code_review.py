@@ -92,15 +92,26 @@ def nudge_review(
     project: str,
     issues_display: str,
     cmd_lines: str,
+    refresher_cmds: str = "",
+    phase_note: str = "",
+    guidance: str = "",
     **_kw,
 ) -> str:
     """通常レビュー催促メッセージ。"""
-    return (
+    base = (
         f"[Remind] {project} のレビューが未完了です。対象: {issues_display}\n"
         f"以下のコマンドで各 Issue のレビューを報告してください:\n"
         f"{cmd_lines}\n"
-        f"※ コマンドは bash ツールで実際に実行すること。テキスト応答・提示だけでは判定が記録されず催促が止まりません。"
+        f"※ コマンドは bash ツールで実際に実行すること。テキスト応答・提示だけでは判定が記録されず催促が止まりません。\n"
+        f"\n⚠️ Anonymous review: do not include your name or agent name in --summary."
     )
+    if phase_note:
+        base += f"\n{phase_note}"
+    if guidance:
+        base += f"\n\n{guidance}"
+    if refresher_cmds:
+        base += f"\n\n[Context refresh — re-read if needed]\n{refresher_cmds}"
+    return base
 
 
 def nudge_dispute(

@@ -535,7 +535,7 @@ class TestPromptGeneration:
             project="gokrax", spec_path="docs/spec.md",
             current_rev="1", GOKRAX_CLI=GOKRAX_CLI,
         )
-        assert "やりすぎレビュー" in prompt
+        assert "exhaustive review" in prompt
         assert "gokrax" in prompt
         assert "rev1" in prompt
 
@@ -555,7 +555,7 @@ class TestPromptGeneration:
             removed=str(last_changes.get("removed_lines", "?")),
             last_commit=sc.get("last_commit") or "unknown",
         )
-        assert "改訂版" in prompt
+        assert "revised version" in prompt
         assert "abc1234" in prompt
         assert "+50" in prompt
 
@@ -1724,7 +1724,7 @@ class TestSendFailureRollback:
         action = _check_spec_revise(sc, _now(), data)
         assert action.next_state == "SPEC_REVIEW"
         # reviewer_count in notification should be 1 (only pending reviewer2)
-        assert "(1人)" in action.discord_notify
+        assert "(1 reviewers)" in action.discord_notify
 
     # --- Test 16: A.1 clean resets counters ---
 

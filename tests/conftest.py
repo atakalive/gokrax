@@ -7,7 +7,20 @@ import pytest
 from pathlib import Path
 from unittest.mock import patch
 
-from notify import DiscordPostResult
+# --- Hermetic config -------------------------------------------------------
+# Load a committed test settings file instead of the developer's local,
+# .gitignore'd settings.py. This MUST run before `config` is first imported
+# (the `from notify import ...` below pulls in config transitively), so test
+# behavior never depends on a machine-specific settings.py.
+import importlib.util as _ilu  # noqa: E402
+
+_HERMETIC_SETTINGS = Path(__file__).resolve().parent / "hermetic_settings.py"
+_os.environ["GOKRAX_SETTINGS"] = str(_HERMETIC_SETTINGS)
+_spec = _ilu.spec_from_file_location("_hermetic_settings", _HERMETIC_SETTINGS)
+_hermetic_settings = _ilu.module_from_spec(_spec)
+_spec.loader.exec_module(_hermetic_settings)
+
+from notify import DiscordPostResult  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -147,32 +160,16 @@ def tmp_pipelines(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 # Test-only constants — use these instead of real agent/project names
 # ---------------------------------------------------------------------------
-TEST_REVIEWERS = ["reviewer1", "reviewer2", "reviewer3", "reviewer4", "reviewer5", "reviewer6"]
-TEST_IMPLEMENTERS = ["implementer1", "implementer2"]
+# Sourced from tests/hermetic_settings.py (the committed config the suite
+# loads) so these in-process overrides cannot drift from what config loads.
+TEST_REVIEWERS = _hermetic_settings.REVIEWERS[:]
+TEST_IMPLEMENTERS = _hermetic_settings.IMPLEMENTERS[:]
 TEST_PROJECTS = ["project1", "project2", "project3"]
-TEST_GITLAB_NS = "testns"
+TEST_GITLAB_NS = _hermetic_settings.GITLAB_NAMESPACE
 
 # Reviewer tiers / review modes using test-only names
-TEST_REVIEWER_TIERS = {
-    "regular": ["reviewer1", "reviewer3", "reviewer6"],
-    "free": [],
-    "short-context": ["reviewer2", "reviewer4", "reviewer5"],
-}
-TEST_REVIEW_MODES = {
-    "full": {
-        "members": ["reviewer1", "reviewer3", "reviewer5", "reviewer6"],
-        "min_reviews": 4,
-        "grace_period_sec": 0,
-        "code": {
-            "members": ["reviewer1", "reviewer3", "reviewer6"],
-        },
-    },
-    "standard": {"members": ["reviewer1", "reviewer3", "reviewer6"], "min_reviews": 3, "grace_period_sec": 0},
-    "lite": {"members": ["reviewer1", "reviewer3"], "min_reviews": 2, "grace_period_sec": 0},
-    "min": {"members": ["reviewer1"], "min_reviews": 1, "grace_period_sec": 0},
-    "skip": {"members": [], "min_reviews": 0, "grace_period_sec": 0},
-    "no_minrev": {"members": ["reviewer1", "reviewer3"], "grace_period_sec": 0},
-}
+TEST_REVIEWER_TIERS = _hermetic_settings.REVIEWER_TIERS
+TEST_REVIEW_MODES = _hermetic_settings.REVIEW_MODES
 # AGENTS maps all known agents (reviewers + implementers).
 TEST_AGENTS = {name: f"agent:{name}:main" for name in TEST_REVIEWERS + TEST_IMPLEMENTERS}
 
@@ -196,7 +193,8 @@ def _override_config_names(monkeypatch):
         if hasattr(config, attr):
             monkeypatch.setattr(config, attr, val)
     # Patch modules that import these at module level
-    for mod_name in ("notify", "engine.reviewer", "engine.fsm", "task_queue",
+    for mod_name in ("notify", "engine.reviewer", "engine.fsm", "engine.fsm_spec",
+                      "spec_review", "task_queue",
                       "commands.dev", "commands.dev.lifecycle", "commands.dev.review",
                       "commands.dev.queue", "commands.spec", "watchdog", "gokrax"):
         try:

@@ -145,9 +145,9 @@ def _old_build_spec_review_nudge_msg(
 def _old_build_spec_revise_nudge_msg(project: str, current_rev: str) -> str:
     """旧 watchdog._build_spec_revise_nudge_msg のコピー。"""
     return (
-        f"[Remind] {project} spec rev{current_rev} のリバイス作業が未完了です。\n"
-        f"レビュー指摘を反映し、以下のコマンドで完了報告してください:\n"
-        f"{GOKRAX_CLI} spec revise-submit --pj {project} --file <完了報告YAMLファイルパス>"
+        f"[Remind] {project} spec rev{current_rev} revision is incomplete.\n"
+        f"Reflect review findings and submit the completion report with the following command:\n"
+        f"{GOKRAX_CLI} spec revise-submit --pj {project} --file <completion report YAML file path>"
     )
 
 
@@ -250,8 +250,8 @@ class TestBuildSpecReviewPromptRevisionParity:
             last_commit="unknown",
         )
         assert "変更履歴なし" in result
-        assert "+?行" in result
-        assert "-?行" in result
+        assert "+? lines" in result
+        assert "-? lines" in result
         assert "unknown" in result
 
 
@@ -400,7 +400,7 @@ class TestBuildSelfReviewPromptParity:
             example_items.append(
                 f'  - id: "{item["id"]}"\n'
                 f'    result: "Yes"\n'
-                f'    evidence: "（確認内容を記述）"'
+                f'    evidence: "(describe verification details)"'
             )
         example_yaml = "checklist:\n" + "\n".join(example_items)
         return checklist_text, example_yaml

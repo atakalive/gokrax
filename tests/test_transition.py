@@ -230,7 +230,7 @@ class TestTransitionNotifications:
         mock_impl.assert_called_once()
         call_msg = mock_impl.call_args[0][1]
         assert "(resumed)" in call_msg
-        assert "設計確認フェーズ" in call_msg
+        assert "design plan phase" in call_msg
 
     def test_resume_skips_validation(self, tmp_pipelines, sample_pipeline):
         """--resume は --force と同様にバリデーションをスキップする"""

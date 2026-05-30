@@ -212,7 +212,7 @@ class TestFormatReviewRequest:
                 batch=batch, gitlab="testns/test-pj", reviewer="reviewer1",
             )
         assert str(config.GOKRAX_CLI) in result
-        assert "/home/ataka/.openclaw/shared/bin/gokrax" in result
+        assert "/usr/local/bin/gokrax" in result
 
     def test_command_contains_reviewer_name(self):
         """format_review_request() のコマンドに reviewer 名が含まれること。"""
@@ -475,7 +475,7 @@ class TestFormatReviewRequestEmbedded:
                 "proj", "DESIGN_REVIEW", batch, "testns/proj", "reviewer1"
             )
         assert "Issue body content" in result
-        assert "**Issue本文:**" in result
+        assert "**Issue body:**" in result
 
     def test_embeds_commit_diff(self):
         import notify
@@ -487,7 +487,7 @@ class TestFormatReviewRequestEmbedded:
                     repo_path="/repo"
                 )
         assert "diff content" in result
-        assert "**変更内容 (commit abc123):**" in result
+        assert "**Changes (commit abc123):**" in result
 
     def test_fallback_on_fetch_failure(self):
         import notify
@@ -497,7 +497,7 @@ class TestFormatReviewRequestEmbedded:
                 "proj", "DESIGN_REVIEW", batch, "testns/proj", "reviewer1"
             )
         assert "glab issue show 30" in result
-        assert "Issue詳細:" in result
+        assert "Issue details:" in result
 
     def test_guidance_has_scope_constraint_for_code_review(self):
         import notify
@@ -508,10 +508,10 @@ class TestFormatReviewRequestEmbedded:
                     "proj", "CODE_REVIEW", batch, "testns/proj", "reviewer1",
                     repo_path="/repo"
                 )
-        assert "スコープ制約:" in result
-        assert "P0/P1 を出す場合、該当コードが今回の diff に含まれることを確認せよ" in result
-        assert "前バッチで既に入った変更を現バッチの責任にしない" in result
-        assert "diff 外で気づいた問題は P2（提案）として報告せよ" in result
+        assert "Scope constraints:" in result
+        assert "When raising P0/P1, confirm the code in question is in the current diff" in result
+        assert "Do not attribute changes already merged in a previous batch to the current batch" in result
+        assert "Report issues found outside the diff as P2 (suggestion)" in result
 
     def test_guidance_no_scope_constraint_for_design_review(self):
         import notify
@@ -602,7 +602,7 @@ class TestPrevReviews:
             )
 
         # Check that previous feedback is quoted
-        assert "**前回のP0指摘（あなた）:**" in msg
+        assert "**Previous P0 findings (yours):**" in msg
         assert "> InitAsync メソッドがありません" in msg
 
     def test_prev_feedback_multiline_quote(self):
@@ -751,7 +751,7 @@ class TestFormatReviewRequestComment:
                 "proj", "DESIGN_REVIEW", batch, "testns/proj", "reviewer1",
                 comment="テスト注意事項"
             )
-        assert "Mからの要望: テスト注意事項" in msg
+        assert "M's request: テスト注意事項" in msg
 
     def test_notify_reviewers_passes_comment(self):
         """notify_reviewers が format_review_request に comment を渡すこと"""
@@ -924,7 +924,7 @@ class TestFormatReviewRequestDisputeEmbedding:
             msg = notify.format_review_request(
                 "proj", "DESIGN_REVIEW", batch, "testns/proj", reviewer="reviewer1"
             )
-        assert "実装者からの異議" in msg
+        assert "Dispute from implementer" in msg
         assert "理由テキスト" in msg
 
     def test_format_review_request_no_dispute(self):
@@ -1021,8 +1021,8 @@ class TestFormatReviewRequestDisputeEmbedding:
             msg_design = notify.format_review_request(
                 "proj", "DESIGN_REVIEW", batch, "testns/proj", reviewer="reviewer1"
             )
-        assert "設計レビュー依頼" in msg_design
-        assert "コードレビュー依頼" not in msg_design
+        assert "design review request" in msg_design
+        assert "code review request" not in msg_design
 
         disputes_code = [{
             "reviewer": "reviewer1", "status": "pending", "phase": "code",
@@ -1039,8 +1039,8 @@ class TestFormatReviewRequestDisputeEmbedding:
                     "proj", "CODE_REVIEW", batch_code, "testns/proj", reviewer="reviewer1",
                     repo_path="/repo"
                 )
-        assert "コードレビュー依頼" in msg_code
-        assert "設計レビュー依頼" not in msg_code
+        assert "code review request" in msg_code
+        assert "design review request" not in msg_code
 
 
 class TestCheckTransitionNoDisputeQueueing:
@@ -1269,7 +1269,7 @@ class TestBuildFileReviewMessage:
         msg = notify._build_file_review_message("proj", True, "reviewer1", file_path, batch, round_num=1)
         assert "--issue 1" not in msg
         assert "--issue 2" in msg
-        assert "コードレビュー依頼" in msg
+        assert "code review request" in msg
 
 
 class TestNotifyReviewersExternalization:

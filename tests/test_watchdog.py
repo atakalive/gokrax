@@ -694,11 +694,11 @@ class TestStartCc:
             except OSError:
                 pass
 
-        assert "実装申し送り" in plan_text
-        assert "変更対象" in plan_text
-        assert "触るな" in plan_text
-        assert "罠・エッジケース" in plan_text
-        assert "テスト観点" in plan_text
+        assert "Implementation Handoff" in plan_text
+        assert "Files to Change" in plan_text
+        assert "Do Not Touch" in plan_text
+        assert "Pitfalls & Edge Cases" in plan_text
+        assert "Test Cases" in plan_text
 
     def test_start_cc_skips_committed(self, tmp_pipelines, monkeypatch):
         """commit済みIssueはスキップ"""
@@ -1706,7 +1706,7 @@ class TestReviseP0Summary:
 
         # Second call: P0 summary
         summary = calls[1][0][0]
-        assert "[test-pj] REVISE対象:" in summary
+        assert "[test-pj] REVISE target:" in summary
         assert "#123:" in summary
         assert "1 P0" in summary
         assert "reviewer2" in summary
@@ -1928,11 +1928,11 @@ class TestReviseP0Summary:
         # First: transition
         first_msg = calls[0][0][0]
         assert "DESIGN_REVISE" in first_msg
-        assert "REVISE対象:" not in first_msg
+        assert "REVISE target:" not in first_msg
 
         # Second: summary
         second_msg = calls[1][0][0]
-        assert "REVISE対象:" in second_msg
+        assert "REVISE target:" in second_msg
 
     def test_reviewer_names_set_comparison_order_independent(self, tmp_path, monkeypatch):
         """Reviewer names verified with set comparison (dict order undefined)."""
@@ -5149,7 +5149,7 @@ class TestImplPromptTestBaseline:
     def test_no_baseline_no_section(self, tmp_pipelines, monkeypatch):
         """test_baseline なし → 埋め込みなし"""
         content = self._get_impl_prompt(tmp_pipelines, monkeypatch)
-        assert "テストベースライン" not in content
+        assert "Test Baseline" not in content
 
     def test_head_mismatch_no_embed(self, tmp_pipelines, monkeypatch):
         """test_baseline あり + HEAD 不一致 → 埋め込みなし"""
@@ -5157,7 +5157,7 @@ class TestImplPromptTestBaseline:
         content = self._get_impl_prompt(
             tmp_pipelines, monkeypatch, {"test_baseline": baseline, "repo_path": "/repo"}
         )
-        assert "テストベースライン" not in content
+        assert "Test Baseline" not in content
 
     def test_head_match_exit0_embeds_all_pass(self, tmp_pipelines, monkeypatch):
         """HEAD 一致 + exit_code=0 → 全パス文言が埋め込まれる"""
@@ -5196,9 +5196,9 @@ class TestImplPromptTestBaseline:
             try: _Path(p).unlink()
             except OSError: pass
 
-        assert "テストベースライン" in content
-        assert "全パス" in content
-        assert "壊さないこと" in content
+        assert "Test Baseline" in content
+        assert "all passed" in content
+        assert "Do not break tests" in content
 
     def test_head_match_exit_nonzero_embeds_fail(self, tmp_pipelines, monkeypatch):
         """HEAD 一致 + exit_code=1 → 失敗文言 + 警告が埋め込まれる"""
@@ -5236,9 +5236,9 @@ class TestImplPromptTestBaseline:
             try: _Path(p).unlink()
             except OSError: pass
 
-        assert "テストベースライン" in content
-        assert "一部失敗" in content
-        assert "新たに壊してはいけない" in content
+        assert "Test Baseline" in content
+        assert "some failures" in content
+        assert "Do not introduce new failures" in content
 
     def test_output_truncated_at_embed_limit(self, tmp_pipelines, monkeypatch):
         """出力が MAX_BASELINE_EMBED_CHARS 超過 → 切り詰め"""

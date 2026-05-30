@@ -209,8 +209,8 @@ class TestBuildPrompts:
         prompt = build_issue_plan_prompt(sc, data)
         assert "reviewer2" in prompt
         assert "reviewer3" in prompt
-        assert "重複を排除" in prompt
-        assert "統合" in prompt
+        assert "eliminate duplicates" in prompt
+        assert "Integration" in prompt
         assert "myproj" in prompt
         assert "docs/spec.md" in prompt
 
@@ -381,7 +381,7 @@ class TestCheckIssuePlan:
         assert action.next_state == "QUEUE_PLAN"
         assert action.pipeline_updates["created_issues"] == [51, 52]
         assert action.pipeline_updates.get("_issue_plan_response") is None
-        assert "2件" in action.discord_notify
+        assert "2 issues" in action.discord_notify
 
     # 31. 応答あり（正常, no_queue=true）→ SPEC_DONE 遷移 + created_issues 設定
     def test_response_valid_no_queue_true(self):
@@ -466,7 +466,7 @@ class TestCheckQueuePlan:
         )
         action = _check_queue_plan(sc, _now(), {"project": "gokrax"})
         assert action.next_state == "SPEC_DONE"
-        assert "3バッチ" in action.discord_notify
+        assert "3 batches" in action.discord_notify
         assert action.pipeline_updates.get("_queue_plan_response") is None
 
     # 37. 応答あり（parse failure）→ SPEC_PAUSED + discord_notify

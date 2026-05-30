@@ -345,7 +345,7 @@ class TestWatchdogCodeApprovedPostsSummary:
 
 class TestWatchdogMergeSummary:
 
-    M_ID = "1469758184456589550"
+    M_ID = "100000000000000007"
     SUMMARY_ID = "111222333444555666"
 
     def _make_data(self, **kwargs):

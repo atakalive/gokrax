@@ -40,7 +40,7 @@ class TestSpecNotifyBasicFormat:
         assert "[Spec]" in s
         assert "myproj" in s
         assert "rev1" in s
-        assert "自動進行" in s
+        assert "auto-advancing" in s
 
     def test_approved_forced(self):
         s = spec_notify_approved_forced("myproj", "3", 5)

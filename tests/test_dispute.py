@@ -1007,7 +1007,7 @@ class TestDisputeNudgeIntegration:
         assert len(captured) == 1, f"Expected 1 send, got {len(captured)}: {captured}"
         reviewer, msg = captured[0]
         assert reviewer == "reviewer1"
-        assert "【異議申し立て — 回答催促】" in msg
+        assert "[Dispute — Response Required]" in msg
         assert "テスト理由" in msg
         assert "--force" in msg
         # 通常の [Remind] は含まれないこと
@@ -1097,7 +1097,7 @@ class TestDisputeNudgeIntegration:
             f"Expected 1 send to reviewer1, got {len(reviewer1_calls)}"
         msg = reviewer1_calls[0][1]
         # 両セクションが1通に含まれること
-        assert "【異議申し立て — 回答催促】" in msg
+        assert "[Dispute — Response Required]" in msg
         assert "[Remind]" in msg
 
 

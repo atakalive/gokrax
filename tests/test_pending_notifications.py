@@ -374,7 +374,7 @@ class TestRunCcPendingSkipWithDiscord:
             process(path)
 
         calls = [str(c) for c in mock_discord.call_args_list]
-        assert any("CC起動" in c for c in calls)
+        assert any("CC startup" in c for c in calls)
 
         result = _read_pipeline(path)
         assert "_pending_notifications" not in result

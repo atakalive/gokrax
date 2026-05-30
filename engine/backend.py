@@ -17,10 +17,10 @@ from engine.shared import log
 def resolve_backend(agent_id: str, *, ignore_fallback: bool = False) -> str:
     """Resolve backend for the given agent.
 
-    Override > default > gemini quota fallback (cache file read only).
+    Override > default > quota fallback (cache file read only; gemini/agy/kimi).
     Raises ValueError if the resolved backend is not in SUPPORTED_BACKENDS.
 
-    If ``ignore_fallback`` is True, skip the gemini quota fallback check
+    If ``ignore_fallback`` is True, skip all quota fallback checks
     and return the configured backend as-is. Used by reset paths that need
     to operate on the configured backend directly (and additionally on the
     active fallback target when applicable).
@@ -177,11 +177,11 @@ def soft_reap(agent_id: str) -> None:
 def reset_session(agent_id: str) -> None:
     """Dispatch reset_session to the selected backend.
 
-    Resets both the configured backend and (for gemini) any active quota
-    fallback target. This ensures that when a gemini agent has a pi/cc
-    fallback active, both the gemini session and the fallback session are
-    cleared — otherwise stale context could resume on either side when the
-    fallback expires or a phase begins.
+    Resets both the configured backend and any active quota fallback target
+    (gemini, agy, or kimi). This ensures that when an agent has a fallback
+    active, both the primary session and the fallback session are cleared —
+    otherwise stale context could resume on either side when the fallback
+    expires or a phase begins.
 
     For openclaw, this is a no-op (session reset is done via /new message).
     For pi, this is best-effort: deletes the session file and clears the

@@ -29,6 +29,7 @@ import os
 import time
 import urllib.request
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import config.paths as _paths
 from engine import fallback_cache
@@ -79,24 +80,24 @@ def _parse_window(w: dict) -> float | None:
     if limit <= 0:
         return None
     used: int | None = None
-    used_str = w.get("used")
-    if isinstance(used_str, str) and used_str:
+    used_raw = w.get("used")
+    if used_raw is not None and used_raw != "":
         try:
-            used = int(used_str)
+            used = int(used_raw)
         except (TypeError, ValueError):
             pass  # fallthrough to remaining
     if used is None:
-        remaining_str = w.get("remaining")
-        if not isinstance(remaining_str, str) or not remaining_str:
+        remaining_raw = w.get("remaining")
+        if remaining_raw is None or remaining_raw == "":
             return None
         try:
-            used = limit - int(remaining_str)
+            used = limit - int(remaining_raw)
         except (TypeError, ValueError):
             return None
     return max(0.0, min(1.0, used / limit))
 
 
-def _parse_reset_time(s) -> datetime | None:
+def _parse_reset_time(s: object) -> datetime | None:
     if not isinstance(s, str) or not s:
         return None
     try:
@@ -167,7 +168,7 @@ def get_kimi_quota() -> tuple[bool, float, datetime | None]:
         return (False, 0.0, None)
 
 
-def _cache_path(agent_id: str):
+def _cache_path(agent_id: str) -> Path:
     return _paths.KIMI_QUOTA_CACHE_DIR / f"{agent_id}.json"
 
 
@@ -186,7 +187,7 @@ def _cache_active(cache: dict | None) -> bool:
     )
 
 
-def _negative_cache_path(agent_id: str):
+def _negative_cache_path(agent_id: str) -> Path:
     return _paths.KIMI_QUOTA_CACHE_DIR / f"{agent_id}.neg"
 
 

@@ -357,6 +357,7 @@ class TestWatchdogNudgeWiring:
         assert "get-comments" in msg, "refresher: get-comments"
         assert "Anonymous review" in msg, "anonymity constraint"
         assert "DESIGN_REVIEW" in msg or "設計レビュー" in msg or "design review" in msg.lower(), "phase note"
+        assert "レビュー観点" in msg or "Review guidelines" in msg, "guidance_design"
 
     def test_code_review_nudge_contains_diff_refresher(
         self, tmp_path, monkeypatch,
@@ -390,3 +391,4 @@ class TestWatchdogNudgeWiring:
         assert "git -C /tmp/repo diff abc123..HEAD" in msg, "refresher: git diff"
         assert "git -C /tmp/repo log --oneline abc123..HEAD" in msg, "refresher: git log"
         assert "Anonymous review" in msg, "anonymity constraint"
+        assert "レビュー観点" in msg or "Review guidelines" in msg, "guidance_code"

@@ -825,6 +825,95 @@ class TestAgyFallback:
         mock_agy_ping.assert_not_called()
 
 
+class TestPiFallback:
+    """pi backend Mode B (backend redirect) fallback — symmetric with gemini/agy."""
+
+    @pytest.fixture(autouse=True)
+    def _pi_default(self, monkeypatch):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "pi")
+        monkeypatch.setattr(config, "AGENT_BACKEND_OVERRIDE", {})
+
+    def test_resolve_backend_cache_hit_returns_cc(self, monkeypatch):
+        with patch("engine.openai_codex_quota.resolve_fallback_backend", return_value="cc"):
+            assert backend.resolve_backend("a1") == "cc"
+
+    def test_resolve_backend_cache_miss_returns_pi(self, monkeypatch):
+        with patch("engine.openai_codex_quota.resolve_fallback_backend", return_value=""):
+            assert backend.resolve_backend("a1") == "pi"
+
+    def test_send_mode_b_active_routes_to_cc(self, monkeypatch):
+        sent = SendResult.OK
+        with patch("engine.openai_codex_quota.resolve_fallback_backend", return_value=""), \
+             patch("engine.backend_pi._load_config",
+                   return_value={"a1": {"fallback_backend": "cc"}}), \
+             patch("engine.openai_codex_quota.should_fallback",
+                   return_value=(True, "cc", "", True)) as mock_sf, \
+             patch("engine.backend_cc.send", return_value=sent) as mock_cc, \
+             patch("engine.backend_pi.send") as mock_pi:
+            result = backend.send("a1", "msg", 30)
+        assert result is sent
+        mock_sf.assert_called_once_with("a1")
+        mock_cc.assert_called_once()
+        mock_pi.assert_not_called()
+
+    def test_send_mode_a_delegates_to_pi_without_should_fallback(self, monkeypatch):
+        """Mode A (no fallback_backend): backend.py does NOT call should_fallback."""
+        sent = SendResult.OK
+        with patch("engine.openai_codex_quota.resolve_fallback_backend", return_value=""), \
+             patch("engine.backend_pi._load_config",
+                   return_value={"a1": {"provider": "openai-codex"}}), \
+             patch("engine.openai_codex_quota.should_fallback") as mock_sf, \
+             patch("engine.backend_pi.send", return_value=sent) as mock_pi:
+            backend.send("a1", "msg", 30)
+        mock_sf.assert_not_called()
+        mock_pi.assert_called_once()
+
+    def test_send_invalid_fallback_backend_is_mode_a(self, monkeypatch):
+        """Invalid fallback_backend ('gemini'): backend.py treats as Mode A."""
+        sent = SendResult.OK
+        with patch("engine.openai_codex_quota.resolve_fallback_backend", return_value=""), \
+             patch("engine.backend_pi._load_config",
+                   return_value={"a1": {"fallback_backend": "gemini"}}), \
+             patch("engine.openai_codex_quota.should_fallback") as mock_sf, \
+             patch("engine.backend_pi.send", return_value=sent) as mock_pi:
+            backend.send("a1", "msg", 30)
+        mock_sf.assert_not_called()
+        mock_pi.assert_called_once()
+
+    def test_send_transitive_guard_configured_agy(self, monkeypatch):
+        """configured=agy, agy→pi active: pi→cc must NOT fire (transitive guard)."""
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "agy")
+        sent = SendResult.OK
+        with patch("engine.agy_quota.resolve_fallback", return_value="pi"), \
+             patch("engine.agy_quota.should_fallback", return_value=(False, "", False)), \
+             patch("engine.openai_codex_quota.resolve_fallback_backend", return_value=""), \
+             patch("engine.backend_pi._load_config",
+                   return_value={"a1": {"fallback_backend": "cc"}}), \
+             patch("engine.openai_codex_quota.should_fallback") as mock_sf, \
+             patch("engine.backend_pi.send", return_value=sent) as mock_pi, \
+             patch("engine.backend_cc.send") as mock_cc:
+            backend.send("a1", "msg", 30)
+        mock_sf.assert_not_called()
+        mock_pi.assert_called_once()
+        mock_cc.assert_not_called()
+
+    def test_reset_session_dual_reset_on_cache_active(self, monkeypatch):
+        with patch("engine.openai_codex_quota.resolve_fallback_backend", return_value="cc"), \
+             patch("engine.backend_pi.reset_session") as mock_pi_reset, \
+             patch("engine.backend_cc.reset_session") as mock_cc_reset:
+            backend.reset_session("a1")
+        mock_pi_reset.assert_called_once_with("a1")
+        mock_cc_reset.assert_called_once_with("a1")
+
+    def test_reset_session_cache_inactive_resets_pi_only(self, monkeypatch):
+        with patch("engine.openai_codex_quota.resolve_fallback_backend", return_value=""), \
+             patch("engine.backend_pi.reset_session") as mock_pi_reset, \
+             patch("engine.backend_cc.reset_session") as mock_cc_reset:
+            backend.reset_session("a1")
+        mock_pi_reset.assert_called_once_with("a1")
+        mock_cc_reset.assert_not_called()
+
+
 # ===========================================================================
 # Mixed backend reset (per-agent branching)
 # ===========================================================================

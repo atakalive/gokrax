@@ -156,10 +156,15 @@ def send(agent_id: str, message: str, timeout: int) -> SendResult:
         )
 
     if profile.get("provider") == "openai-codex" and profile.get("fallback"):
-        from engine.openai_codex_quota import should_fallback
-        active, fb_provider, fb_model, _new = should_fallback(agent_id)
-        if active and fb_provider and fb_model:
-            profile = {**profile, "provider": fb_provider, "model": fb_model}
+        # Only Mode A (provider/model swap within pi) drives should_fallback here.
+        # Mode B (backend redirect) is driven by engine.backend.send(); calling
+        # should_fallback in both places would cause a double HTTP probe.
+        from engine.openai_codex_quota import is_mode_b_backend
+        if not is_mode_b_backend(profile.get("fallback_backend", "")):
+            from engine.openai_codex_quota import should_fallback
+            active, fb_provider, fb_model, _new = should_fallback(agent_id)
+            if active and fb_provider and fb_model:
+                profile = {**profile, "provider": fb_provider, "model": fb_model}
 
     model_arg = ""
     if profile.get("provider") and profile.get("model"):

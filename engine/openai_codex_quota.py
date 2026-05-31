@@ -8,6 +8,8 @@ provider/model when weekly quota is near exhaustion.
 Public surface:
     get_codex_usage() -> tuple[bool, float, datetime | None]
     should_fallback(agent_id) -> tuple[bool, str, str, bool]
+    resolve_fallback_backend(agent_id) -> str
+    is_mode_b_backend(fb_backend) -> bool
     validate_fallback_config() -> list[str]
 """
 
@@ -26,6 +28,22 @@ from engine.shared import log
 
 _USAGE_URL = "https://chatgpt.com/backend-api/wham/usage"
 _HTTP_TIMEOUT = 10
+# Valid Mode B (backend redirect) targets. Quota-aware backends (gemini/agy/kimi)
+# are intentionally excluded to prevent transitive loops (e.g. pi→agy→pi).
+# Defined locally (not imported from backend_pi) to avoid circular import,
+# consistent with gemini/agy/kimi quota modules.
+_VALID_FALLBACK_BACKENDS = frozenset({"pi", "cc", "openclaw"})
+
+
+def is_mode_b_backend(fb_backend: str) -> bool:
+    """Return True if fb_backend is a valid Mode B target (non-pi, non-quota-aware).
+
+    Used by backend.py and backend_pi.py to determine Mode B activation.
+    The single source of truth for Mode B validity.
+    """
+    return (isinstance(fb_backend, str)
+            and fb_backend in _VALID_FALLBACK_BACKENDS
+            and fb_backend != "pi")
 
 
 def _load_pi_config() -> dict:
@@ -217,19 +235,57 @@ def _cache_active(cache: dict | None) -> bool:
     )
 
 
-def _reset_pi_session(agent_id: str) -> None:
-    """Best-effort reset of pi session for fallback. WARN on exception."""
+def _cache_active_mode_b(cache: dict | None) -> bool:
+    return fallback_cache.cache_active(
+        cache,
+        validators={
+            "fallback_backend": lambda v: (isinstance(v, str)
+                                           and v in _VALID_FALLBACK_BACKENDS
+                                           and v != "pi"),
+        },
+    )
+
+
+def resolve_fallback_backend(agent_id: str) -> str:
+    """Cache-only resolution for Mode B. Returns fallback backend name or "".
+
+    No HTTP, no config read. Called from resolve_backend() hot path.
+    Consistent with gemini/agy/kimi resolve_fallback() pattern.
+    """
     try:
-        from engine.backend_pi import reset_session
-        reset_session(agent_id)
+        cache = fallback_cache.read_cache(_cache_path(agent_id))
+        if not _cache_active_mode_b(cache):
+            return ""
+        return cache.get("fallback_backend", "")
+    except Exception:
+        return ""
+
+
+def _reset_target_backend(agent_id: str, target: str) -> None:
+    """Best-effort reset of target backend for fallback activation."""
+    try:
+        if target == "pi":
+            from engine.backend_pi import reset_session as _reset
+        elif target == "cc":
+            from engine.backend_cc import reset_session as _reset
+        elif target == "openclaw":
+            return  # no-op — openclaw has no reset_session
+        else:
+            return
+        _reset(agent_id)
     except Exception as e:
-        log(f"WARN openai_codex_quota: reset_session({agent_id}) failed: {e!r}")
+        log(f"WARN openai_codex_quota: reset_session({agent_id}, {target}) failed: {e!r}")
 
 
 def should_fallback(agent_id: str) -> tuple[bool, str, str, bool]:
-    """Decide whether to fall back. Called only from backend_pi.send().
+    """Decide whether to fall back.
 
-    Returns (active, fallback_provider, fallback_model, new_period).
+    Mode A: called from backend_pi.send() — swaps provider/model within pi.
+    Mode B: called from engine.backend.send() — redirects to another backend.
+
+    Returns (active, value, model, new_period). ``value`` is the fallback
+    provider in Mode A (e.g. "github-copilot") and the fallback backend name
+    in Mode B (e.g. "cc"); ``model`` is "" in Mode B.
     """
     try:
         cfg = _load_pi_config().get(agent_id) or {}
@@ -241,10 +297,15 @@ def should_fallback(agent_id: str) -> tuple[bool, str, str, bool]:
             return (False, "", "", False)
         fb_provider = cfg.get("fallback_provider", "")
         fb_model = cfg.get("fallback_model", "")
-        if not isinstance(fb_provider, str) or not fb_provider:
-            return (False, "", "", False)
-        if not isinstance(fb_model, str) or not fb_model:
-            return (False, "", "", False)
+        fb_backend = cfg.get("fallback_backend", "")
+        mode_b = is_mode_b_backend(fb_backend)
+
+        # Mode A requires provider/model. Mode B does not.
+        if not mode_b:
+            if not isinstance(fb_provider, str) or not fb_provider:
+                return (False, "", "", False)
+            if not isinstance(fb_model, str) or not fb_model:
+                return (False, "", "", False)
         try:
             threshold = int(cfg.get("usage_threshold", 95))
         except (TypeError, ValueError):
@@ -253,8 +314,12 @@ def should_fallback(agent_id: str) -> tuple[bool, str, str, bool]:
             threshold = 95
 
         existing = fallback_cache.read_cache(_cache_path(agent_id))
-        if _cache_active(existing):
-            return (True, existing["fallback_provider"], existing["fallback_model"], False)
+        if mode_b:
+            if _cache_active_mode_b(existing):
+                return (True, existing["fallback_backend"], "", False)
+        else:
+            if _cache_active(existing):
+                return (True, existing["fallback_provider"], existing["fallback_model"], False)
 
         ok, used_percent, reset_dt = get_codex_usage()
         if not ok:
@@ -268,15 +333,30 @@ def should_fallback(agent_id: str) -> tuple[bool, str, str, bool]:
         with open(lock_path, "w") as lock_f:
             fcntl.flock(lock_f.fileno(), fcntl.LOCK_EX)
             existing = fallback_cache.read_cache(_cache_path(agent_id))
-            if _cache_active(existing):
-                return (True, existing["fallback_provider"], existing["fallback_model"], False)
-
-            _reset_pi_session(agent_id)
 
             until = fallback_cache.clamp_reset_time(
                 reset_dt, default_hrs=6, max_hrs=168,
             )
             pct_disp = int(round(used_percent))
+
+            if mode_b:
+                if _cache_active_mode_b(existing):
+                    return (True, existing["fallback_backend"], "", False)
+                # Reset the backend that will take over (the redirect target).
+                _reset_target_backend(agent_id, fb_backend)
+                payload = {
+                    "active": True,
+                    "fallback_backend": fb_backend,
+                    "until": until.isoformat(),
+                    "reason": f"Codex usage {pct_disp}% (>={threshold})",
+                }
+                fallback_cache.atomic_write_cache(_cache_path(agent_id), payload)
+                return (True, fb_backend, "", True)
+
+            if _cache_active(existing):
+                return (True, existing["fallback_provider"], existing["fallback_model"], False)
+            # Mode A: reset pi itself (which keeps handling the work).
+            _reset_target_backend(agent_id, "pi")
             payload = {
                 "active": True,
                 "fallback_provider": fb_provider,
@@ -300,7 +380,16 @@ def validate_fallback_config() -> list[str]:
             continue
         if not isinstance(entry, dict):
             continue
+        fb_backend = entry.get("fallback_backend", "")
+        mode_b = is_mode_b_backend(fb_backend)
         if not entry.get("fallback"):
+            # Mode B (backend redirect) also requires fallback=true; otherwise
+            # should_fallback() returns early and never engages.
+            if mode_b:
+                warnings.append(
+                    f"WARN openai_codex_quota: agent '{agent_id}' has fallback_backend "
+                    f"'{fb_backend}' but fallback is not true; fallback will not engage"
+                )
             continue
         provider = entry.get("provider", "")
         if provider != "openai-codex":
@@ -310,16 +399,25 @@ def validate_fallback_config() -> list[str]:
             )
         fb_provider = entry.get("fallback_provider", "")
         fb_model = entry.get("fallback_model", "")
-        if not isinstance(fb_provider, str) or not fb_provider:
+        if fb_backend not in ("", "pi") and not mode_b:
+            # Unknown fallback_backend value: stays in Mode A, never dispatched.
             warnings.append(
-                f"WARN openai_codex_quota: agent '{agent_id}' has fallback=true but "
-                f"fallback_provider is empty/invalid"
+                f"WARN openai_codex_quota: agent '{agent_id}' has invalid fallback_backend "
+                f"'{fb_backend}'; expected one of {sorted(_VALID_FALLBACK_BACKENDS)}; "
+                f"treated as Mode A (provider/model swap)"
             )
-        if not isinstance(fb_model, str) or not fb_model:
-            warnings.append(
-                f"WARN openai_codex_quota: agent '{agent_id}' has fallback=true but "
-                f"fallback_model is empty/invalid"
-            )
+        if not mode_b:
+            # Mode A (provider/model swap) requires both fields.
+            if not isinstance(fb_provider, str) or not fb_provider:
+                warnings.append(
+                    f"WARN openai_codex_quota: agent '{agent_id}' has fallback=true but "
+                    f"fallback_provider is empty/invalid"
+                )
+            if not isinstance(fb_model, str) or not fb_model:
+                warnings.append(
+                    f"WARN openai_codex_quota: agent '{agent_id}' has fallback=true but "
+                    f"fallback_model is empty/invalid"
+                )
         threshold = entry.get("usage_threshold", 95)
         try:
             t = int(threshold)

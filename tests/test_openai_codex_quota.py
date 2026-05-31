@@ -511,3 +511,178 @@ class TestValidate:
         warns = oq.validate_fallback_config()
         # _comment must not produce warnings
         assert not any("'_comment'" in w for w in warns)
+
+    def test_mode_b_backend_only_ok(self, tmp_paths):
+        """Mode B: fallback_backend='cc' alone is valid; no provider/model warns."""
+        tmp_paths["pi_cfg"].write_text(json.dumps({
+            "a": {"provider": "openai-codex", "fallback": True,
+                  "fallback_backend": "cc", "usage_threshold": 95}
+        }))
+        warns = oq.validate_fallback_config()
+        assert not any("fallback_provider" in w for w in warns)
+        assert not any("fallback_model" in w for w in warns)
+        assert warns == []
+
+    def test_mode_b_invalid_backend_warns(self, tmp_paths):
+        """Invalid fallback_backend → WARN, treated as Mode A."""
+        tmp_paths["pi_cfg"].write_text(json.dumps({
+            "a": {"provider": "openai-codex", "fallback": True,
+                  "fallback_backend": "gemini",
+                  "fallback_provider": "x", "fallback_model": "y"}
+        }))
+        warns = oq.validate_fallback_config()
+        assert any("invalid fallback_backend" in w for w in warns)
+
+    def test_mode_b_missing_provider_model_warns(self, tmp_paths):
+        """Mode A (no fallback_backend) with missing provider/model → WARN."""
+        tmp_paths["pi_cfg"].write_text(json.dumps({
+            "a": {"provider": "openai-codex", "fallback": True}
+        }))
+        warns = oq.validate_fallback_config()
+        assert any("fallback_provider" in w for w in warns)
+        assert any("fallback_model" in w for w in warns)
+
+    def test_mode_b_without_fallback_true_warns(self, tmp_paths):
+        """fallback_backend valid but fallback not true → WARN."""
+        tmp_paths["pi_cfg"].write_text(json.dumps({
+            "a": {"provider": "openai-codex", "fallback_backend": "cc"}
+        }))
+        warns = oq.validate_fallback_config()
+        assert any("fallback is not true" in w for w in warns)
+
+
+# ---------------------------------------------------------------------------
+# is_mode_b_backend
+# ---------------------------------------------------------------------------
+
+class TestIsModeBBackend:
+    @pytest.mark.parametrize("value,expected", [
+        ("cc", True),
+        ("openclaw", True),
+        ("pi", False),
+        ("gemini", False),
+        ("agy", False),
+        ("kimi", False),
+        ("", False),
+        ("foo", False),
+        (None, False),
+        (123, False),
+    ])
+    def test_is_mode_b_backend(self, value, expected):
+        assert oq.is_mode_b_backend(value) is expected
+
+
+# ---------------------------------------------------------------------------
+# Mode B: should_fallback / cache / resolve_fallback_backend
+# ---------------------------------------------------------------------------
+
+class TestModeB:
+    def _write_mode_b_cfg(self, path, agent="impl1", **fields):
+        cfg = {
+            agent: {
+                "provider": "openai-codex",
+                "model": "gpt-5.4",
+                "fallback": True,
+                "fallback_backend": "cc",
+                "usage_threshold": 95,
+                **fields,
+            }
+        }
+        path.write_text(json.dumps(cfg))
+
+    def test_should_fallback_mode_b_triggers(self, tmp_paths):
+        _write_pi_auth(tmp_paths["pi_auth"])
+        self._write_mode_b_cfg(tmp_paths["pi_cfg"])
+        resp = _mk_response({
+            "rate_limit": {"weekly": {"percent_left": 5.0,
+                                      "reset_time_ms": int((time.time() + 3600) * 1000)}}
+        })
+        with patch("urllib.request.urlopen", return_value=resp), \
+             patch("engine.backend_cc.reset_session") as mock_cc_reset, \
+             patch("engine.backend_pi.reset_session") as mock_pi_reset:
+            result = oq.should_fallback("impl1")
+        assert result == (True, "cc", "", True)
+        # Mode B resets the redirect target (cc), not pi.
+        mock_cc_reset.assert_called_once_with("impl1")
+        mock_pi_reset.assert_not_called()
+        cache = json.loads((tmp_paths["cache_dir"] / "impl1.json").read_text())
+        assert cache["fallback_backend"] == "cc"
+        assert "fallback_provider" not in cache
+
+    def test_should_fallback_mode_b_cache_hit(self, tmp_paths):
+        _write_pi_auth(tmp_paths["pi_auth"])
+        self._write_mode_b_cfg(tmp_paths["pi_cfg"])
+        cache_dir = tmp_paths["cache_dir"]
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        until = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+        (cache_dir / "impl1.json").write_text(json.dumps({
+            "active": True, "fallback_backend": "cc", "until": until, "reason": "cached",
+        }))
+        with patch("urllib.request.urlopen") as mock_open:
+            result = oq.should_fallback("impl1")
+        assert result == (True, "cc", "", False)
+        mock_open.assert_not_called()
+
+    def test_should_fallback_mode_a_still_works(self, tmp_paths):
+        """Mode A profile (provider/model, no fallback_backend) unchanged."""
+        _write_pi_auth(tmp_paths["pi_auth"])
+        _write_pi_cfg(tmp_paths["pi_cfg"], usage_threshold=95)
+        resp = _mk_response({
+            "rate_limit": {"weekly": {"percent_left": 5.0,
+                                      "reset_time_ms": int((time.time() + 3600) * 1000)}}
+        })
+        with patch("urllib.request.urlopen", return_value=resp), \
+             patch("engine.backend_pi.reset_session"):
+            result = oq.should_fallback("impl1")
+        assert result == (True, "github-copilot", "gpt-5.4", True)
+
+    def test_cache_active_mode_b(self, tmp_paths):
+        until_future = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+        until_past = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+        # active
+        assert oq._cache_active_mode_b({
+            "active": True, "fallback_backend": "cc", "until": until_future,
+        }) is True
+        # inactive flag
+        assert oq._cache_active_mode_b({
+            "active": False, "fallback_backend": "cc", "until": until_future,
+        }) is False
+        # expired
+        assert oq._cache_active_mode_b({
+            "active": True, "fallback_backend": "cc", "until": until_past,
+        }) is False
+        # fallback_backend == "pi" is not a Mode B target
+        assert oq._cache_active_mode_b({
+            "active": True, "fallback_backend": "pi", "until": until_future,
+        }) is False
+        # missing
+        assert oq._cache_active_mode_b(None) is False
+
+    def test_resolve_fallback_backend(self, tmp_paths):
+        cache_dir = tmp_paths["cache_dir"]
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        until = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+        cache_file = cache_dir / "impl1.json"
+        # active → "cc"
+        cache_file.write_text(json.dumps({
+            "active": True, "fallback_backend": "cc", "until": until,
+        }))
+        assert oq.resolve_fallback_backend("impl1") == "cc"
+        # inactive → ""
+        cache_file.write_text(json.dumps({
+            "active": False, "fallback_backend": "cc", "until": until,
+        }))
+        assert oq.resolve_fallback_backend("impl1") == ""
+        # fallback_backend == "pi" → ""
+        cache_file.write_text(json.dumps({
+            "active": True, "fallback_backend": "pi", "until": until,
+        }))
+        assert oq.resolve_fallback_backend("impl1") == ""
+        # no cache → ""
+        cache_file.unlink()
+        assert oq.resolve_fallback_backend("impl1") == ""
+
+    def test_resolve_fallback_backend_exception(self, tmp_paths, monkeypatch):
+        monkeypatch.setattr(oq.fallback_cache, "read_cache",
+                            lambda p: (_ for _ in ()).throw(RuntimeError("boom")))
+        assert oq.resolve_fallback_backend("impl1") == ""

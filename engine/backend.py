@@ -46,6 +46,11 @@ def resolve_backend(agent_id: str, *, ignore_fallback: bool = False) -> str:
         fb = resolve_fallback(agent_id)
         if fb in SUPPORTED_BACKENDS and fb != "kimi":
             return fb
+    if not ignore_fallback and backend == "pi":
+        from engine.openai_codex_quota import resolve_fallback_backend
+        fb = resolve_fallback_backend(agent_id)
+        if fb in SUPPORTED_BACKENDS and fb != "pi":
+            return fb
     return backend
 
 
@@ -87,6 +92,20 @@ def send(agent_id: str, message: str, timeout: int) -> SendResult:
             active, fallback_to, _new_period = kimi_should_fallback(agent_id)
             if active and fallback_to in SUPPORTED_BACKENDS and fallback_to != "kimi":
                 backend = fallback_to
+    if backend == "pi":
+        # Mode B (backend redirect): only when pi IS the agent's configured
+        # backend (not a fallback target). Prevents transitive fallback
+        # (e.g. agy→pi→cc) and state view inconsistency. Same pattern as the
+        # kimi guard above.
+        if resolve_backend(agent_id, ignore_fallback=True) == "pi":
+            from engine.backend_pi import _load_config as _load_pi_cfg
+            _profile = _load_pi_cfg().get(agent_id, {})
+            from engine.openai_codex_quota import is_mode_b_backend
+            if is_mode_b_backend(_profile.get("fallback_backend", "")):
+                from engine.openai_codex_quota import should_fallback as codex_should_fallback
+                active, fb_target, _, _new = codex_should_fallback(agent_id)
+                if active and fb_target in SUPPORTED_BACKENDS and fb_target != "pi":
+                    backend = fb_target
     if backend == "pi":
         from engine.backend_pi import send as pi_send
         return pi_send(agent_id, message, timeout)
@@ -243,6 +262,15 @@ def reset_session(agent_id: str) -> None:
                 from engine.backend_pi import reset_session as pi_reset
                 pi_reset(agent_id)
             elif fb == "cc":
+                from engine.backend_cc import reset_session as cc_reset
+                cc_reset(agent_id)
+            # openclaw: no-op (session reset via /new)
+
+    if configured == "pi":
+        from engine.openai_codex_quota import resolve_fallback_backend
+        fb = resolve_fallback_backend(agent_id)
+        if fb in SUPPORTED_BACKENDS and fb != configured:
+            if fb == "cc":
                 from engine.backend_cc import reset_session as cc_reset
                 cc_reset(agent_id)
             # openclaw: no-op (session reset via /new)

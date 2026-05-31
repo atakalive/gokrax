@@ -68,6 +68,7 @@ def _block_external_calls(request, tmp_path):
         patch("engine.gemini_quota.should_fallback", return_value=(False, "", False)),
         patch("engine.gemini_quota.get_pro_quota", return_value=(False, 0.0, None)),
         patch("engine.openai_codex_quota.should_fallback", return_value=(False, "", "", False)),
+        patch("engine.openai_codex_quota.resolve_fallback_backend", return_value=""),
         patch("engine.openai_codex_quota.get_codex_usage", return_value=(False, 0.0, None)),
         patch("engine.agy_quota.resolve_fallback", return_value=""),
         patch("engine.agy_quota.should_fallback", return_value=(False, "", False)),

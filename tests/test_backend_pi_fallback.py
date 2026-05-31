@@ -104,6 +104,28 @@ def test_send_skips_fallback_for_non_codex_provider(tmp_path, monkeypatch):
     mock_sf.assert_not_called()
 
 
+def test_send_skips_fallback_check_for_mode_b(tmp_path, monkeypatch):
+    """Mode B profile (fallback_backend='cc'): pi_send must NOT call should_fallback.
+
+    Mode B is driven by engine.backend.send(); calling should_fallback here too
+    would cause a double HTTP probe.
+    """
+    _set_config(monkeypatch, tmp_path, {
+        "provider": "openai-codex",
+        "model": "gpt-5.4",
+        "fallback": True,
+        "fallback_backend": "cc",
+    })
+    factory, _ = _capture_popen()
+    with patch("subprocess.Popen", factory), \
+         patch("engine.openai_codex_quota.should_fallback") as mock_sf:
+        backend_pi.send("impl1", "hi", timeout=10)
+    mock_sf.assert_not_called()
+    cmd = factory.call_args[0][0]
+    idx = cmd.index("--model")
+    assert cmd[idx + 1] == "openai-codex/gpt-5.4"
+
+
 def test_send_does_not_mutate_cached_profile(tmp_path, monkeypatch):
     """When fallback active, profile dict in _agent_config_cache must be unchanged."""
     _set_config(monkeypatch, tmp_path, {

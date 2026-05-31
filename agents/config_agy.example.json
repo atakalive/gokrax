@@ -1,0 +1,16 @@
+{
+  "_comment": {
+    "model": "agy display label, e.g. 'Gemini 3.5 Flash (High)'. Written to per-agent agents/<agent_id>/.gemini/antigravity-cli/settings.json (merged with real HOME base). Empty/missing → inherits model from real HOME settings. If real HOME also has no model, agy uses its built-in default.",
+    "compile-startup-md": "If true, compile IDENTITY.md + INSTRUCTION.md + MEMORY.md into cwd/AGENTS.md",
+    "fallback": "If true, route to fallback_backend when agy quota usage >= usage_threshold",
+    "fallback_backend": "Backend to fall back to: pi, cc, kimi, or openclaw. Quota-aware backends (gemini/agy) are excluded to prevent transitive fallback chains",
+    "usage_threshold": "Usage percentage (0-100) at which to trigger fallback (default: 95)"
+  },
+  "example_reviewer": {
+    "model": "Gemini 3.5 Flash (High)",
+    "compile-startup-md": false,
+    "fallback": false,
+    "fallback_backend": "",
+    "usage_threshold": 95
+  }
+}

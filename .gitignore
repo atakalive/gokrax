@@ -29,3 +29,5 @@ agents/*/KIMI.md
 agents/*/.kimi_hash
 agents/config_kimi.json
 .agy-pids/
+agents/config_agy.json
+!agents/config_agy.example.json

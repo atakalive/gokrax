@@ -237,6 +237,9 @@ def main():
     p.add_argument("--no-automerge", action="store_true", default=None, dest="no_automerge")
     p.add_argument("--allow-closed", action="store_true", default=False, dest="allow_closed",
                    help="allow closed issues in batch (skip closed-issue filtering)")
+    p.add_argument("--autopull", action="store_true", default=None, dest="autopull",
+                   help="run git pull --ff-only during INITIALIZE before starting")
+    p.add_argument("--no-autopull", action="store_true", default=None, dest="no_autopull")
 
     # transition
     p = sub.add_parser("transition", help="manually trigger a state transition (normally done by watchdog)")

@@ -69,6 +69,75 @@ def test_running_default_automerge_absent():
     assert "no-automerge" in result
 
 
+def test_running_autopull_false_shows_no_autopull():
+    """running セクションで autopull=False のとき no-autopull が表示される (Issue #365)"""
+    running = {
+        "project": "TestPJ",
+        "issues": "#1",
+        "state": "DESIGN_PLAN",
+        "review_mode": "",
+        "automerge": True,
+        "autopull": False,
+    }
+    result = get_qstatus_text([], running=running)
+    assert "no-autopull" in result
+
+
+def test_running_autopull_true_shows_autopull():
+    """running セクションで autopull=True のとき autopull が表示される (Issue #365)"""
+    running = {
+        "project": "TestPJ",
+        "issues": "#1",
+        "state": "DESIGN_PLAN",
+        "review_mode": "",
+        "automerge": True,
+        "autopull": True,
+    }
+    result = get_qstatus_text([], running=running)
+    assert "autopull" in result
+    assert "no-autopull" not in result
+
+
+def test_running_autopull_unset_hidden():
+    """running セクションで autopull 未設定のとき表示されない (Issue #365)"""
+    running = {
+        "project": "TestPJ",
+        "issues": "#1",
+        "state": "DESIGN_PLAN",
+        "review_mode": "",
+        "automerge": True,
+    }
+    result = get_qstatus_text([], running=running)
+    assert "autopull" not in result
+
+
+def test_entries_no_autopull_shown_when_explicit():
+    """entries セクションで明示 no-autopull が表示される (Issue #365)"""
+    entries = [{
+        "project": "TestPJ",
+        "issues": "1",
+        "index": 1,
+        "autopull": False,
+        "_explicit_keys": {"autopull"},
+    }]
+    result = get_qstatus_text(entries)
+    assert "no-autopull" in result
+
+
+def test_entries_autopull_shown_when_explicit():
+    """entries セクションで明示 autopull が表示される (Issue #365)"""
+    entries = [{
+        "project": "TestPJ",
+        "issues": "1",
+        "index": 1,
+        "autopull": True,
+        "_explicit_keys": {"autopull"},
+    }]
+    result = get_qstatus_text(entries)
+    assert "autopull" in result
+    assert "no-autopull" not in result
+
+
 def test_running_keep_ctx_batch_only():
     running = {
         "project": "TestPJ",

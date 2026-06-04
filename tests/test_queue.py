@@ -126,6 +126,38 @@ class TestParseQueueLine:
         with pytest.raises(ValueError, match="cannot be used together"):
             parse_queue_line("Foo 1 no-automerge automerge")
 
+    def test_autopull_token(self):
+        """autopull トークン → autopull=True かつ _explicit_keys に含まれる (Issue #365)"""
+        result = parse_queue_line("Foo 1 autopull")
+        assert result is not None
+        assert result["autopull"] is True
+        assert "autopull" in result["_explicit_keys"]
+
+    def test_no_autopull_token(self):
+        """no-autopull トークン → autopull=False かつ _explicit_keys に含まれる (Issue #365)"""
+        result = parse_queue_line("Foo 1 no-autopull")
+        assert result is not None
+        assert result["autopull"] is False
+        assert "autopull" in result["_explicit_keys"]
+
+    def test_autopull_default_unset(self):
+        """autopull 未指定時は False 初期値かつ _explicit_keys に含まれない (Issue #365)"""
+        result = parse_queue_line("Foo 1")
+        assert result["autopull"] is False
+        assert "autopull" not in result["_explicit_keys"]
+
+    def test_parse_queue_line_autopull_default_applied(self, monkeypatch):
+        """DEFAULT_QUEUE_OPTIONS の autopull=True が未指定行に注入される (Issue #365)"""
+        monkeypatch.setattr("config.DEFAULT_QUEUE_OPTIONS", {"autopull": True})
+        result = parse_queue_line("Foo 1")
+        assert result["autopull"] is True
+
+    def test_parse_queue_line_no_autopull_overrides_default(self, monkeypatch):
+        """明示 no-autopull が DEFAULT_QUEUE_OPTIONS の autopull=True を上書きする (Issue #365)"""
+        monkeypatch.setattr("config.DEFAULT_QUEUE_OPTIONS", {"autopull": True})
+        result = parse_queue_line("Foo 1 no-autopull")
+        assert result["autopull"] is False
+
     def test_valid_plan_model_only(self):
         """plan=MODEL のみ"""
         line = "Foo 1 plan=opus"

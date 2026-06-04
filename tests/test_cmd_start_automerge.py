@@ -65,6 +65,7 @@ def _make_args(**overrides) -> types.SimpleNamespace:
         exclude_high_risk=None, no_exclude_high_risk=None,
         exclude_any_risk=None, no_exclude_any_risk=None,
         allow_closed=False, comment=None,
+        autopull=None, no_autopull=None,
         cc_plan_model=None, cc_impl_model=None,
         implementer=None, gitlab=None,
     )
@@ -96,3 +97,31 @@ class TestCmdStartAutomerge:
         cmd_start(args)
         data = json.loads((pipeline_dir / "test.json").read_text())
         assert "automerge" not in data
+
+
+class TestCmdStartAutopull:
+    """Tests for autopull flag persistence in cmd_start (Issue #365)."""
+
+    def test_autopull_explicit_true(self, pipeline_dir):
+        """--autopull -> pipeline JSON has autopull=True."""
+        _write_pipeline(pipeline_dir, "test", _base_pipeline())
+        args = _make_args(autopull=True)
+        cmd_start(args)
+        data = json.loads((pipeline_dir / "test.json").read_text())
+        assert data["autopull"] is True
+
+    def test_no_autopull_explicit(self, pipeline_dir):
+        """--no-autopull -> pipeline JSON has autopull=False."""
+        _write_pipeline(pipeline_dir, "test", _base_pipeline())
+        args = _make_args(no_autopull=True)
+        cmd_start(args)
+        data = json.loads((pipeline_dir / "test.json").read_text())
+        assert data["autopull"] is False
+
+    def test_autopull_not_specified(self, pipeline_dir):
+        """Neither flag -> pipeline JSON has no autopull key (watchdog default True applies)."""
+        _write_pipeline(pipeline_dir, "test", _base_pipeline())
+        args = _make_args()
+        cmd_start(args)
+        data = json.loads((pipeline_dir / "test.json").read_text())
+        assert "autopull" not in data

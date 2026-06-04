@@ -434,8 +434,8 @@ def process(path: Path):
             _cleanup_review_files(pj)
             repo = data.get("repo_path", "")
 
-            # Issue #289: remote の最新を pull してから base_commit を記録
-            if repo:
+            # Issue #289 / #365: autopull オプションに基づき remote の最新を pull
+            if repo and data.get("autopull", True):
                 try:
                     import subprocess as _sub_pull
                     import os as _os_pull
@@ -1501,6 +1501,7 @@ def _handle_qrun(msg_id: str):
             exclude_high_risk=entry.get("exclude_high_risk", False),
             exclude_any_risk=entry.get("exclude_any_risk", False),
             allow_closed=entry.get("allow_closed", False),
+            autopull=entry["autopull"] if "autopull" in entry.get("_explicit_keys", set()) else None,
         )
 
         # queue_mode を先に設定（cmd_start 内の遷移通知で [Queue] prefix を使うため）

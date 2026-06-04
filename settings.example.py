@@ -55,6 +55,7 @@ DEFAULT_QUEUE_OPTIONS: dict[str, bool | str] = {
     "keep_ctx_intra": True,     # Context is kept between DESIGN and CODE phases. (Default: True)
     "skip_test": True,          # CODE_TEST is skipped. (Default: True)
     "skip_assess": True,        # ASSESSMENT is skipped. (Default: True)
+    "autopull": True,           # git pull --ff-only during INITIALIZE. (Default: True)
 }
 
 # Per-project overrides for DEFAULT_QUEUE_OPTIONS.

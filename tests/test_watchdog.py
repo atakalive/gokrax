@@ -6672,6 +6672,7 @@ class TestGitPullOnInitialize:
             "batch": [{"issue": 1}],
             "history": [],
             "repo_path": "/fake/repo",
+            "autopull": True,
         }
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(_json.dumps(data))
@@ -6732,6 +6733,7 @@ class TestGitPullOnInitialize:
             "batch": [{"issue": 1}],
             "history": [],
             "repo_path": "/fake/repo",
+            "autopull": True,
         }
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(_json.dumps(data))
@@ -6782,6 +6784,7 @@ class TestGitPullOnInitialize:
             "batch": [{"issue": 1}],
             "history": [],
             "repo_path": "/fake/repo",
+            "autopull": True,
         }
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(_json.dumps(data))
@@ -6816,6 +6819,96 @@ class TestGitPullOnInitialize:
         saved = _json.loads(path.read_text())
         assert saved["base_commit"] == "timeout789abc"
         assert saved["state"] == target_state
+
+    def test_git_pull_called_when_autopull_unset(self, tmp_pipelines, monkeypatch):
+        """autopull キー未設定時も git pull が実行されること (後方互換: data.get default True) (Issue #365)"""
+        import json as _json
+        import subprocess
+        from subprocess import CompletedProcess
+        from watchdog import process
+        from engine.fsm import TransitionAction
+
+        path = tmp_pipelines / "pj.json"
+        data = {
+            "project": "pj", "gitlab": "testns/pj",
+            "state": "INITIALIZE", "enabled": True,
+            "review_mode": "standard",
+            "batch": [{"issue": 1}],
+            "history": [],
+            "repo_path": "/fake/repo",
+        }  # autopull キーなし
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(_json.dumps(data))
+        monkeypatch.setattr("watchdog.PIPELINES_DIR", tmp_pipelines)
+
+        _original_run = subprocess.run
+        calls: list[tuple[str, list, dict]] = []
+
+        def _mock_run(cmd, **kwargs):
+            if isinstance(cmd, list) and len(cmd) >= 4 and cmd[0] == "git":
+                if cmd[3] == "pull":
+                    calls.append(("pull", cmd, kwargs))
+                    return CompletedProcess(cmd, 0, stdout="", stderr="")
+                if cmd[3] == "log":
+                    calls.append(("log", cmd, kwargs))
+                    return CompletedProcess(cmd, 0, stdout="abc123def456\n", stderr="")
+            return _original_run(cmd, **kwargs)
+
+        with patch("watchdog.check_transition", return_value=TransitionAction(new_state="DESIGN_PLAN")), \
+             patch("watchdog._has_pytest", return_value=False), \
+             patch("subprocess.run", side_effect=_mock_run), \
+             patch("watchdog.notify_implementer"), \
+             patch("watchdog._poll_pytest_baseline"):
+            process(path)
+
+        assert any(c[0] == "pull" for c in calls), "git pull should run when autopull is unset (default True)"
+
+    def test_git_pull_skipped_when_autopull_false(self, tmp_pipelines, monkeypatch):
+        """autopull=False 時は git pull が実行されないこと (Issue #365)"""
+        import json as _json
+        import subprocess
+        from subprocess import CompletedProcess
+        from watchdog import process
+        from engine.fsm import TransitionAction
+
+        path = tmp_pipelines / "pj.json"
+        data = {
+            "project": "pj", "gitlab": "testns/pj",
+            "state": "INITIALIZE", "enabled": True,
+            "review_mode": "standard",
+            "batch": [{"issue": 1}],
+            "history": [],
+            "repo_path": "/fake/repo",
+            "autopull": False,
+        }
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(_json.dumps(data))
+        monkeypatch.setattr("watchdog.PIPELINES_DIR", tmp_pipelines)
+
+        _original_run = subprocess.run
+        calls: list[tuple[str, list, dict]] = []
+
+        def _mock_run(cmd, **kwargs):
+            if isinstance(cmd, list) and len(cmd) >= 4 and cmd[0] == "git":
+                if cmd[3] == "pull":
+                    calls.append(("pull", cmd, kwargs))
+                    return CompletedProcess(cmd, 0, stdout="", stderr="")
+                if cmd[3] == "log":
+                    calls.append(("log", cmd, kwargs))
+                    return CompletedProcess(cmd, 0, stdout="abc123def456\n", stderr="")
+            return _original_run(cmd, **kwargs)
+
+        with patch("watchdog.check_transition", return_value=TransitionAction(new_state="DESIGN_PLAN")), \
+             patch("watchdog._has_pytest", return_value=False), \
+             patch("subprocess.run", side_effect=_mock_run), \
+             patch("watchdog.notify_implementer"), \
+             patch("watchdog._poll_pytest_baseline"):
+            process(path)
+
+        assert not any(c[0] == "pull" for c in calls), "git pull must not run when autopull is False"
+        # base_commit は引き続き記録されること
+        saved = _json.loads(path.read_text())
+        assert saved["base_commit"] == "abc123def456"
 
 
 # ── TestMainErrorCounting ─────────────────────────────────────────────────────

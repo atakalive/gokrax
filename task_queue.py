@@ -209,6 +209,7 @@ def parse_queue_line(line: str, *, validate_batch_size: bool = True) -> dict:
         "exclude_high_risk": False,
         "exclude_any_risk": False,
         "allow_closed": False,
+        "autopull": False,
         "original_line": line.rstrip("\n"),
     }
     result["_explicit_keys"] = set()
@@ -316,6 +317,12 @@ def parse_queue_line(line: str, *, validate_batch_size: bool = True) -> dict:
         elif token == "allow-closed":
             result["allow_closed"] = True
             result["_explicit_keys"].add("allow_closed")
+        elif token == "autopull":
+            result["autopull"] = True
+            result["_explicit_keys"].add("autopull")
+        elif token == "no-autopull":
+            result["autopull"] = False
+            result["_explicit_keys"].add("autopull")
         elif token in REVIEW_MODES:
             if result["mode"] is not None:
                 raise ValueError(f"Duplicate mode: already {result['mode']!r}, got {token!r}")
@@ -624,6 +631,8 @@ def save_queue_options_to_pipeline(data: dict, entry: dict) -> None:
         data["exclude_any_risk"] = True
     if entry.get("allow_closed"):
         data["allow_closed"] = True
+    if "autopull" in entry.get("_explicit_keys", set()):
+        data["autopull"] = entry["autopull"]
 
 
 def rollback_queue_mode(path: Path) -> None:

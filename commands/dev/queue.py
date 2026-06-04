@@ -128,6 +128,10 @@ def cmd_qrun(args):
                 opts.append("exclude-any-risk")
             if e.get("allow_closed"):
                 opts.append("allow-closed")
+            if "autopull" in e.get("_explicit_keys", set()) and not e.get("autopull", False):
+                opts.append("no-autopull")
+            elif e.get("autopull"):
+                opts.append("autopull")
             opts_str = " " + " ".join(opts) if opts else ""
             print(f"{e['project']} {e['issues']}{mode}{opts_str}{done}")
         return
@@ -170,6 +174,7 @@ def cmd_qrun(args):
         exclude_high_risk=entry.get("exclude_high_risk", False),
         exclude_any_risk=entry.get("exclude_any_risk", False),
         allow_closed=entry.get("allow_closed", False),
+        autopull=entry["autopull"] if "autopull" in entry.get("_explicit_keys", set()) else None,
     )
 
     # queue_mode を先に設定（cmd_start 内の遷移通知で [Queue] prefix を使うため）
@@ -275,6 +280,7 @@ def _get_running_info() -> "dict | None":
                 "exclude_high_risk": data.get("exclude_high_risk", False),
                 "exclude_any_risk": data.get("exclude_any_risk", False),
                 "allow_closed": data.get("allow_closed", False),
+                "autopull": data.get("autopull"),
                 "comment": data.get("comment"),
             })
 
@@ -341,6 +347,11 @@ def get_qstatus_text(entries: list[dict], running: "dict | None" = None, wait_in
             parts.append("exclude-any-risk")
         if running.get("allow_closed"):
             parts.append("allow-closed")
+        ap = running.get("autopull")
+        if ap is True:
+            parts.append("autopull")
+        elif ap is False:
+            parts.append("no-autopull")
         lines.append(f"[*] {' '.join(parts)}")
     for e in entries:
         idx = e.get("index", 0)
@@ -380,6 +391,10 @@ def get_qstatus_text(entries: list[dict], running: "dict | None" = None, wait_in
             parts.append("exclude-any-risk")
         if e.get("allow_closed"):
             parts.append("allow-closed")
+        if "autopull" in e.get("_explicit_keys", set()) and not e.get("autopull", False):
+            parts.append("no-autopull")
+        elif e.get("autopull"):
+            parts.append("autopull")
         lines.append(f"[{idx}] {' '.join(parts)}")
     return "\n".join(lines)
 

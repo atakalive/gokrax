@@ -419,6 +419,8 @@ def cmd_start(args):
         args.exclude_any_risk = False
     if getattr(args, "no_automerge", None):
         args.automerge = False
+    if getattr(args, "no_autopull", None):
+        args.autopull = False
 
     # デフォルトオプション適用: CLI 引数で明示指定されていない（None のまま）オプションにデフォルト値を注入
     from task_queue import _QUEUE_OPT_ALIASES
@@ -462,6 +464,7 @@ def cmd_start(args):
         d.pop("no_cc", None)
         d.pop("exclude_high_risk", None)
         d.pop("exclude_any_risk", None)
+        d.pop("autopull", None)
 
     # 2. Issue番号取得（--issue指定 or GitLab API）
     if args.issue:
@@ -530,6 +533,9 @@ def cmd_start(args):
         am = getattr(args, "automerge", None)
         if am is not None:
             data["automerge"] = am
+        ap = getattr(args, "autopull", None)
+        if ap is not None:
+            data["autopull"] = ap
         if getattr(args, "cc_plan_model", None):
             data["cc_plan_model"] = args.cc_plan_model
         if getattr(args, "cc_impl_model", None):

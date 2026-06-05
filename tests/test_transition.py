@@ -702,3 +702,102 @@ class TestResumeFromBlocked:
         # --force resets counter but NOT max
         assert data["max_design_revise_cycles"] == MAX_REVISE_CYCLES * 2
         assert "design_revise_count" not in data  # reset by --force
+
+
+class TestTransitionRoundSuffix:
+    """cmd_transition の Discord 通知にラウンド番号 Rn が付加されることを検証"""
+
+    _BATCH_ITEM = {
+        "issue": 1, "title": "T", "commit": None, "cc_session_id": None,
+        "design_reviews": {}, "code_reviews": {},
+        "added_at": "2025-01-01T00:00:00+09:00",
+    }
+
+    def test_review_to_revise_r1_no_suffix(self, tmp_pipelines, sample_pipeline):
+        """DESIGN_REVIEW → DESIGN_REVISE (R1): Rn 表示なし + カウンタ 0→1"""
+        sample_pipeline["state"] = "DESIGN_REVIEW"
+        sample_pipeline["design_revise_count"] = 0
+        sample_pipeline["batch"] = [dict(self._BATCH_ITEM)]
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, sample_pipeline)
+        from gokrax import cmd_transition
+        args = argparse.Namespace(
+            project="test-pj", to="DESIGN_REVISE", actor="cli", force=True, resume=False,
+        )
+        with patch("commands.dev.notify_implementer"), \
+             patch("commands.dev.notify_reviewers"), \
+             patch("commands.dev.notify_discord") as mock_discord:
+            cmd_transition(args)
+        msg = mock_discord.call_args[0][0]
+        assert "DESIGN_REVISE" in msg
+        assert " R" not in msg  # R1 は表示なし
+        data = json.loads(path.read_text())
+        assert data["design_revise_count"] == 1
+
+    def test_review_to_revise_r2_has_suffix(self, tmp_pipelines, sample_pipeline):
+        """DESIGN_REVIEW → DESIGN_REVISE (R2): " R2" が通知に含まれる + カウンタ 1→2"""
+        sample_pipeline["state"] = "DESIGN_REVIEW"
+        sample_pipeline["design_revise_count"] = 1
+        sample_pipeline["batch"] = [dict(self._BATCH_ITEM)]
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, sample_pipeline)
+        from gokrax import cmd_transition
+        args = argparse.Namespace(
+            project="test-pj", to="DESIGN_REVISE", actor="cli", force=True, resume=False,
+        )
+        with patch("commands.dev.notify_implementer"), \
+             patch("commands.dev.notify_reviewers"), \
+             patch("commands.dev.notify_discord") as mock_discord:
+            cmd_transition(args)
+        msg = mock_discord.call_args[0][0]
+        assert "DESIGN_REVISE R2" in msg
+        data = json.loads(path.read_text())
+        assert data["design_revise_count"] == 2
+
+    def test_blocked_resume_from_review_increments_and_shows_r2(self, tmp_pipelines, sample_pipeline):
+        """BLOCKED(REVIEW由来) → resume DESIGN_REVISE: カウンタ 1→2 + R2 表示"""
+        sample_pipeline["state"] = "BLOCKED"
+        sample_pipeline["enabled"] = False
+        sample_pipeline["design_revise_count"] = 1
+        sample_pipeline["batch"] = [dict(self._BATCH_ITEM)]
+        sample_pipeline["history"] = [
+            {"from": "DESIGN_REVIEW", "to": "BLOCKED", "at": "2025-01-01T00:00:00+09:00", "actor": "watchdog"},
+        ]
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, sample_pipeline)
+        from gokrax import cmd_transition
+        args = argparse.Namespace(
+            project="test-pj", to="DESIGN_REVISE", actor="cli", force=False, resume=True,
+        )
+        with patch("commands.dev.notify_implementer"), \
+             patch("commands.dev.notify_reviewers"), \
+             patch("commands.dev.notify_discord") as mock_discord:
+            cmd_transition(args)
+        msg = mock_discord.call_args[0][0]
+        assert "DESIGN_REVISE R2" in msg
+        data = json.loads(path.read_text())
+        assert data["design_revise_count"] == 2
+
+    def test_blocked_resume_from_code_test_no_increment_shows_r2(self, tmp_pipelines, sample_pipeline):
+        """BLOCKED(CODE_TEST由来) → resume CODE_REVISE: カウンタ据え置き + R2 表示"""
+        sample_pipeline["state"] = "BLOCKED"
+        sample_pipeline["enabled"] = False
+        sample_pipeline["code_revise_count"] = 1
+        sample_pipeline["batch"] = [dict(self._BATCH_ITEM)]
+        sample_pipeline["history"] = [
+            {"from": "CODE_TEST", "to": "BLOCKED", "at": "2025-01-01T00:00:00+09:00", "actor": "watchdog"},
+        ]
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, sample_pipeline)
+        from gokrax import cmd_transition
+        args = argparse.Namespace(
+            project="test-pj", to="CODE_REVISE", actor="cli", force=False, resume=True,
+        )
+        with patch("commands.dev.notify_implementer"), \
+             patch("commands.dev.notify_reviewers"), \
+             patch("commands.dev.notify_discord") as mock_discord:
+            cmd_transition(args)
+        msg = mock_discord.call_args[0][0]
+        assert "CODE_REVISE R2" in msg
+        data = json.loads(path.read_text())
+        assert data["code_revise_count"] == 1  # 据え置き

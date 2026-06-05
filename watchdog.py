@@ -34,7 +34,7 @@ from pipeline_io import (
     load_pipeline, update_pipeline, get_path,
     add_history, now_iso, find_issue,
     clear_pending_notification, merge_pending_notifications,
-    ensure_spec_reviews_dir,
+    ensure_spec_reviews_dir, get_round_suffix,
 )
 from notify import (
     notify_implementer, notify_reviewers, notify_discord,
@@ -665,6 +665,7 @@ def process(path: Path):
             "queue_mode": _done_queue_mode if state == "DONE" else (_skip_queue_mode if state == "ASSESSMENT" and action.new_state == "IDLE" else data.get("queue_mode", False)),
             "p2_fix": data.get("p2_fix", False),
             "reviewer_number_map": data.get("reviewer_number_map"),
+            "round_suffix": get_round_suffix(data, action.new_state) if action.new_state else "",
         })
         if _npass_timeout_notes:
             notification["_npass_timeout_notes"] = _npass_timeout_notes
@@ -928,7 +929,7 @@ def process(path: Path):
 
         ts = _datetime.now(LOCAL_TZ).strftime("%m/%d %H:%M")
         q_prefix = "[Queue]" if notification.get("queue_mode") else ""
-        notify_discord(f"{q_prefix}[{pj}] {notification['old_state']} → {action.new_state} ({ts})")
+        notify_discord(f"{q_prefix}[{pj}] {notification['old_state']} → {action.new_state}{notification['round_suffix']} ({ts})")
 
         # BLOCKED: impl_msg を Discord に送信
         if action.new_state == "BLOCKED" and action.impl_msg:

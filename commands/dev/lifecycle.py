@@ -15,6 +15,7 @@ from pipeline_io import (
     load_pipeline, save_pipeline, update_pipeline,
     add_history, now_iso, get_path, find_issue,
     clear_pending_notification, merge_pending_notifications,
+    get_round_suffix,
 )
 from engine.filter import require_issue_author, UnauthorizedAuthorError
 from engine.glab import run_glab
@@ -609,6 +610,12 @@ def cmd_transition(args):
                     f"Use --force to override."
                 )
         add_history(data, current, target, args.actor or "cli")
+
+        # REVIEW/NPASS → REVISE: Increment cycle counter (matching watchdog.py:536)
+        if current in ("DESIGN_REVIEW", "CODE_REVIEW", "DESIGN_REVIEW_NPASS", "CODE_REVIEW_NPASS") and target in ("DESIGN_REVISE", "CODE_REVISE"):
+            counter_key = "design_revise_count" if "DESIGN" in current else "code_revise_count"
+            data[counter_key] = data.get(counter_key, 0) + 1
+
         data["state"] = target
         _set_enabled = getattr(args, "set_enabled", None)
         if isinstance(_set_enabled, bool) and target != "IDLE":
@@ -622,6 +629,19 @@ def cmd_transition(args):
             data.pop(counter_key, None)
             print(f"[FORCE] Resetting {counter_key} for {current} → {target} transition")
         elif resume and current == "BLOCKED" and target in ("DESIGN_REVISE", "CODE_REVISE"):
+            _blocked_from = None
+            for entry in reversed(data.get("history", [])):
+                if entry.get("to") == "BLOCKED":
+                    _blocked_from = entry.get("from", "")
+                    break
+            _revise_offset = 0
+            if _blocked_from in ("DESIGN_REVIEW", "CODE_REVIEW", "DESIGN_REVIEW_NPASS", "CODE_REVIEW_NPASS"):
+                counter_key = "design_revise_count" if "DESIGN" in target else "code_revise_count"
+                data[counter_key] = data.get(counter_key, 0) + 1
+            elif _blocked_from in ("CODE_TEST", "CODE_TEST_FIX"):
+                _revise_offset = 1
+            ctx["_revise_offset"] = _revise_offset
+
             from config import MAX_REVISE_CYCLES
             max_key = "max_design_revise_cycles" if "DESIGN" in target else "max_code_revise_cycles"
             val = data.get(max_key)
@@ -675,6 +695,7 @@ def cmd_transition(args):
             "keep_ctx_intra": data.get("keep_ctx_intra", False),
             "queue_mode": data.get("queue_mode", False),
             "history": list(data.get("history", [])),
+            "round_suffix": get_round_suffix(data, target, revise_offset=ctx.get("_revise_offset", 0)),
         })
 
     data = update_pipeline(path, do_transition)
@@ -747,7 +768,7 @@ def cmd_transition(args):
     from datetime import datetime
     ts = datetime.now(LOCAL_TZ).strftime("%m/%d %H:%M")
     q_prefix = "[Queue]" if ctx.get("queue_mode") else ""
-    notify_discord(f"{q_prefix}[{pj}] {prefix}{current} → {args.to} (by {actor}, {ts})")
+    notify_discord(f"{q_prefix}[{pj}] {prefix}{current} → {args.to}{ctx['round_suffix']} (by {actor}, {ts})")
 
 
 def cmd_reset(args: argparse.Namespace) -> None:

@@ -268,3 +268,107 @@ class TestDevbarCLIIntegration:
         assert r.returncode == 0
         with open(path) as f:
             assert json.load(f)["batch"][0]["design_revised"] is True
+
+
+class TestGetRoundSuffix:
+    def test_design_review_r1(self):
+        from pipeline_io import get_round_suffix
+        assert get_round_suffix({"design_revise_count": 0}, "DESIGN_REVIEW") == ""
+
+    def test_design_review_r2(self):
+        from pipeline_io import get_round_suffix
+        assert get_round_suffix({"design_revise_count": 1}, "DESIGN_REVIEW") == " R2"
+
+    def test_design_review_r3(self):
+        from pipeline_io import get_round_suffix
+        assert get_round_suffix({"design_revise_count": 2}, "DESIGN_REVIEW") == " R3"
+
+    def test_design_revise_r1(self):
+        from pipeline_io import get_round_suffix
+        assert get_round_suffix({"design_revise_count": 1}, "DESIGN_REVISE") == ""
+
+    def test_design_revise_r2(self):
+        from pipeline_io import get_round_suffix
+        assert get_round_suffix({"design_revise_count": 2}, "DESIGN_REVISE") == " R2"
+
+    def test_code_review_r1(self):
+        from pipeline_io import get_round_suffix
+        assert get_round_suffix({"code_revise_count": 0}, "CODE_REVIEW") == ""
+
+    def test_code_review_r2(self):
+        from pipeline_io import get_round_suffix
+        assert get_round_suffix({"code_revise_count": 1}, "CODE_REVIEW") == " R2"
+
+    def test_code_revise_r1(self):
+        from pipeline_io import get_round_suffix
+        assert get_round_suffix({"code_revise_count": 1}, "CODE_REVISE") == ""
+
+    def test_code_revise_r2(self):
+        from pipeline_io import get_round_suffix
+        assert get_round_suffix({"code_revise_count": 2}, "CODE_REVISE") == " R2"
+
+    def test_design_approved_r3(self):
+        from pipeline_io import get_round_suffix
+        assert get_round_suffix({"design_revise_count": 2}, "DESIGN_APPROVED") == " R3"
+
+    def test_code_approved_r2(self):
+        from pipeline_io import get_round_suffix
+        assert get_round_suffix({"code_revise_count": 1}, "CODE_APPROVED") == " R2"
+
+    def test_npass_r1(self):
+        from pipeline_io import get_round_suffix
+        assert get_round_suffix({"design_revise_count": 0}, "DESIGN_REVIEW_NPASS") == ""
+
+    def test_code_test_r2(self):
+        from pipeline_io import get_round_suffix
+        assert get_round_suffix({"code_revise_count": 1}, "CODE_TEST") == " R2"
+
+    def test_code_test_fix_r2(self):
+        from pipeline_io import get_round_suffix
+        assert get_round_suffix({"code_revise_count": 1}, "CODE_TEST_FIX") == " R2"
+
+    def test_code_test_r1(self):
+        from pipeline_io import get_round_suffix
+        assert get_round_suffix({"code_revise_count": 0}, "CODE_TEST") == ""
+
+    def test_design_plan_excluded(self):
+        from pipeline_io import get_round_suffix
+        assert get_round_suffix({"design_revise_count": 2}, "DESIGN_PLAN") == ""
+
+    def test_implementation_excluded(self):
+        from pipeline_io import get_round_suffix
+        assert get_round_suffix({"code_revise_count": 2}, "IMPLEMENTATION") == ""
+
+    def test_merge_summary_sent_excluded(self):
+        from pipeline_io import get_round_suffix
+        assert get_round_suffix({"code_revise_count": 2}, "MERGE_SUMMARY_SENT") == ""
+
+    def test_idle(self):
+        from pipeline_io import get_round_suffix
+        assert get_round_suffix({}, "IDLE") == ""
+
+    def test_missing_count_key(self):
+        from pipeline_io import get_round_suffix
+        assert get_round_suffix({}, "DESIGN_REVIEW") == ""
+
+    def test_null_count_value(self):
+        from pipeline_io import get_round_suffix
+        assert get_round_suffix({"design_revise_count": None}, "DESIGN_REVIEW") == ""
+
+    def test_null_count_value_code(self):
+        from pipeline_io import get_round_suffix
+        assert get_round_suffix({"code_revise_count": None}, "CODE_REVIEW") == ""
+
+    def test_revise_offset_blocked_from_test(self):
+        from pipeline_io import get_round_suffix
+        assert get_round_suffix({"code_revise_count": 1}, "CODE_REVISE", revise_offset=1) == " R2"
+
+    def test_revise_offset_zero_default(self):
+        from pipeline_io import get_round_suffix
+        assert get_round_suffix({"code_revise_count": 1}, "CODE_REVISE") == ""
+        assert get_round_suffix({"code_revise_count": 1}, "CODE_REVISE", revise_offset=0) == ""
+
+    def test_revise_offset_ignored_for_non_revise(self):
+        from pipeline_io import get_round_suffix
+        assert get_round_suffix({"code_revise_count": 0}, "CODE_REVIEW", revise_offset=1) == ""
+        assert get_round_suffix({"code_revise_count": 1}, "CODE_REVIEW", revise_offset=1) == " R2"

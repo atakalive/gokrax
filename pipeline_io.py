@@ -259,6 +259,36 @@ def get_current_round(data: dict[str, Any]) -> int:
     return 0
 
 
+_ROUND_SUFFIX_STATES = frozenset({
+    "DESIGN_REVIEW", "DESIGN_REVIEW_NPASS", "DESIGN_REVISE", "DESIGN_APPROVED",
+    "CODE_REVIEW", "CODE_REVIEW_NPASS", "CODE_REVISE", "CODE_APPROVED",
+    "CODE_TEST", "CODE_TEST_FIX",
+})
+
+
+def get_round_suffix(data: dict[str, Any], new_state: str, *, revise_offset: int = 0) -> str:
+    """遷移先の状態に対応するラウンド表示接尾辞を返す。
+
+    R2 以上で " R{n}"、それ以外は ""。
+    _ROUND_SUFFIX_STATES に含まれる状態のみが対象。
+
+    revise_offset: REVISE 状態のラウンド計算に加算するオフセット。
+    通常の REVIEW→REVISE ではカウンタがインクリメント済みなので 0（デフォルト）。
+    CODE_TEST/CODE_TEST_FIX 由来の BLOCKED→resume REVISE では
+    カウンタ未インクリメントなので 1 を渡す。
+    """
+    if new_state not in _ROUND_SUFFIX_STATES:
+        return ""
+    if "DESIGN" in new_state:
+        rc = data.get("design_revise_count") or 0
+    elif "CODE" in new_state:
+        rc = data.get("code_revise_count") or 0
+    else:
+        return ""
+    rn = (rc + revise_offset) if "REVISE" in new_state else rc + 1
+    return f" R{rn}" if rn >= 2 else ""
+
+
 def find_issue(batch: list, issue_num: int) -> dict | None:
     for i in batch:
         if i.get("issue") == issue_num:

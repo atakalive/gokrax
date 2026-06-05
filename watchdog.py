@@ -354,6 +354,7 @@ def process(path: Path):
                 "repo_path": data.get("repo_path", ""),
                 "batch": list(data.get("batch", [])),
                 "gitlab": data.get("gitlab", f"{GITLAB_NAMESPACE}/{pj}"),
+                "round_suffix": "",
             })
             # Issue #59: pending notification for run_cc
             pending = {"run_cc": True}

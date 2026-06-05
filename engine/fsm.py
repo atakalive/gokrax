@@ -151,6 +151,7 @@ class TransitionAction:
     skipped_issues: list[dict] | None = None   # list of Issue dicts excluded in ASSESSMENT
     remaining_issues: list[dict] | None = None  # list of Issue dicts remaining in ASSESSMENT
     grace_skipped_reviewers: list[str] | None = None  # reviewers skipped due to grace period expiration
+    blocked_reason: str | None = None  # BLOCKED cause ("timeout" / None)
 
 
 def _get_state_entered_at(data: dict, state: str) -> _datetime | None:
@@ -206,6 +207,7 @@ def _check_nudge(state: str, data: dict) -> TransitionAction | None:
         return TransitionAction(
             new_state="BLOCKED",
             impl_msg=f"{state} timeout. No response received.",
+            blocked_reason="timeout",
         )
 
     # 猶予期間内は催促しない
@@ -967,6 +969,7 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
                     return TransitionAction(
                         new_state="BLOCKED",
                         impl_msg="CODE_TEST timeout. Test process did not respond.",
+                        blocked_reason="timeout",
                     )
             return TransitionAction()
         if test_result == "pass":

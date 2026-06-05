@@ -426,6 +426,7 @@ def process(path: Path):
                     detail = "; ".join(parts)
                     log(f"[{pj}] BLOCK INITIALIZE: {detail}")
                     data["state"] = "BLOCKED"
+                    data["blocked_reason"] = None
                     data["enabled"] = False
                     add_history(data, "INITIALIZE", "BLOCKED", "watchdog:closed-issue-guard")
                     notification["closed_guard"] = {"pj": pj, "detail": detail}
@@ -614,6 +615,7 @@ def process(path: Path):
         # BLOCKED: Disable watchdog (Issue #29)
         if action.new_state == "BLOCKED":
             data["enabled"] = False
+            data["blocked_reason"] = action.blocked_reason
             log(f"[{pj}] Watchdog disabled due to BLOCKED transition")
 
         # 催促カウンタ・失敗フラグ・催促タイマーリセット（状態から出るとき）
@@ -1363,6 +1365,7 @@ def process(path: Path):
                 def _block_test_fail(data: dict) -> None:
                     data["state"] = "BLOCKED"
                     data["enabled"] = False
+                    data["blocked_reason"] = None
                     add_history(data, "CODE_TEST", "BLOCKED", actor="watchdog")
                     _kill_code_test(data, pj)
                 update_pipeline(path, _block_test_fail)
@@ -1378,6 +1381,7 @@ def process(path: Path):
                 def _block_cc_fail(data: dict) -> None:
                     data["state"] = "BLOCKED"
                     data["enabled"] = False
+                    data["blocked_reason"] = None
                     add_history(data, "CODE_TEST_FIX", "BLOCKED", actor="watchdog")
                 update_pipeline(path, _block_cc_fail)
                 notify_discord(f"[{pj}] ⚠️ CC test-fix launch failed: {e}")

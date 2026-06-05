@@ -65,6 +65,8 @@ def _cleanup_batch_state(data: dict, pj: str) -> None:
     data.pop("test_result", None)
     data.pop("test_output", None)
     data.pop("test_retry_count", None)
+    # BLOCKED reason
+    data.pop("blocked_reason", None)
     # CC
     data.pop("cc_pid", None)
     data.pop("cc_session_id", None)

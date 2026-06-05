@@ -646,12 +646,17 @@ def cmd_transition(args):
             max_key = "max_design_revise_cycles" if "DESIGN" in target else "max_code_revise_cycles"
             val = data.get(max_key)
             current_max = val if val is not None else MAX_REVISE_CYCLES
-            data[max_key] = current_max + MAX_REVISE_CYCLES
+            _reason = data.pop("blocked_reason", None)
+            if _reason != "timeout":
+                data[max_key] = current_max + MAX_REVISE_CYCLES
+                print(f"[RESUME] {max_key}: {current_max} → {data[max_key]} for {current} → {target} transition")
+            else:
+                print(f"[RESUME] {max_key}: {current_max} (unchanged, timeout recovery) for {current} → {target} transition")
             data["enabled"] = True  # BLOCKED時にFalseになっているのでTrueに戻す
-            print(f"[RESUME] {max_key}: {current_max} → {data[max_key]} for {current} → {target} transition")
         elif target == "BLOCKED":
             # Disable watchdog when manually transitioning to BLOCKED (Issue #29)
             data["enabled"] = False
+            data["blocked_reason"] = None
 
         # === Issue #59: 通知情報をロック内で構築 + pending フラグ ===
         pj = data.get("project", args.project)

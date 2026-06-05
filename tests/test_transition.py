@@ -703,6 +703,83 @@ class TestResumeFromBlocked:
         assert data["max_design_revise_cycles"] == MAX_REVISE_CYCLES * 2
         assert "design_revise_count" not in data  # reset by --force
 
+    def test_resume_timeout_design_revise_no_max_increment(self, tmp_pipelines, sample_pipeline):
+        """timeout 由来 BLOCKED → --resume DESIGN_REVISE: max は加算されない (Issue #367)"""
+        sample_pipeline["state"] = "BLOCKED"
+        sample_pipeline["enabled"] = False
+        sample_pipeline["design_revise_count"] = 2
+        sample_pipeline["blocked_reason"] = "timeout"
+        sample_pipeline["history"] = [
+            {"from": "DESIGN_REVISE", "to": "BLOCKED", "at": "2025-01-01T00:00:00+09:00", "actor": "watchdog"},
+        ]
+        sample_pipeline["batch"] = [dict(self._BATCH_ITEM)]
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, sample_pipeline)
+        from gokrax import cmd_transition
+        args = argparse.Namespace(
+            project="test-pj", to="DESIGN_REVISE", actor="cli", force=False, resume=True,
+        )
+        with patch("commands.dev.notify_implementer"), patch("commands.dev.notify_reviewers"):
+            cmd_transition(args)
+        with open(path) as f:
+            data = json.load(f)
+        assert data["state"] == "DESIGN_REVISE"
+        assert data["enabled"] is True
+        assert "max_design_revise_cycles" not in data
+        assert data["design_revise_count"] == 2
+        assert "blocked_reason" not in data
+
+    def test_resume_timeout_code_review_no_max_increment(self, tmp_pipelines, sample_pipeline):
+        """timeout 由来 BLOCKED → --resume CODE_REVISE: max は加算されないがカウンタは +1 (Issue #367)"""
+        sample_pipeline["state"] = "BLOCKED"
+        sample_pipeline["enabled"] = False
+        sample_pipeline["code_revise_count"] = 1
+        sample_pipeline["blocked_reason"] = "timeout"
+        sample_pipeline["history"] = [
+            {"from": "CODE_REVIEW", "to": "BLOCKED", "at": "2025-01-01T00:00:00+09:00", "actor": "watchdog"},
+        ]
+        sample_pipeline["batch"] = [dict(self._BATCH_ITEM)]
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, sample_pipeline)
+        from gokrax import cmd_transition
+        args = argparse.Namespace(
+            project="test-pj", to="CODE_REVISE", actor="cli", force=False, resume=True,
+        )
+        with patch("commands.dev.notify_implementer"), patch("commands.dev.notify_reviewers"):
+            cmd_transition(args)
+        with open(path) as f:
+            data = json.load(f)
+        assert data["state"] == "CODE_REVISE"
+        assert data["enabled"] is True
+        assert "max_code_revise_cycles" not in data
+        assert data["code_revise_count"] == 2
+        assert "blocked_reason" not in data
+
+    def test_resume_max_cycles_exhausted_increments_max(self, tmp_pipelines, sample_pipeline):
+        """サイクル上限到達 (blocked_reason なし) → --resume DESIGN_REVISE: max は加算される (Issue #367)"""
+        from config import MAX_REVISE_CYCLES
+        sample_pipeline["state"] = "BLOCKED"
+        sample_pipeline["enabled"] = False
+        sample_pipeline["design_revise_count"] = 4
+        sample_pipeline["history"] = [
+            {"from": "DESIGN_REVIEW", "to": "BLOCKED", "at": "2025-01-01T00:00:00+09:00", "actor": "watchdog"},
+        ]
+        sample_pipeline["batch"] = [dict(self._BATCH_ITEM)]
+        path = tmp_pipelines / "test-pj.json"
+        write_pipeline(path, sample_pipeline)
+        from gokrax import cmd_transition
+        args = argparse.Namespace(
+            project="test-pj", to="DESIGN_REVISE", actor="cli", force=False, resume=True,
+        )
+        with patch("commands.dev.notify_implementer"), patch("commands.dev.notify_reviewers"):
+            cmd_transition(args)
+        with open(path) as f:
+            data = json.load(f)
+        assert data["state"] == "DESIGN_REVISE"
+        assert data["max_design_revise_cycles"] == MAX_REVISE_CYCLES * 2
+        assert data["design_revise_count"] == 5
+        assert "blocked_reason" not in data
+
 
 class TestTransitionRoundSuffix:
     """cmd_transition の Discord 通知にラウンド番号 Rn が付加されることを検証"""

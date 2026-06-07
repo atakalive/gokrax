@@ -232,6 +232,14 @@ class TestSend:
         assert mode == 0o600
         os.unlink(captured["path"])
 
+    def test_mkstemp_failure_returns_fail(self, tmp_sessions, monkeypatch):
+        monkeypatch.setattr(config, "DRY_RUN", False)
+        monkeypatch.setattr(backend_cci, "_agent_config_cache", {})
+        with patch.object(backend_cci.tempfile, "mkstemp", side_effect=OSError("no space")):
+            result = backend_cci.send("reviewer1", "hello", timeout=30)
+        assert result is SendResult.FAIL
+        assert "reviewer1" not in backend_cci._starting_markers
+
     def test_popen_failure_returns_fail_and_unlinks_prompt(self, tmp_sessions, monkeypatch):
         monkeypatch.setattr(config, "DRY_RUN", False)
         monkeypatch.setattr(backend_cci, "_agent_config_cache", {})

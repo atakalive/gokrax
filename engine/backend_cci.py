@@ -400,7 +400,11 @@ def send(agent_id: str, message: str, timeout: int) -> SendResult:
     cwd = profile_dir if profile_dir.is_dir() else PROJECT_ROOT
 
     # Write the prompt to a private temp file (0o600).
-    fd, prompt_path = tempfile.mkstemp(suffix=".txt", prefix=f"cci-{agent_id}-", dir="/tmp")
+    try:
+        fd, prompt_path = tempfile.mkstemp(suffix=".txt", prefix=f"cci-{agent_id}-", dir="/tmp")
+    except OSError as e:
+        logger.warning("cci mkstemp failed for %s: %s", agent_id, e)
+        return SendResult.FAIL
     try:
         os.fchmod(fd, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as f:

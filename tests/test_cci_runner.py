@@ -131,6 +131,23 @@ class TestEnsureTrustAccepted:
             cwd_abs = str(Path(cwd).resolve())
             assert data["projects"][cwd_abs]["hasTrustDialogAccepted"] is True
 
+    def test_corrupt_json_not_clobbered(self, tmp_path, monkeypatch):
+        """Invalid JSON must not be overwritten with a minimal dict."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        corrupt = "not valid json {{{{"
+        (tmp_path / ".claude.json").write_text(corrupt)
+        cci_runner._ensure_trust_accepted(str(tmp_path))
+        # File must remain unchanged — not overwritten.
+        assert (tmp_path / ".claude.json").read_text() == corrupt
+
+    def test_non_dict_root_not_clobbered(self, tmp_path, monkeypatch):
+        """JSON root that is not a dict must not be overwritten."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        content = json.dumps([1, 2, 3])
+        (tmp_path / ".claude.json").write_text(content)
+        cci_runner._ensure_trust_accepted(str(tmp_path))
+        assert (tmp_path / ".claude.json").read_text() == content
+
 
 # ===========================================================================
 # CLI argument parsing

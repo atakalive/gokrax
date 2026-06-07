@@ -108,14 +108,15 @@ def _ensure_trust_accepted(cwd: str) -> None:
     try:
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
-        entry = data.get("projects", {}).get(cwd_abs, {})
-        if isinstance(entry, dict) and entry.get("hasTrustDialogAccepted") is True:
-            return
+        if isinstance(data, dict):
+            entry = data.get("projects", {}).get(cwd_abs, {})
+            if isinstance(entry, dict) and entry.get("hasTrustDialogAccepted") is True:
+                return
     except FileNotFoundError:
         # File auto-created by claude on first launch; nothing to do here.
         return
     except (OSError, ValueError):
-        pass  # fall through and rewrite under the lock
+        pass  # fall through to lock path
 
     # 2. Acquire the dedicated lock file (NOT the body file — os.replace swaps
     #    the inode and would let a body-file lock slip through).
@@ -135,9 +136,11 @@ def _ensure_trust_accepted(cwd: str) -> None:
         except FileNotFoundError:
             return
         except (OSError, ValueError):
-            data = {}
+            log.warning("cci_runner: cannot read/parse %s under lock; skipping trust update", path)
+            return
         if not isinstance(data, dict):
-            data = {}
+            log.warning("cci_runner: %s root is not a dict; skipping trust update", path)
+            return
 
         projects = data.setdefault("projects", {})
         if not isinstance(projects, dict):

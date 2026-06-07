@@ -8,7 +8,7 @@ import signal
 from datetime import datetime as _datetime
 from pathlib import Path
 
-from config import CC_MODEL_PLAN, CC_MODEL_IMPL, LOCAL_TZ, GOKRAX_CLI
+from config import CC_MODEL_PLAN, CC_MODEL_IMPL, LOCAL_TZ, GOKRAX_CLI, BLOCK_TIMERS
 from pipeline_io import load_pipeline, update_pipeline, now_iso
 from engine.shared import log
 from messages import render
@@ -22,7 +22,7 @@ KILL_GRACE_SEC: float       = 2.0
 
 def _cci_cmd(model: str, session_id: str, is_resume: bool,
              repo_path: str, prompt_file: str,
-             completion_timeout: int = 900,
+             completion_timeout: int,
              append_system_prompt: str | None = None,
              disallowed_tools: str | None = None) -> str:
     """Generate a cci_runner invocation line for embedding in a bash script.
@@ -227,7 +227,7 @@ def _start_cc(project: str, batch: list, gitlab: str, repo_path: str, pipeline_p
         if impl_engine == "cci":
             commit_retry_cmd = _cci_cmd(
                 impl_model, session_id, True, repo_path, "-",
-                completion_timeout=900,
+                completion_timeout=_config.CCI_COMPLETION_TIMEOUT_SEC,
             ) + " || true"
         else:
             commit_retry_cmd = (
@@ -262,7 +262,7 @@ fi
             if impl_engine == "cci":
                 impl_skip_cmd = _cci_block(_cci_cmd(
                     impl_model, session_id, bool(prev_session), repo_path, impl_path,
-                    completion_timeout=3600,
+                    completion_timeout=BLOCK_TIMERS["IMPLEMENTATION"],
                 ))
             else:
                 impl_skip_cmd = (
@@ -292,13 +292,13 @@ _notify {shlex.quote(msg_impl_done)}
                 plan_only = render("dev.implementation", "cci_plan_only_system")
                 plan_cmd = _cci_block(_cci_cmd(
                     plan_model, session_id, bool(prev_session), repo_path, plan_path,
-                    completion_timeout=3600,
+                    completion_timeout=BLOCK_TIMERS["IMPLEMENTATION"],
                     append_system_prompt=plan_only,
                     disallowed_tools="Edit,MultiEdit,Write,NotebookEdit",
                 ))
                 impl_cmd = _cci_block(_cci_cmd(
                     impl_model, session_id, True, repo_path, impl_path,
-                    completion_timeout=3600,
+                    completion_timeout=BLOCK_TIMERS["IMPLEMENTATION"],
                 ))
             else:
                 plan_cmd = (
@@ -791,7 +791,7 @@ def _start_cc_test_fix(project: str, batch: list, data: dict, pipeline_path: Pat
             _gokrax_parent_q = shlex.quote(str(Path(GOKRAX_CLI).resolve().parent))
             _pybin_q = shlex.quote(_sys.executable)
             cci_line = _cci_cmd(impl_model, session_id, True, repo_path, prompt_path,
-                                completion_timeout=3600)
+                                completion_timeout=BLOCK_TIMERS["CODE_TEST_FIX"])
             script_content = (
                 f'#!/bin/bash\n'
                 f'set -e\n'

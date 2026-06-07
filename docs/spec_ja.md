@@ -387,7 +387,7 @@ OS ごとの CLI 引数サイズ上限 (`_get_max_cli_arg_bytes`):
 - DESIGN_APPROVED -> IMPLEMENTATION 遷移時に `run_cc=True` -> `_start_cc()` で非同期起動
 - CC が死んだ場合 (`_is_cc_running()=False`): watchdog の次サイクルで再起動
 - **DESIGN_PLAN では CC 自動起動しない。** 実装担当が手動で Issue 確認 -> `plan-done` する
-- `impl_engine` が `"cci"` の場合、`_start_cc` は `claude -p` の代わりに `cci_runner` を起動する。cci の plan phase は `--disallowed-tools` で Edit/MultiEdit/Write/NotebookEdit をツールレベルで遮断し、`--append-system-prompt` で Bash の状態変更コマンドをソフトに制約する。cci runner が plan/impl で失敗した場合、bash スクリプトは即座に BLOCKED へ遷移する。plan/impl/test_fix の completion timeout は 3600s（agent 通信の 900s デフォルトとは独立）。
+- `impl_engine` が `"cci"` の場合、`_start_cc` は `claude -p` の代わりに `cci_runner` を起動する。cci の plan phase は `--disallowed-tools` で Edit/MultiEdit/Write/NotebookEdit をツールレベルで遮断し、`--append-system-prompt` で Bash の状態変更コマンドをソフトに制約する。cci runner が plan/impl で失敗した場合、bash スクリプトは即座に BLOCKED へ遷移する。各 cci サブステップ（plan/impl/test_fix）の completion timeout はフェーズの BLOCK_TIMER に従い、per-invocation の安全網として機能する（agent 通信の 1200s CCI_COMPLETION_TIMEOUT_SEC とは独立）。通常モードでは plan と impl が直列実行され、各々が独立した timeout を持つ。フェーズ全体の期限は watchdog の BLOCK_TIMER が管理する。timeout_extension は runner に反映されない。対象フェーズの BLOCK_TIMERS 値は正の秒数であること。
 
 ### 7.5 /new 送信タイミング
 

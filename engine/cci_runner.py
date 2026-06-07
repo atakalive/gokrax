@@ -444,7 +444,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--delete-prompt-file", action="store_true")
     p.add_argument("--append-system-prompt")
     p.add_argument("--disallowed-tools")
-    p.add_argument("--completion-timeout", type=int, default=900)
+    p.add_argument("--completion-timeout", type=int, default=config.CCI_COMPLETION_TIMEOUT_SEC)
     return p.parse_args(argv)
 
 

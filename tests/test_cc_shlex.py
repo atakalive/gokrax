@@ -335,7 +335,7 @@ class TestStartCcCciSkipPlan:
         # safe paths are left unquoted by shlex.quote
         assert "--prompt-file /tmp/gokrax-impl.txt" in script
         assert "--cwd /safe/repo" in script
-        assert "--completion-timeout 3600" in script
+        assert "--completion-timeout 7200" in script
         # skip_plan goes straight to impl → no plan-only constraints
         assert "--append-system-prompt" not in script
         assert "--disallowed-tools" not in script
@@ -344,9 +344,9 @@ class TestStartCcCciSkipPlan:
         # impl failure → immediate BLOCKED
         assert "if ! " in script
         assert "BLOCKED" in script
-        # commit retry uses || true + 900s timeout
+        # commit retry uses || true + 1200s timeout
         assert "|| true" in script
-        assert "--completion-timeout 900" in script
+        assert "--completion-timeout 1200" in script
 
 
 # ===========================================================================
@@ -392,6 +392,9 @@ class TestStartCcCciNormal:
         assert "if ! " in impl_only
         assert "BLOCKED" in plan_section
         assert "BLOCKED" in impl_only
+        # both plan and impl use IMPLEMENTATION BLOCK_TIMER (7200s) as completion timeout
+        assert "--completion-timeout 7200" in plan_section
+        assert "--completion-timeout 7200" in impl_only
 
 
 # ===========================================================================
@@ -425,7 +428,7 @@ class TestStartCcCciCommitRetry:
         # "-" is a safe token, left unquoted by shlex.quote
         assert "--prompt-file -" in retry_block
         assert "|| true" in retry_block
-        assert "--completion-timeout 900" in retry_block
+        assert "--completion-timeout 1200" in retry_block
 
 
 # ===========================================================================

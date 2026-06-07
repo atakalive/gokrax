@@ -125,7 +125,7 @@ REVIEW_MODES = {
 # CCI backend settings (if using cci backend)
 # CCI_BIN: str = "claude"                    # claude binary name/path
 # CCI_START_GRACE_SEC: int = 60              # Grace period for TUI boot (default: 60)
-# CCI_COMPLETION_TIMEOUT_SEC: int = 900      # Turn completion timeout in seconds (default: 900 = 15 min)
+# CCI_COMPLETION_TIMEOUT_SEC: int = 1200     # cci_runner が agent 通信の 1 ターン完了を待つ上限（秒）。plan/impl/test_fix 本体は BLOCK_TIMERS から取得するため本値は影響しないが、commit retry と agent 通信の既定値には使われる
 # IMPL_PHASE_ENGINE: str = "cc"  # "cc" (claude -p, default) or "cci" (interactive TUI, -p retirement prep)
 # AGENT_SEND_TIMEOUT = 30
 # DISCORD_POST_TIMEOUT = 10

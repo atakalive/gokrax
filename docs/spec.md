@@ -387,7 +387,7 @@ Per-OS CLI argument size limits (`_get_max_cli_arg_bytes`):
 - On DESIGN_APPROVED -> IMPLEMENTATION transition: `run_cc=True` -> async launch via `_start_cc()`
 - If CC dies (`_is_cc_running()=False`): restarted on the watchdog's next cycle
 - **CC is not auto-launched during DESIGN_PLAN.** Reviewing Issues is the implementer's responsibility
-- When `impl_engine` is `"cci"`, `_start_cc` generates `cci_runner` invocations instead of `claude -p`. The cci plan phase uses `--disallowed-tools` to block Edit/MultiEdit/Write/NotebookEdit at the tool level, plus `--append-system-prompt` for additional soft constraints on Bash state-changing commands. On cci runner failure during plan/impl, the bash script transitions immediately to BLOCKED (no commit retry for failed runs). Completion timeout for plan/impl/test_fix is 3600s (vs. 900s default for agent comms).
+- When `impl_engine` is `"cci"`, `_start_cc` generates `cci_runner` invocations instead of `claude -p`. The cci plan phase uses `--disallowed-tools` to block Edit/MultiEdit/Write/NotebookEdit at the tool level, plus `--append-system-prompt` for additional soft constraints on Bash state-changing commands. On cci runner failure during plan/impl, the bash script transitions immediately to BLOCKED (no commit retry for failed runs). Completion timeout for each cci sub-step (plan/impl/test_fix) equals the phase BLOCK_TIMER as a per-invocation safety net (vs. 1200s CCI_COMPLETION_TIMEOUT_SEC for agent comms). In normal mode, plan and impl run serially with independent timeouts; the watchdog BLOCK_TIMER governs the overall phase deadline. timeout_extension is not propagated to the runner. BLOCK_TIMERS values for these phases must be positive.
 
 ### 7.5 /new Send Timing
 

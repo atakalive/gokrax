@@ -175,8 +175,9 @@ class TestParseArgs:
         assert args.effort == "xhigh"
 
     def test_completion_timeout_default(self):
-        args = cci_runner._parse_args(["--session-id", "a", "--prompt-file", "-"])
-        assert args.completion_timeout == 900
+        import config
+        args = cci_runner._parse_args(["--session-id", "test", "--prompt-file", "-"])
+        assert args.completion_timeout == config.CCI_COMPLETION_TIMEOUT_SEC
 
     def test_completion_timeout_value(self):
         args = cci_runner._parse_args(

@@ -112,6 +112,9 @@ def send(agent_id: str, message: str, timeout: int) -> SendResult:
     elif backend == "cc":
         from engine.backend_cc import send as cc_send
         return cc_send(agent_id, message, timeout)
+    elif backend == "cci":
+        from engine.backend_cci import send as cci_send
+        return cci_send(agent_id, message, timeout)
     elif backend == "gemini":
         from engine.backend_gemini import send as gm_send
         return gm_send(agent_id, message, timeout)
@@ -135,6 +138,9 @@ def ping(agent_id: str, timeout: int) -> bool:
     elif backend == "cc":
         from engine.backend_cc import ping as cc_ping
         return cc_ping(agent_id, timeout)
+    elif backend == "cci":
+        from engine.backend_cci import ping as cci_ping
+        return cci_ping(agent_id, timeout)
     elif backend == "gemini":
         from engine.backend_gemini import ping as gm_ping
         return gm_ping(agent_id, timeout)
@@ -167,6 +173,9 @@ def is_inactive(agent_id: str, pipeline_data: dict | None = None) -> bool:
     elif backend == "cc":
         from engine.backend_cc import is_inactive as cc_is_inactive
         return cc_is_inactive(agent_id, pipeline_data, cc_running=cc_running)
+    elif backend == "cci":
+        from engine.backend_cci import is_inactive as cci_is_inactive
+        return cci_is_inactive(agent_id, pipeline_data, cc_running=cc_running)
     elif backend == "gemini":
         from engine.backend_gemini import is_inactive as gm_is_inactive
         return gm_is_inactive(agent_id, pipeline_data, cc_running=cc_running)
@@ -217,6 +226,9 @@ def reset_session(agent_id: str) -> None:
     elif configured == "cc":
         from engine.backend_cc import reset_session as cc_reset
         cc_reset(agent_id)
+    elif configured == "cci":
+        from engine.backend_cci import reset_session as cci_reset
+        cci_reset(agent_id)
     elif configured == "gemini":
         from engine.backend_gemini import reset_session as gm_reset
         gm_reset(agent_id)

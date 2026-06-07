@@ -24,10 +24,12 @@ engine/
   reviewer.py             -- レビュアー管理 (tier, pending, revise 判定)
   agent_meta.py           -- レビュアーのメタ情報スナップショット (provider/model/think_level)
   shared.py               -- 共有ユーティリティ (log, is_cc_running, is_ok_reply)
-  backend.py              -- バックエンドディスパッチ (openclaw/pi/cc/gemini/kimi/agy 振り分け)
+  backend.py              -- バックエンドディスパッチ (openclaw/pi/cc/cci/gemini/kimi/agy 振り分け)
   backend_openclaw.py     -- openclaw バックエンド (Gateway CLI 経由)
   backend_pi.py           -- pi バックエンド (pi CLI 経由)
   backend_cc.py           -- cc バックエンド (claude CLI 経由)
+  backend_cci.py          -- cci バックエンド (claude TUI 経由, サブスク課金)
+  cci_runner.py           -- CCI ドライバ (一発実行 TUI, pexpect ベース)
   backend_gemini.py       -- gemini バックエンド (gemini CLI 経由, oneshot)
   backend_kimi.py         -- kimi バックエンド (kimi CLI 経由)
   backend_agy.py          -- agy バックエンド (antigravity-cli 経由, oneshot)
@@ -55,7 +57,7 @@ messages/             -- テンプレートメッセージ (render() 経由)
 settings.py           -- ユーザー設定 (config override)
 ```
 
-- **エージェント通信**: `engine/backend.py` がルーターとして機能し、エージェントごとに `openclaw`、`pi`、`cc`、`gemini`、`kimi`、`agy` バックエンドに振り分ける。`settings.py` の `DEFAULT_AGENT_BACKEND` と `AGENT_BACKEND_OVERRIDE` で制御。
+- **エージェント通信**: `engine/backend.py` がルーターとして機能し、エージェントごとに `openclaw`、`pi`、`cc`、`cci`、`gemini`、`kimi`、`agy` バックエンドに振り分ける。`settings.py` の `DEFAULT_AGENT_BACKEND` と `AGENT_BACKEND_OVERRIDE` で制御。
 - **pipeline JSON**: `~/.gokrax/pipelines/<project>.json`
 - **watchdog**: `watchdog-loop.sh` で 20 秒おきにポーリング (後述 7 章)
 - **Discord 通知先**: Discord 通知チャンネル（`settings.py` の `DISCORD_CHANNEL` で設定）
@@ -326,11 +328,12 @@ IDLE -> INITIALIZE -> DESIGN_PLAN -> DESIGN_REVIEW -> DESIGN_APPROVED -> ASSESSM
 - **openclaw**: `engine/backend_openclaw.py` — `openclaw gateway call` CLI 経由で Gateway に送信。
 - **pi**: `engine/backend_pi.py` — `pi` CLI 経由で送信。アクティビティはセッションファイルの mtime で判定。
 - **cc**: `engine/backend_cc.py` — `claude -p` CLI 経由で送信。**送信可否** はセッションの live PID 所有権 (`/proc/<pid>` + cmdline チェック) のみで判定する。live owner が居る場合 `send()` は **即座に** `SendResult.BUSY` を返す (待機も SIGTERM も行わない)。セッション JSONL mtime は催促/非アクティブ判定 (§7.3) には引き続き使うが、送信可否には使われなくなった (#327)。
+- **cci**: `engine/backend_cci.py` — cc のサブスク課金版。`send()` ごとに `engine/cci_runner.py`（一発実行・pexpect 駆動）を起動し、interactive `claude` TUI を立ち上げて 1 ターンを駆動、transcript jsonl で完了を検知して `/exit` 送信後に終了する。liveness は cc と同形（PID + `/proc/<pid>/cmdline` による `engine.cci_runner` プロセス所有権 + セッション jsonl mtime）。`AGENT_BACKEND_OVERRIDE` で cc(`-p`) と cci を可逆に切替可能。
 - **gemini**: `engine/backend_gemini.py` — `gemini` CLI を oneshot プロセスとして起動して送信する（1 プロンプト = 1 プロセス）。`send()` は `subprocess.Popen(cwd=<agent profile dir>)` で `gemini` を起動する（Gemini CLI はセッションを cwd でスコープする）。アクティビティは pid ファイルに加え `/proc/<pid>` の存在と cmdline に `"gemini"` を含むことで判定する。セッション継続は `-r latest` を使用する。セッションは cwd 単位のため、エージェント間のセッション混在を避けるためにエージェントごとに独立した profile dir（`agents/<agent_id>/`）が必要。
 - **kimi**: `engine/backend_kimi.py` — `kimi` CLI を oneshot プロセスとして起動して送信する。アクティビティは pid ファイル + `/proc/<pid>` + cmdline に `"kimi"` を含むことで判定。`send()` は `--afk` と `--add-dir REVIEW_FILE_DIR` を付与してレビュー成果物を読めるようにしている。
 - **agy**: `engine/backend_agy.py` — `agy` (antigravity-cli) を oneshot プロセスとして起動して送信する。モデルは `~/.gemini/antigravity-cli/settings.json` で選択する仕組みのため、`HOME` をエージェント別に切替え、各エージェントが独立した settings.json を持てるようにして実 HOME を汚染しない。アクティビティは pid ファイル + `/proc/<pid>` + cmdline に `"agy"` を含むことで判定。`agy` は `AGENTS.md` と `GEMINI.md` の両方を読むため、起動前に `AGENTS.md` を生成し、古い `GEMINI.md` は退避する。`--print-timeout 24h` を固定し、`AGY_CLI_DISABLE_AUTO_UPDATE=1` を設定する。
 
-バックエンドは `settings.py` の `DEFAULT_AGENT_BACKEND`（config デフォルト: `"openclaw"`、`settings.example.py` 推奨値: `"pi"`、6 種類: openclaw, pi, cc, gemini, kimi, agy）で設定し、`AGENT_BACKEND_OVERRIDE` でエージェント単位の上書きが可能。
+バックエンドは `settings.py` の `DEFAULT_AGENT_BACKEND`（config デフォルト: `"openclaw"`、`settings.example.py` 推奨値: `"pi"`、7 種類: openclaw, pi, cc, cci, gemini, kimi, agy）で設定し、`AGENT_BACKEND_OVERRIDE` でエージェント単位の上書きが可能。
 
 **送信時の Gemini Pro クォータ fallback (`should_fallback()`):**
 

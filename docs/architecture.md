@@ -23,6 +23,7 @@ graph LR
         BE_OC["openclaw Backend<br/>(engine/backend_openclaw.py)"]
         BE_PI["pi Backend<br/>(engine/backend_pi.py)"]
         BE_CC["cc Backend<br/>(engine/backend_cc.py)"]
+        BE_CCI["cci Backend<br/>(engine/backend_cci.py)"]
         BE_GM["gemini Backend<br/>(engine/backend_gemini.py)"]
         BE_KM["kimi Backend<br/>(engine/backend_kimi.py)"]
         BE_AGY["agy Backend<br/>(engine/backend_agy.py)"]
@@ -34,6 +35,7 @@ graph LR
         BD --> BE_OC
         BD --> BE_PI
         BD --> BE_CC
+        BD --> BE_CCI
         BD --> BE_GM
         BD --> BE_KM
         BD --> BE_AGY

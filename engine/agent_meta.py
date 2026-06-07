@@ -48,6 +48,12 @@ def _resolve(agent_id: str) -> AgentMeta:
             provider = "anthropic"
             model = entry.get("model")
             think_level = entry.get("effort", "") or ""
+        elif backend == "cci":
+            from engine.backend_cci import _load_config as _load_cci_config
+            entry = _load_cci_config().get(agent_id, {})
+            provider = "anthropic"
+            model = entry.get("model")
+            think_level = entry.get("effort", "") or ""
         elif backend == "gemini":
             from engine.backend_gemini import _load_config as _load_gemini_config
             entry = _load_gemini_config().get(agent_id, {})

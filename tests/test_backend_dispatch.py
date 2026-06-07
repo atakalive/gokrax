@@ -10,7 +10,7 @@ import pytest
 
 import config
 import notify
-from engine import backend, backend_agy, backend_cc, backend_kimi, backend_openclaw, backend_pi, reviewer as _reviewer_mod
+from engine import backend, backend_agy, backend_cc, backend_cci, backend_kimi, backend_openclaw, backend_pi, reviewer as _reviewer_mod
 from engine.backend_types import SendResult
 
 # Save real function references before conftest's autouse fixtures replace them
@@ -39,9 +39,11 @@ def _reset_backend(monkeypatch):
 def _reset_starting_markers():
     backend_pi._starting_markers.clear()
     backend_cc._starting_markers.clear()
+    backend_cci._starting_markers.clear()
     yield
     backend_pi._starting_markers.clear()
     backend_cc._starting_markers.clear()
+    backend_cci._starting_markers.clear()
 
 
 # ===========================================================================
@@ -158,6 +160,13 @@ class TestBackendSendDispatch:
         assert result is SendResult.OK
         mock_cc.assert_called_once_with("reviewer1", "hello", 30)
 
+    def test_cci_calls_cci_send(self, monkeypatch):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "cci")
+        with patch("engine.backend_cci.send", return_value=SendResult.OK) as mock_cci:
+            result = backend.send("reviewer1", "hello", 30)
+        assert result is SendResult.OK
+        mock_cci.assert_called_once_with("reviewer1", "hello", 30)
+
     def test_gemini_calls_gemini_send(self, monkeypatch):
         monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "gemini")
         with patch("engine.backend_gemini.send", return_value=SendResult.OK) as mock_gm:
@@ -198,6 +207,13 @@ class TestBackendPingDispatch:
             result = backend.ping("reviewer1", 20)
         assert result is True
         mock_cc.assert_called_once_with("reviewer1", 20)
+
+    def test_cci_calls_cci_ping(self, monkeypatch):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "cci")
+        with patch("engine.backend_cci.ping", return_value=True) as mock_cci:
+            result = backend.ping("reviewer1", 20)
+        assert result is True
+        mock_cci.assert_called_once_with("reviewer1", 20)
 
     def test_gemini_calls_gemini_ping(self, monkeypatch):
         monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "gemini")
@@ -246,6 +262,15 @@ class TestBackendIsInactiveDispatch:
         mock_cc.assert_called_once()
         # Verify cc_running kwarg is passed
         _, kwargs = mock_cc.call_args
+        assert "cc_running" in kwargs
+
+    def test_cci_dispatches(self, monkeypatch):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "cci")
+        with patch("engine.backend_cci.is_inactive", return_value=True) as mock_cci:
+            result = backend.is_inactive("reviewer1", {"some": "data"})
+        assert result is True
+        mock_cci.assert_called_once()
+        _, kwargs = mock_cci.call_args
         assert "cc_running" in kwargs
 
     def test_gemini_dispatches(self, monkeypatch):
@@ -390,6 +415,21 @@ class TestReviewerResetDispatch:
 
     def test_cc_reset_returns_empty_excluded(self, monkeypatch):
         monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "cc")
+        with patch("engine.backend.reset_session"):
+            excluded = _real_reset_reviewers(self._phase_config())
+        assert excluded == []
+
+    def test_cci_calls_reset_session_not_new(self, monkeypatch):
+        """cci backend calls reset_session, not /new."""
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "cci")
+        with patch("engine.backend.reset_session") as mock_reset, \
+             patch.object(_reviewer_mod, "send_to_agent_queued") as mock_send:
+            _real_reset_reviewers(self._phase_config())
+        assert mock_reset.call_count > 0
+        mock_send.assert_not_called()
+
+    def test_cci_reset_returns_empty_excluded(self, monkeypatch):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "cci")
         with patch("engine.backend.reset_session"):
             excluded = _real_reset_reviewers(self._phase_config())
         assert excluded == []
@@ -605,6 +645,12 @@ class TestResolveBackend:
         monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "pi")
         monkeypatch.setattr(config, "AGENT_BACKEND_OVERRIDE", {})
         assert backend.resolve_backend("reviewer1") == "pi"
+
+    def test_cci_accepted_as_backend(self, monkeypatch):
+        """resolve_backend accepts 'cci' (in SUPPORTED_BACKENDS)."""
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "openclaw")
+        monkeypatch.setattr(config, "AGENT_BACKEND_OVERRIDE", {"reviewer1": "cci"})
+        assert backend.resolve_backend("reviewer1") == "cci"
 
     def test_gemini_accepted_as_backend(self, monkeypatch):
         """resolve_backend accepts 'gemini' (in SUPPORTED_BACKENDS)."""
@@ -995,6 +1041,12 @@ class TestBackendResetSessionDispatch:
         with patch("engine.backend_cc.reset_session") as mock_cc:
             backend.reset_session("reviewer1")
         mock_cc.assert_called_once_with("reviewer1")
+
+    def test_cci_calls_cci_reset_session(self, monkeypatch):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "cci")
+        with patch("engine.backend_cci.reset_session") as mock_cci:
+            backend.reset_session("reviewer1")
+        mock_cci.assert_called_once_with("reviewer1")
 
     def test_pi_calls_pi_reset_session(self, monkeypatch):
         monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "pi")

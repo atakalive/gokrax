@@ -74,7 +74,7 @@ If critical issues (P0/P1) are raised during review, the pipeline enters a revis
 
 ### LLM Providers
 
-gokrax is not tied to any specific LLM provider — any provider that openclaw, pi, cc, gemini, kimi, or agy can authenticate with is supported:
+gokrax is not tied to any specific LLM provider — any provider that openclaw, pi, cc, cci, gemini, kimi, or agy can authenticate with is supported:
 
 - Anthropic (Claude)
 - Google (Gemini)
@@ -615,7 +615,7 @@ DEFAULT_AGENT_BACKEND = "kimi"
 # Run agents with Antigravity CLI backend
 DEFAULT_AGENT_BACKEND = "agy"
 
-# Mix backends per agent (any of openclaw / pi / cc / gemini / kimi / agy)
+# Mix backends per agent (any of openclaw / pi / cc / cci / gemini / kimi / agy)
 DEFAULT_AGENT_BACKEND = "pi"
 AGENT_BACKEND_OVERRIDE = {"impl1": "openclaw", "reviewer2": "gemini", "reviewer3": "kimi", "reviewer4": "agy"}
 ```

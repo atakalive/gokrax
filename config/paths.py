@@ -18,6 +18,8 @@ __all__ = [
     "PI_AGENT_CONFIG",
     "CC_SESSIONS_DIR",
     "CC_AGENT_CONFIG",
+    "CCI_SESSIONS_DIR",
+    "CCI_AGENT_CONFIG",
     "GEMINI_AGENT_CONFIG",
     "GEMINI_PIDS_DIR",
     "GEMINI_OAUTH_CREDS",
@@ -72,6 +74,12 @@ CC_SESSIONS_DIR = _PROJECT_ROOT / ".cc-sessions"
 
 # cc backend per-agent config
 CC_AGENT_CONFIG = AGENT_PROFILES_DIR / "config_cc.json"
+
+# cci backend session directory
+CCI_SESSIONS_DIR = _PROJECT_ROOT / ".cci-sessions"
+
+# cci backend per-agent config
+CCI_AGENT_CONFIG = AGENT_PROFILES_DIR / "config_cci.json"
 
 # gemini backend pids / per-agent config
 GEMINI_PIDS_DIR = _PROJECT_ROOT / ".gemini-pids"

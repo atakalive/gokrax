@@ -73,7 +73,7 @@ Issue → 設計計画 → 設計レビュー → 実装 → コードレビュ�
 
 ### LLM プロバイダ
 
-gokrax は特定の LLM プロバイダに依存せず、openclaw、pi、cc、gemini、kimi、agy が認証可能なプロバイダは使用可能：
+gokrax は特定の LLM プロバイダに依存せず、openclaw、pi、cc、cci、gemini、kimi、agy が認証可能なプロバイダは使用可能：
 
 - Anthropic（Claude）
 - Google（Gemini）
@@ -614,7 +614,7 @@ DEFAULT_AGENT_BACKEND = "kimi"
 # Antigravity CLI バックエンドで動かす場合
 DEFAULT_AGENT_BACKEND = "agy"
 
-# エージェントごとに混在させる場合（openclaw / pi / cc / gemini / kimi / agy から選択）
+# エージェントごとに混在させる場合（openclaw / pi / cc / cci / gemini / kimi / agy から選択）
 DEFAULT_AGENT_BACKEND = "pi"
 AGENT_BACKEND_OVERRIDE = {"impl1": "openclaw", "reviewer2": "gemini", "reviewer3": "kimi", "reviewer4": "agy"}
 ```

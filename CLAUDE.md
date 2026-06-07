@@ -29,6 +29,8 @@ engine/backend_types.py     # Shared backend return type (SendResult: OK/BUSY/FA
 engine/backend_openclaw.py  # openclaw backend implementation
 engine/backend_pi.py   # pi (pi-coding-agent) backend implementation
 engine/backend_cc.py   # cc backend (via claude CLI)
+engine/cci_runner.py   # CCI driver (one-shot TUI, pexpect-based)
+engine/backend_cci.py  # cci backend (via claude TUI, subscription-billed)
 engine/backend_gemini.py    # Gemini CLI backend implementation
 engine/backend_kimi.py      # Kimi CLI backend implementation
 engine/backend_agy.py       # agy (Antigravity CLI) backend implementation
@@ -69,6 +71,7 @@ messages_custom/       # User-customized prompts (same structure as messages/, o
 agents/                # Agent profiles (IDENTITY/INSTRUCTION/MEMORY)
   config_pi.json       # pi backend per-agent configuration
   config_cc.json       # cc backend per-agent configuration
+  config_cci.json      # cci backend per-agent configuration
   config_gemini.json   # gemini backend per-agent configuration
   config_kimi.json     # kimi backend per-agent configuration
   config_agy.json      # agy backend per-agent configuration

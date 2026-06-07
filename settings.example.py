@@ -17,8 +17,8 @@ COMMAND_BOT_USER_ID = ""        # If you send commands via 3rd-party Discord too
 GITLAB_NAMESPACE: str = "YOUR_NAMESPACE"           # i.e., YOUR_NAMESPACE of gitlab.com/YOUR_NAMESPACE/ProjectName/
 GOKRAX_CLI = Path.home() / ".local/bin/gokrax"     # must be symbolic link to gokrax.py
 
-DEFAULT_AGENT_BACKEND = "openclaw"    # one of: "openclaw", "pi", "cc", "gemini", "kimi", "agy"
-AGENT_BACKEND_OVERRIDE = {}     # per-agent override, e.g. {"impl1": "openclaw", "reviewer1": "cc", "reviewer2": "kimi", "reviewer3": "agy"}
+DEFAULT_AGENT_BACKEND = "openclaw"    # one of: "openclaw", "pi", "cc", "cci", "gemini", "kimi", "agy"
+AGENT_BACKEND_OVERRIDE = {}     # per-agent override, e.g. {"impl1": "openclaw", "reviewer1": "cc", "reviewer2": "cci", "reviewer3": "kimi"}
 
 # openclaw settings (if using openclaw backend)
 OPENCLAW_GATEWAY_PORT = int(os.environ.get("OPENCLAW_GATEWAY_PORT", "18789"))  # openclaw gateway port (localhost)
@@ -122,6 +122,10 @@ REVIEW_MODES = {
 # CC_BIN = "claude"    # Uses PATH by default. Override with absolute path if needed (e.g. "/home/user/.local/bin/claude")
 # CC_AGENT_CONFIG = AGENT_PROFILES_DIR / "config_cc.json"  # cc backend per-agent config
 # CC_START_GRACE_SEC = 30       # seconds to treat a just-spawned cc agent as active
+# CCI backend settings (if using cci backend)
+# CCI_BIN: str = "claude"                    # claude binary name/path
+# CCI_START_GRACE_SEC: int = 60              # Grace period for TUI boot (default: 60)
+# CCI_COMPLETION_TIMEOUT_SEC: int = 900      # Turn completion timeout in seconds (default: 900 = 15 min)
 # AGENT_SEND_TIMEOUT = 30
 # DISCORD_POST_TIMEOUT = 10
 # GLAB_TIMEOUT = 15

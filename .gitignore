@@ -15,8 +15,10 @@ agents/*
 !agents/config_pi.example.json
 .pi-sessions/
 .cc-sessions/
+.cci-sessions/
 .claude/
 !agents/config_cc.example.json
+!agents/config_cci.example.json
 !agents/config_gemini.example.json
 reports/drafts/
 .gemini-pids/

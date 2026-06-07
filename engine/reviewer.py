@@ -56,7 +56,7 @@ def _reset_reviewers(phase_config: PhaseConfig, implementer: str = "") -> list[s
             log(f"[/new] ERROR: invalid backend for {r}, skipping")
             excluded.append(r)
             continue
-        if agent_backend in ("pi", "cc", "gemini", "kimi", "agy"):
+        if agent_backend in ("pi", "cc", "cci", "gemini", "kimi", "agy"):
             log(f"[/new] reset_session for {r} ({agent_backend} backend)")
             _dispatch_reset(r)
         else:
@@ -112,7 +112,7 @@ def _reset_short_context_reviewers(phase_config: PhaseConfig) -> None:
         except ValueError:
             log(f"[/new] ERROR: invalid backend for {r} (short-context), skipping")
             continue
-        if agent_backend in ("pi", "cc", "gemini", "kimi", "agy"):
+        if agent_backend in ("pi", "cc", "cci", "gemini", "kimi", "agy"):
             log(f"[/new] reset_session for {r} (short-context, {agent_backend} backend)")
             _dispatch_reset(r)
         else:

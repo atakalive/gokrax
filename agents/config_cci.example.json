@@ -1,0 +1,20 @@
+{
+  "_comment": {
+    "model":  "Claude model alias or full name (e.g. 'opus', 'sonnet', 'claude-sonnet-4-6')",
+    "thinking": "Thinking mode: 'enabled' (always think), 'adaptive' (model decides), 'disabled' (no thinking)",
+    "effort": "Effort level: 'low', 'medium', 'high', 'xhigh', 'max'",
+    "compile-startup-md": "If true, compile IDENTITY.md + INSTRUCTION.md + MEMORY.md into CLAUDE.md"
+  },
+  "example_implementer": {
+    "model": "opus",
+    "thinking": "enabled",
+    "effort": "medium",
+    "compile-startup-md": false
+  },
+  "example_reviewer": {
+    "model": "opus",
+    "thinking": "enabled",
+    "effort": "medium",
+    "compile-startup-md": false
+  }
+}

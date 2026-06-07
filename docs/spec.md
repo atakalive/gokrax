@@ -24,10 +24,12 @@ engine/
   reviewer.py             -- Reviewer management (tier, pending, revise decisions)
   agent_meta.py           -- Reviewer metadata snapshot (provider/model/think_level)
   shared.py               -- Shared utilities (log, is_cc_running, is_ok_reply)
-  backend.py              -- Backend dispatch (openclaw/pi/cc/gemini/kimi/agy routing)
+  backend.py              -- Backend dispatch (openclaw/pi/cc/cci/gemini/kimi/agy routing)
   backend_openclaw.py     -- openclaw backend (via Gateway CLI)
   backend_pi.py           -- pi backend (via pi CLI)
   backend_cc.py           -- cc backend (via claude CLI)
+  backend_cci.py          -- cci backend (via claude TUI, subscription-billed)
+  cci_runner.py           -- CCI driver (one-shot TUI, pexpect-based)
   backend_gemini.py       -- gemini backend (via gemini CLI, oneshot)
   backend_kimi.py         -- kimi backend (via kimi CLI)
   backend_agy.py          -- agy backend (via antigravity-cli, oneshot)
@@ -55,7 +57,7 @@ messages/             -- Template messages (via render())
 settings.py           -- User settings (config override)
 ```
 
-- **Agent communication**: `engine/backend.py` acts as a router, dispatching to the `openclaw`, `pi`, `cc`, `gemini`, `kimi`, or `agy` backend per agent. Controlled by `DEFAULT_AGENT_BACKEND` and `AGENT_BACKEND_OVERRIDE` in `settings.py`.
+- **Agent communication**: `engine/backend.py` acts as a router, dispatching to the `openclaw`, `pi`, `cc`, `cci`, `gemini`, `kimi`, or `agy` backend per agent. Controlled by `DEFAULT_AGENT_BACKEND` and `AGENT_BACKEND_OVERRIDE` in `settings.py`.
 - **pipeline JSON**: `~/.gokrax/pipelines/<project>.json`
 - **watchdog**: Polls every 20 seconds via `watchdog-loop.sh` (see Chapter 7)
 - **Discord notification channel**: Configured via `DISCORD_CHANNEL` in `settings.py`
@@ -326,11 +328,12 @@ Agent sending goes through `send()` / `ping()` in `engine/backend.py`.
 - **openclaw**: `engine/backend_openclaw.py` — sends to Gateway via `openclaw gateway call` CLI.
 - **pi**: `engine/backend_pi.py` — sends via `pi` CLI. Activity is determined by session file mtime.
 - **cc**: `engine/backend_cc.py` — sends via `claude -p` CLI. **Send admission** is gated only by live PID ownership of the session (`/proc/<pid>` + cmdline check). When a live owner is present, `send()` returns `SendResult.BUSY` immediately (no wait, no SIGTERM). The session JSONL mtime is still consulted for nudge/inactivity (§7.3) but no longer affects send admission (#327).
+- **cci**: `engine/backend_cci.py` — subscription-billed alternative to cc. Each `send()` spawns `engine/cci_runner.py` (one-shot, pexpect-driven) which launches the interactive `claude` TUI, drives a single turn, detects completion via the transcript jsonl, sends `/exit`, and exits. Mirrors cc's liveness model (PID + `/proc/<pid>/cmdline` ownership of the `engine.cci_runner` process + session jsonl mtime). Reversible: switch between cc (`-p`) and cci via `AGENT_BACKEND_OVERRIDE`.
 - **gemini**: `engine/backend_gemini.py` — sends via `gemini` CLI as a oneshot process (1 prompt = 1 process). `send()` launches `gemini` with `subprocess.Popen(cwd=<agent profile dir>)` (the Gemini CLI scopes sessions by cwd). Activity is determined by the pid file plus `/proc/<pid>` existence and cmdline containing `"gemini"`. Session continuation uses `-r latest`; because sessions are per-cwd, each agent requires its own profile dir (`agents/<agent_id>/`) to avoid cross-agent session contamination.
 - **kimi**: `engine/backend_kimi.py` — sends via `kimi` CLI as a oneshot process. Liveness uses pid file + `/proc/<pid>` + cmdline contains `"kimi"`. `send()` invokes with `--afk` and `--add-dir REVIEW_FILE_DIR` so reviewer artifacts are readable.
 - **agy**: `engine/backend_agy.py` — sends via `agy` (antigravity-cli) as a oneshot process. Model is selected via `~/.gemini/antigravity-cli/settings.json`; `HOME` is set per-agent so each agent has its own settings.json without polluting the real HOME. Liveness uses pid file + `/proc/<pid>` + cmdline contains `"agy"`. `agy` reads both `AGENTS.md` and `GEMINI.md`, so we generate `AGENTS.md` and strip any stale `GEMINI.md` before launch. `--print-timeout 24h` is fixed and `AGY_CLI_DISABLE_AUTO_UPDATE=1` is set.
 
-The backend is set via `DEFAULT_AGENT_BACKEND` in `settings.py` (config default: `"openclaw"`, `settings.example.py` recommended: `"pi"`; 6 backends available: openclaw, pi, cc, gemini, kimi, agy), with per-agent override via `AGENT_BACKEND_OVERRIDE`.
+The backend is set via `DEFAULT_AGENT_BACKEND` in `settings.py` (config default: `"openclaw"`, `settings.example.py` recommended: `"pi"`; 7 backends available: openclaw, pi, cc, cci, gemini, kimi, agy), with per-agent override via `AGENT_BACKEND_OVERRIDE`.
 
 **Send-time fallback for Gemini Pro quota (`should_fallback()`):**
 

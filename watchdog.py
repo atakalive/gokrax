@@ -1892,6 +1892,17 @@ def main():
     for warn in validate_kimi_fallback():
         _log(warn)
 
+    # CCI preflight: verify pexpect + cci_runner importability when cci is enabled
+    import config as _cci_cfg
+    if _cci_cfg.IMPL_PHASE_ENGINE == "cci":
+        try:
+            import pexpect  # noqa: F401
+            import engine.cci_runner  # noqa: F401
+        except ImportError as e:
+            _log(f"WARNING: IMPL_PHASE_ENGINE='cci' but import failed: {e}. "
+                 f"Falling back to 'cc'. Install pexpect or set IMPL_PHASE_ENGINE='cc'.")
+            _cci_cfg.IMPL_PHASE_ENGINE = "cc"
+
     # Check Discord commands BEFORE pipeline processing
     # Works even if PIPELINES_DIR doesn't exist
     try:

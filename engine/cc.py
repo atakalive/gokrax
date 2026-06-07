@@ -20,6 +20,34 @@ MAX_BASELINE_EMBED_CHARS    = 30_000
 KILL_GRACE_SEC: float       = 2.0
 
 
+def _cci_cmd(model: str, session_id: str, is_resume: bool,
+             repo_path: str, prompt_file: str,
+             completion_timeout: int = 900,
+             append_system_prompt: str | None = None,
+             disallowed_tools: str | None = None) -> str:
+    """Generate a cci_runner invocation line for embedding in a bash script.
+
+    Returns the command WITHOUT error handling suffix (|| true, if ! ...; then).
+    Caller is responsible for wrapping with appropriate error handling.
+    ``prompt_file`` is shlex-quoted internally; pass the raw path or "-" for stdin.
+    """
+    import shlex
+    session_flag = "--resume" if is_resume else "--session-id"
+    parts = [
+        'PYTHONPATH="$_GOKRAX_PARENT${PYTHONPATH:+:$PYTHONPATH}" "$_PYBIN" -m engine.cci_runner',
+        f"--model {shlex.quote(model)}",
+        f"{session_flag} {shlex.quote(session_id)}",
+        f"--cwd {shlex.quote(repo_path)}",
+        f"--completion-timeout {completion_timeout}",
+    ]
+    if append_system_prompt:
+        parts.append(f"--append-system-prompt {shlex.quote(append_system_prompt)}")
+    if disallowed_tools:
+        parts.append(f"--disallowed-tools {shlex.quote(disallowed_tools)}")
+    parts.append(f"--prompt-file {shlex.quote(prompt_file)}")
+    return " \\\n  ".join(parts)
+
+
 def _start_cc(project: str, batch: list, gitlab: str, repo_path: str, pipeline_path: Path) -> None:
     """CC を非同期起動し、PID を記録。"""
     import subprocess as _sub
@@ -36,6 +64,9 @@ def _start_cc(project: str, batch: list, gitlab: str, repo_path: str, pipeline_p
     data = load_pipeline(pipeline_path)
     skip_plan = data.get("skip_cc_plan", False)
     log(f"[{project}] _start_cc: skip_cc_plan={skip_plan}")
+    import config as _config
+    impl_engine = data.get("impl_engine") or _config.IMPL_PHASE_ENGINE
+    log(f"[{project}] _start_cc: impl_engine={impl_engine}")
 
     # base_commit フォールバック: DESIGN_PLAN 遷移で記録されていない場合のみ
     if not data.get("base_commit") and repo_path:
@@ -176,6 +207,34 @@ def _start_cc(project: str, batch: list, gitlab: str, repo_path: str, pipeline_p
         # --- echo 用（1箇所: CCへのリトライ指示プロンプト） ---
         msg_commit_retry = render("dev.implementation", "cc_commit_retry", closes=closes)
 
+        # --- engine スイッチ: cc (claude -p) vs cci (cci_runner) ---
+        import sys as _sys
+        _pybin_q = shlex.quote(_sys.executable)
+        _pybin_line = f"_PYBIN={_pybin_q}\n" if impl_engine == "cci" else ""
+
+        def _cci_block(cmd: str) -> str:
+            """Wrap a cci_runner command with if!-then-BLOCKED error handling."""
+            msg_cci_failed = render("dev.implementation", "notify_cci_runner_failed",
+                                    project=project)
+            return (
+                f"if ! {cmd}; then\n"
+                f"    _notify {shlex.quote(msg_cci_failed)}\n"
+                f"    {shlex.quote(str(GOKRAX_CLI))} transition --project {shlex.quote(project)} --to BLOCKED --force\n"
+                f"    exit 1\n"
+                f"fi"
+            )
+
+        if impl_engine == "cci":
+            commit_retry_cmd = _cci_cmd(
+                impl_model, session_id, True, repo_path, "-",
+                completion_timeout=900,
+            ) + " || true"
+        else:
+            commit_retry_cmd = (
+                f'claude -p --model {shlex.quote(impl_model)} --resume {shlex.quote(session_id)} \\\n'
+                f'      --permission-mode bypassPermissions --output-format json'
+            )
+
         # コミット検証+リトライブロック（skip_plan/通常 共通）
         commit_verify_block = f'''
 # コミット検証: CC が実際に新しいコミットを作ったか確認し、なければリトライ
@@ -185,8 +244,7 @@ while [ "$HASH" = "$BEFORE_HASH" ] && [ "$RETRY" -lt 2 ]; do
     RETRY=$((RETRY + 1))
     _notify {notify_retry_arg}
     echo {shlex.quote(msg_commit_retry)} | \\
-    claude -p --model {shlex.quote(impl_model)} --resume {shlex.quote(session_id)} \\
-      --permission-mode bypassPermissions --output-format json
+    {commit_retry_cmd}
     HASH=$(git rev-parse --short HEAD)
 done
 
@@ -201,6 +259,16 @@ fi
 '''
 
         if skip_plan:
+            if impl_engine == "cci":
+                impl_skip_cmd = _cci_block(_cci_cmd(
+                    impl_model, session_id, bool(prev_session), repo_path, impl_path,
+                    completion_timeout=3600,
+                ))
+            else:
+                impl_skip_cmd = (
+                    f'claude -p --model {shlex.quote(impl_model)} {"--resume" if prev_session else "--session-id"} {shlex.quote(session_id)} \\\n'
+                    f'  --permission-mode bypassPermissions --output-format json < {shlex.quote(impl_path)}'
+                )
             _gokrax_parent_q = shlex.quote(str(Path(GOKRAX_CLI).resolve().parent))
             script_content = f'''#!/bin/bash
 set -e
@@ -210,17 +278,37 @@ trap cleanup EXIT
 cd {shlex.quote(repo_path)}
 
 _GOKRAX_PARENT={_gokrax_parent_q}
-_notify() {{ local ts=$(date +"%m/%d %H:%M"); python3 -c "import sys; sys.path.insert(0,sys.argv[2]); from notify import notify_discord; notify_discord(sys.argv[1])" "$1 ($ts)" "$_GOKRAX_PARENT" 2>/dev/null || true; }}
+{_pybin_line}_notify() {{ local ts=$(date +"%m/%d %H:%M"); python3 -c "import sys; sys.path.insert(0,sys.argv[2]); from notify import notify_discord; notify_discord(sys.argv[1])" "$1 ($ts)" "$_GOKRAX_PARENT" 2>/dev/null || true; }}
 
 BEFORE_HASH=$(git rev-parse --short HEAD)
 
 # Plan フェーズなし — 直接 Impl
 _notify {shlex.quote(msg_impl_start_skip)}
-claude -p --model {shlex.quote(impl_model)} {"--resume" if prev_session else "--session-id"} {shlex.quote(session_id)} \\
-  --permission-mode bypassPermissions --output-format json < {shlex.quote(impl_path)}
+{impl_skip_cmd}
 _notify {shlex.quote(msg_impl_done)}
 {commit_verify_block}'''
         else:
+            if impl_engine == "cci":
+                plan_only = render("dev.implementation", "cci_plan_only_system")
+                plan_cmd = _cci_block(_cci_cmd(
+                    plan_model, session_id, bool(prev_session), repo_path, plan_path,
+                    completion_timeout=3600,
+                    append_system_prompt=plan_only,
+                    disallowed_tools="Edit,MultiEdit,Write,NotebookEdit",
+                ))
+                impl_cmd = _cci_block(_cci_cmd(
+                    impl_model, session_id, True, repo_path, impl_path,
+                    completion_timeout=3600,
+                ))
+            else:
+                plan_cmd = (
+                    f'claude -p --model {shlex.quote(plan_model)} {"--resume" if prev_session else "--session-id"} {shlex.quote(session_id)} \\\n'
+                    f'  --permission-mode plan --output-format json < {shlex.quote(plan_path)}'
+                )
+                impl_cmd = (
+                    f'claude -p --model {shlex.quote(impl_model)} --resume {shlex.quote(session_id)} \\\n'
+                    f'  --permission-mode bypassPermissions --output-format json < {shlex.quote(impl_path)}'
+                )
             _gokrax_parent_q = shlex.quote(str(Path(GOKRAX_CLI).resolve().parent))
             script_content = f'''#!/bin/bash
 set -e
@@ -230,20 +318,18 @@ trap cleanup EXIT
 cd {shlex.quote(repo_path)}
 
 _GOKRAX_PARENT={_gokrax_parent_q}
-_notify() {{ local ts=$(date +"%m/%d %H:%M"); python3 -c "import sys; sys.path.insert(0,sys.argv[2]); from notify import notify_discord; notify_discord(sys.argv[1])" "$1 ($ts)" "$_GOKRAX_PARENT" 2>/dev/null || true; }}
+{_pybin_line}_notify() {{ local ts=$(date +"%m/%d %H:%M"); python3 -c "import sys; sys.path.insert(0,sys.argv[2]); from notify import notify_discord; notify_discord(sys.argv[1])" "$1 ($ts)" "$_GOKRAX_PARENT" 2>/dev/null || true; }}
 
 BEFORE_HASH=$(git rev-parse --short HEAD)
 
 # Phase 1: Plan
 _notify {shlex.quote(msg_plan_start)}
-claude -p --model {shlex.quote(plan_model)} {"--resume" if prev_session else "--session-id"} {shlex.quote(session_id)} \\
-  --permission-mode plan --output-format json < {shlex.quote(plan_path)}
+{plan_cmd}
 _notify {shlex.quote(msg_plan_done)}
 
 # Phase 2: Impl
 _notify {shlex.quote(msg_impl_start)}
-claude -p --model {shlex.quote(impl_model)} --resume {shlex.quote(session_id)} \\
-  --permission-mode bypassPermissions --output-format json < {shlex.quote(impl_path)}
+{impl_cmd}
 _notify {shlex.quote(msg_impl_done)}
 {commit_verify_block}'''
         os.write(fd_script, script_content.encode())
@@ -680,6 +766,8 @@ def _start_cc_test_fix(project: str, batch: list, data: dict, pipeline_path: Pat
     from messages import render as _render
 
     impl_model = data.get("cc_impl_model") or CC_MODEL_IMPL
+    import config as _config
+    impl_engine = data.get("impl_engine") or _config.IMPL_PHASE_ENGINE
     session_id = data.get("cc_session_id") or str(_uuid.uuid4())
     test_output = data.get("test_output", "")
     retry_count = data.get("test_retry_count", 0)
@@ -698,15 +786,32 @@ def _start_cc_test_fix(project: str, batch: list, data: dict, pipeline_path: Pat
         os.write(fd_prompt, prompt.encode())
         os.close(fd_prompt)
 
-        script_content = (
-            f'#!/bin/bash\n'
-            f'set -e\n'
-            f'cleanup() {{ rm -f {shlex.quote(script_path)} {shlex.quote(prompt_path)}; }}\n'
-            f'trap cleanup EXIT\n'
-            f'cd {shlex.quote(repo_path)}\n'
-            f'claude -p --model {shlex.quote(impl_model)} --resume {shlex.quote(session_id)} \\\n'
-            f'  --permission-mode bypassPermissions --output-format json < {shlex.quote(prompt_path)}\n'
-        )
+        if impl_engine == "cci":
+            import sys as _sys
+            _gokrax_parent_q = shlex.quote(str(Path(GOKRAX_CLI).resolve().parent))
+            _pybin_q = shlex.quote(_sys.executable)
+            cci_line = _cci_cmd(impl_model, session_id, True, repo_path, prompt_path,
+                                completion_timeout=3600)
+            script_content = (
+                f'#!/bin/bash\n'
+                f'set -e\n'
+                f'cleanup() {{ rm -f {shlex.quote(script_path)} {shlex.quote(prompt_path)}; }}\n'
+                f'trap cleanup EXIT\n'
+                f'cd {shlex.quote(repo_path)}\n'
+                f'_GOKRAX_PARENT={_gokrax_parent_q}\n'
+                f'_PYBIN={_pybin_q}\n'
+                f'{cci_line}\n'
+            )
+        else:
+            script_content = (
+                f'#!/bin/bash\n'
+                f'set -e\n'
+                f'cleanup() {{ rm -f {shlex.quote(script_path)} {shlex.quote(prompt_path)}; }}\n'
+                f'trap cleanup EXIT\n'
+                f'cd {shlex.quote(repo_path)}\n'
+                f'claude -p --model {shlex.quote(impl_model)} --resume {shlex.quote(session_id)} \\\n'
+                f'  --permission-mode bypassPermissions --output-format json < {shlex.quote(prompt_path)}\n'
+            )
 
         os.write(fd_script, script_content.encode())
         os.close(fd_script)

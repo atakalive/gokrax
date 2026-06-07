@@ -442,6 +442,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--cwd")
     p.add_argument("--prompt-file", required=True)
     p.add_argument("--delete-prompt-file", action="store_true")
+    p.add_argument("--append-system-prompt")
+    p.add_argument("--disallowed-tools")
     p.add_argument("--completion-timeout", type=int, default=900)
     return p.parse_args(argv)
 
@@ -485,6 +487,10 @@ def main(argv: list[str] | None = None) -> int:
             cmd_args += ["--thinking", args.thinking]
         if args.effort:
             cmd_args += ["--effort", args.effort]
+        if args.append_system_prompt:
+            cmd_args += ["--append-system-prompt", args.append_system_prompt]
+        if args.disallowed_tools:
+            cmd_args += ["--disallowed-tools", args.disallowed_tools]
 
         env = _clean_env_for_cci()
         log.info("cci_runner: spawning claude (TUI): %s (cwd=%s)", " ".join(cmd_args), cwd)

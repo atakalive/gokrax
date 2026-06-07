@@ -304,3 +304,237 @@ class TestRetryNotificationPreservesBashVar:
                 break
         else:
             pytest.fail("No _notify line with $RETRY/2 found in script")
+
+
+# ===========================================================================
+# Test 7: impl_engine="cci" skip_plan mode
+# ===========================================================================
+
+class TestStartCcCciSkipPlan:
+    def test_cci_skip_plan_script(self) -> None:
+        from engine.cc import _start_cc
+
+        pipeline_data = dict(_PIPELINE_DATA, skip_cc_plan=True,
+                             impl_engine="cci")
+        fake_write, captured = _make_os_write_capture()
+
+        mkstemp_returns = [
+            (11, "/tmp/gokrax-impl.txt"),
+            (12, "/tmp/gokrax-cc.sh"),
+        ]
+
+        with ExitStack() as stack:
+            _apply_cc_patches(stack, fake_write, mkstemp_returns,
+                              pipeline_data=pipeline_data)
+            _start_cc("testpj", _BATCH, "git@example.com:a/b.git",
+                       "/safe/repo", Path("/tmp/dummy.json"))
+
+        script = _capture_script(captured)
+        assert "engine.cci_runner" in script
+        assert "claude -p" not in script
+        # safe paths are left unquoted by shlex.quote
+        assert "--prompt-file /tmp/gokrax-impl.txt" in script
+        assert "--cwd /safe/repo" in script
+        assert "--completion-timeout 3600" in script
+        # skip_plan goes straight to impl → no plan-only constraints
+        assert "--append-system-prompt" not in script
+        assert "--disallowed-tools" not in script
+        assert "--permission-mode" not in script
+        assert "--output-format" not in script
+        # impl failure → immediate BLOCKED
+        assert "if ! " in script
+        assert "BLOCKED" in script
+        # commit retry uses || true + 900s timeout
+        assert "|| true" in script
+        assert "--completion-timeout 900" in script
+
+
+# ===========================================================================
+# Test 8: impl_engine="cci" normal mode (plan + impl)
+# ===========================================================================
+
+class TestStartCcCciNormal:
+    def test_cci_normal_script(self) -> None:
+        from engine.cc import _start_cc
+
+        pipeline_data = dict(_PIPELINE_DATA, skip_cc_plan=False,
+                             impl_engine="cci")
+        fake_write, captured = _make_os_write_capture()
+
+        mkstemp_returns = [
+            (10, "/tmp/gokrax-plan.txt"),
+            (11, "/tmp/gokrax-impl.txt"),
+            (12, "/tmp/gokrax-cc.sh"),
+        ]
+
+        with ExitStack() as stack:
+            _apply_cc_patches(stack, fake_write, mkstemp_returns,
+                              pipeline_data=pipeline_data)
+            _start_cc("testpj", _BATCH, "git@example.com:a/b.git",
+                       "/safe/repo", Path("/tmp/dummy.json"))
+
+        script = _capture_script(captured)
+        assert "engine.cci_runner" in script
+        assert "claude -p" not in script
+        # Isolate the plan and impl phases by their section comments
+        plan_section = script.split("# Phase 2: Impl")[0]
+        impl_section = script.split("# Phase 2: Impl")[1]
+        # plan phase has plan-only constraints
+        assert "--append-system-prompt" in plan_section
+        assert "--disallowed-tools" in plan_section
+        assert "Edit,MultiEdit,Write,NotebookEdit" in plan_section
+        # impl phase does NOT (before commit_verify_block)
+        impl_only = impl_section.split("# コミット検証")[0]
+        assert "--append-system-prompt" not in impl_only
+        assert "--disallowed-tools" not in impl_only
+        # both plan and impl have if!...BLOCKED
+        assert "if ! " in plan_section
+        assert "if ! " in impl_only
+        assert "BLOCKED" in plan_section
+        assert "BLOCKED" in impl_only
+
+
+# ===========================================================================
+# Test 9: impl_engine="cci" commit retry
+# ===========================================================================
+
+class TestStartCcCciCommitRetry:
+    def test_cci_commit_retry_line(self) -> None:
+        from engine.cc import _start_cc
+
+        pipeline_data = dict(_PIPELINE_DATA, skip_cc_plan=True,
+                             impl_engine="cci")
+        fake_write, captured = _make_os_write_capture()
+
+        mkstemp_returns = [
+            (11, "/tmp/gokrax-impl.txt"),
+            (12, "/tmp/gokrax-cc.sh"),
+        ]
+
+        with ExitStack() as stack:
+            _apply_cc_patches(stack, fake_write, mkstemp_returns,
+                              pipeline_data=pipeline_data)
+            _start_cc("testpj", _BATCH, "git@example.com:a/b.git",
+                       "/safe/repo", Path("/tmp/dummy.json"))
+
+        script = _capture_script(captured)
+        # retry line: echo ... | runner ... --prompt-file '-' || true
+        retry_block = script.split("# コミット検証")[1]
+        assert "echo" in retry_block
+        assert "engine.cci_runner" in retry_block
+        # "-" is a safe token, left unquoted by shlex.quote
+        assert "--prompt-file -" in retry_block
+        assert "|| true" in retry_block
+        assert "--completion-timeout 900" in retry_block
+
+
+# ===========================================================================
+# Test 10: impl_engine="cc" (default) regression — no cci artifacts
+# ===========================================================================
+
+class TestStartCcDefaultCcEngine:
+    def test_cc_default_no_cci(self) -> None:
+        from engine.cc import _start_cc
+
+        # No impl_engine key → default "cc"
+        fake_write, captured = _make_os_write_capture()
+
+        mkstemp_returns = [
+            (10, "/tmp/gokrax-plan.txt"),
+            (11, "/tmp/gokrax-impl.txt"),
+            (12, "/tmp/gokrax-cc.sh"),
+        ]
+
+        with ExitStack() as stack:
+            _apply_cc_patches(stack, fake_write, mkstemp_returns)
+            _start_cc("testpj", _BATCH, "git@example.com:a/b.git",
+                       "/safe/repo", Path("/tmp/dummy.json"))
+
+        script = _capture_script(captured)
+        assert "claude -p" in script
+        assert "engine.cci_runner" not in script
+        # _PYBIN must NOT be added on the cc path
+        assert "_PYBIN" not in script
+
+
+# ===========================================================================
+# Test 11: _start_cc_test_fix cci mode
+# ===========================================================================
+
+class TestStartCcTestFixCci:
+    def test_test_fix_cci_script(self) -> None:
+        from engine.cc import _start_cc_test_fix
+
+        malicious_pybin = "/path with space/python"
+        malicious_cli = "/cli with space/gokrax.py"
+
+        data = {
+            "cc_impl_model": "sonnet",
+            "cc_session_id": "sess-1234",
+            "test_output": "FAILED test_foo.py",
+            "test_retry_count": 1,
+            "repo_path": "/safe/repo",
+            "impl_engine": "cci",
+        }
+
+        fake_write, captured = _make_os_write_capture()
+
+        mkstemp_returns = [
+            (30, "/tmp/gokrax-testfix-prompt.txt"),
+            (31, "/tmp/gokrax-testfix-script.sh"),
+        ]
+
+        with patch("subprocess.Popen", return_value=MagicMock(pid=888)), \
+             patch("tempfile.mkstemp", side_effect=mkstemp_returns), \
+             patch("os.write", side_effect=fake_write), \
+             patch("os.close"), \
+             patch("os.chmod"), \
+             patch("engine.cc.update_pipeline"), \
+             patch("sys.executable", malicious_pybin), \
+             patch("engine.cc.GOKRAX_CLI", malicious_cli), \
+             patch("config.MAX_TEST_RETRY", 3):
+            _start_cc_test_fix("testpj", _BATCH, data, Path("/tmp/dummy.json"))
+
+        script = _capture_script(captured)
+        assert "engine.cci_runner" in script
+        assert "claude -p" not in script
+        assert "--append-system-prompt" not in script
+        assert "--disallowed-tools" not in script
+        assert "--completion-timeout 3600" in script
+        # test_fix relies on set -e, no if! wrapper
+        assert "if ! " not in script
+        # _PYBIN / _GOKRAX_PARENT must be shlex-quoted (paths contain spaces)
+        assert "_PYBIN='/path with space/python'" in script
+        assert "_GOKRAX_PARENT='/cli with space'" in script
+
+
+# ===========================================================================
+# Test 12: G3 preflight fallback (cci → cc when pexpect missing)
+# ===========================================================================
+
+class TestCciPreflightFallback:
+    def test_fallback_to_cc_on_import_error(self) -> None:
+        import builtins
+
+        import config
+
+        real_import = builtins.__import__
+
+        def fake_import(name, *args, **kwargs):
+            if name == "pexpect":
+                raise ImportError("No module named 'pexpect'")
+            return real_import(name, *args, **kwargs)
+
+        with patch.object(config, "IMPL_PHASE_ENGINE", "cci"):
+            # Simulate watchdog preflight block
+            import config as _cci_cfg
+            assert _cci_cfg.IMPL_PHASE_ENGINE == "cci"
+            if _cci_cfg.IMPL_PHASE_ENGINE == "cci":
+                try:
+                    with patch("builtins.__import__", side_effect=fake_import):
+                        import pexpect  # noqa: F401
+                        import engine.cci_runner  # noqa: F401
+                except ImportError:
+                    _cci_cfg.IMPL_PHASE_ENGINE = "cc"
+            # After fallback, attribute access returns "cc"
+            assert _cci_cfg.IMPL_PHASE_ENGINE == "cc"

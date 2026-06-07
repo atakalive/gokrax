@@ -69,6 +69,7 @@ NONE_TO_FALSE_KEYS: tuple[str, ...] = (
 # CC model
 CC_MODEL_PLAN = "sonnet"     # DESIGN_PLAN phase
 CC_MODEL_IMPL = "sonnet"   # IMPLEMENTATION phase
+IMPL_PHASE_ENGINE: str = "cc"  # "cc" (claude -p) or "cci" (interactive TUI via cci_runner)
 
 # Timezone
 LOCAL_TZ = timezone(timedelta(hours=0))  # UTC

@@ -138,6 +138,7 @@ stateDiagram-v2
     note right of DESIGN_APPROVED : skip_assess → IMPLEMENTATION
     note right of DESIGN_REVISE : MAX_REVISE_CYCLES = 4
     note right of CODE_REVISE : MAX_REVISE_CYCLES = 4
+    note right of IMPLEMENTATION : impl_engine: "cc" (default) or "cci"
 ```
 
 ### VALID_TRANSITIONS (reference)

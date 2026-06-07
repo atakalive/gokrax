@@ -387,6 +387,7 @@ OS ごとの CLI 引数サイズ上限 (`_get_max_cli_arg_bytes`):
 - DESIGN_APPROVED -> IMPLEMENTATION 遷移時に `run_cc=True` -> `_start_cc()` で非同期起動
 - CC が死んだ場合 (`_is_cc_running()=False`): watchdog の次サイクルで再起動
 - **DESIGN_PLAN では CC 自動起動しない。** 実装担当が手動で Issue 確認 -> `plan-done` する
+- `impl_engine` が `"cci"` の場合、`_start_cc` は `claude -p` の代わりに `cci_runner` を起動する。cci の plan phase は `--disallowed-tools` で Edit/MultiEdit/Write/NotebookEdit をツールレベルで遮断し、`--append-system-prompt` で Bash の状態変更コマンドをソフトに制約する。cci runner が plan/impl で失敗した場合、bash スクリプトは即座に BLOCKED へ遷移する。plan/impl/test_fix の completion timeout は 3600s（agent 通信の 900s デフォルトとは独立）。
 
 ### 7.5 /new 送信タイミング
 
@@ -428,6 +429,7 @@ pipeline JSON のフィールドは 3 カテゴリに分類される。
 |---|---|---|
 | cc_pid | int \| null | CC プロセス ID |
 | cc_session_id | str \| null | CC セッション ID |
+| impl_engine | str \| null | "cc"（既定）または "cci" — impl/plan phase エンジン上書き |
 | design_revise_count | int | 設計 REVISE サイクル回数 |
 | code_revise_count | int | コード REVISE サイクル回数 |
 | summary_message_id | str \| null | マージサマリーの Discord メッセージ ID |
@@ -487,6 +489,7 @@ spec_config の詳細は `docs/spec_mode_spec.md` を参照。
   "history": [{"from": "IDLE", "to": "DESIGN_PLAN", "at": "...", "actor": "cli"}],
   "cc_pid": null,
   "cc_session_id": null,
+  "impl_engine": null,
   "timeout_extension": 0,
   "extend_count": 0,
   "design_revise_count": 0,

@@ -166,3 +166,19 @@ def notify_cc_no_commit_blocked(project: str, q_tag: str = "", **_kw) -> str:
 def notify_cc_start_failed(project: str, error: str, **_kw) -> str:
     """CC startup failed notification."""
     return f"[{project}] ⚠️ CC startup failed: {error}"
+
+
+def cci_plan_only_system(**_kw) -> str:
+    """System prompt for CCI plan phase (plan-only constraint)."""
+    return (
+        "You are in PLAN-ONLY mode. "
+        "Analyze the task and produce a detailed implementation plan. "
+        "Do NOT edit, create, or delete any files. "
+        "Do NOT execute any shell commands that modify state (git commit, rm, mv, etc.). "
+        "Only read files and produce your plan as text output."
+    )
+
+
+def notify_cci_runner_failed(project: str, **_kw) -> str:
+    """CCI runner failed during plan/impl → BLOCKED notification."""
+    return f"[{project}] ❌ CCI runner failed → BLOCKED"

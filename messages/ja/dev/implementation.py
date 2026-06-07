@@ -166,3 +166,19 @@ def notify_cc_no_commit_blocked(project: str, q_tag: str = "", **_kw) -> str:
 def notify_cc_start_failed(project: str, error: str, **_kw) -> str:
     """CC 起動失敗通知。"""
     return f"[{project}] ⚠️ CC起動失敗: {error}"
+
+
+def cci_plan_only_system(**_kw) -> str:
+    """CCI plan phase 用システムプロンプト（計画のみ制約）。"""
+    return (
+        "あなたは PLAN-ONLY モードです。"
+        "タスクを分析し、詳細な実装計画を出力してください。"
+        "ファイルの編集・作成・削除は一切禁止です。"
+        "状態を変更するシェルコマンド（git commit, rm, mv 等）の実行も禁止です。"
+        "ファイルの読み取りと計画テキストの出力のみを行ってください。"
+    )
+
+
+def notify_cci_runner_failed(project: str, **_kw) -> str:
+    """CCI runner が plan/impl で失敗 → BLOCKED 通知。"""
+    return f"[{project}] ❌ CCI runner が失敗 → BLOCKED"

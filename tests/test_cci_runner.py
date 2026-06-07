@@ -184,6 +184,38 @@ class TestParseArgs:
         )
         assert args.completion_timeout == 55
 
+    def test_append_system_prompt_passthrough(self):
+        args = cci_runner._parse_args(
+            ["--session-id", "xxx", "--prompt-file", "f.txt",
+             "--append-system-prompt", "test prompt"]
+        )
+        assert args.append_system_prompt == "test prompt"
+
+    def test_append_system_prompt_default_none(self):
+        args = cci_runner._parse_args(
+            ["--session-id", "xxx", "--prompt-file", "f.txt"]
+        )
+        assert args.append_system_prompt is None
+
+    def test_disallowed_tools_passthrough(self):
+        args = cci_runner._parse_args(
+            ["--session-id", "xxx", "--prompt-file", "f.txt",
+             "--disallowed-tools", "Edit,Write"]
+        )
+        assert args.disallowed_tools == "Edit,Write"
+
+    def test_disallowed_tools_default_none(self):
+        args = cci_runner._parse_args(
+            ["--session-id", "xxx", "--prompt-file", "f.txt"]
+        )
+        assert args.disallowed_tools is None
+
+    def test_prompt_file_stdin(self):
+        args = cci_runner._parse_args(
+            ["--session-id", "xxx", "--prompt-file", "-"]
+        )
+        assert args.prompt_file == "-"
+
 
 # ===========================================================================
 # _CompletionDetector

@@ -126,6 +126,7 @@ REVIEW_MODES = {
 # CCI_BIN: str = "claude"                    # claude binary name/path
 # CCI_START_GRACE_SEC: int = 60              # Grace period for TUI boot (default: 60)
 # CCI_COMPLETION_TIMEOUT_SEC: int = 900      # Turn completion timeout in seconds (default: 900 = 15 min)
+# IMPL_PHASE_ENGINE: str = "cc"  # "cc" (claude -p, default) or "cci" (interactive TUI, -p retirement prep)
 # AGENT_SEND_TIMEOUT = 30
 # DISCORD_POST_TIMEOUT = 10
 # GLAB_TIMEOUT = 15

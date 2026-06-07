@@ -387,6 +387,7 @@ Per-OS CLI argument size limits (`_get_max_cli_arg_bytes`):
 - On DESIGN_APPROVED -> IMPLEMENTATION transition: `run_cc=True` -> async launch via `_start_cc()`
 - If CC dies (`_is_cc_running()=False`): restarted on the watchdog's next cycle
 - **CC is not auto-launched during DESIGN_PLAN.** Reviewing Issues is the implementer's responsibility
+- When `impl_engine` is `"cci"`, `_start_cc` generates `cci_runner` invocations instead of `claude -p`. The cci plan phase uses `--disallowed-tools` to block Edit/MultiEdit/Write/NotebookEdit at the tool level, plus `--append-system-prompt` for additional soft constraints on Bash state-changing commands. On cci runner failure during plan/impl, the bash script transitions immediately to BLOCKED (no commit retry for failed runs). Completion timeout for plan/impl/test_fix is 3600s (vs. 900s default for agent comms).
 
 ### 7.5 /new Send Timing
 
@@ -428,6 +429,7 @@ Pipeline JSON fields are classified into 3 categories.
 |---|---|---|
 | cc_pid | int \| null | CC process ID |
 | cc_session_id | str \| null | CC session ID |
+| impl_engine | str \| null | "cc" (default) or "cci" — impl/plan phase engine override |
 | design_revise_count | int | Design REVISE cycle count |
 | code_revise_count | int | Code REVISE cycle count |
 | summary_message_id | str \| null | Discord message ID of the merge summary |
@@ -487,6 +489,7 @@ See `docs/spec_mode_spec.md` for spec_config details.
   "history": [{"from": "IDLE", "to": "DESIGN_PLAN", "at": "...", "actor": "cli"}],
   "cc_pid": null,
   "cc_session_id": null,
+  "impl_engine": null,
   "timeout_extension": 0,
   "extend_count": 0,
   "design_revise_count": 0,

@@ -109,9 +109,11 @@ def _ensure_trust_accepted(cwd: str) -> None:
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
         if isinstance(data, dict):
-            entry = data.get("projects", {}).get(cwd_abs, {})
-            if isinstance(entry, dict) and entry.get("hasTrustDialogAccepted") is True:
-                return
+            projects = data.get("projects", {})
+            if isinstance(projects, dict):
+                entry = projects.get(cwd_abs, {})
+                if isinstance(entry, dict) and entry.get("hasTrustDialogAccepted") is True:
+                    return
     except FileNotFoundError:
         # File auto-created by claude on first launch; nothing to do here.
         return

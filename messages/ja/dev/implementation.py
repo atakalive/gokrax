@@ -44,7 +44,8 @@ def cc_impl_resume(
 ) -> str:
     """CC Impl フェーズ用プロンプト（Plan OK 後の実装指示 = resume session）。"""
     return (
-        f"計画OK。実装して commit して。コミットメッセージに {closes} を必ず含めること。"
+        f"計画OK。実装して commit して。コミットメッセージに {closes} を必ず含めること。\n"
+        f"現在のブランチに直接 commit せよ。feature ブランチを作るな（git checkout -b や git switch -c を実行してはならない）。"
         f"{scope_warning}"
         f"{test_baseline_section}"
     )
@@ -63,7 +64,8 @@ def cc_impl_skip_plan(
         f"以下のIssueを実装してください。\n"
         f"{comment_line}"
         f"\n{issues_block}\n\n"
-        f"コミットメッセージに {closes} を必ず含めること。"
+        f"コミットメッセージに {closes} を必ず含めること。\n"
+        f"現在のブランチに直接 commit せよ。feature ブランチを作るな（git checkout -b や git switch -c を実行してはならない）。"
         f"{scope_warning}"
         f"{test_baseline_section}"
     )
@@ -112,6 +114,7 @@ def cc_commit_retry(closes: str, **_kw) -> str:
         f'  git add -A\n'
         f'  git commit -m "feat({closes}): <変更内容の要約>"\n\n'
         f"コミットメッセージには {closes} を必ず含めること。\n"
+        f"現在のブランチに直接 commit せよ。feature ブランチを作るな（git checkout -b や git switch -c を実行してはならない）。\n"
         "変更すべきファイルがワーキングツリーにない場合は、Issue本文の変更対象を読み直して実装してからコミットせよ。"
     )
 

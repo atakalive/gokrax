@@ -44,7 +44,8 @@ def cc_impl_resume(
 ) -> str:
     """CC Impl phase prompt (implementation instruction after Plan OK = resume session)."""
     return (
-        f"Plan OK. Implement and commit. Include {closes} in the commit message."
+        f"Plan OK. Implement and commit. Include {closes} in the commit message.\n"
+        f"Commit directly on the current branch. Do not create feature branches (do not run 'git checkout -b' or 'git switch -c')."
         f"{scope_warning}"
         f"{test_baseline_section}"
     )
@@ -63,7 +64,8 @@ def cc_impl_skip_plan(
         f"Implement the following Issues.\n"
         f"{comment_line}"
         f"\n{issues_block}\n\n"
-        f"Include {closes} in the commit message."
+        f"Include {closes} in the commit message.\n"
+        f"Commit directly on the current branch. Do not create feature branches (do not run 'git checkout -b' or 'git switch -c')."
         f"{scope_warning}"
         f"{test_baseline_section}"
     )
@@ -112,6 +114,7 @@ def cc_commit_retry(closes: str, **_kw) -> str:
         f'  git add -A\n'
         f'  git commit -m "feat({closes}): <summary of changes>"\n\n'
         f"Include {closes} in the commit message.\n"
+        f"Commit directly on the current branch. Do not create feature branches (do not run 'git checkout -b' or 'git switch -c').\n"
         "If files to change are not in the working tree, re-read the Issue body's target files, implement, then commit."
     )
 

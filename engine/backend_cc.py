@@ -462,7 +462,11 @@ def send(agent_id: str, message: str, timeout: int) -> SendResult:
     effort_val = profile.get("effort")
     if effort_val is not None:
         if isinstance(effort_val, str) and effort_val.strip():
-            cmd.extend(["--effort", effort_val])
+            ev = effort_val.strip()
+            if ev == "ultracode":
+                cmd.extend(["--effort", "xhigh", "--settings", '{"ultracode": true}'])
+            else:
+                cmd.extend(["--effort", ev])
         else:
             logger.warning(
                 "Agent %s: 'effort' has invalid value %r in config_cc.json; ignoring",

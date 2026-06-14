@@ -2,7 +2,7 @@
   "_comment": {
     "model":  "Claude model alias or full name (e.g. 'opus', 'sonnet', 'claude-sonnet-4-6')",
     "thinking": "Thinking mode: 'enabled' (always think), 'adaptive' (model decides), 'disabled' (no thinking)",
-    "effort": "Effort level: 'low', 'medium', 'high', 'xhigh', 'max'",
+    "effort": "Effort level: 'low', 'medium', 'high', 'xhigh', 'max', 'ultracode'. ultracode = xhigh + dynamic workflow orchestration; requires ultracode/dynamic-workflow-capable model (Fable 5 / Opus 4.8 / 4.7) + dynamic workflows enabled. High token consumption. Note: xhigh effort is supported on all models including Opus 4.6",
     "compile-startup-md": "If true, compile IDENTITY.md + INSTRUCTION.md + MEMORY.md into CLAUDE.md"
   },
   "example_implementer": {

@@ -191,6 +191,16 @@ class TestSend:
         assert cmd[cmd.index("--thinking") + 1] == "enabled"
         assert cmd[cmd.index("--effort") + 1] == "high"
 
+    def test_effort_ultracode_passthrough(self, tmp_sessions, monkeypatch):
+        monkeypatch.setattr(config, "DRY_RUN", False)
+        monkeypatch.setattr(backend_cci, "_agent_config_cache", {
+            "reviewer1": {"effort": "ultracode"},
+        })
+        with patch("subprocess.Popen", return_value=_mock_proc()) as mp:
+            backend_cci.send("reviewer1", "hello", timeout=30)
+        cmd = mp.call_args[0][0]
+        assert cmd[cmd.index("--effort") + 1] == "ultracode"
+
     def test_cwd_passed_as_flag_popen_runs_in_project_root(self, tmp_sessions, monkeypatch):
         monkeypatch.setattr(config, "DRY_RUN", False)
         monkeypatch.setattr(backend_cci, "_agent_config_cache", {})

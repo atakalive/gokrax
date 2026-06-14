@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import itertools
 import json
 import os
@@ -173,6 +174,33 @@ class TestParseArgs:
             ["--session-id", "a", "--prompt-file", "-", "--effort", "xhigh"]
         )
         assert args.effort == "xhigh"
+
+    def test_effort_ultracode_accepted(self):
+        args = cci_runner._parse_args(
+            ["--session-id", "a", "--prompt-file", "-", "--effort", "ultracode"]
+        )
+        assert args.effort == "ultracode"
+
+    def test_build_claude_args_ultracode(self):
+        args = argparse.Namespace(
+            model=None, thinking=None, effort="ultracode",
+            append_system_prompt=None, disallowed_tools=None,
+        )
+        cmd_args = cci_runner._build_claude_args(args, "sess", False)
+        idx = cmd_args.index("--effort")
+        assert cmd_args[idx + 1] == "xhigh"
+        sidx = cmd_args.index("--settings")
+        assert cmd_args[sidx + 1] == '{"ultracode": true}'
+
+    def test_build_claude_args_xhigh(self):
+        args = argparse.Namespace(
+            model=None, thinking=None, effort="xhigh",
+            append_system_prompt=None, disallowed_tools=None,
+        )
+        cmd_args = cci_runner._build_claude_args(args, "sess", False)
+        idx = cmd_args.index("--effort")
+        assert cmd_args[idx + 1] == "xhigh"
+        assert "--settings" not in cmd_args
 
     def test_completion_timeout_default(self):
         import config

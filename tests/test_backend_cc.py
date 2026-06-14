@@ -368,6 +368,52 @@ class TestSend:
         idx = cmd.index("--effort")
         assert cmd[idx + 1] == "medium"
 
+    def test_effort_ultracode(self, tmp_sessions, monkeypatch):
+        monkeypatch.setattr(config, "DRY_RUN", False)
+        monkeypatch.setattr(backend_cc, "_agent_config_cache", {
+            "reviewer1": {"effort": "ultracode"},
+        })
+        mock_proc = MagicMock()
+        mock_proc.stdin = MagicMock()
+        mock_proc.pid = 12345
+        with patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
+            backend_cc.send("reviewer1", "hello", timeout=30)
+        cmd = mock_popen.call_args[0][0]
+        idx = cmd.index("--effort")
+        assert cmd[idx + 1] == "xhigh"
+        assert cmd[idx + 1] != "ultracode"
+        sidx = cmd.index("--settings")
+        assert cmd[sidx + 1] == '{"ultracode": true}'
+
+    def test_effort_xhigh_no_settings(self, tmp_sessions, monkeypatch):
+        monkeypatch.setattr(config, "DRY_RUN", False)
+        monkeypatch.setattr(backend_cc, "_agent_config_cache", {
+            "reviewer1": {"effort": "xhigh"},
+        })
+        mock_proc = MagicMock()
+        mock_proc.stdin = MagicMock()
+        mock_proc.pid = 12345
+        with patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
+            backend_cc.send("reviewer1", "hello", timeout=30)
+        cmd = mock_popen.call_args[0][0]
+        idx = cmd.index("--effort")
+        assert cmd[idx + 1] == "xhigh"
+        assert "--settings" not in cmd
+
+    def test_effort_strip_whitespace(self, tmp_sessions, monkeypatch):
+        monkeypatch.setattr(config, "DRY_RUN", False)
+        monkeypatch.setattr(backend_cc, "_agent_config_cache", {
+            "reviewer1": {"effort": " xhigh "},
+        })
+        mock_proc = MagicMock()
+        mock_proc.stdin = MagicMock()
+        mock_proc.pid = 12345
+        with patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
+            backend_cc.send("reviewer1", "hello", timeout=30)
+        cmd = mock_popen.call_args[0][0]
+        idx = cmd.index("--effort")
+        assert cmd[idx + 1] == "xhigh"
+
     def test_invalid_effort_warning(self, tmp_sessions, monkeypatch, caplog):
         monkeypatch.setattr(config, "DRY_RUN", False)
         monkeypatch.setattr(backend_cc, "_agent_config_cache", {

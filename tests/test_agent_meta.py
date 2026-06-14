@@ -42,6 +42,17 @@ def test_resolve_cc(monkeypatch):
     assert meta.think_level == "high"
 
 
+def test_resolve_cc_ultracode(monkeypatch):
+    _patch_backend(monkeypatch, "cc")
+    monkeypatch.setattr(
+        "engine.backend_cc._load_config",
+        lambda: {"alice": {"model": "claude-opus-4.8", "effort": "ultracode"}},
+    )
+    meta = _resolve("alice")
+    assert meta.backend == "cc"
+    assert meta.think_level == "ultracode"
+
+
 def test_resolve_gemini(monkeypatch):
     _patch_backend(monkeypatch, "gemini")
     monkeypatch.setattr(

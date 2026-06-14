@@ -43,7 +43,7 @@ BRACKETED_PASTE_START = "\x1b[200~"
 BRACKETED_PASTE_END = "\x1b[201~"
 
 _THINKING_MODES = ("enabled", "adaptive", "disabled")
-_EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max")
+_EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max", "ultracode")
 
 # ---------------------------------------------------------------------------
 # Module-level state (referenced by the signal handler / finally cleanup)
@@ -431,6 +431,29 @@ def _cleanup_handler(signum, frame) -> None:
 # CLI
 # ---------------------------------------------------------------------------
 
+def _build_claude_args(args: argparse.Namespace, session_id: str, is_resume: bool) -> list[str]:
+    """Build CLI arg list for the claude subprocess."""
+    cmd_args = ["--dangerously-skip-permissions"]
+    if is_resume:
+        cmd_args += ["--resume", session_id]
+    else:
+        cmd_args += ["--session-id", session_id]
+    if args.model:
+        cmd_args += ["--model", args.model]
+    if args.thinking:
+        cmd_args += ["--thinking", args.thinking]
+    if args.effort:
+        if args.effort == "ultracode":
+            cmd_args += ["--effort", "xhigh", "--settings", '{"ultracode": true}']
+        else:
+            cmd_args += ["--effort", args.effort]
+    if args.append_system_prompt:
+        cmd_args += ["--append-system-prompt", args.append_system_prompt]
+    if args.disallowed_tools:
+        cmd_args += ["--disallowed-tools", args.disallowed_tools]
+    return cmd_args
+
+
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(prog="engine.cci_runner")
     group = p.add_mutually_exclusive_group(required=True)
@@ -476,21 +499,7 @@ def main(argv: list[str] | None = None) -> int:
 
         _ensure_trust_accepted(cwd)
 
-        cmd_args = ["--dangerously-skip-permissions"]
-        if is_resume:
-            cmd_args += ["--resume", session_id]
-        else:
-            cmd_args += ["--session-id", session_id]
-        if args.model:
-            cmd_args += ["--model", args.model]
-        if args.thinking:
-            cmd_args += ["--thinking", args.thinking]
-        if args.effort:
-            cmd_args += ["--effort", args.effort]
-        if args.append_system_prompt:
-            cmd_args += ["--append-system-prompt", args.append_system_prompt]
-        if args.disallowed_tools:
-            cmd_args += ["--disallowed-tools", args.disallowed_tools]
+        cmd_args = _build_claude_args(args, session_id, is_resume)
 
         env = _clean_env_for_cci()
         log.info("cci_runner: spawning claude (TUI): %s (cwd=%s)", " ".join(cmd_args), cwd)

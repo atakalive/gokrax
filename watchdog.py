@@ -423,6 +423,7 @@ def process(path: Path):
                     "action": action,
                     "implementer": data.get("implementer", IMPLEMENTERS[0]),
                     "batch": list(batch),
+                    "p2_fix": data.get("p2_fix", False),   # ← 追加(#380): revise nudge の p2_note 構築用
                     "gitlab": data.get("gitlab", f"{GITLAB_NAMESPACE}/{pj}"),
                     "nudge_count": data[key],
                     "queue_mode": data.get("queue_mode", False),
@@ -1146,10 +1147,36 @@ def process(path: Path):
             # 状態ごとの具体的な指示メッセージ
             nudge_state = action.nudge  # e.g. "DESIGN_REVISE", "CODE_REVISE", etc.
 
-            if nudge_state == "DESIGN_REVISE":
-                nudge_msg = render("dev.design_revise", "nudge")
-            elif nudge_state == "CODE_REVISE":
-                nudge_msg = render("dev.code_revise", "nudge")
+            if nudge_state in ("DESIGN_REVISE", "CODE_REVISE"):
+                # pascal #380 R1 P1: 遷移前 stale な process-level `data` ではなく、
+                # ロック内で保存した notification スナップショットを使う。
+                _batch = notification.get("batch", [])
+                _p2_fix = notification.get("p2_fix", False)
+                # engine/fsm.py:378/399 の p2_note とバイト一致(英語固定)。
+                _p2_note = (
+                    "\n⚠️ --p2-fix mode: all P2 findings must also be fixed. "
+                    "Even without P0/P1, remaining P2 will cause another REVISE.\n"
+                    if _p2_fix
+                    else ""
+                )
+                if nudge_state == "DESIGN_REVISE":
+                    _issues_str = _revise_target_issues(
+                        _batch, "design_reviews", "design_revised", p2_fix=_p2_fix
+                    )
+                    nudge_msg = render(
+                        "dev.design_revise", "nudge",
+                        project=pj, issues_str=_issues_str,
+                        GOKRAX_CLI=GOKRAX_CLI, p2_note=_p2_note,
+                    )
+                else:  # CODE_REVISE
+                    _issues_str = _revise_target_issues(
+                        _batch, "code_reviews", "code_revised", p2_fix=_p2_fix
+                    )
+                    nudge_msg = render(
+                        "dev.code_revise", "nudge",
+                        project=pj, issues_str=_issues_str,
+                        GOKRAX_CLI=GOKRAX_CLI, p2_note=_p2_note,
+                    )
             elif nudge_state == "DESIGN_PLAN":
                 nudge_msg = render("dev.design_plan", "nudge")
             elif nudge_state == "IMPLEMENTATION":

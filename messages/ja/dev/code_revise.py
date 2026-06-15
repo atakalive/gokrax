@@ -38,15 +38,28 @@ def transition(
         f"※ P0/P1指摘に誤りがあると確信した場合、revise完了前に異議を申し立てることができます:\n"
         f"{GOKRAX_CLI} dispute --pj {project} --issue N --reviewer REVIEWER --reason \"理由\"\n"
         f"理由は詳細に、子供でも理解できる粒度で記載してください。disputeが認められた場合、該当P0/P1は取り下げられます。\n"
+        f"「No response requested」で打ち切るな。--p2-fix では P2 も必ず修正し、code-revise 報告まで完遂せよ。\n"
         f"[お願い] 仕事は中断せず、完了まで一気にやること。"
     )
 
 
-def nudge(**_kw) -> str:
+def nudge(
+    project: str,
+    issues_str: str,
+    GOKRAX_CLI: str,
+    p2_note: str = "",
+    **_kw,
+) -> str:
     """CODE_REVISE 催促メッセージ。"""
+    target = f" {issues_str}" if issues_str else ""
     return (
-        "[Remind] 予定のリバイス作業を進め、完了してください。\n"
-        "gokrax code-revise --pj <project> --issue <N> --hash <commit> で修正コミットを報告してください。"
+        f"[Remind] {project}{target} の code revise は未完了です"
+        f"(gokrax code-revise の報告が未受信。だからこの催促が繰り返し来ています)。\n"
+        f"完了の定義 = 修正をコミットし、下記を bash ツールで実行して報告まで済ませること:\n"
+        f"  {GOKRAX_CLI} code-revise --pj {project} --issue N [N...] --hash <commit> --summary \"<変更概要>\"\n"
+        f"{p2_note}"
+        f"「No response requested」や無対応での打ち切りは不可。指示を読んだら必ず実行せよ。\n"
+        f"報告コマンドが記録されるまで催促は止まりません。"
     )
 
 

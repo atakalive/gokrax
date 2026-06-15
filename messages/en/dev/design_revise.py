@@ -42,15 +42,31 @@ def transition(
         f"Note: If you are confident that a P0/P1 finding is incorrect, you can file a dispute before completing the revise:\n"
         f"{GOKRAX_CLI} dispute --pj {project} --issue N --reviewer REVIEWER --reason \"reason\"\n"
         f"State the reason in detail, at a granularity a child could understand. If the dispute is accepted, the relevant P0/P1 will be withdrawn.\n"
+        f"Do not stop by replying \"No response requested\". Under --p2-fix you must also fix all P2 findings and complete through the design-revise report.\n"
         f"[Request] Complete the work without interruption."
     )
 
 
-def nudge(**_kw) -> str:
+def nudge(
+    project: str,
+    issues_str: str,
+    GOKRAX_CLI: str,
+    p2_note: str = "",
+    **_kw,
+) -> str:
     """DESIGN_REVISE reminder."""
+    target = f" {issues_str}" if issues_str else ""
     return (
-        "[Remind] Proceed with and complete the scheduled revise work.\n"
-        "Report completion with gokrax design-revise --pj <project> --issue <N>."
+        f"[Remind] {project}{target} design revise is INCOMPLETE "
+        f"(no gokrax design-revise report received — that is why this reminder keeps coming).\n"
+        f"Definition of done = apply the revised Issue body, then run the following via the bash tool and report:\n"
+        f"  {GOKRAX_CLI} issue-update --pj {project} --issue N --body-file /tmp/gokrax-{project}-N.md\n"
+        f"  {GOKRAX_CLI} design-revise --pj {project} --issue N [N...] --summary \"<summary>\"\n"
+        f"(Run issue-update once per Issue; repeat with each N when multiple Issues are targeted.)\n"
+        f"{p2_note}"
+        f"Replying \"No response requested\" or stopping without acting is NOT allowed. "
+        f"Once you have read this instruction you must execute it.\n"
+        f"Reminders will not stop until the report command is recorded."
     )
 
 

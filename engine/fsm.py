@@ -24,8 +24,13 @@ from engine.reviewer import (
 )
 from engine.shared import _is_cc_running, _is_ok_reply, log
 from messages import render
-from notify import notify_discord, notify_implementer, notify_reviewers, send_to_agent
-from pipeline_io import get_path, load_pipeline, update_pipeline
+from notify import notify_discord, notify_implementer, notify_reviewers, send_to_agent, post_gitlab_note
+from pipeline_io import get_path, load_pipeline, update_pipeline, clear_pending_notification
+
+# Issue #379: review_note は複数レビュアー×ラウンド×pass で同時滞留しうる初の鍵種。
+# glab 障害時に 1 サイクルで全件を同期投稿すると watchdog ループ（20s）が過剰ブロックするため、
+# 1 サイクルあたりの投稿試行件数を上限で制限する（超過分は次サイクルで再試行）。
+MAX_REVIEW_NOTE_RECOVERY_PER_CYCLE = 10
 
 
 class PhaseConfig(TypedDict):
@@ -1329,3 +1334,58 @@ def _recover_pending_notifications(pj: str, pending: dict, state: str) -> None:
             log(
                 f"[{pj}] WARNING: blocked_report recovery failed, will retry next cycle: {e}"
             )
+
+    # Issue #379: レビューノートのリカバリ（状態非依存・at-least-once）。
+    # cmd_review の即時投稿が失敗 / SIGTERM 死した場合、verdict と原子的に積まれた
+    # review_note:* エントリをここで投稿する。失敗は log（LOG_FILE）と Discord の両方に出す。
+    #
+    # 走査は値の形に依らず "review_note:" プレフィックスの全キーを対象にする（euler P1）。
+    # 非 dict / kind 不一致 / 必須フィールド欠落は再送不能なので無条件削除で prune し、
+    # process() の恒久 return（FSM 凍結）を防ぐ。投稿試行は 1 サイクル上限つき。
+    # （_review_note_keys を先に確定するのは抽出対象を固定するため。なお clear_pending_notification /
+    #  _mark_alerted は別ロードした on-disk dict を変更するだけで、この in-memory pending は変えない。）
+    _review_note_keys = [k for k in pending if k.startswith("review_note:")]
+    _to_alert = []   # 今回失敗かつ Discord 未通知のキー（ループ後に 1 回で discord_alerted 永続化）
+    _attempts = 0
+    for idx, note_key in enumerate(_review_note_keys):
+        if _attempts >= MAX_REVIEW_NOTE_RECOVERY_PER_CYCLE:
+            log(f"[{pj}] review note recovery: "
+                f"{len(_review_note_keys) - idx} entries deferred to next cycle")
+            break
+        info = pending.get(note_key)
+        if (not isinstance(info, dict)
+                or info.get("kind") != "review_note"
+                or not info.get("gitlab")
+                or info.get("issue") is None
+                or not info.get("body")):
+            log(f"[{pj}] WARNING: malformed review_note entry (key={note_key}), pruning")
+            clear_pending_notification(pj, note_key)
+            continue
+        _attempts += 1
+        try:
+            ok = post_gitlab_note(info["gitlab"], info["issue"], info["body"])
+        except Exception as e:
+            log(f"[{pj}] WARNING: review note recovery raised for #{info['issue']} (key={note_key}): {e}")
+            continue
+        if ok:
+            clear_pending_notification(pj, note_key)
+        else:
+            log(f"[{pj}] review note recovery failed for #{info['issue']} (key={note_key}), will retry")
+            if not info.get("discord_alerted"):
+                notify_discord(
+                    f"[{pj}] WARNING: review note for #{info['issue']} failed to post — queued for retry"
+                )
+                _to_alert.append(note_key)
+    # pascal P2: discord_alerted の永続化はループ外で 1 回の update_pipeline にまとめる（I/O 削減）。
+    if _to_alert:
+        def _mark_alerted(data):
+            pn = data.get("_pending_notifications")
+            if not pn:
+                return
+            for k in _to_alert:
+                if isinstance(pn.get(k), dict):
+                    pn[k]["discord_alerted"] = True
+        try:
+            update_pipeline(get_path(pj), _mark_alerted)
+        except Exception as e:
+            log(f"[{pj}] WARNING: failed to persist discord_alerted for {_to_alert}: {e}")

@@ -58,6 +58,21 @@ def _update_issue_title_with_assessment(gitlab: str, issue_num: int, complex_lev
     return True
 
 
+def _build_review_note(args, data, verdict, phase, round_num, target_pass, pass_id):
+    """Issue #379: review note の pending entry を構築して (note_key, note_entry) を返す。
+
+    本文（マスク名・round・N-Pass 反映済み）は CLI 側で確定させ、recovery 側は再構築しない。
+    note_key は (issue, reviewer, phase, round, pass_id) で一意（latest-wins 上書き回避）。
+    """
+    masked = mask_agent_name(args.reviewer, reviewer_number_map=data.get("reviewer_number_map"))
+    header = format_review_note_header(masked, verdict, phase, round_num, target_pass)
+    note_body = f"{header}\n\n{args.summary or ''}"
+    gitlab = data.get("gitlab", f"{GITLAB_NAMESPACE}/{args.project}")
+    note_key = f"review_note:{args.issue}:{args.reviewer}:{phase}:{round_num}:{pass_id}"
+    note_entry = {"kind": "review_note", "issue": args.issue, "gitlab": gitlab, "body": note_body}
+    return note_key, note_entry
+
+
 def cmd_review(args):
     """レビュー結果を記録（pipeline JSON + GitLab Issue note）"""
     import signal
@@ -71,9 +86,10 @@ def cmd_review(args):
         raise SystemExit(f"Unknown reviewer: {args.reviewer}")
     _skipped = False
     _dispute_accepted = False
+    _queued_note = None  # Issue #379: (note_key, note_entry) — Fix B が即時投稿で参照
 
     def do_review(data):
-        nonlocal _skipped, _dispute_accepted
+        nonlocal _skipped, _dispute_accepted, _queued_note
         state = data.get("state", "IDLE")
         if state in ("DESIGN_REVIEW", "DESIGN_REVIEW_NPASS"):
             key = "design_reviews"
@@ -203,6 +219,17 @@ def cmd_review(args):
                 print(f"#{args.issue}: overwriting existing review by {_masked_reviewer(args.reviewer, _pipeline.get('reviewer_number_map'))} (--force)")
         # dispute accepted 時はレビューを削除して早期 return（次の REVIEW サイクルで再レビューを強制）
         if _dispute_accepted:
+            # Issue #379: dispute 受理時も従来どおりノートを投稿する（pop 前に pending へ積む）。
+            # 受理後の verdict（args.verdict: APPROVE/P2 等）を本文に反映。pass_id は通常ノートと
+            # 衝突しない "dispute" を用いる。target_pass は従来挙動（entry={} → 1）に合わせ 1。
+            from pipeline_io import get_current_round, merge_pending_notifications
+            _phase = "design" if "DESIGN" in state else "code"
+            _round = get_current_round(data)
+            note_key, note_entry = _build_review_note(
+                args, data, args.verdict, _phase, _round, 1, "dispute"
+            )
+            merge_pending_notifications(data, {note_key: note_entry}, args.project)
+            _queued_note = (note_key, note_entry)
             issue[key].pop(args.reviewer, None)
             return
         review_entry = {"verdict": args.verdict, "at": now_iso()}
@@ -226,6 +253,24 @@ def cmd_review(args):
         review_entry["target_pass"] = target_pass
 
         issue[key][args.reviewer] = review_entry
+
+        # --- Issue #379: クラッシュ安全なレビューノート配送 ---
+        # このコールバックは update_pipeline のロック保持中。verdict と同一トランザクションで
+        # ノートを _pending_notifications に積むことで、後段 finally の SIGTERM 再送で
+        # プロセスが即死しても、ノートは JSON に残り watchdog のリカバリが投稿する。
+        # NPASS 中間パスの APPROVE（pass < target_pass）はノート不要（現行挙動を踏襲）。
+        skip_note = (current_pass < target_pass
+                     and args.verdict.upper() == "APPROVE")
+        if skip_note:
+            print(f"  → GitLab note skipped (APPROVE at pass {current_pass}/{target_pass})")
+        else:
+            from pipeline_io import get_current_round, merge_pending_notifications
+            round_num = get_current_round(data)
+            note_key, note_entry = _build_review_note(
+                args, data, args.verdict, phase, round_num, target_pass, current_pass
+            )
+            merge_pending_notifications(data, {note_key: note_entry}, args.project)
+            _queued_note = (note_key, note_entry)
 
     # SIGTERM を遅延させ、JSON 書き込み（update_pipeline）の完了を保証する
     _deferred = False
@@ -274,33 +319,19 @@ def cmd_review(args):
                   phase=phase, reviewer=args.reviewer, verdict=args.verdict,
                   latency_sec=latency_sec, revise_cycle=revise_cycle)
 
-    # GitLab Issue note に自動投稿
-    gitlab = data.get("gitlab", f"{GITLAB_NAMESPACE}/{args.project}")
-    phase = "design" if "DESIGN" in state else "code"
-
-    # NPASS 中間パスでは APPROVE の場合のみ GitLab note をスキップ
-    # P0/P1/P2 の指摘は中間パスでも GitLab に投稿（開発者が確認できるようにする）
-    issue = find_issue(data.get("batch", []), args.issue)
-    skip_note = False
-    entry: dict = {}
-    if issue:
-        review_key = "code_reviews" if "CODE" in state else "design_reviews"
-        entry = issue.get(review_key, {}).get(args.reviewer, {})
-        if (entry.get("pass", 1) < entry.get("target_pass", 1)
-                and args.verdict.upper() == "APPROVE"):
-            print(f"  → GitLab note skipped (APPROVE at pass {entry['pass']}/{entry['target_pass']})")
-            skip_note = True
-
-    if not skip_note:
-        reviewer_map = data.get("reviewer_number_map")
-        masked = mask_agent_name(args.reviewer, reviewer_number_map=reviewer_map)
-        from pipeline_io import get_current_round
-        round_num = get_current_round(data)
-        target_pass = entry.get("target_pass", 1)
-        header = format_review_note_header(masked, args.verdict, phase, round_num, target_pass)
-        note_body = f"{header}\n\n{args.summary or ''}"
-        if _post_gitlab_note(gitlab, args.issue, note_body):
+    # Issue #379: ノート本文と pending entry は do_review 内で構築済み（クラッシュ安全）。
+    # ここでは低レイテンシ維持のための best-effort 即時投稿のみ行う。
+    # 成功時は当該キーを無条件削除（review_note キーは一意なので別内容上書きはありえない。
+    # discord_alerted 付与による値比較不一致を避けるため条件付きクリアは使わない）。
+    # 失敗時は pending を残し watchdog の _recover_pending_notifications に委ねる（at-least-once）。
+    if _queued_note is not None:
+        note_key, note_entry = _queued_note
+        if _post_gitlab_note(note_entry["gitlab"], note_entry["issue"], note_entry["body"]):
             print("  → GitLab issue note posted")
+            from pipeline_io import clear_pending_notification
+            clear_pending_notification(args.project, note_key)
+        else:
+            print("  → GitLab note deferred to watchdog recovery")
 
 
 def cmd_dispute(args):

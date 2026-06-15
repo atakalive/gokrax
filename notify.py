@@ -460,7 +460,11 @@ def post_gitlab_note(gitlab: str, issue_num: int, body: str) -> bool:
     失敗時の挙動は呼び出し経路で異なる:
     - pending_notifications 経由 (遷移通知): at-least-once 再送 (10s 間隔)
     - watchdog direct (NPASS timeout / assessment / BLOCKED note): note 欠落、状態は記録済み
-    - cmd_review / cmd_flag: note 欠落、レビュー結果は pipeline JSON に記録済み
+    - cmd_review (Issue #379): verdict と原子的に review_note:* を pending へ積むため
+      at-least-once。即時投稿はあくまで best-effort で、失敗・SIGTERM 死しても
+      watchdog の _recover_pending_notifications が再送する。note_key は
+      (issue, reviewer, phase, round, pass) で一意のため重複投稿しない
+    - cmd_flag: note 欠落、レビュー結果は pipeline JSON に記録済み
     - design-revise / code-revise: sys.exit(1) でフラグ更新前に停止、ユーザが再実行
     """
     try:

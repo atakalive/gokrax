@@ -543,3 +543,98 @@ class TestRecoverPruning:
         mock_review.assert_called_once()
         # conditional clear で値不一致 → 新 review は保護される
         assert "review" in clear_data["_pending_notifications"]
+
+
+# ── Issue #379: review_note リカバリ動作 ────────────────────────────────
+
+
+import json
+
+
+def _write_pipeline(tmp_pipelines, pending, state="IDLE"):
+    """指定の _pending_notifications を持つ pipeline を書き、(path, pending) を返す。"""
+    data = {
+        "project": "pj",
+        "gitlab": "ns/pj",
+        "state": state,
+        "enabled": True,
+        "batch": [],
+        "history": [],
+        "_pending_notifications": dict(pending),
+        "created_at": "2025-01-01T00:00:00+09:00",
+        "updated_at": "2025-01-01T00:00:00+09:00",
+    }
+    path = tmp_pipelines / "pj.json"
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+    return path
+
+
+class TestRecoverReviewNote:
+    """Issue #379: review_note:* の at-least-once リカバリ。"""
+
+    def test_recovery_posts_and_clears(self, tmp_pipelines):
+        """well-formed 2 件: 各 entry につき post が呼ばれ、両キーが最終 JSON から消える。"""
+        pending = {
+            "review_note:1:r:design:1:1": {
+                "kind": "review_note", "issue": 1, "gitlab": "ns/pj", "body": "b1"},
+            "review_note:2:r:design:1:1": {
+                "kind": "review_note", "issue": 2, "gitlab": "ns/pj", "body": "b2"},
+        }
+        path = _write_pipeline(tmp_pipelines, pending)
+
+        with patch("engine.fsm.post_gitlab_note", return_value=True) as mock_post:
+            _recover_pending_notifications("pj", dict(pending), "IDLE")
+
+        assert mock_post.call_count == 2
+        data = json.loads(path.read_text())
+        remaining = data.get("_pending_notifications", {})
+        assert not [k for k in remaining if k.startswith("review_note:")]
+
+    def test_failure_keeps_pending_discord_once(self, tmp_pipelines):
+        """失敗時はキー維持、Discord 通知は 2 サイクル通算 1 回（2 回目は discord_alerted 抑制）。"""
+        pending = {
+            "review_note:1:r:design:1:1": {
+                "kind": "review_note", "issue": 1, "gitlab": "ns/pj", "body": "b1"},
+        }
+        path = _write_pipeline(tmp_pipelines, pending)
+
+        with (
+            patch("engine.fsm.post_gitlab_note", return_value=False),
+            patch("engine.fsm.notify_discord") as mock_discord,
+        ):
+            # サイクル1
+            pending1 = json.loads(path.read_text())["_pending_notifications"]
+            _recover_pending_notifications("pj", pending1, "IDLE")
+            # サイクル2: process() 同様に disk から pending を取り直す
+            pending2 = json.loads(path.read_text())["_pending_notifications"]
+            _recover_pending_notifications("pj", pending2, "IDLE")
+
+        # 両回ともキーは残る
+        data = json.loads(path.read_text())
+        assert "review_note:1:r:design:1:1" in data["_pending_notifications"]
+        # Discord は通算 1 回だけ
+        assert mock_discord.call_count == 1
+
+    def test_malformed_entries_pruned(self, tmp_pipelines):
+        """euler P1: 非 dict / kind 欠落の review_note:* は prune され、post は呼ばれない。"""
+        pending = {
+            "review_note:1:r:design:1:1": "garbage",
+            "review_note:2:r:design:1:1": {"issue": 2},
+        }
+        path = _write_pipeline(tmp_pipelines, pending)
+
+        with patch("engine.fsm.post_gitlab_note") as mock_post:
+            _recover_pending_notifications("pj", dict(pending), "IDLE")
+
+        mock_post.assert_not_called()
+        data = json.loads(path.read_text())
+        remaining = data.get("_pending_notifications", {})
+        assert "review_note:1:r:design:1:1" not in remaining
+        assert "review_note:2:r:design:1:1" not in remaining
+
+    def test_stale_pending_keys_ignores_review_note(self):
+        """stale_pending_keys は review_note を stale 扱いしない。"""
+        assert stale_pending_keys(
+            "IDLE",
+            {"review_note:1:reviewer1:design:1:1": {"kind": "review_note"}},
+        ) == []

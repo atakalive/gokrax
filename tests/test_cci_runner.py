@@ -349,14 +349,35 @@ class TestWaitForCompletion:
         )
         assert done is False
 
-    def test_final_poll_catches_end_turn_on_death(self, tmp_path, monkeypatch):
+    def test_dead_child_with_completed_transcript_returns_true(self, tmp_path, monkeypatch):
+        # Transcript already holds a completed turn; the FIRST main-loop drain
+        # detects it (returns True) before the death branch is reached.
         monkeypatch.setattr("engine.cci_runner.time.monotonic", itertools.count(1.0).__next__)
         path = tmp_path / "s.jsonl"
-        # Transcript already holds a completed turn; child reports dead so the
-        # main loop relies on the final poll to read it before giving up.
         _write_ndjson(path, [_user("hello"), _assistant([{"type": "text", "text": "hi"}])])
         child = MagicMock()
         child.isalive.return_value = False
+        done = cci_runner._wait_for_completion(
+            child, path, 0, 1000.0, lambda stem: None,
+        )
+        assert done is True
+
+    def test_final_poll_true_when_first_drain_misses(self, tmp_path, monkeypatch):
+        # Core final-poll branch (pascal 2.1): the first drain sees nothing, the
+        # child is then detected dead, and the SECOND drain (final poll) reads the
+        # just-flushed end_turn and returns True. Drives the exact race the final
+        # poll was added to rescue — monkeypatch _drain_transcript so only the
+        # second call reports completion.
+        monkeypatch.setattr("engine.cci_runner.time.monotonic", itertools.count(1.0).__next__)
+        path = tmp_path / "s.jsonl"
+        path.write_text("", encoding="utf-8")  # exists → skip file-wait loop
+        child = MagicMock()
+        child.isalive.return_value = False
+        child.read_nonblocking.side_effect = pexpect.TIMEOUT("drain")  # _drain_pty exits at once
+        results = iter([(False, 0, b""), (True, 0, b"")])
+        monkeypatch.setattr(
+            "engine.cci_runner._drain_transcript", lambda *a, **k: next(results),
+        )
         done = cci_runner._wait_for_completion(
             child, path, 0, 1000.0, lambda stem: None,
         )

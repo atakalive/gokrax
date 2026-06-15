@@ -278,7 +278,12 @@ def _drain_pty(child: pexpect.spawn) -> None:
             break
 
 
-def _drain_transcript(path, offset, pending, detector):
+def _drain_transcript(
+    path: Path,
+    offset: int,
+    pending: bytes,
+    detector: _CompletionDetector,
+) -> tuple[bool, int, bytes]:
     """Read appended bytes from `offset`, feed complete NDJSON lines to the detector.
 
     Returns (done, new_offset, new_pending). On read error returns (False, offset, pending).

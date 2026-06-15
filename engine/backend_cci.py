@@ -371,7 +371,7 @@ def _reap_stale_owner(pid: int, agent_id: str) -> bool:
     """
     max_age = (
         config.CCI_COMPLETION_TIMEOUT_SEC
-        + config.CCI_STARTUP_TIMEOUT_SEC
+        + config.CCI_BOOT_GRACE_SEC
         + config.CCI_REAP_MARGIN_SEC
     )
     age = _proc_age_sec(pid)
@@ -704,7 +704,6 @@ def send(agent_id: str, message: str, timeout: int) -> SendResult:
         cmd += ["--session-id", session_id]
     cmd += ["--cwd", str(cwd), "--prompt-file", prompt_path, "--delete-prompt-file"]
     cmd += ["--completion-timeout", str(config.CCI_COMPLETION_TIMEOUT_SEC)]
-    cmd += ["--startup-timeout", str(config.CCI_STARTUP_TIMEOUT_SEC)]
     cmd += ["--agent-id", agent_id]
 
     # --model
@@ -744,11 +743,11 @@ def send(agent_id: str, message: str, timeout: int) -> SendResult:
     except OSError:
         pass
 
-    # Spawn the detached runner. stderr → runner.log ("w": fresh each turn).
+    # Spawn the detached runner. stderr → runner.log ("a": preserve turn history).
     proc = None
     try:
         log_path = _session_dir(agent_id) / "runner.log"
-        log_fd = open(log_path, "w", encoding="utf-8")
+        log_fd = open(log_path, "a", encoding="utf-8")
         try:
             proc = subprocess.Popen(
                 cmd,

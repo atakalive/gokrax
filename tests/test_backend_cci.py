@@ -173,15 +173,16 @@ class TestSend:
         # send() timeout (30) must NOT appear as the completion timeout
         assert cmd[cmd.index("--completion-timeout") + 1] != "30"
 
-    def test_startup_timeout_passed_to_runner(self, tmp_sessions, monkeypatch):
+    def test_startup_timeout_not_passed_to_runner(self, tmp_sessions, monkeypatch):
         monkeypatch.setattr(config, "DRY_RUN", False)
-        monkeypatch.setattr(config, "CCI_STARTUP_TIMEOUT_SEC", 222)
         monkeypatch.setattr(backend_cci, "_agent_config_cache", {})
         with patch("subprocess.Popen", return_value=_mock_proc()) as mp:
             backend_cci.send("reviewer1", "hello", timeout=30)
         cmd = mp.call_args[0][0]
-        assert "--startup-timeout" in cmd
-        assert cmd[cmd.index("--startup-timeout") + 1] == "222"
+        # Screen-scraping handshake removed: no startup deadline flag, but the
+        # completion timeout is still passed.
+        assert not any("startup" in str(c) for c in cmd)
+        assert "--completion-timeout" in cmd
 
     def test_agent_id_passed_to_runner(self, tmp_sessions, monkeypatch):
         monkeypatch.setattr(config, "DRY_RUN", False)
@@ -244,16 +245,16 @@ class TestSend:
         cmd = mp.call_args[0][0]
         assert "--cwd" in cmd
 
-    def test_stderr_runner_log_opened_w_mode(self, tmp_sessions, monkeypatch):
+    def test_stderr_runner_log_opened_a_mode(self, tmp_sessions, monkeypatch):
         monkeypatch.setattr(config, "DRY_RUN", False)
         monkeypatch.setattr(backend_cci, "_agent_config_cache", {})
-        # Pre-create runner.log with stale content; "w" mode must truncate it.
+        # Pre-create runner.log with stale content; "a" mode must preserve it.
         d = tmp_sessions / "reviewer1"
         d.mkdir(parents=True)
         (d / "runner.log").write_text("STALE OLD CONTENT")
         with patch("subprocess.Popen", return_value=_mock_proc()):
             backend_cci.send("reviewer1", "hello", timeout=30)
-        assert (d / "runner.log").read_text() == ""
+        assert (d / "runner.log").read_text().startswith("STALE OLD CONTENT")
 
     def test_prompt_file_permissions_0600(self, tmp_sessions, monkeypatch):
         monkeypatch.setattr(config, "DRY_RUN", False)
@@ -767,7 +768,7 @@ class TestReapStaleOwner:
     def _max_age(self):
         return (
             config.CCI_COMPLETION_TIMEOUT_SEC
-            + config.CCI_STARTUP_TIMEOUT_SEC
+            + config.CCI_BOOT_GRACE_SEC
             + config.CCI_REAP_MARGIN_SEC
         )
 

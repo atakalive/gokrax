@@ -24,9 +24,11 @@ from engine import cci_runner
 def _reset_module_state():
     cci_runner._child = None
     cci_runner._prompt_file_path = None
+    cci_runner._prompt_file_is_temp = False
     yield
     cci_runner._child = None
     cci_runner._prompt_file_path = None
+    cci_runner._prompt_file_is_temp = False
 
 
 def _write_ndjson(path: Path, entries: list[dict]) -> None:
@@ -213,17 +215,6 @@ class TestParseArgs:
         )
         assert args.completion_timeout == 55
 
-    def test_startup_timeout_default(self):
-        import config
-        args = cci_runner._parse_args(["--session-id", "test", "--prompt-file", "-"])
-        assert args.startup_timeout == config.CCI_STARTUP_TIMEOUT_SEC
-
-    def test_startup_timeout_value(self):
-        args = cci_runner._parse_args(
-            ["--session-id", "a", "--prompt-file", "-", "--startup-timeout", "77"]
-        )
-        assert args.startup_timeout == 77
-
     def test_agent_id_default_none(self):
         args = cci_runner._parse_args(["--session-id", "test", "--prompt-file", "-"])
         assert args.agent_id is None
@@ -272,43 +263,39 @@ class TestParseArgs:
 # ===========================================================================
 
 class TestCompletionDetector:
-    def test_assistant_ignored_before_watermark(self):
-        det = cci_runner._CompletionDetector("hello")
+    def test_assistant_ignored_before_anchor(self):
+        det = cci_runner._CompletionDetector()
         done = det.process_entry(_assistant([{"type": "text", "text": "hi"}]))
         assert done is False
 
-    def test_watermark_then_assistant_completes(self):
-        det = cci_runner._CompletionDetector("hello")
-        assert det.process_entry(_user("hello")) is False
+    def test_anchor_then_assistant_completes(self):
+        det = cci_runner._CompletionDetector()
+        # Any non-tool_result user entry establishes the anchor (no body match).
+        assert det.process_entry(_user("Read the file ...")) is False
         assert det.process_entry(_assistant([{"type": "text", "text": "hi"}])) is True
 
-    def test_tool_result_only_user_not_watermark(self):
-        det = cci_runner._CompletionDetector("hello")
-        # tool_result-only user must NOT set the watermark
+    def test_tool_result_only_user_not_anchor(self):
+        det = cci_runner._CompletionDetector()
+        # tool_result-only user must NOT set the anchor
         det.process_entry(_user([{"type": "tool_result", "content": "x"}]))
         # subsequent assistant therefore ignored
         assert det.process_entry(_assistant([{"type": "text", "text": "hi"}])) is False
 
     def test_empty_assistant_does_not_falsely_complete(self):
-        det = cci_runner._CompletionDetector("hello")
-        det.process_entry(_user("hello"))
+        det = cci_runner._CompletionDetector()
+        det.process_entry(_user("anchor"))
         # assistant with neither text nor tool_use + stop_reason → not complete
         assert det.process_entry(_assistant([], stop_reason="end_turn")) is False
 
     def test_tool_use_assistant_completes(self):
-        det = cci_runner._CompletionDetector("hello")
-        det.process_entry(_user("hello"))
+        det = cci_runner._CompletionDetector()
+        det.process_entry(_user("anchor"))
         block = [{"type": "tool_use", "name": "Read", "input": {}}]
         assert det.process_entry(_assistant(block)) is True
 
-    def test_queue_operation_enqueue_is_watermark(self):
-        det = cci_runner._CompletionDetector("hello")
-        det.process_entry({"type": "queue-operation", "operation": "enqueue", "content": "hello"})
-        assert det.process_entry(_assistant([{"type": "text", "text": "hi"}])) is True
-
     def test_turn_duration_completes_after_assistant(self):
-        det = cci_runner._CompletionDetector("hello")
-        det.process_entry(_user("hello"))
+        det = cci_runner._CompletionDetector()
+        det.process_entry(_user("anchor"))
         det.process_entry(_assistant([{"type": "text", "text": "hi"}], stop_reason="tool_use"))
         done = det.process_entry({"type": "system", "subtype": "turn_duration"})
         assert done is True
@@ -324,22 +311,22 @@ class TestWaitForCompletion:
         path = tmp_path / "s.jsonl"
         _write_ndjson(path, [_user("hello"), _assistant([{"type": "text", "text": "hi"}])])
         done = cci_runner._wait_for_completion(
-            None, path, "hello", 0, 1000.0, lambda stem: None,
+            None, path, 0, 1000.0, lambda stem: None,
         )
         assert done is True
 
-    def test_offset_skips_old_watermark_resume(self, tmp_path, monkeypatch):
+    def test_offset_skips_old_anchor_resume(self, tmp_path, monkeypatch):
         monkeypatch.setattr("engine.cci_runner.time.monotonic", itertools.count(1.0).__next__)
         path = tmp_path / "s.jsonl"
-        # Old region: a user watermark that must be skipped.
+        # Old region: a user entry that must be skipped (read before offset).
         _write_ndjson(path, [_user("hello")])
         offset = path.stat().st_size
-        # New region: only an assistant (no fresh watermark).
+        # New region: only an assistant (no fresh anchor).
         with open(path, "a", encoding="utf-8") as f:
             f.write(json.dumps(_assistant([{"type": "text", "text": "stale"}])) + "\n")
-        # deadline=8: fake clock 1,2,... crosses 8 → returns False (watermark skipped).
+        # deadline=8: fake clock 1,2,... crosses 8 → returns False (anchor not set).
         done = cci_runner._wait_for_completion(
-            None, path, "hello", offset, 8.0, lambda stem: None,
+            None, path, offset, 8.0, lambda stem: None,
         )
         assert done is False
 
@@ -349,16 +336,40 @@ class TestWaitForCompletion:
         real = tmp_path / "real.jsonl"
         _write_ndjson(real, [_user("hello"), _assistant([{"type": "text", "text": "hi"}])])
         done = cci_runner._wait_for_completion(
-            None, predicted, "hello", 0, 1000.0, lambda stem: real,
+            None, predicted, 0, 1000.0, lambda stem: real,
         )
         assert done is True
 
     def test_timeout_returns_false(self, tmp_path, monkeypatch):
         monkeypatch.setattr("engine.cci_runner.time.monotonic", itertools.count(1.0).__next__)
         path = tmp_path / "s.jsonl"
-        _write_ndjson(path, [_user("hello")])  # watermark but no assistant
+        _write_ndjson(path, [_user("hello")])  # anchor but no assistant
         done = cci_runner._wait_for_completion(
-            None, path, "hello", 0, 5.0, lambda stem: None,
+            None, path, 0, 5.0, lambda stem: None,
+        )
+        assert done is False
+
+    def test_final_poll_catches_end_turn_on_death(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("engine.cci_runner.time.monotonic", itertools.count(1.0).__next__)
+        path = tmp_path / "s.jsonl"
+        # Transcript already holds a completed turn; child reports dead so the
+        # main loop relies on the final poll to read it before giving up.
+        _write_ndjson(path, [_user("hello"), _assistant([{"type": "text", "text": "hi"}])])
+        child = MagicMock()
+        child.isalive.return_value = False
+        done = cci_runner._wait_for_completion(
+            child, path, 0, 1000.0, lambda stem: None,
+        )
+        assert done is True
+
+    def test_dead_child_without_completion_returns_false(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("engine.cci_runner.time.monotonic", itertools.count(1.0).__next__)
+        path = tmp_path / "s.jsonl"
+        _write_ndjson(path, [_user("hello")])  # anchor but no assistant
+        child = MagicMock()
+        child.isalive.return_value = False
+        done = cci_runner._wait_for_completion(
+            child, path, 0, 1000.0, lambda stem: None,
         )
         assert done is False
 
@@ -423,56 +434,32 @@ class TestSignalHandler:
 
 
 # ===========================================================================
-# _startup_handshake — typed failures (timeout passed explicitly; default is
-# bound at import time and cannot be monkeypatched)
+# _pointer_arg
 # ===========================================================================
 
-class TestStartupHandshake:
-    def test_timeout_raises_startup_timeout_error(self):
-        child = MagicMock()
-        # Always report TIMEOUT (idx 2) so the deadline is reached.
-        child.expect.return_value = 2
-        with pytest.raises(cci_runner.StartupTimeoutError):
-            cci_runner._startup_handshake(child, timeout=0.0)
-
-    def test_eof_raises_eof_during_startup_error(self):
-        child = MagicMock()
-        # idx 3 == pexpect.EOF position in the patterns list.
-        child.expect.return_value = 3
-        with pytest.raises(cci_runner.EofDuringStartupError):
-            cci_runner._startup_handshake(child, timeout=5.0)
-
-    def test_no_overwaiting_past_deadline(self):
-        """Deadline exceeded must raise before calling expect again."""
-        child = MagicMock()
-        child.expect.return_value = 0  # PROMPT_READY — would succeed if reached
-        with pytest.raises(cci_runner.StartupTimeoutError):
-            cci_runner._startup_handshake(child, timeout=0.0)
-        child.expect.assert_not_called()
+class TestPointerArg:
+    def test_path_is_double_quoted(self):
+        arg = cci_runner._pointer_arg("/tmp/x.txt")
+        assert arg.startswith('Read the file "/tmp/x.txt"')
+        assert "do exactly what its contents instruct" in arg
 
 
 # ===========================================================================
 # main() — prompt file cleanup + child reaping
 # ===========================================================================
 
-def _patch_main_internals(monkeypatch, *, handshake_raises=False, completion=True,
-                          handshake_exc=None):
+def _patch_main_internals(monkeypatch, *, spawn_raises=False, completion=True,
+                          tui_alive=True):
     monkeypatch.setattr("engine.cci_runner.signal.signal", lambda *a, **k: None)
     monkeypatch.setattr(cci_runner, "_ensure_trust_accepted", lambda cwd: None)
     child = MagicMock()
-    child.isalive.return_value = True
-    monkeypatch.setattr("engine.cci_runner.pexpect.spawn", lambda *a, **k: child)
-    if handshake_exc is not None:
-        def _hs(c, timeout=None):
-            raise handshake_exc
-        monkeypatch.setattr(cci_runner, "_startup_handshake", _hs)
-    elif handshake_raises:
-        def _hs(c, timeout=None):
-            raise RuntimeError("handshake failed")
-        monkeypatch.setattr(cci_runner, "_startup_handshake", _hs)
+    child.isalive.return_value = tui_alive
+    if spawn_raises:
+        def _spawn(*a, **k):
+            raise RuntimeError("spawn failed")
+        monkeypatch.setattr("engine.cci_runner.pexpect.spawn", _spawn)
     else:
-        monkeypatch.setattr(cci_runner, "_startup_handshake", lambda c, timeout=None: None)
-    monkeypatch.setattr(cci_runner, "_send_prompt", lambda c, m: None)
+        monkeypatch.setattr("engine.cci_runner.pexpect.spawn", lambda *a, **k: child)
     monkeypatch.setattr(cci_runner, "_send_exit", lambda c: None)
     monkeypatch.setattr(
         "engine.cci_runner._wait_for_completion",
@@ -506,32 +493,73 @@ class TestMain:
         assert rc == 0
         assert pf.exists()
 
-    def test_stdin_prompt_no_unlink(self, tmp_path, monkeypatch):
+    def test_stdin_prompt_creates_and_unlinks_temp(self, tmp_path, monkeypatch):
+        # stdin "-" without --delete-prompt-file: the runner materializes a temp
+        # and MUST delete it in finally (it owns the temp).
         _patch_main_internals(monkeypatch)
         monkeypatch.setattr("sys.stdin", __import__("io").StringIO("from stdin"))
-        with patch("os.unlink") as mock_unlink:
+        captured = {}
+        real_unlink = os.unlink
+
+        def _spy_unlink(p):
+            captured["unlinked"] = p
+            return real_unlink(p)
+
+        with patch("os.unlink", _spy_unlink):
             rc = cci_runner.main([
                 "--session-id", "11111111-2222-3333-4444-555555555555",
-                "--prompt-file", "-", "--delete-prompt-file",
+                "--prompt-file", "-",
                 "--cwd", str(tmp_path),
             ])
         assert rc == 0
-        mock_unlink.assert_not_called()
+        # A runner-owned temp was created and then unlinked in finally.
+        assert captured.get("unlinked") is not None
+        assert not os.path.exists(captured["unlinked"])
 
-    def test_handshake_failure_reaps_child(self, tmp_path, monkeypatch):
-        child = _patch_main_internals(monkeypatch, handshake_raises=True)
+    def test_pointer_arg_is_last_spawn_argument(self, tmp_path, monkeypatch):
+        _patch_main_internals(monkeypatch)
+        captured = {}
+
+        def _spawn(*a, **k):
+            captured["args"] = k.get("args")
+            child = MagicMock()
+            child.isalive.return_value = True
+            return child
+
+        monkeypatch.setattr("engine.cci_runner.pexpect.spawn", _spawn)
         pf = tmp_path / "prompt.txt"
-        pf.write_text("x")
+        pf.write_text("do the thing")
         rc = cci_runner.main([
             "--session-id", "11111111-2222-3333-4444-555555555555",
             "--prompt-file", str(pf),
             "--cwd", str(tmp_path),
         ])
-        assert rc == 1
-        child.terminate.assert_called_with(force=True)
+        assert rc == 0
+        # Last positional arg must point at the file, not inline its body.
+        expected = cci_runner._pointer_arg(os.path.abspath(str(pf)))
+        assert captured["args"][-1] == expected
+
+    def test_prompt_unreadable_fails_fast_before_spawn(self, tmp_path, monkeypatch):
+        _patch_main_internals(monkeypatch)
+        monkeypatch.setattr(cci_runner.config, "CCI_SESSIONS_DIR", tmp_path)
+        spawn_calls = []
+        monkeypatch.setattr(
+            "engine.cci_runner.pexpect.spawn",
+            lambda *a, **k: spawn_calls.append(1),
+        )
+        missing = tmp_path / "does-not-exist.txt"
+        rc = cci_runner.main([
+            "--session-id", "11111111-2222-3333-4444-555555555555",
+            "--prompt-file", str(missing), "--cwd", str(tmp_path),
+            "--agent-id", "reviewer1",
+        ])
+        assert rc == 5
+        assert spawn_calls == []  # spawn never reached
+        info = json.loads((tmp_path / "reviewer1" / "last_error").read_text())
+        assert info["reason"] == "prompt_unreadable"
 
     def test_completion_timeout_returns_nonzero(self, tmp_path, monkeypatch):
-        _patch_main_internals(monkeypatch, completion=False)
+        _patch_main_internals(monkeypatch, completion=False, tui_alive=True)
         pf = tmp_path / "prompt.txt"
         pf.write_text("x")
         rc = cci_runner.main([
@@ -541,31 +569,22 @@ class TestMain:
         ])
         assert rc == 3
 
-    def test_startup_timeout_exit_code_and_last_error(self, tmp_path, monkeypatch):
-        _patch_main_internals(
-            monkeypatch,
-            handshake_exc=cci_runner.StartupTimeoutError("Startup timeout"),
-        )
+    def test_spawn_failure_returns_exception(self, tmp_path, monkeypatch):
+        _patch_main_internals(monkeypatch, spawn_raises=True)
         monkeypatch.setattr(cci_runner.config, "CCI_SESSIONS_DIR", tmp_path)
         pf = tmp_path / "prompt.txt"
         pf.write_text("x")
-        sid = "11111111-2222-3333-4444-555555555555"
         rc = cci_runner.main([
-            "--session-id", sid, "--prompt-file", str(pf),
-            "--cwd", str(tmp_path), "--agent-id", "reviewer1",
+            "--session-id", "11111111-2222-3333-4444-555555555555",
+            "--prompt-file", str(pf), "--cwd", str(tmp_path),
+            "--agent-id", "reviewer1",
         ])
-        assert rc == 2
-        err = tmp_path / "reviewer1" / "last_error"
-        assert err.exists()
-        info = json.loads(err.read_text())
-        assert info["reason"] == "startup_timeout"
-        assert info["session_id"] == sid
+        assert rc == 1
+        info = json.loads((tmp_path / "reviewer1" / "last_error").read_text())
+        assert info["reason"] == "exception"
 
-    def test_eof_during_startup_exit_code(self, tmp_path, monkeypatch):
-        _patch_main_internals(
-            monkeypatch,
-            handshake_exc=cci_runner.EofDuringStartupError("claude exited during startup"),
-        )
+    def test_tui_exited_exit_code_and_last_error(self, tmp_path, monkeypatch):
+        _patch_main_internals(monkeypatch, completion=False, tui_alive=False)
         monkeypatch.setattr(cci_runner.config, "CCI_SESSIONS_DIR", tmp_path)
         pf = tmp_path / "prompt.txt"
         pf.write_text("x")
@@ -576,13 +595,11 @@ class TestMain:
         ])
         assert rc == 4
         info = json.loads((tmp_path / "reviewer1" / "last_error").read_text())
-        assert info["reason"] == "eof_during_startup"
+        assert info["reason"] == "tui_exited"
 
     def test_no_agent_id_skips_last_error(self, tmp_path, monkeypatch):
-        _patch_main_internals(
-            monkeypatch,
-            handshake_exc=cci_runner.StartupTimeoutError("Startup timeout"),
-        )
+        # completion_timeout path (child still alive) with no --agent-id.
+        _patch_main_internals(monkeypatch, completion=False, tui_alive=True)
         monkeypatch.setattr(cci_runner.config, "CCI_SESSIONS_DIR", tmp_path)
         pf = tmp_path / "prompt.txt"
         pf.write_text("x")
@@ -590,7 +607,7 @@ class TestMain:
             "--session-id", "11111111-2222-3333-4444-555555555555",
             "--prompt-file", str(pf), "--cwd", str(tmp_path),
         ])
-        assert rc == 2
+        assert rc == 3
         # No --agent-id → no last_error directory created.
         assert not any(tmp_path.glob("**/last_error"))
 

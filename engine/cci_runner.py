@@ -19,9 +19,9 @@ import glob
 import json
 import logging
 import os
-import re
 import signal
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -32,32 +32,30 @@ import config
 log = logging.getLogger("engine.cci_runner")
 
 
-class StartupTimeoutError(Exception):
-    """TUI の PROMPT_READY を制限時間内に検出できなかった。"""
-
-
-class EofDuringStartupError(Exception):
-    """起動 handshake 中に claude プロセスが終了した。"""
-
-PROMPT_READY = re.compile(r"cycle|shortcuts", re.IGNORECASE)
-TRUST_RE = re.compile(r"Yes,?\s+I\s+trust\s+this\s+folder", re.IGNORECASE)
-
-POST_READY_DELAY = 12.0
 _FILE_WAIT_FALLBACK = 10.0
 _POLL_INTERVAL = 0.25
 _DRAIN_MAX_ITERATIONS = 4096  # cap drain loop: 16MB (4096×4096B) PTY buffer is unrealistic
 
-BRACKETED_PASTE_START = "\x1b[200~"
-BRACKETED_PASTE_END = "\x1b[201~"
-
 _THINKING_MODES = ("enabled", "adaptive", "disabled")
 _EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max", "ultracode")
+
+POINTER_TEMPLATE = (
+    'Read the file "{path}" and do exactly what its contents instruct. '
+    "Follow it as if I had typed it directly."
+)
+
+
+def _pointer_arg(path: str) -> str:
+    """Positional prompt that points claude at the real prompt file (absolute path)."""
+    return POINTER_TEMPLATE.format(path=path)
+
 
 # ---------------------------------------------------------------------------
 # Module-level state (referenced by the signal handler / finally cleanup)
 # ---------------------------------------------------------------------------
 _child: pexpect.spawn | None = None
-_prompt_file_path: str | None = None  # None when "--prompt-file -" (stdin)
+_prompt_file_path: str | None = None  # path to the prompt file (real or stdin temp)
+_prompt_file_is_temp: bool = False    # True when runner created a temp for stdin "-"
 
 
 # ---------------------------------------------------------------------------
@@ -189,32 +187,9 @@ def _ensure_trust_accepted(cwd: str) -> None:
 class _CompletionDetector:
     """Stateful NDJSON entry processor; returns True once the turn is complete."""
 
-    def __init__(self, prompt_text: str, *, skip_queue_watermark: bool = False):
-        self._prompt_text = prompt_text
-        self._watermark_found = False
+    def __init__(self):
+        self._anchor_found = False
         self._saw_assistant = False
-        self._skip_queue_watermark = skip_queue_watermark
-
-    @staticmethod
-    def _content_matches_prompt(prompt_text: str, content: object) -> bool:
-        target = prompt_text.strip()
-        if isinstance(content, str):
-            return content.strip() == target
-        if isinstance(content, list):
-            texts: list[str] = []
-            has_non_text = False
-            for b in content:
-                if not isinstance(b, dict):
-                    continue
-                if b.get("type") == "text":
-                    texts.append(str(b.get("text", "")))
-                else:
-                    has_non_text = True
-            if not texts and has_non_text:
-                # tool_result etc. only → not a watermark candidate
-                return False
-            return "".join(texts).strip() == target
-        return False
 
     @staticmethod
     def _is_tool_result_only(content: object) -> bool:
@@ -232,33 +207,22 @@ class _CompletionDetector:
             message = entry.get("message") or {}
             if message.get("role") != "user":
                 return False
-            content = message.get("content")
-            if self._is_tool_result_only(content):
+            if self._is_tool_result_only(message.get("content")):
                 return False
-            if not self._watermark_found and self._content_matches_prompt(
-                self._prompt_text, content
-            ):
-                self._watermark_found = True
-            return False
-
-        if etype == "queue-operation":
-            if entry.get("operation") == "enqueue" and not self._skip_queue_watermark:
-                content = entry.get("content")
-                if not self._watermark_found and self._content_matches_prompt(
-                    self._prompt_text, content
-                ):
-                    self._watermark_found = True
+            # First non-tool_result user entry past start_offset is this turn's
+            # positional-argument prompt — anchor the turn here (no body match).
+            self._anchor_found = True
             return False
 
         if etype == "system" and entry.get("subtype") == "turn_duration":
-            return self._watermark_found and self._saw_assistant
+            return self._anchor_found and self._saw_assistant
 
         if etype != "assistant":
             return False
 
-        # Ignore assistant entries until the watermark (current user prompt) is
+        # Ignore assistant entries until the anchor (current user prompt) is
         # seen — guards against stale assistant entries from a timed-out prior turn.
-        if not self._watermark_found:
+        if not self._anchor_found:
             return False
 
         self._saw_assistant = True
@@ -314,18 +278,49 @@ def _drain_pty(child: pexpect.spawn) -> None:
             break
 
 
+def _drain_transcript(path, offset, pending, detector):
+    """Read appended bytes from `offset`, feed complete NDJSON lines to the detector.
+
+    Returns (done, new_offset, new_pending). On read error returns (False, offset, pending).
+    """
+    try:
+        with open(path, "rb") as f:
+            f.seek(offset)
+            chunk = f.read()
+    except OSError:
+        return False, offset, pending
+    if not chunk:
+        return False, offset, pending
+    offset += len(chunk)
+    buf = pending + chunk
+    if b"\n" in buf:
+        complete, _, tail = buf.rpartition(b"\n")
+        pending = tail
+        lines = complete.split(b"\n")
+    else:
+        return False, offset, buf
+    for raw in lines:
+        if not raw.strip():
+            continue
+        try:
+            entry = json.loads(raw)
+        except Exception:
+            log.warning("cci_runner: failed to decode transcript line: %r", raw[:200])
+            continue
+        if detector.process_entry(entry):
+            return True, offset, pending
+    return False, offset, pending
+
+
 def _wait_for_completion(
     child: pexpect.spawn | None,
     path: Path,
-    prompt_text: str,
     start_offset: int,
     deadline: float,
     fallback_resolver,
-    *,
-    skip_queue_watermark: bool = False,
 ) -> bool:
     """Poll the transcript jsonl from start_offset and detect turn completion."""
-    detector = _CompletionDetector(prompt_text, skip_queue_watermark=skip_queue_watermark)
+    detector = _CompletionDetector()
     offset = start_offset
     pending = b""
 
@@ -334,6 +329,9 @@ def _wait_for_completion(
     while not path.exists():
         now = time.monotonic()
         if now >= deadline:
+            return False
+        if child is not None and not child.isalive():
+            # Crashed before the transcript ever appeared — bail (no infinite wait).
             return False
         if now - file_wait_start >= _FILE_WAIT_FALLBACK:
             fb = fallback_resolver(path.stem)
@@ -354,35 +352,16 @@ def _wait_for_completion(
         if child is not None:
             _drain_pty(child)
 
-        try:
-            with open(path, "rb") as f:
-                f.seek(offset)
-                chunk = f.read()
-        except OSError:
-            time.sleep(_POLL_INTERVAL)
-            continue
+        done, offset, pending = _drain_transcript(path, offset, pending, detector)
+        if done:
+            return True
 
-        if chunk:
-            offset += len(chunk)
-            buf = pending + chunk
-            if b"\n" in buf:
-                complete, _, tail = buf.rpartition(b"\n")
-                pending = tail
-                lines = complete.split(b"\n")
-            else:
-                pending = buf
-                lines = []
-
-            for raw in lines:
-                if not raw.strip():
-                    continue
-                try:
-                    entry = json.loads(raw)
-                except Exception:
-                    log.warning("cci_runner: failed to decode transcript line: %r", raw[:200])
-                    continue
-                if detector.process_entry(entry):
-                    return True
+        if child is not None and not child.isalive():
+            # Final poll (pascal 2.1): claude may write end_turn then exit before
+            # the disk flush is visible to the death check. Read once more before
+            # declaring failure.
+            done, offset, pending = _drain_transcript(path, offset, pending, detector)
+            return done
 
         time.sleep(_POLL_INTERVAL)
 
@@ -390,44 +369,6 @@ def _wait_for_completion(
 # ---------------------------------------------------------------------------
 # PTY drive helpers
 # ---------------------------------------------------------------------------
-
-def _startup_handshake(
-    child: pexpect.spawn, timeout: float = config.CCI_STARTUP_TIMEOUT_SEC,
-) -> None:
-    """Wait for PROMPT_READY (handling TRUST_RE), then POST_READY_DELAY.
-
-    Note: the ``timeout`` default is bound at import time, so monkeypatching
-    ``config.CCI_STARTUP_TIMEOUT_SEC`` in tests does NOT change it — pass
-    ``timeout`` explicitly when testing.
-    """
-    patterns = [PROMPT_READY, TRUST_RE, pexpect.TIMEOUT, pexpect.EOF]
-    deadline = time.monotonic() + timeout
-    while True:
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            raise StartupTimeoutError("Startup timeout")
-        idx = child.expect(patterns, timeout=min(remaining, 10.0))
-        if idx == 0:
-            break
-        elif idx == 1:
-            child.send("1")
-            time.sleep(0.5)
-            child.send("\r")
-        elif idx == 2:
-            if time.monotonic() >= deadline:
-                raise StartupTimeoutError("Startup timeout")
-        else:
-            raise EofDuringStartupError("claude exited during startup")
-    time.sleep(POST_READY_DELAY)
-
-
-def _send_prompt(child: pexpect.spawn, message: str) -> None:
-    """Send the prompt via bracketed paste, then \\r after a short delay."""
-    safe = f" {message}" if message.startswith("/") else message
-    child.send(BRACKETED_PASTE_START + safe + BRACKETED_PASTE_END)
-    time.sleep(0.5)
-    child.send("\r")
-
 
 def _send_exit(child: pexpect.spawn) -> None:
     """Send /exit and wait for EOF; force-terminate on timeout."""
@@ -525,13 +466,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--append-system-prompt")
     p.add_argument("--disallowed-tools")
     p.add_argument("--completion-timeout", type=int, default=config.CCI_COMPLETION_TIMEOUT_SEC)
-    p.add_argument("--startup-timeout", type=int, default=config.CCI_STARTUP_TIMEOUT_SEC)
     p.add_argument("--agent-id", type=str, default=None)
     return p.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
-    global _child, _prompt_file_path
+    global _child, _prompt_file_path, _prompt_file_is_temp
 
     # Register signal handlers up front (before spawn / prompt_file assignment).
     try:
@@ -546,21 +486,36 @@ def main(argv: list[str] | None = None) -> int:
     # Absolute self-deadline: shorter than the external age-based reap so the
     # runner normally dies on its own. Fires _cleanup_handler (exit 142).
     try:
-        alarm_sec = args.completion_timeout + args.startup_timeout + config.CCI_ALARM_MARGIN_SEC
+        alarm_sec = (
+            args.completion_timeout + config.CCI_BOOT_GRACE_SEC + config.CCI_ALARM_MARGIN_SEC
+        )
         signal.alarm(alarm_sec)
     except (ValueError, OSError):
         pass
 
     session_id: str | None = None
     try:
-        # Read prompt (set _prompt_file_path early so signal/finally can clean up).
+        # Resolve the prompt file path (do NOT read the body — claude reads it via
+        # the pointer positional arg). stdin "-" is materialized to a runner-owned
+        # temp so the pointer can name a real path.
         if args.prompt_file == "-":
-            _prompt_file_path = None
-            prompt_text = sys.stdin.read()
+            stdin_body = sys.stdin.read()
+            fd, tmp = tempfile.mkstemp(suffix=".txt", prefix="cci-runner-stdin-", dir="/tmp")
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(stdin_body)
+            _prompt_file_path = tmp
+            _prompt_file_is_temp = True  # runner owns it → finally always deletes
         else:
             _prompt_file_path = args.prompt_file
-            with open(args.prompt_file, encoding="utf-8") as f:
-                prompt_text = f.read()
+            _prompt_file_is_temp = False
+        prompt_path = os.path.abspath(_prompt_file_path)
+
+        # spawn-before fail-fast (euler P1): guarantee the pointer target exists
+        # and is readable before spawning, so a bad file is a bounded failure.
+        if not (os.path.isfile(prompt_path) and os.access(prompt_path, os.R_OK)):
+            log.error("cci_runner: prompt file not readable: %s", prompt_path)
+            _write_last_error(args.agent_id, "prompt_unreadable", session_id)
+            return 5
 
         cwd = args.cwd or os.getcwd()
         session_id = args.resume if args.resume else args.session_id
@@ -568,7 +523,15 @@ def main(argv: list[str] | None = None) -> int:
 
         _ensure_trust_accepted(cwd)
 
-        cmd_args = _build_claude_args(args, session_id, is_resume)
+        # Resolve transcript path + initial offset (BEFORE spawn; append-only).
+        path = _claude_session_jsonl_path(cwd, session_id)
+        if not path.exists():
+            fb = _glob_fallback_path(session_id)
+            if fb is not None:
+                path = fb
+        start_offset = path.stat().st_size if path.exists() else 0
+
+        cmd_args = _build_claude_args(args, session_id, is_resume) + [_pointer_arg(prompt_path)]
 
         env = _clean_env_for_cci()
         log.info("cci_runner: spawning claude (TUI): %s (cwd=%s)", " ".join(cmd_args), cwd)
@@ -598,37 +561,20 @@ def main(argv: list[str] | None = None) -> int:
             except OSError:
                 pass
 
-        _startup_handshake(child, timeout=args.startup_timeout)
-
-        # Resolve transcript path + initial offset (BEFORE sending the prompt).
-        path = _claude_session_jsonl_path(cwd, session_id)
-        if not path.exists():
-            fb = _glob_fallback_path(session_id)
-            if fb is not None:
-                path = fb
-        start_offset = path.stat().st_size if path.exists() else 0
-
-        _send_prompt(child, prompt_text)
-
         deadline = time.monotonic() + args.completion_timeout
         done = _wait_for_completion(
-            child, path, prompt_text, start_offset, deadline, _glob_fallback_path,
+            child, path, start_offset, deadline, _glob_fallback_path,
         )
-        if not done:
-            log.error("cci_runner: completion timeout after %ds", args.completion_timeout)
-            _write_last_error(args.agent_id, "completion_timeout", session_id)
-            return 3
-
-        _send_exit(child)
-        return 0
-    except StartupTimeoutError:
-        log.exception("cci_runner: startup timeout")
-        _write_last_error(args.agent_id, "startup_timeout", session_id)
-        return 2
-    except EofDuringStartupError:
-        log.exception("cci_runner: claude exited during startup")
-        _write_last_error(args.agent_id, "eof_during_startup", session_id)
-        return 4
+        if done:
+            _send_exit(child)
+            return 0
+        if child is not None and not child.isalive():
+            log.error("cci_runner: claude TUI exited before turn completion")
+            _write_last_error(args.agent_id, "tui_exited", session_id)
+            return 4
+        log.error("cci_runner: completion timeout after %ds", args.completion_timeout)
+        _write_last_error(args.agent_id, "completion_timeout", session_id)
+        return 3
     except Exception:
         log.exception("cci_runner: failed")
         _write_last_error(args.agent_id, "exception", session_id)
@@ -653,8 +599,9 @@ def main(argv: list[str] | None = None) -> int:
                 (config.CCI_SESSIONS_DIR / args.agent_id / "child_pid").unlink(missing_ok=True)
             except OSError:
                 pass
-        # Temp file cleanup (opt-in via --delete-prompt-file).
-        if args.delete_prompt_file and _prompt_file_path is not None:
+        # Prompt file cleanup: opt-in via --delete-prompt-file, or always for a
+        # runner-owned stdin temp (else /tmp leaks).
+        if (args.delete_prompt_file or _prompt_file_is_temp) and _prompt_file_path is not None:
             try:
                 os.unlink(_prompt_file_path)
             except OSError:

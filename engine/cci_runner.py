@@ -386,7 +386,9 @@ def _startup_handshake(
     patterns = [PROMPT_READY, TRUST_RE, pexpect.TIMEOUT, pexpect.EOF]
     deadline = time.monotonic() + timeout
     while True:
-        remaining = max(1.0, deadline - time.monotonic())
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise StartupTimeoutError("Startup timeout")
         idx = child.expect(patterns, timeout=min(remaining, 10.0))
         if idx == 0:
             break

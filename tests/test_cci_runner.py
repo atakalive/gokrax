@@ -442,6 +442,14 @@ class TestStartupHandshake:
         with pytest.raises(cci_runner.EofDuringStartupError):
             cci_runner._startup_handshake(child, timeout=5.0)
 
+    def test_no_overwaiting_past_deadline(self):
+        """Deadline exceeded must raise before calling expect again."""
+        child = MagicMock()
+        child.expect.return_value = 0  # PROMPT_READY — would succeed if reached
+        with pytest.raises(cci_runner.StartupTimeoutError):
+            cci_runner._startup_handshake(child, timeout=0.0)
+        child.expect.assert_not_called()
+
 
 # ===========================================================================
 # main() — prompt file cleanup + child reaping

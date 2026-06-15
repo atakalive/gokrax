@@ -213,6 +213,27 @@ class TestParseArgs:
         )
         assert args.completion_timeout == 55
 
+    def test_startup_timeout_default(self):
+        import config
+        args = cci_runner._parse_args(["--session-id", "test", "--prompt-file", "-"])
+        assert args.startup_timeout == config.CCI_STARTUP_TIMEOUT_SEC
+
+    def test_startup_timeout_value(self):
+        args = cci_runner._parse_args(
+            ["--session-id", "a", "--prompt-file", "-", "--startup-timeout", "77"]
+        )
+        assert args.startup_timeout == 77
+
+    def test_agent_id_default_none(self):
+        args = cci_runner._parse_args(["--session-id", "test", "--prompt-file", "-"])
+        assert args.agent_id is None
+
+    def test_agent_id_value(self):
+        args = cci_runner._parse_args(
+            ["--session-id", "a", "--prompt-file", "-", "--agent-id", "reviewer1"]
+        )
+        assert args.agent_id == "reviewer1"
+
     def test_append_system_prompt_passthrough(self):
         args = cci_runner._parse_args(
             ["--session-id", "xxx", "--prompt-file", "f.txt",
@@ -402,21 +423,47 @@ class TestSignalHandler:
 
 
 # ===========================================================================
+# _startup_handshake — typed failures (timeout passed explicitly; default is
+# bound at import time and cannot be monkeypatched)
+# ===========================================================================
+
+class TestStartupHandshake:
+    def test_timeout_raises_startup_timeout_error(self):
+        child = MagicMock()
+        # Always report TIMEOUT (idx 2) so the deadline is reached.
+        child.expect.return_value = 2
+        with pytest.raises(cci_runner.StartupTimeoutError):
+            cci_runner._startup_handshake(child, timeout=0.0)
+
+    def test_eof_raises_eof_during_startup_error(self):
+        child = MagicMock()
+        # idx 3 == pexpect.EOF position in the patterns list.
+        child.expect.return_value = 3
+        with pytest.raises(cci_runner.EofDuringStartupError):
+            cci_runner._startup_handshake(child, timeout=5.0)
+
+
+# ===========================================================================
 # main() — prompt file cleanup + child reaping
 # ===========================================================================
 
-def _patch_main_internals(monkeypatch, *, handshake_raises=False, completion=True):
+def _patch_main_internals(monkeypatch, *, handshake_raises=False, completion=True,
+                          handshake_exc=None):
     monkeypatch.setattr("engine.cci_runner.signal.signal", lambda *a, **k: None)
     monkeypatch.setattr(cci_runner, "_ensure_trust_accepted", lambda cwd: None)
     child = MagicMock()
     child.isalive.return_value = True
     monkeypatch.setattr("engine.cci_runner.pexpect.spawn", lambda *a, **k: child)
-    if handshake_raises:
-        def _hs(c):
+    if handshake_exc is not None:
+        def _hs(c, timeout=None):
+            raise handshake_exc
+        monkeypatch.setattr(cci_runner, "_startup_handshake", _hs)
+    elif handshake_raises:
+        def _hs(c, timeout=None):
             raise RuntimeError("handshake failed")
         monkeypatch.setattr(cci_runner, "_startup_handshake", _hs)
     else:
-        monkeypatch.setattr(cci_runner, "_startup_handshake", lambda c: None)
+        monkeypatch.setattr(cci_runner, "_startup_handshake", lambda c, timeout=None: None)
     monkeypatch.setattr(cci_runner, "_send_prompt", lambda c, m: None)
     monkeypatch.setattr(cci_runner, "_send_exit", lambda c: None)
     monkeypatch.setattr(
@@ -484,4 +531,73 @@ class TestMain:
             "--prompt-file", str(pf),
             "--cwd", str(tmp_path),
         ])
-        assert rc == 1
+        assert rc == 3
+
+    def test_startup_timeout_exit_code_and_last_error(self, tmp_path, monkeypatch):
+        _patch_main_internals(
+            monkeypatch,
+            handshake_exc=cci_runner.StartupTimeoutError("Startup timeout"),
+        )
+        monkeypatch.setattr(cci_runner.config, "CCI_SESSIONS_DIR", tmp_path)
+        pf = tmp_path / "prompt.txt"
+        pf.write_text("x")
+        sid = "11111111-2222-3333-4444-555555555555"
+        rc = cci_runner.main([
+            "--session-id", sid, "--prompt-file", str(pf),
+            "--cwd", str(tmp_path), "--agent-id", "reviewer1",
+        ])
+        assert rc == 2
+        err = tmp_path / "reviewer1" / "last_error"
+        assert err.exists()
+        info = json.loads(err.read_text())
+        assert info["reason"] == "startup_timeout"
+        assert info["session_id"] == sid
+
+    def test_eof_during_startup_exit_code(self, tmp_path, monkeypatch):
+        _patch_main_internals(
+            monkeypatch,
+            handshake_exc=cci_runner.EofDuringStartupError("claude exited during startup"),
+        )
+        monkeypatch.setattr(cci_runner.config, "CCI_SESSIONS_DIR", tmp_path)
+        pf = tmp_path / "prompt.txt"
+        pf.write_text("x")
+        rc = cci_runner.main([
+            "--session-id", "11111111-2222-3333-4444-555555555555",
+            "--prompt-file", str(pf), "--cwd", str(tmp_path),
+            "--agent-id", "reviewer1",
+        ])
+        assert rc == 4
+        info = json.loads((tmp_path / "reviewer1" / "last_error").read_text())
+        assert info["reason"] == "eof_during_startup"
+
+    def test_no_agent_id_skips_last_error(self, tmp_path, monkeypatch):
+        _patch_main_internals(
+            monkeypatch,
+            handshake_exc=cci_runner.StartupTimeoutError("Startup timeout"),
+        )
+        monkeypatch.setattr(cci_runner.config, "CCI_SESSIONS_DIR", tmp_path)
+        pf = tmp_path / "prompt.txt"
+        pf.write_text("x")
+        rc = cci_runner.main([
+            "--session-id", "11111111-2222-3333-4444-555555555555",
+            "--prompt-file", str(pf), "--cwd", str(tmp_path),
+        ])
+        assert rc == 2
+        # No --agent-id → no last_error directory created.
+        assert not any(tmp_path.glob("**/last_error"))
+
+    def test_last_error_dir_recreated_if_missing(self, tmp_path, monkeypatch):
+        _patch_main_internals(monkeypatch, completion=False)
+        # Point CCI_SESSIONS_DIR at a non-existent subdir to exercise mkdir.
+        sessions = tmp_path / "nonexistent"
+        monkeypatch.setattr(cci_runner.config, "CCI_SESSIONS_DIR", sessions)
+        pf = tmp_path / "prompt.txt"
+        pf.write_text("x")
+        rc = cci_runner.main([
+            "--session-id", "11111111-2222-3333-4444-555555555555",
+            "--prompt-file", str(pf), "--cwd", str(tmp_path),
+            "--agent-id", "reviewer1",
+        ])
+        assert rc == 3
+        info = json.loads((sessions / "reviewer1" / "last_error").read_text())
+        assert info["reason"] == "completion_timeout"

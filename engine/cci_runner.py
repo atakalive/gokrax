@@ -31,10 +31,17 @@ import config
 
 log = logging.getLogger("engine.cci_runner")
 
+
+class StartupTimeoutError(Exception):
+    """TUI の PROMPT_READY を制限時間内に検出できなかった。"""
+
+
+class EofDuringStartupError(Exception):
+    """起動 handshake 中に claude プロセスが終了した。"""
+
 PROMPT_READY = re.compile(r"cycle|shortcuts", re.IGNORECASE)
 TRUST_RE = re.compile(r"Yes,?\s+I\s+trust\s+this\s+folder", re.IGNORECASE)
 
-STARTUP_TIMEOUT = 60.0
 POST_READY_DELAY = 12.0
 _FILE_WAIT_FALLBACK = 10.0
 _POLL_INTERVAL = 0.25
@@ -367,12 +374,19 @@ def _wait_for_completion(
 # PTY drive helpers
 # ---------------------------------------------------------------------------
 
-def _startup_handshake(child: pexpect.spawn) -> None:
-    """Wait for PROMPT_READY (handling TRUST_RE), then POST_READY_DELAY."""
+def _startup_handshake(
+    child: pexpect.spawn, timeout: float = config.CCI_STARTUP_TIMEOUT_SEC,
+) -> None:
+    """Wait for PROMPT_READY (handling TRUST_RE), then POST_READY_DELAY.
+
+    Note: the ``timeout`` default is bound at import time, so monkeypatching
+    ``config.CCI_STARTUP_TIMEOUT_SEC`` in tests does NOT change it — pass
+    ``timeout`` explicitly when testing.
+    """
     patterns = [PROMPT_READY, TRUST_RE, pexpect.TIMEOUT, pexpect.EOF]
-    deadline = time.time() + STARTUP_TIMEOUT
+    deadline = time.monotonic() + timeout
     while True:
-        remaining = max(1.0, deadline - time.time())
+        remaining = max(1.0, deadline - time.monotonic())
         idx = child.expect(patterns, timeout=min(remaining, 10.0))
         if idx == 0:
             break
@@ -381,10 +395,10 @@ def _startup_handshake(child: pexpect.spawn) -> None:
             time.sleep(0.5)
             child.send("\r")
         elif idx == 2:
-            if time.time() >= deadline:
-                raise TimeoutError("Startup timeout")
+            if time.monotonic() >= deadline:
+                raise StartupTimeoutError("Startup timeout")
         else:
-            raise RuntimeError("claude exited during startup")
+            raise EofDuringStartupError("claude exited during startup")
     time.sleep(POST_READY_DELAY)
 
 
@@ -417,14 +431,38 @@ def _send_exit(child: pexpect.spawn) -> None:
 # Signal handling
 # ---------------------------------------------------------------------------
 
+def _write_last_error(agent_id: str | None, reason: str, session_id: str | None) -> None:
+    """Write ``.cci-sessions/<agent_id>/last_error`` JSON for watchdog observability.
+
+    Skipped when ``agent_id`` is None (``--agent-id`` not given) — the failure is
+    still recorded in runner.log. Wrapped in try/except so disk/permission errors
+    never change the runner's exit code. Re-creates the parent directory if it was
+    removed (reset_session / manual deletion).
+    """
+    if agent_id is None:
+        return
+    try:
+        error_path = config.CCI_SESSIONS_DIR / agent_id / "last_error"
+        error_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {"reason": reason, "ts": time.time(), "session_id": session_id}
+        error_path.write_text(json.dumps(payload), encoding="utf-8")
+    except Exception:
+        log.warning("cci_runner: failed to write last_error for %s", agent_id, exc_info=True)
+
+
 def _cleanup_handler(signum, frame) -> None:
-    """Terminate the child (if any) and exit non-zero. No file ops here."""
+    """Terminate the child (if any) and exit 128+signum. No file ops here.
+
+    Signal-driven termination is an intentional external action (not a failure),
+    so it exits 128+signum to stay distinguishable from the generic error exit 1
+    in runner.log analysis. No last_error is written for signal exits.
+    """
     if _child is not None and _child.isalive():
         try:
             _child.terminate(force=True)
         except Exception:
             pass
-    sys.exit(1)
+    sys.exit(128 + signum)
 
 
 # ---------------------------------------------------------------------------
@@ -468,6 +506,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--append-system-prompt")
     p.add_argument("--disallowed-tools")
     p.add_argument("--completion-timeout", type=int, default=config.CCI_COMPLETION_TIMEOUT_SEC)
+    p.add_argument("--startup-timeout", type=int, default=config.CCI_STARTUP_TIMEOUT_SEC)
+    p.add_argument("--agent-id", type=str, default=None)
     return p.parse_args(argv)
 
 
@@ -483,6 +523,7 @@ def main(argv: list[str] | None = None) -> int:
 
     args = _parse_args(argv)
 
+    session_id: str | None = None
     try:
         # Read prompt (set _prompt_file_path early so signal/finally can clean up).
         if args.prompt_file == "-":
@@ -516,7 +557,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         _child = child
 
-        _startup_handshake(child)
+        _startup_handshake(child, timeout=args.startup_timeout)
 
         # Resolve transcript path + initial offset (BEFORE sending the prompt).
         path = _claude_session_jsonl_path(cwd, session_id)
@@ -534,12 +575,22 @@ def main(argv: list[str] | None = None) -> int:
         )
         if not done:
             log.error("cci_runner: completion timeout after %ds", args.completion_timeout)
-            return 1
+            _write_last_error(args.agent_id, "completion_timeout", session_id)
+            return 3
 
         _send_exit(child)
         return 0
+    except StartupTimeoutError:
+        log.exception("cci_runner: startup timeout")
+        _write_last_error(args.agent_id, "startup_timeout", session_id)
+        return 2
+    except EofDuringStartupError:
+        log.exception("cci_runner: claude exited during startup")
+        _write_last_error(args.agent_id, "eof_during_startup", session_id)
+        return 4
     except Exception:
         log.exception("cci_runner: failed")
+        _write_last_error(args.agent_id, "exception", session_id)
         return 1
     finally:
         # Child reaping: guarantees no orphan TUI on any exit path.

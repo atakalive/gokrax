@@ -171,6 +171,35 @@ class TestSend:
         # send() timeout (30) must NOT appear as the completion timeout
         assert cmd[cmd.index("--completion-timeout") + 1] != "30"
 
+    def test_startup_timeout_passed_to_runner(self, tmp_sessions, monkeypatch):
+        monkeypatch.setattr(config, "DRY_RUN", False)
+        monkeypatch.setattr(config, "CCI_STARTUP_TIMEOUT_SEC", 222)
+        monkeypatch.setattr(backend_cci, "_agent_config_cache", {})
+        with patch("subprocess.Popen", return_value=_mock_proc()) as mp:
+            backend_cci.send("reviewer1", "hello", timeout=30)
+        cmd = mp.call_args[0][0]
+        assert "--startup-timeout" in cmd
+        assert cmd[cmd.index("--startup-timeout") + 1] == "222"
+
+    def test_agent_id_passed_to_runner(self, tmp_sessions, monkeypatch):
+        monkeypatch.setattr(config, "DRY_RUN", False)
+        monkeypatch.setattr(backend_cci, "_agent_config_cache", {})
+        with patch("subprocess.Popen", return_value=_mock_proc()) as mp:
+            backend_cci.send("reviewer1", "hello", timeout=30)
+        cmd = mp.call_args[0][0]
+        assert "--agent-id" in cmd
+        assert cmd[cmd.index("--agent-id") + 1] == "reviewer1"
+
+    def test_send_clears_stale_last_error(self, tmp_sessions, monkeypatch):
+        monkeypatch.setattr(config, "DRY_RUN", False)
+        monkeypatch.setattr(backend_cci, "_agent_config_cache", {})
+        d = tmp_sessions / "reviewer1"
+        d.mkdir(parents=True)
+        (d / "last_error").write_text('{"reason": "startup_timeout"}')
+        with patch("subprocess.Popen", return_value=_mock_proc()):
+            backend_cci.send("reviewer1", "hello", timeout=30)
+        assert not (d / "last_error").exists()
+
     def test_delete_prompt_file_flag_always_added(self, tmp_sessions, monkeypatch):
         monkeypatch.setattr(config, "DRY_RUN", False)
         monkeypatch.setattr(backend_cci, "_agent_config_cache", {})
@@ -462,6 +491,54 @@ class TestIsInactive:
         with patch.object(Path, "exists", mock_exists):
             assert backend_cci.is_inactive("reviewer1") is True
 
+    def _setup_dead_owner(self, tmp_sessions, monkeypatch, tmp_path):
+        """Create a reviewer with a dead pid (no live owner) and a fresh jsonl."""
+        monkeypatch.setattr("engine.backend_cci.INACTIVE_THRESHOLD_SEC", 300)
+        monkeypatch.setattr("engine.backend_cci.AGENT_PROFILES_DIR", tmp_path / "agents")
+        d = tmp_sessions / "reviewer1"
+        d.mkdir(parents=True)
+        sid = str(uuid.uuid4())
+        (d / "session_id").write_text(sid)
+        (d / "pid").write_text("999999")
+        jsonl_dir = backend_cci._claude_project_dir(PROJECT_ROOT)
+        jsonl_dir.mkdir(parents=True, exist_ok=True)
+        (jsonl_dir / f"{sid}.jsonl").write_text("{}")
+        return d
+
+    def test_last_error_logged_and_deleted(self, tmp_sessions, monkeypatch, tmp_path, caplog):
+        d = self._setup_dead_owner(tmp_sessions, monkeypatch, tmp_path)
+        (d / "last_error").write_text('{"reason": "startup_timeout", "ts": 1.0}')
+
+        orig_exists = Path.exists
+
+        def mock_exists(self):
+            if str(self) == "/proc/999999":
+                return False
+            return orig_exists(self)
+
+        with patch.object(Path, "exists", mock_exists), \
+             caplog.at_level(logging.WARNING):
+            backend_cci.is_inactive("reviewer1")
+        assert "startup_timeout" in caplog.text
+        assert not (d / "last_error").exists()
+
+    def test_last_error_malformed_does_not_raise(self, tmp_sessions, monkeypatch, tmp_path):
+        d = self._setup_dead_owner(tmp_sessions, monkeypatch, tmp_path)
+
+        orig_exists = Path.exists
+
+        def mock_exists(self):
+            if str(self) == "/proc/999999":
+                return False
+            return orig_exists(self)
+
+        for bad in ("", "[]", "not json", "123"):
+            (d / "last_error").write_text(bad)
+            with patch.object(Path, "exists", mock_exists):
+                # must not raise on empty file, JSON array, scalar, or garbage
+                backend_cci.is_inactive("reviewer1")
+            assert not (d / "last_error").exists()
+
 
 # ===========================================================================
 # reset_session
@@ -473,9 +550,11 @@ class TestResetSession:
         d.mkdir(parents=True)
         (d / "session_id").write_text(str(uuid.uuid4()))
         (d / "pid").write_text("")  # empty → no SIGTERM path
+        (d / "last_error").write_text('{"reason": "startup_timeout"}')
         backend_cci.reset_session("reviewer1")
         assert not (d / "session_id").exists()
         assert not (d / "pid").exists()
+        assert not (d / "last_error").exists()
 
     def test_clears_marker_and_rebuilds(self, tmp_sessions):
         backend_cci._starting_markers["reviewer1"] = 1.0

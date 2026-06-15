@@ -136,6 +136,7 @@ CC_BIN: str = "claude"
 CC_START_GRACE_SEC: int = 30
 CCI_BIN: str = "claude"              # same binary (different launch mode)
 CCI_START_GRACE_SEC: int = 60        # TUI boot(≈12s) + handshake + first jsonl write margin. 2x cc(30s)
+CCI_STARTUP_TIMEOUT_SEC: int = 120   # _startup_handshake の deadline（秒）
 CCI_COMPLETION_TIMEOUT_SEC: int = 1200  # cci_runner が agent 通信の 1 ターン完了を待つ上限（秒）
 GEMINI_BIN: str = "gemini"
 KIMI_BIN: str = "kimi"

@@ -124,6 +124,11 @@ def _pid_path(agent_id: str) -> Path:
     return _session_dir(agent_id) / "pid"
 
 
+def _last_error_path(agent_id: str) -> Path:
+    """Return the path to the last_error file written by a failed runner."""
+    return _session_dir(agent_id) / "last_error"
+
+
 def _claude_project_dir(cwd: Path) -> Path:
     """Return the Claude Code session JSONL storage directory for a given cwd."""
     project_key = str(cwd.resolve()).replace("/", "-")
@@ -425,6 +430,8 @@ def send(agent_id: str, message: str, timeout: int) -> SendResult:
         cmd += ["--session-id", session_id]
     cmd += ["--cwd", str(cwd), "--prompt-file", prompt_path, "--delete-prompt-file"]
     cmd += ["--completion-timeout", str(config.CCI_COMPLETION_TIMEOUT_SEC)]
+    cmd += ["--startup-timeout", str(config.CCI_STARTUP_TIMEOUT_SEC)]
+    cmd += ["--agent-id", agent_id]
 
     # --model
     model_val = profile.get("model")
@@ -456,6 +463,12 @@ def send(agent_id: str, message: str, timeout: int) -> SendResult:
                 "Agent %s: 'effort' has invalid value %r in config_cci.json; ignoring",
                 agent_id, effort_val,
             )
+
+    # Clear any stale last_error from a prior failed runner before spawning.
+    try:
+        _last_error_path(agent_id).unlink(missing_ok=True)
+    except OSError:
+        pass
 
     # Spawn the detached runner. stderr → runner.log ("w": fresh each turn).
     proc = None
@@ -542,12 +555,40 @@ def ping(agent_id: str, timeout: int) -> bool:
 # is_inactive
 # ---------------------------------------------------------------------------
 
+def _consume_last_error(agent_id: str) -> None:
+    """Log the reason from a failed runner's last_error, then delete it.
+
+    Read-once: deletes the file after logging to avoid repeated reports of the
+    same error. Tolerant of malformed content (empty file, JSON array, etc.) —
+    deletes and stays silent rather than raising.
+    """
+    error_path = _last_error_path(agent_id)
+    if not error_path.exists():
+        return
+    try:
+        raw = error_path.read_text(encoding="utf-8")
+        info = json.loads(raw)
+        if isinstance(info, dict):
+            logger.warning("cci runner failed for %s: %s", agent_id, info.get("reason"))
+        error_path.unlink(missing_ok=True)
+    except (json.JSONDecodeError, OSError, ValueError):
+        try:
+            error_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
 def is_inactive(agent_id: str, pipeline_data: dict | None = None,
                 *, cc_running: bool = False) -> bool:
     """Return whether the agent should be considered inactive.
 
     Judgment order mirrors cc: cc_running override, starting grace
     (CCI_START_GRACE_SEC), session_id validity, PID + /proc cmdline, jsonl mtime.
+
+    Side effect: when no live runner owns the session and a ``last_error`` file
+    written by a failed runner is present, this logs its ``reason`` and deletes
+    the file (read-once, to avoid log spam) — mirroring the ``_starting_markers``
+    consumption design.
     """
     if cc_running:
         return False
@@ -586,6 +627,9 @@ def is_inactive(agent_id: str, pipeline_data: dict | None = None,
     if ownership.has_live_owner:
         return False
 
+    # No live runner owns the session: surface any runner failure (read-once).
+    _consume_last_error(agent_id)
+
     assert state.session_id is not None
     profile_dir = AGENT_PROFILES_DIR / agent_id
     cwd = profile_dir if profile_dir.is_dir() else PROJECT_ROOT
@@ -611,7 +655,7 @@ def reset_session(agent_id: str) -> None:
     - Sends SIGTERM to a live runner owning this agent (its signal handler reaps
       the child claude TUI). Errors are swallowed.
     - Clears the process-local starting marker unconditionally.
-    - Deletes session_id and pid files if present.
+    - Deletes session_id, pid, and last_error files if present.
     """
     _rebuild_claude_md(agent_id)
 
@@ -654,5 +698,12 @@ def reset_session(agent_id: str) -> None:
     except OSError as exc:
         logger.warning(
             "reset_session: failed to delete pid file for %s: %s",
+            agent_id, exc,
+        )
+    try:
+        _last_error_path(agent_id).unlink(missing_ok=True)
+    except OSError as exc:
+        logger.warning(
+            "reset_session: failed to delete last_error file for %s: %s",
             agent_id, exc,
         )

@@ -1,3 +1,4 @@
+import argparse
 import sys
 from datetime import datetime, timedelta
 
@@ -58,7 +59,15 @@ def _update_issue_title_with_assessment(gitlab: str, issue_num: int, complex_lev
     return True
 
 
-def _build_review_note(args, data, verdict, phase, round_num, target_pass, pass_id):
+def _build_review_note(
+    args: argparse.Namespace,
+    data: dict,
+    verdict: str,
+    phase: str,
+    round_num: int,
+    target_pass: int,
+    pass_id: int | str,
+) -> tuple[str, dict]:
     """Issue #379: review note の pending entry を構築して (note_key, note_entry) を返す。
 
     本文（マスク名・round・N-Pass 反映済み）は CLI 側で確定させ、recovery 側は再構築しない。
@@ -407,7 +416,6 @@ def cmd_dispute(args):
 
     # dispute 即時通知（best-effort）
     state = data.get("state", "IDLE")
-    phase = "design" if "DESIGN" in state else "code"
     review_key = "design_reviews" if "DESIGN" in state else "code_reviews"
     issue_data = find_issue(data.get("batch", []), args.issue)
     filed_verdict = ""
@@ -485,7 +493,6 @@ def cmd_flag(args):
         if _deferred:
             signal.raise_signal(signal.SIGTERM)
 
-    state = data.get("state", "IDLE")
     print(f"{args.project}: #{args.issue} flag by M = {args.verdict}")
 
     # Post to GitLab issue note

@@ -22,7 +22,7 @@ from engine.filter import require_issue_author, UnauthorizedAuthorError
 from engine.glab import run_glab
 from config import (
     GOKRAX_CLI, GLAB_BIN, DISCORD_CHANNEL, DISCORD_BOT_TOKEN,
-    AGENTS, REVIEW_MODES, MAX_DIFF_CHARS, GLAB_TIMEOUT,
+    AGENTS, REVIEW_MODES, MAX_DIFF_CHARS,
     AGENT_SEND_TIMEOUT, DISCORD_POST_TIMEOUT, REVIEW_FILE_DIR,
     REVIEW_FILE_WRITE_RETRIES, REVIEW_FILE_WRITE_RETRY_DELAY,
 )

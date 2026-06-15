@@ -5,27 +5,46 @@ import sys
 import os
 
 from config import (
-    VALID_STATES, VALID_TRANSITIONS, MAX_BATCH,
-    REVIEWERS, REVIEW_MODES, LOCAL_TZ,
-    WATCHDOG_LOOP_PIDFILE, WATCHDOG_LOOP_LOCKFILE,  # noqa: F401  (LOCKFILE kept for tests to monkeypatch)
+    VALID_STATES,
+    VALID_TRANSITIONS,
+    MAX_BATCH,
+    REVIEWERS,
+    REVIEW_MODES,
+    LOCAL_TZ,
+    WATCHDOG_LOOP_PIDFILE,
+    WATCHDOG_LOOP_LOCKFILE,  # noqa: F401  (LOCKFILE kept for tests to monkeypatch)
     STATE_PHASE_MAP,
-    GITLAB_NAMESPACE, IMPLEMENTERS,
+    GITLAB_NAMESPACE,
+    IMPLEMENTERS,
 )
 from pipeline_io import (
-    load_pipeline, save_pipeline, update_pipeline,
-    add_history, now_iso, get_path, find_issue,
-    clear_pending_notification, merge_pending_notifications,
+    load_pipeline,
+    save_pipeline,
+    update_pipeline,
+    add_history,
+    now_iso,
+    get_path,
+    find_issue,
+    clear_pending_notification,
+    merge_pending_notifications,
     get_round_suffix,
 )
 from engine.filter import require_issue_author, UnauthorizedAuthorError
 from engine.glab import run_glab
-from engine.fsm import get_notification_for_state
+from engine.fsm import get_notification_for_state, stale_pending_keys
 from notify import (
-    notify_implementer, notify_reviewers, notify_discord,
+    notify_implementer,
+    notify_reviewers,
+    notify_discord,
     resolve_reviewer_arg,
 )
 
-from commands.dev.helpers import parse_issue_args, _masked_reviewer, _reset_to_idle, _log
+from commands.dev.helpers import (
+    parse_issue_args,
+    _masked_reviewer,
+    _reset_to_idle,
+    _log,
+)
 
 
 def _pipelines_dir():
@@ -36,6 +55,7 @@ def _pipelines_dir():
     are honoured even though this code lives in a submodule.
     """
     import commands.dev as _pkg  # noqa: F811 — deferred to avoid circular import
+
     return _pkg.PIPELINES_DIR
 
 
@@ -49,6 +69,7 @@ def get_status_text(enabled_only: bool = False) -> str:
         Status text string. "No active pipelines." if no matching pipelines.
     """
     import io
+
     output = io.StringIO()
 
     _pipelines_dir().mkdir(parents=True, exist_ok=True)
@@ -74,16 +95,21 @@ def get_status_text(enabled_only: bool = False) -> str:
         has_review_info = "review_config" in data or "review_mode" in data
         if has_review_info:
             from engine.fsm import get_phase_config
+
             phase = "code" if state.startswith("CODE_") else "design"
             phase_config = get_phase_config(data, phase)
             reviewers_str = ", ".join(f'"{r}"' for r in phase_config["members"])
         else:
             reviewers_str = ""
-        output.write(f"[{enabled}] {pj}: {state}  issues=[{issues}]  ReviewerSize={review_mode}  Reviewers=[{reviewers_str}]\n")
+        output.write(
+            f"[{enabled}] {pj}: {state}  issues=[{issues}]  ReviewerSize={review_mode}  Reviewers=[{reviewers_str}]\n"
+        )
 
         # Show per-issue review progress
         if state in ("DESIGN_REVIEW", "CODE_REVIEW") and batch and has_review_info:
-            review_key = "design_reviews" if state == "DESIGN_REVIEW" else "code_reviews"
+            review_key = (
+                "design_reviews" if state == "DESIGN_REVIEW" else "code_reviews"
+            )
             min_rev = data.get("min_reviews_override", phase_config["min_reviews"])
             excluded = set(data.get("excluded_reviewers", []))
             for item in batch:
@@ -120,7 +146,10 @@ def cmd_init(args):
 
     abs_repo = os.path.abspath(args.repo_path) if args.repo_path else ""
     if abs_repo and not os.path.isdir(abs_repo):
-        print(f"Error: --repo-path does not exist or is not a directory: {abs_repo}", file=sys.stderr)
+        print(
+            f"Error: --repo-path does not exist or is not a directory: {abs_repo}",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     data = {
@@ -168,7 +197,9 @@ def cmd_disable(args):
         # holds the inode via inherited fd 200. Unlinking would let the next
         # cron firing create the path with a new inode, bypassing the
         # inode-based flock singleton protection and spawning a duplicate loop.
-        print("All projects disabled — watchdog loop stopped (crontab kept for auto-restart).")
+        print(
+            "All projects disabled — watchdog loop stopped (crontab kept for auto-restart)."
+        )
     else:
         print(f"{args.project}: watchdog disabled")
 
@@ -185,6 +216,7 @@ def cmd_extend(args):
     MAX_EXTENDS = 2
 
     result = {}
+
     def do_extend(data):
         state = data.get("state", "IDLE")
         if state not in EXTENDABLE_STATES:
@@ -207,6 +239,7 @@ def cmd_extend(args):
     update_pipeline(path, do_extend)
 
     from datetime import datetime
+
     ts = datetime.now(LOCAL_TZ).strftime("%m/%d %H:%M")
     notify_discord(
         f"[{args.project}] {result['implementer']} extended timeout by {args.by}s "
@@ -222,14 +255,19 @@ def _fetch_open_issues(gitlab: str) -> list[tuple[int, str]]:
     if not result.ok:
         if isinstance(result.error, FileNotFoundError):
             raise result.error
-        msg = result.stderr.strip() if result.stderr else str(result.error or "unknown error")
+        msg = (
+            result.stderr.strip()
+            if result.stderr
+            else str(result.error or "unknown error")
+        )
         print(f"glab issue list failed: {msg}", file=sys.stderr)
         return []
     try:
         issues = json.loads(result.stdout)
         return [
             (issue["iid"], issue.get("title", ""))
-            for issue in issues if issue.get("state") == "opened"
+            for issue in issues
+            if issue.get("state") == "opened"
         ]
     except (json.JSONDecodeError, KeyError) as e:
         print(f"Failed to fetch open issues: {e}", file=sys.stderr)
@@ -252,9 +290,15 @@ def _fetch_issue_info(issue_num: int, gitlab: str) -> tuple[str, str | None]:
     if not result.ok:
         if isinstance(result.error, FileNotFoundError):
             raise result.error
-        msg = result.stderr.strip() if result.stderr else str(result.error or "unknown error")
+        msg = (
+            result.stderr.strip()
+            if result.stderr
+            else str(result.error or "unknown error")
+        )
         _log(f"_fetch_issue_info(#{issue_num}) → glab failed: {msg}")
-        print(f"Warning: glab issue show failed for #{issue_num}: {msg}", file=sys.stderr)
+        print(
+            f"Warning: glab issue show failed for #{issue_num}: {msg}", file=sys.stderr
+        )
         return ("", None)
     try:
         data = json.loads(result.stdout)
@@ -271,7 +315,9 @@ def _fetch_issue_info(issue_num: int, gitlab: str) -> tuple[str, str | None]:
         _log(f"_fetch_issue_info(#{issue_num}) → state={raw_state}")
         return (title, raw_state)
     _log(f"_fetch_issue_info(#{issue_num}) → unknown state={raw_state!r}")
-    print(f"Warning: issue #{issue_num} has unknown state '{raw_state}'", file=sys.stderr)
+    print(
+        f"Warning: issue #{issue_num} has unknown state '{raw_state}'", file=sys.stderr
+    )
     return (title, None)
 
 
@@ -321,24 +367,27 @@ def cmd_triage(args):
 
     # --- Phase 3: Discord 通知（SystemExit より前に必ず送信） ---
     # 通知対象: allow_closed=False の場合のみ。allow_closed=True では通知しない。
-    _log(f"cmd_triage: skipped_closed={skipped_closed} survivors={survivors} "
-         f"unverified={unverified} states={list(zip(args.issue, states))}")
+    _log(
+        f"cmd_triage: skipped_closed={skipped_closed} survivors={survivors} "
+        f"unverified={unverified} states={list(zip(args.issue, states))}"
+    )
     if skipped_closed or unverified:
         from config import DISCORD_CHANNEL
         from notify import post_discord
+
         if skipped_closed:
             nums_str = ", ".join(f"#{n}" for n in skipped_closed)
             post_discord(DISCORD_CHANNEL, f"⚠️ Skipped closed issues: {nums_str}")
             print(f"Skipped closed issues: {nums_str}")
         if unverified:
             nums_str = ", ".join(f"#{n}" for n in unverified)
-            post_discord(DISCORD_CHANNEL,
-                         f"⚠️ Could not verify issue state: {nums_str}")
+            post_discord(DISCORD_CHANNEL, f"⚠️ Could not verify issue state: {nums_str}")
             print(f"Warning: could not verify state for issues: {nums_str}")
 
     # --- Phase 4: all-closed チェック ---
     if not survivors:
         from task_queue import QueueSkipError
+
         raise QueueSkipError("All issues are closed. Nothing to add to batch.")
 
     # --- Phase 5: do_triage に filtered リストを渡してバッチ追加 ---
@@ -370,15 +419,17 @@ def cmd_triage(args):
         for num, title in zip(filtered_args.issue, filtered_args.title):
             if find_issue(batch, num):
                 raise SystemExit(f"Issue #{num} already in batch")
-            batch.append({
-                "issue": num,
-                "title": title,
-                "commit": None,
-                "cc_session_id": None,
-                "design_reviews": {},
-                "code_reviews": {},
-                "added_at": now_iso(),
-            })
+            batch.append(
+                {
+                    "issue": num,
+                    "title": title,
+                    "commit": None,
+                    "cc_session_id": None,
+                    "design_reviews": {},
+                    "code_reviews": {},
+                    "added_at": now_iso(),
+                }
+            )
         data["batch"] = batch
 
     update_pipeline(path, do_triage)
@@ -394,9 +445,12 @@ def cmd_start(args):
     """
     args.issue = parse_issue_args(args.issue) if args.issue else args.issue
     import os
-    _log(f"cmd_start invoked: pj={args.project} issue={args.issue} "
-         f"allow_closed={getattr(args, 'allow_closed', False)} "
-         f"pid={os.getpid()} ppid={os.getppid()}")
+
+    _log(
+        f"cmd_start invoked: pj={args.project} issue={args.issue} "
+        f"allow_closed={getattr(args, 'allow_closed', False)} "
+        f"pid={os.getpid()} ppid={os.getppid()}"
+    )
     from gokrax import _start_loop
     from config import NONE_TO_FALSE_KEYS, resolve_queue_options
 
@@ -425,6 +479,7 @@ def cmd_start(args):
 
     # デフォルトオプション適用: CLI 引数で明示指定されていない（None のまま）オプションにデフォルト値を注入
     from task_queue import _QUEUE_OPT_ALIASES
+
     resolved = resolve_queue_options(args.project)
     for key, default_val in resolved.items():
         if "=" in key:
@@ -482,6 +537,7 @@ def cmd_start(args):
 
     # 3. triage実行（既存のcmd_triageロジック流用）
     import argparse
+
     triage_args = argparse.Namespace(
         project=args.project,
         issue=issue_nums,
@@ -497,6 +553,7 @@ def cmd_start(args):
 
     # 5. review_mode / keep_ctx / p2_fix / comment 設定（遷移前に設定して/newの宛先に反映させる）
     from config import REVIEW_MODES
+
     if getattr(args, "mode", None) and args.mode not in REVIEW_MODES:
         raise SystemExit(f"Invalid mode: {args.mode} (valid: {list(REVIEW_MODES)})")
 
@@ -514,6 +571,7 @@ def cmd_start(args):
             data["p2_fix"] = True
         if getattr(args, "comment", None):
             from task_queue import sanitize_comment
+
             sanitized = sanitize_comment(args.comment)
             if sanitized:
                 data["comment"] = sanitized
@@ -548,8 +606,8 @@ def cmd_start(args):
                 f"review_mode is not set for {args.project}. "
                 f"Use --mode <mode> or set it with: gokrax review-mode --pj {args.project} --mode <mode>"
             )
-    update_pipeline(path, do_setup)
 
+    update_pipeline(path, do_setup)
 
     # 7. INITIALIZEに遷移 + watchdog有効化（set_enabled で同一ロック内で設定）
     transition_args = argparse.Namespace(
@@ -573,24 +631,29 @@ def cmd_start(args):
                 add_history(data, data.get("state", "IDLE"), "IDLE", "cli:rollback")
             _reset_to_idle(data)
             data["state"] = "IDLE"
+
         try:
             update_pipeline(path, _rollback)
         except Exception:
             pass  # ロールバック自体の失敗は握りつぶす（元の例外を優先）
         # watchdog-loop を停止（他 PJ が有効でない場合のみ）
         from gokrax import _any_pj_enabled, _stop_loop
+
         if not _any_pj_enabled():
             _stop_loop()
         raise
 
     # 9. 完了メッセージ
     issues_str = ", ".join(f"#{n}" for n in issue_nums)
-    print(f"{args.project}: started with issues [{issues_str}] → INITIALIZE (watchdog enabled)")
+    print(
+        f"{args.project}: started with issues [{issues_str}] → INITIALIZE (watchdog enabled)"
+    )
 
 
 def cmd_transition(args):
     """状態遷移（バリデーション付き）"""
     import config as _cfg
+
     if getattr(args, "dry_run", False):
         _cfg.DRY_RUN = True
     path = get_path(args.project)
@@ -612,8 +675,15 @@ def cmd_transition(args):
         add_history(data, current, target, args.actor or "cli")
 
         # REVIEW/NPASS → REVISE: Increment cycle counter (matching watchdog.py:536)
-        if current in ("DESIGN_REVIEW", "CODE_REVIEW", "DESIGN_REVIEW_NPASS", "CODE_REVIEW_NPASS") and target in ("DESIGN_REVISE", "CODE_REVISE"):
-            counter_key = "design_revise_count" if "DESIGN" in current else "code_revise_count"
+        if current in (
+            "DESIGN_REVIEW",
+            "CODE_REVIEW",
+            "DESIGN_REVIEW_NPASS",
+            "CODE_REVIEW_NPASS",
+        ) and target in ("DESIGN_REVISE", "CODE_REVISE"):
+            counter_key = (
+                "design_revise_count" if "DESIGN" in current else "code_revise_count"
+            )
             data[counter_key] = data.get(counter_key, 0) + 1
 
         data["state"] = target
@@ -625,33 +695,57 @@ def cmd_transition(args):
             _reset_to_idle(data)
         elif args.force and target in ("DESIGN_REVIEW", "CODE_REVIEW"):
             # Issue #41: Reset counters when force-transitioning to REVIEW states from BLOCKED
-            counter_key = "design_revise_count" if "DESIGN" in target else "code_revise_count"
+            counter_key = (
+                "design_revise_count" if "DESIGN" in target else "code_revise_count"
+            )
             data.pop(counter_key, None)
-            print(f"[FORCE] Resetting {counter_key} for {current} → {target} transition")
-        elif resume and current == "BLOCKED" and target in ("DESIGN_REVISE", "CODE_REVISE"):
+            print(
+                f"[FORCE] Resetting {counter_key} for {current} → {target} transition"
+            )
+        elif (
+            resume
+            and current == "BLOCKED"
+            and target in ("DESIGN_REVISE", "CODE_REVISE")
+        ):
             _blocked_from = None
             for entry in reversed(data.get("history", [])):
                 if entry.get("to") == "BLOCKED":
                     _blocked_from = entry.get("from", "")
                     break
             _revise_offset = 0
-            if _blocked_from in ("DESIGN_REVIEW", "CODE_REVIEW", "DESIGN_REVIEW_NPASS", "CODE_REVIEW_NPASS"):
-                counter_key = "design_revise_count" if "DESIGN" in target else "code_revise_count"
+            if _blocked_from in (
+                "DESIGN_REVIEW",
+                "CODE_REVIEW",
+                "DESIGN_REVIEW_NPASS",
+                "CODE_REVIEW_NPASS",
+            ):
+                counter_key = (
+                    "design_revise_count" if "DESIGN" in target else "code_revise_count"
+                )
                 data[counter_key] = data.get(counter_key, 0) + 1
             elif _blocked_from in ("CODE_TEST", "CODE_TEST_FIX"):
                 _revise_offset = 1
             ctx["_revise_offset"] = _revise_offset
 
             from config import MAX_REVISE_CYCLES
-            max_key = "max_design_revise_cycles" if "DESIGN" in target else "max_code_revise_cycles"
+
+            max_key = (
+                "max_design_revise_cycles"
+                if "DESIGN" in target
+                else "max_code_revise_cycles"
+            )
             val = data.get(max_key)
             current_max = val if val is not None else MAX_REVISE_CYCLES
             _reason = data.pop("blocked_reason", None)
             if _reason != "timeout":
                 data[max_key] = current_max + MAX_REVISE_CYCLES
-                print(f"[RESUME] {max_key}: {current_max} → {data[max_key]} for {current} → {target} transition")
+                print(
+                    f"[RESUME] {max_key}: {current_max} → {data[max_key]} for {current} → {target} transition"
+                )
             else:
-                print(f"[RESUME] {max_key}: {current_max} (unchanged, timeout recovery) for {current} → {target} transition")
+                print(
+                    f"[RESUME] {max_key}: {current_max} (unchanged, timeout recovery) for {current} → {target} transition"
+                )
             data["enabled"] = True  # BLOCKED時にFalseになっているのでTrueに戻す
         elif target == "BLOCKED":
             # Disable watchdog when manually transitioning to BLOCKED (Issue #29)
@@ -664,14 +758,33 @@ def cmd_transition(args):
         gitlab = data.get("gitlab", f"{GITLAB_NAMESPACE}/{pj}")
         implementer = data.get("implementer", IMPLEMENTERS[0])
         repo_path = data.get("repo_path", "")
-        review_mode = _pre_reset_review_mode if target == "IDLE" else data.get("review_mode")
+        review_mode = (
+            _pre_reset_review_mode if target == "IDLE" else data.get("review_mode")
+        )
         if not review_mode and target != "IDLE":
-            raise SystemExit(f"review_mode is not set for {args.project}. Set it with: gokrax review-mode --pj {args.project} --mode <mode>")
+            raise SystemExit(
+                f"review_mode is not set for {args.project}. Set it with: gokrax review-mode --pj {args.project} --mode <mode>"
+            )
 
         p2_fix = data.get("p2_fix", False)
         comment = data.get("comment", "")
-        notif = get_notification_for_state(target, pj, batch, gitlab, implementer, p2_fix=p2_fix, comment=comment)
+        notif = get_notification_for_state(
+            target, pj, batch, gitlab, implementer, p2_fix=p2_fix, comment=comment
+        )
         prefix = "(resumed) " if resume else ""
+
+        existing_pn = data.get("_pending_notifications")
+        if existing_pn and args.force:
+            for key in list(existing_pn):
+                existing_pn.pop(key, None)
+                print(f"[{pj}] dropping stale pending '{key}' for forced {target}")
+            data.pop("_pending_notifications", None)
+        elif existing_pn:
+            for key in stale_pending_keys(target, existing_pn):
+                existing_pn.pop(key, None)
+                print(f"[{pj}] dropping stale pending '{key}' for {target}")
+            if not existing_pn:
+                data.pop("_pending_notifications", None)
 
         pending = {}
         if notif.impl_msg:
@@ -690,18 +803,26 @@ def cmd_transition(args):
         if pending:
             merge_pending_notifications(data, pending, pj)
 
-        ctx.update({
-            "pj": pj, "notif": notif, "prefix": prefix,
-            "batch": list(batch), "gitlab": gitlab,
-            "implementer": implementer, "repo_path": repo_path,
-            "review_mode": review_mode,
-            "excluded_reviewers": list(data.get("excluded_reviewers", [])),
-            "keep_ctx_batch": data.get("keep_ctx_batch", False),
-            "keep_ctx_intra": data.get("keep_ctx_intra", False),
-            "queue_mode": data.get("queue_mode", False),
-            "history": list(data.get("history", [])),
-            "round_suffix": get_round_suffix(data, target, revise_offset=ctx.get("_revise_offset", 0)),
-        })
+        ctx.update(
+            {
+                "pj": pj,
+                "notif": notif,
+                "prefix": prefix,
+                "batch": list(batch),
+                "gitlab": gitlab,
+                "implementer": implementer,
+                "repo_path": repo_path,
+                "review_mode": review_mode,
+                "excluded_reviewers": list(data.get("excluded_reviewers", [])),
+                "keep_ctx_batch": data.get("keep_ctx_batch", False),
+                "keep_ctx_intra": data.get("keep_ctx_intra", False),
+                "queue_mode": data.get("queue_mode", False),
+                "history": list(data.get("history", [])),
+                "round_suffix": get_round_suffix(
+                    data, target, revise_offset=ctx.get("_revise_offset", 0)
+                ),
+            }
+        )
 
     data = update_pipeline(path, do_transition)
     suffix = " [RESUME]" if resume else (" [FORCED]" if args.force else "")
@@ -727,43 +848,62 @@ def cmd_transition(args):
             print(f"[{pj}] reset_reviewers SKIPPED (keep_ctx for {args.to})")
         else:
             from engine.reviewer import _reset_reviewers
+
             impl = ""
             if args.to == "DESIGN_PLAN":
                 from pipeline_io import load_gokrax_state, update_gokrax_state
+
                 # グローバル状態から前回PJを取得（PJ単位JSONではなく共有ファイル）
                 gstate = load_gokrax_state()
                 last_pj = gstate.get("last_impl_project", "")
                 if not last_pj or last_pj != pj:
                     impl = ctx["implementer"]
+
                 # グローバル状態に記録
                 def _set_last_impl(s):
                     s["last_impl_project"] = pj
+
                 update_gokrax_state(_set_last_impl)
             from engine.fsm import get_phase_config
+
             reset_phase = STATE_PHASE_MAP.get(args.to, "design")
             pipeline_data = load_pipeline(get_path(pj))
             phase_config = get_phase_config(pipeline_data, reset_phase)
             _reset_reviewers(phase_config, implementer=impl)
             from engine.agent_meta import snapshot
+
             def _write_snapshots(d: dict) -> None:
                 for r in phase_config["members"]:
                     snapshot(d, r)
+
             update_pipeline(get_path(pj), _write_snapshots)
     if notif.impl_msg:
         phase = STATE_PHASE_MAP.get(args.to, "")
-        ok = notify_implementer(ctx["implementer"], f"[gokrax] {pj}: {prefix}{notif.impl_msg}", project=pj, phase=phase)
+        ok = notify_implementer(
+            ctx["implementer"],
+            f"[gokrax] {pj}: {prefix}{notif.impl_msg}",
+            project=pj,
+            phase=phase,
+        )
         if ok:
             clear_pending_notification(pj, "impl")
     if notif.send_review:
         excluded = ctx["excluded_reviewers"]
         from engine.fsm import get_phase_config as _gpc
+
         _reset_phase = STATE_PHASE_MAP.get(args.to, "design")
         _pipeline_data = load_pipeline(get_path(pj))
         phase_config = _gpc(_pipeline_data, _reset_phase)
-        notify_reviewers(pj, args.to, ctx["batch"], ctx["gitlab"],
-                        repo_path=ctx["repo_path"],
-                        review_mode=ctx["review_mode"], excluded=excluded,
-                        phase_config=phase_config)
+        notify_reviewers(
+            pj,
+            args.to,
+            ctx["batch"],
+            ctx["gitlab"],
+            repo_path=ctx["repo_path"],
+            review_mode=ctx["review_mode"],
+            excluded=excluded,
+            phase_config=phase_config,
+        )
         clear_pending_notification(pj, "review")
 
     # Discord 通知（pending 対象外 — 重複許容）
@@ -771,9 +911,12 @@ def cmd_transition(args):
     current = history[-1].get("from", "?") if history else "?"
     actor = args.actor or "cli"
     from datetime import datetime
+
     ts = datetime.now(LOCAL_TZ).strftime("%m/%d %H:%M")
     q_prefix = "[Queue]" if ctx.get("queue_mode") else ""
-    notify_discord(f"{q_prefix}[{pj}] {prefix}{current} → {args.to}{ctx['round_suffix']} (by {actor}, {ts})")
+    notify_discord(
+        f"{q_prefix}[{pj}] {prefix}{current} → {args.to}{ctx['round_suffix']} (by {actor}, {ts})"
+    )
 
 
 def cmd_reset(args: argparse.Namespace) -> None:
@@ -803,6 +946,7 @@ def cmd_reset(args: argparse.Namespace) -> None:
             return
 
     for path, pj, old_state in targets:
+
         def do_reset(data, _old=old_state):
             add_history(data, _old, "IDLE", "cli")
             data["state"] = "IDLE"
@@ -810,6 +954,7 @@ def cmd_reset(args: argparse.Namespace) -> None:
                 data["spec_mode"] = False
                 data["spec_config"] = {}
             _reset_to_idle(data)
+
         update_pipeline(path, do_reset)
         print(f"  [RESET] {pj}: {old_state} → IDLE")
 
@@ -872,10 +1017,13 @@ def cmd_exclude(args):
             data["excluded_reviewers"] = excluded
             # deadlock clamp
             from engine.fsm import get_phase_config as _get_phase_config_ex
+
             state = data.get("state", "IDLE")
             phase = "code" if state.startswith("CODE_") else "design"
             _phase_cfg = _get_phase_config_ex(data, phase)
-            effective_count = len([m for m in _phase_cfg["members"] if m not in excluded])
+            effective_count = len(
+                [m for m in _phase_cfg["members"] if m not in excluded]
+            )
             min_reviews = _phase_cfg["min_reviews"]
             if effective_count < min_reviews:
                 clamped = max(effective_count, 0)
@@ -890,9 +1038,13 @@ def cmd_exclude(args):
         _masked_added = [_masked_reviewer(n, _rnm) for n in added_names]
         _masked_final = [_masked_reviewer(n, _rnm) for n in final_excluded]
         if added_names:
-            print(f"{args.project}: excluded {_masked_added} (excluded_reviewers={_masked_final})")
+            print(
+                f"{args.project}: excluded {_masked_added} (excluded_reviewers={_masked_final})"
+            )
         else:
-            print(f"{args.project}: already excluded (excluded_reviewers={_masked_final})")
+            print(
+                f"{args.project}: already excluded (excluded_reviewers={_masked_final})"
+            )
         if clamp_msg:
             print(clamp_msg)
         return
@@ -913,10 +1065,13 @@ def cmd_exclude(args):
             data["excluded_reviewers"] = excluded
             # deadlock clamp
             from engine.fsm import get_phase_config as _get_phase_config_ex
+
             state = data.get("state", "IDLE")
             phase = "code" if state.startswith("CODE_") else "design"
             _phase_cfg = _get_phase_config_ex(data, phase)
-            effective_count = len([m for m in _phase_cfg["members"] if m not in excluded])
+            effective_count = len(
+                [m for m in _phase_cfg["members"] if m not in excluded]
+            )
             min_reviews = _phase_cfg["min_reviews"]
             if effective_count < min_reviews:
                 clamped = max(effective_count, 0)
@@ -931,9 +1086,13 @@ def cmd_exclude(args):
         _masked_removed = [_masked_reviewer(n, _rnm) for n in removed_names]
         _masked_final_r = [_masked_reviewer(n, _rnm) for n in final_excluded_r]
         if removed_names:
-            print(f"{args.project}: unexcluded {_masked_removed} (excluded_reviewers={_masked_final_r})")
+            print(
+                f"{args.project}: unexcluded {_masked_removed} (excluded_reviewers={_masked_final_r})"
+            )
         else:
-            print(f"{args.project}: not excluded (excluded_reviewers={_masked_final_r})")
+            print(
+                f"{args.project}: not excluded (excluded_reviewers={_masked_final_r})"
+            )
         if clamp_msg_r:
             print(clamp_msg_r)
         return
@@ -942,6 +1101,7 @@ def cmd_exclude(args):
 def cmd_merge_summary(args):
     """マージサマリーを #gokrax に投稿し、MERGE_SUMMARY_SENT に遷移"""
     import logging
+
     logger = logging.getLogger(__name__)
     from config import DISCORD_CHANNEL
     from notify import post_discord, notify_implementer
@@ -952,14 +1112,20 @@ def cmd_merge_summary(args):
     data = load_pipeline(path)
     state = data.get("state", "IDLE")
     if state != "CODE_APPROVED":
-        raise SystemExit(f"Cannot send merge summary in state {state} (expected CODE_APPROVED)")
+        raise SystemExit(
+            f"Cannot send merge summary in state {state} (expected CODE_APPROVED)"
+        )
 
     batch = data.get("batch", [])
     project = data.get("project", args.project)
     automerge = data.get("automerge", False)
     queue_mode = data.get("queue_mode", False)
-    content = render("dev.merge_summary_sent", "format_merge_summary",
-        project=project, batch=batch, automerge=automerge,
+    content = render(
+        "dev.merge_summary_sent",
+        "format_merge_summary",
+        project=project,
+        batch=batch,
+        automerge=automerge,
         queue_mode=queue_mode,
         MERGE_SUMMARY_FOOTER=MERGE_SUMMARY_FOOTER,
     )
@@ -1008,7 +1174,9 @@ def cmd_ok(args):
     def do_ok(data: dict) -> None:
         state = data.get("state", "IDLE")
         if state != "MERGE_SUMMARY_SENT":
-            raise SystemExit(f"Cannot approve in state {state} (expected MERGE_SUMMARY_SENT)")
+            raise SystemExit(
+                f"Cannot approve in state {state} (expected MERGE_SUMMARY_SENT)"
+            )
         data["merge_approved"] = True
 
     update_pipeline(path, do_ok)
@@ -1029,21 +1197,34 @@ def cmd_get_comments(args: argparse.Namespace) -> None:
     page = 1
     all_notes: list[dict] = []
     while True:
-        result = run_glab([
-            "api",
-            f"projects/:id/issues/{issue_num}/notes?per_page=100&sort=asc&page={page}",
-            "-R", gitlab,
-        ])
+        result = run_glab(
+            [
+                "api",
+                f"projects/:id/issues/{issue_num}/notes?per_page=100&sort=asc&page={page}",
+                "-R",
+                gitlab,
+            ]
+        )
         if not result.ok:
             if isinstance(result.error, FileNotFoundError):
                 raise result.error
-            msg = result.stderr.strip() if result.stderr else str(result.error or "unknown error")
-            print(f"Error: glab api failed (rc={result.returncode}): {msg}", file=sys.stderr)
+            msg = (
+                result.stderr.strip()
+                if result.stderr
+                else str(result.error or "unknown error")
+            )
+            print(
+                f"Error: glab api failed (rc={result.returncode}): {msg}",
+                file=sys.stderr,
+            )
             sys.exit(1)
         try:
             notes = json.loads(result.stdout)
         except json.JSONDecodeError:
-            print(f"Error: invalid JSON from glab api for issue #{issue_num}", file=sys.stderr)
+            print(
+                f"Error: invalid JSON from glab api for issue #{issue_num}",
+                file=sys.stderr,
+            )
             sys.exit(1)
         if not notes:
             break
@@ -1060,7 +1241,11 @@ def cmd_get_comments(args: argparse.Namespace) -> None:
 
     for i, note in enumerate(filtered):
         author = note.get("author")
-        username = author.get("username", "<unknown>") if isinstance(author, dict) else "<unknown>"
+        username = (
+            author.get("username", "<unknown>")
+            if isinstance(author, dict)
+            else "<unknown>"
+        )
         created_at = note.get("created_at", "<unknown>")
         body = note.get("body") or ""
         if i > 0:

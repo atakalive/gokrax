@@ -20,53 +20,96 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config import (
-    PIPELINES_DIR, LOCAL_TZ, LOG_FILE, REVIEW_MODES, CC_MODEL_PLAN, CC_MODEL_IMPL,
-    GOKRAX_CLI, INACTIVE_THRESHOLD_SEC, INACTIVE_THRESHOLD_PLAN_SEC, OPENCLAW_SESSIONS_BASE,
-    STATE_PHASE_MAP, GITLAB_NAMESPACE, IMPLEMENTERS,
+    PIPELINES_DIR,
+    LOCAL_TZ,
+    LOG_FILE,
+    REVIEW_MODES,
+    CC_MODEL_PLAN,
+    CC_MODEL_IMPL,
+    GOKRAX_CLI,
+    INACTIVE_THRESHOLD_SEC,
+    INACTIVE_THRESHOLD_PLAN_SEC,
+    OPENCLAW_SESSIONS_BASE,
+    STATE_PHASE_MAP,
+    GITLAB_NAMESPACE,
+    IMPLEMENTERS,
     # WATCHDOG_LOOP_PIDFILE, WATCHDOG_LOOP_CRON_MARKER は gokrax.py の enable/disable 専用
 )
 from config import (
     SPEC_STATES,
-    MAX_SPEC_RETRIES, SPEC_REVISE_SELF_REVIEW_PASSES, SPEC_REVIEW_RAW_RETENTION_DAYS,
+    MAX_SPEC_RETRIES,
+    SPEC_REVISE_SELF_REVIEW_PASSES,
+    SPEC_REVIEW_RAW_RETENTION_DAYS,
 )
 from datetime import datetime as _datetime
 from pipeline_io import (
-    load_pipeline, update_pipeline, get_path,
-    add_history, now_iso, find_issue,
-    clear_pending_notification, merge_pending_notifications,
-    ensure_spec_reviews_dir, get_round_suffix,
+    load_pipeline,
+    update_pipeline,
+    get_path,
+    add_history,
+    now_iso,
+    find_issue,
+    clear_pending_notification,
+    merge_pending_notifications,
+    ensure_spec_reviews_dir,
+    get_round_suffix,
 )
 from notify import (
-    notify_implementer, notify_reviewers, notify_discord,
-    send_to_agent, send_to_agent_queued, ping_agent,
+    notify_implementer,
+    notify_reviewers,
+    notify_discord,
+    send_to_agent,
+    send_to_agent_queued,
+    ping_agent,
 )
 from messages import render
 from engine.shared import log, _is_ok_reply, _is_cc_running, _is_agent_inactive
 from engine.cc import (
-    _start_cc, _has_pytest, _kill_pytest_baseline,
-    _poll_pytest_baseline, _auto_push_and_close,
-    _poll_code_test, _start_code_test, _kill_code_test, _start_cc_test_fix,
+    _start_cc,
+    _has_pytest,
+    _kill_pytest_baseline,
+    _poll_pytest_baseline,
+    _auto_push_and_close,
+    _poll_code_test,
+    _start_code_test,
+    _kill_code_test,
+    _start_cc_test_fix,
 )
 from engine.reviewer import (
-    _reset_reviewers, _reset_short_context_reviewers,
-    count_reviews, _awaiting_dispute_re_review,
-    _revise_target_issues, clear_reviews,
-    _get_pending_reviewers, _cleanup_review_files,
+    _reset_reviewers,
+    _reset_short_context_reviewers,
+    count_reviews,
+    _awaiting_dispute_re_review,
+    _revise_target_issues,
+    clear_reviews,
+    _get_pending_reviewers,
+    _cleanup_review_files,
 )
 from engine.cleanup import _cleanup_batch_state
 from spec_review import (
-    should_continue_review, _reset_review_requests,
-    parse_review_yaml, validate_received_entry,
+    should_continue_review,
+    _reset_review_requests,
+    parse_review_yaml,
+    validate_received_entry,
 )
 
 
-
-
-
 # BLOCKEDまでの時間 (秒)
-from config import BLOCK_TIMERS, NUDGE_GRACE_SEC, EXTENDABLE_STATES, EXTEND_NOTICE_THRESHOLD
+from config import (
+    BLOCK_TIMERS,
+    NUDGE_GRACE_SEC,
+    EXTENDABLE_STATES,
+    EXTEND_NOTICE_THRESHOLD,
+)
 
-from engine.fsm import check_transition, get_min_reviews, _nudge_key, _recover_pending_notifications, build_review_config, get_phase_config
+from engine.fsm import (
+    check_transition,
+    get_min_reviews,
+    _nudge_key,
+    _recover_pending_notifications,
+    build_review_config,
+    get_phase_config,
+)
 
 
 from engine.fsm_spec import (
@@ -91,11 +134,13 @@ _ERROR_NOTIFY_THRESHOLD = 3
 
 def _load_wait_info() -> dict | None:
     from config import QUEUE_WAIT_FILE
+
     if not QUEUE_WAIT_FILE.exists():
         return None
     try:
         import json
         from datetime import datetime
+
         data = json.loads(QUEUE_WAIT_FILE.read_text())
         parsed = datetime.fromisoformat(data["deadline_utc"])
         if parsed.tzinfo is None:
@@ -124,6 +169,7 @@ def _check_queue():
         return
 
     from config import QUEUE_WAIT_FILE
+
     if QUEUE_WAIT_FILE.exists():
         return  # wait 中は次エントリを起動しない
 
@@ -131,7 +177,9 @@ def _check_queue():
         try:
             result = _sp.run(
                 [str(GOKRAX_CLI), "qrun", "--queue", str(queue_path)],
-                capture_output=True, text=True, timeout=360,
+                capture_output=True,
+                text=True,
+                timeout=360,
             )
             if result.returncode == EXIT_QUEUE_SKIP:
                 log("[queue] entry skipped — retrying next entry")
@@ -141,7 +189,9 @@ def _check_queue():
                     log(f"[queue] {result.stdout.strip()}")
                 return
             else:
-                log(f"[queue] qrun failed (exit {result.returncode}): {result.stderr.strip()}")
+                log(
+                    f"[queue] qrun failed (exit {result.returncode}): {result.stderr.strip()}"
+                )
                 return
         except _sp.TimeoutExpired:
             log("[queue] qrun timeout (>360s)")
@@ -155,6 +205,7 @@ def _check_queue_wait_expiry():
     """wait ファイルの期限を確認し、期限到達なら次のキュー処理を起動する。"""
     from config import QUEUE_WAIT_FILE, DISCORD_CHANNEL
     from datetime import timezone
+
     if not QUEUE_WAIT_FILE.exists():
         return
     try:
@@ -173,6 +224,7 @@ def _check_queue_wait_expiry():
     log("[queue-wait] wait expired, resuming queue")
     try:
         from notify import post_discord
+
         if DISCORD_CHANNEL:
             post_discord(DISCORD_CHANNEL, "✅ Queue wait complete, resuming")
     except Exception:
@@ -193,7 +245,7 @@ def process(path: Path):
     pending = data.get("_pending_notifications")
     if pending:
         log(f"[{pj_recover}] recovering pending notifications: {list(pending.keys())}")
-        _recover_pending_notifications(pj_recover, pending)
+        _recover_pending_notifications(pj_recover, pending, data.get("state", "IDLE"))
         return
 
     if not data.get("enabled", False):
@@ -215,12 +267,14 @@ def process(path: Path):
     if dispute_pn:
         old_keys = [k for k, v in dispute_pn.items() if v.get("type") == "dispute"]
         if old_keys:
+
             def _clear_old(d, keys=old_keys):
                 pn = d.get("pending_notifications", {})
                 for k in keys:
                     pn.pop(k, None)
                 if not pn:
                     d.pop("pending_notifications", None)
+
             update_pipeline(path, _clear_old)
 
     # spec mode: batch空を許容し、専用ロジックに委譲
@@ -229,8 +283,14 @@ def process(path: Path):
         now = _datetime.now(LOCAL_TZ)
         action = check_transition_spec(state, spec_config, now, data)
         # 副作用フィールドが1つでもあれば適用
-        if (action.next_state or action.pipeline_updates or action.send_to
-                or action.discord_notify or action.nudge_reviewers or action.nudge_implementer):
+        if (
+            action.next_state
+            or action.pipeline_updates
+            or action.send_to
+            or action.discord_notify
+            or action.nudge_reviewers
+            or action.nudge_implementer
+        ):
             action.expected_state = state
             _apply_spec_action(path, action, now, data)
         return
@@ -240,7 +300,15 @@ def process(path: Path):
         return
 
     pre_action = check_transition(state, batch, data)
-    if pre_action.new_state is None and not pre_action.nudge and not pre_action.nudge_reviewers and not pre_action.dispute_nudge_reviewers and not pre_action.save_grace_met_at and not pre_action.run_cc and not pre_action.run_test:
+    if (
+        pre_action.new_state is None
+        and not pre_action.nudge
+        and not pre_action.nudge_reviewers
+        and not pre_action.dispute_nudge_reviewers
+        and not pre_action.save_grace_met_at
+        and not pre_action.run_cc
+        and not pre_action.run_test
+    ):
         return
 
     # === ロック内で第2チェック + 遷移 (Double-Checked Locking) ===
@@ -264,8 +332,14 @@ def process(path: Path):
             # save_grace_met_at は遷移なしの grace 待ち専用。他の副作用フラグが
             # 同居していると、この early return で握りつぶされる。
             _unexpected = [
-                f for f in ("run_cc", "run_test", "send_review", "send_merge_summary",
-                            "reset_reviewers")
+                f
+                for f in (
+                    "run_cc",
+                    "run_test",
+                    "send_review",
+                    "send_merge_summary",
+                    "reset_reviewers",
+                )
                 if getattr(action, f, False)
             ]
             if _unexpected:
@@ -285,7 +359,9 @@ def process(path: Path):
                         raise ValueError("naive datetime")
                 except (ValueError, TypeError):
                     should_write = True
-                    log(f"[{data.get('project', path.stem)}] WARNING: corrupt {key}={existing!r}, overwriting")
+                    log(
+                        f"[{data.get('project', path.stem)}] WARNING: corrupt {key}={existing!r}, overwriting"
+                    )
 
             if should_write:
                 data[key] = _datetime.now(LOCAL_TZ).isoformat()
@@ -296,15 +372,21 @@ def process(path: Path):
         # レビュアー催促（書き込み不要、情報保存のみ）
         if action.nudge_reviewers or action.dispute_nudge_reviewers:
             pj = data.get("project", path.stem)
-            notification.update({
-                "pj": pj,
-                "action": action,
-                "nudge_reviewers": list(action.nudge_reviewers) if action.nudge_reviewers else [],
-                "dispute_nudge_reviewers": list(action.dispute_nudge_reviewers) if action.dispute_nudge_reviewers else [],
-                "batch": list(batch),
-                "old_state": state,
-                "queue_mode": data.get("queue_mode", False),
-            })
+            notification.update(
+                {
+                    "pj": pj,
+                    "action": action,
+                    "nudge_reviewers": list(action.nudge_reviewers)
+                    if action.nudge_reviewers
+                    else [],
+                    "dispute_nudge_reviewers": list(action.dispute_nudge_reviewers)
+                    if action.dispute_nudge_reviewers
+                    else [],
+                    "batch": list(batch),
+                    "old_state": state,
+                    "queue_mode": data.get("queue_mode", False),
+                }
+            )
             return
 
         # 実装担当催促（遷移なし、カウンタ書き込みのみ）
@@ -315,11 +397,17 @@ def process(path: Path):
                 return
             # 前回催促からの経過が閾値未満ならスキップ
             # DESIGN_PLAN は作業時間が長いため専用閾値を使う
-            nudge_threshold = INACTIVE_THRESHOLD_PLAN_SEC if state == "DESIGN_PLAN" else INACTIVE_THRESHOLD_SEC
+            nudge_threshold = (
+                INACTIVE_THRESHOLD_PLAN_SEC
+                if state == "DESIGN_PLAN"
+                else INACTIVE_THRESHOLD_SEC
+            )
             last_nudge = data.get("_last_nudge_at")
             if last_nudge:
                 try:
-                    elapsed_since_nudge = (_datetime.now(LOCAL_TZ) - _datetime.fromisoformat(last_nudge)).total_seconds()
+                    elapsed_since_nudge = (
+                        _datetime.now(LOCAL_TZ) - _datetime.fromisoformat(last_nudge)
+                    ).total_seconds()
                     if elapsed_since_nudge < nudge_threshold:
                         return
                 except (ValueError, TypeError):
@@ -329,15 +417,17 @@ def process(path: Path):
             data["_last_nudge_at"] = _datetime.now(LOCAL_TZ).isoformat()
             pj = data.get("project", path.stem)
             log(f"[{pj}] {action.nudge}: nudge notification sent (count={data[key]})")
-            notification.update({
-                "pj": pj,
-                "action": action,
-                "implementer": data.get("implementer", IMPLEMENTERS[0]),
-                "batch": list(batch),
-                "gitlab": data.get("gitlab", f"{GITLAB_NAMESPACE}/{pj}"),
-                "nudge_count": data[key],
-                "queue_mode": data.get("queue_mode", False),
-            })
+            notification.update(
+                {
+                    "pj": pj,
+                    "action": action,
+                    "implementer": data.get("implementer", IMPLEMENTERS[0]),
+                    "batch": list(batch),
+                    "gitlab": data.get("gitlab", f"{GITLAB_NAMESPACE}/{pj}"),
+                    "nudge_count": data[key],
+                    "queue_mode": data.get("queue_mode", False),
+                }
+            )
             return
 
         if action.new_state is None and not action.run_cc:
@@ -347,15 +437,17 @@ def process(path: Path):
         # run_cc only（状態遷移なし）: CC起動フラグだけ立ててreturn
         if action.run_cc and action.new_state is None:
             pj = data.get("project", path.stem)
-            notification.update({
-                "pj": pj,
-                "action": action,
-                "old_state": data.get("state", "IDLE"),
-                "repo_path": data.get("repo_path", ""),
-                "batch": list(data.get("batch", [])),
-                "gitlab": data.get("gitlab", f"{GITLAB_NAMESPACE}/{pj}"),
-                "round_suffix": "",
-            })
+            notification.update(
+                {
+                    "pj": pj,
+                    "action": action,
+                    "old_state": data.get("state", "IDLE"),
+                    "repo_path": data.get("repo_path", ""),
+                    "batch": list(data.get("batch", [])),
+                    "gitlab": data.get("gitlab", f"{GITLAB_NAMESPACE}/{pj}"),
+                    "round_suffix": "",
+                }
+            )
             # Issue #59: pending notification for run_cc
             pending = {"run_cc": True}
             merge_pending_notifications(data, pending, pj)
@@ -384,6 +476,7 @@ def process(path: Path):
         _skip_review_mode = ""
         if state == "ASSESSMENT" and action.new_state == "IDLE":
             from engine.fsm import _worst_risk
+
             worst_risk = _worst_risk(data.get("batch", []))
             _skip_assessment = {"domain_risk": worst_risk}
             _skip_batch = list(data.get("batch", []))
@@ -395,14 +488,22 @@ def process(path: Path):
             _cleanup_batch_state(data, pj)
 
         # ASSESSMENT → IMPLEMENTATION (一部除外): batch を remaining に差し替え (Issue #200)
-        if state == "ASSESSMENT" and action.new_state == "IMPLEMENTATION" and action.remaining_issues is not None:
+        if (
+            state == "ASSESSMENT"
+            and action.new_state == "IMPLEMENTATION"
+            and action.remaining_issues is not None
+        ):
             data["batch"] = list(action.remaining_issues)
 
         # INITIALIZE→DESIGN_PLAN/DESIGN_APPROVED: Reset REVISE cycle counters + 初期化処理 (Issue #29, #125, #201)
-        if state == "INITIALIZE" and action.new_state in ("DESIGN_PLAN", "DESIGN_APPROVED"):
+        if state == "INITIALIZE" and action.new_state in (
+            "DESIGN_PLAN",
+            "DESIGN_APPROVED",
+        ):
             # --- closed issue guard (Issue #332) ---
             if not data.get("allow_closed", False):
                 from engine.glab import fetch_issue_state
+
                 gitlab = data.get("gitlab", f"{GITLAB_NAMESPACE}/{pj}")
                 closed_in_batch = []
                 unverifiable_in_batch = []
@@ -428,7 +529,9 @@ def process(path: Path):
                     data["state"] = "BLOCKED"
                     data["blocked_reason"] = None
                     data["enabled"] = False
-                    add_history(data, "INITIALIZE", "BLOCKED", "watchdog:closed-issue-guard")
+                    add_history(
+                        data, "INITIALIZE", "BLOCKED", "watchdog:closed-issue-guard"
+                    )
                     notification["closed_guard"] = {"pj": pj, "detail": detail}
                     return
             data.pop("design_revise_count", None)
@@ -441,16 +544,26 @@ def process(path: Path):
                 try:
                     import subprocess as _sub_pull
                     import os as _os_pull
-                    _pull_env = {**_os_pull.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_SSH_COMMAND": "ssh -o BatchMode=yes"}
+
+                    _pull_env = {
+                        **_os_pull.environ,
+                        "GIT_TERMINAL_PROMPT": "0",
+                        "GIT_SSH_COMMAND": "ssh -o BatchMode=yes",
+                    }
                     _pull_result = _sub_pull.run(
                         ["git", "-C", repo, "pull", "--ff-only"],
-                        capture_output=True, text=True, timeout=60, check=False,
+                        capture_output=True,
+                        text=True,
+                        timeout=60,
+                        check=False,
                         env=_pull_env,
                     )
                     if _pull_result.returncode == 0:
                         log(f"[{pj}] git pull succeeded")
                     else:
-                        log(f"[{pj}] WARNING: git pull failed (rc={_pull_result.returncode}): {_pull_result.stderr.strip()}")
+                        log(
+                            f"[{pj}] WARNING: git pull failed (rc={_pull_result.returncode}): {_pull_result.stderr.strip()}"
+                        )
                 except Exception as e:
                     log(f"[{pj}] WARNING: git pull error: {e}")
 
@@ -459,13 +572,19 @@ def process(path: Path):
             if repo:
                 try:
                     import subprocess as _sub_bc
+
                     _result = _sub_bc.run(
                         ["git", "-C", repo, "log", "--format=%H", "-1"],
-                        capture_output=True, text=True, timeout=10, check=False,
+                        capture_output=True,
+                        text=True,
+                        timeout=10,
+                        check=False,
                     )
                     if _result.returncode == 0 and _result.stdout.strip():
                         data["base_commit"] = _result.stdout.strip()
-                        log(f"[{pj}] base_commit recorded at {action.new_state}: {data['base_commit'][:7]}")
+                        log(
+                            f"[{pj}] base_commit recorded at {action.new_state}: {data['base_commit'][:7]}"
+                        )
                 except Exception as e:
                     log(f"[{pj}] WARNING: failed to record base_commit: {e}")
 
@@ -488,24 +607,33 @@ def process(path: Path):
             if repo and _has_pytest(repo):
                 import subprocess as _sub
                 import tempfile
+
                 try:
                     head = _sub.run(
                         ["git", "-C", repo, "rev-parse", "HEAD"],
-                        capture_output=True, text=True, timeout=10, check=True,
+                        capture_output=True,
+                        text=True,
+                        timeout=10,
+                        check=True,
                     ).stdout.strip()
 
-                    fd_out, pytest_out_path = tempfile.mkstemp(suffix=".txt", prefix="gokrax-pytest-")
+                    fd_out, pytest_out_path = tempfile.mkstemp(
+                        suffix=".txt", prefix="gokrax-pytest-"
+                    )
                     os.close(fd_out)
                     exit_code_path = pytest_out_path + ".exit"
 
                     import shlex
-                    fd_sh, script_path = tempfile.mkstemp(suffix=".sh", prefix="gokrax-pytest-")
+
+                    fd_sh, script_path = tempfile.mkstemp(
+                        suffix=".sh", prefix="gokrax-pytest-"
+                    )
                     script = (
-                        f'#!/bin/bash\n'
-                        f'cd {shlex.quote(repo)}\n'
-                        f'python3 -m pytest --tb=short -q > {shlex.quote(pytest_out_path)} 2>&1\n'
-                        f'echo $? > {shlex.quote(exit_code_path)}\n'
-                        f'rm -f {shlex.quote(script_path)}\n'
+                        f"#!/bin/bash\n"
+                        f"cd {shlex.quote(repo)}\n"
+                        f"python3 -m pytest --tb=short -q > {shlex.quote(pytest_out_path)} 2>&1\n"
+                        f"echo $? > {shlex.quote(exit_code_path)}\n"
+                        f"rm -f {shlex.quote(script_path)}\n"
                     )
                     os.write(fd_sh, script.encode())
                     os.close(fd_sh)
@@ -524,7 +652,9 @@ def process(path: Path):
                         "output_path": pytest_out_path,
                         "exit_code_path": exit_code_path,
                     }
-                    log(f"[{pj}] pytest baseline started (pid={proc.pid}, commit={head[:8]})")
+                    log(
+                        f"[{pj}] pytest baseline started (pid={proc.pid}, commit={head[:8]})"
+                    )
                 except Exception as e:
                     log(f"[{pj}] WARNING: pytest baseline start failed: {e}")
                     data.pop("_pytest_baseline", None)
@@ -533,8 +663,15 @@ def process(path: Path):
                 data.pop("test_baseline", None)
 
         # REVIEW/NPASS→REVISE: Increment cycle counter (Issue #29) + NPASS cleanup
-        if state in ("DESIGN_REVIEW", "CODE_REVIEW", "DESIGN_REVIEW_NPASS", "CODE_REVIEW_NPASS") and action.new_state in ("DESIGN_REVISE", "CODE_REVISE"):
-            counter_key = "design_revise_count" if "DESIGN" in state else "code_revise_count"
+        if state in (
+            "DESIGN_REVIEW",
+            "CODE_REVIEW",
+            "DESIGN_REVIEW_NPASS",
+            "CODE_REVIEW_NPASS",
+        ) and action.new_state in ("DESIGN_REVISE", "CODE_REVISE"):
+            counter_key = (
+                "design_revise_count" if "DESIGN" in state else "code_revise_count"
+            )
             data[counter_key] = data.get(counter_key, 0) + 1
             log(f"[{pj}] {counter_key} incremented to {data[counter_key]}")
             data.pop("_npass_target_reviewers", None)
@@ -543,20 +680,21 @@ def process(path: Path):
         if state in ("DESIGN_REVISE", "CODE_REVISE"):
             revised_key = "design_revised" if "DESIGN" in state else "code_revised"
             key = "design_reviews" if "DESIGN" in state else "code_reviews"
-            
+
             # クリア前にP0/P1レビューを退避（再レビュー依頼で前回指摘を引用するため）
             prev_reviews = {}
             for issue in batch:
                 reviews = issue.get(key, {})
                 cleared = {
-                    r: dict(v) for r, v in reviews.items()
+                    r: dict(v)
+                    for r, v in reviews.items()
                     if v.get("verdict", "").upper() in ("REJECT", "P0", "P1", "P2")
                 }
                 if cleared:
                     prev_reviews[issue["issue"]] = cleared
             # notification dict 経由で渡す（pipeline JSON には保存しない）
             notification["prev_reviews"] = prev_reviews
-            
+
             clear_reviews(batch, key, revised_key)
 
             # Mark flags as resolved (REVISE→REVIEW transition confirmed)
@@ -578,8 +716,13 @@ def process(path: Path):
                 log(f"[{pj}] cleared code_min_reviews_met_at")
 
         # REVIEW → APPROVED/REVISE: exclude unresponsive reviewers (Issue #44, #237, #256)
-        if (state == "DESIGN_REVIEW" and action.new_state in ("DESIGN_APPROVED", "DESIGN_REVISE")) or \
-           (state == "CODE_REVIEW" and action.new_state in ("CODE_APPROVED", "CODE_REVISE")):
+        if (
+            state == "DESIGN_REVIEW"
+            and action.new_state in ("DESIGN_APPROVED", "DESIGN_REVISE")
+        ) or (
+            state == "CODE_REVIEW"
+            and action.new_state in ("CODE_APPROVED", "CODE_REVISE")
+        ):
             phase = "design" if "DESIGN" in state else "code"
             review_key = f"{phase}_reviews"
             phase_config = get_phase_config(data, phase)
@@ -587,7 +730,9 @@ def process(path: Path):
             responded = set()
             for item in batch:
                 responded.update(item.get(review_key, {}).keys())
-            no_response = all_reviewers - responded - set(data.get("excluded_reviewers", []))
+            no_response = (
+                all_reviewers - responded - set(data.get("excluded_reviewers", []))
+            )
             if no_response:
                 excluded = data.get("excluded_reviewers", [])
                 for r in no_response:
@@ -596,10 +741,16 @@ def process(path: Path):
                 data["excluded_reviewers"] = excluded
                 effective = len(all_reviewers - set(excluded))
                 if effective == 0:
-                    log(f"[{pj}] WARNING: effective==0 at {action.new_state}, skipping min_reviews_override")
+                    log(
+                        f"[{pj}] WARNING: effective==0 at {action.new_state}, skipping min_reviews_override"
+                    )
                 else:
-                    data["min_reviews_override"] = max(1, min(phase_config["min_reviews"], effective))
-                log(f"[{pj}] ({phase}) excluding unresponsive reviewers: {sorted(no_response)}, excluded={excluded}, effective={effective}")
+                    data["min_reviews_override"] = max(
+                        1, min(phase_config["min_reviews"], effective)
+                    )
+                log(
+                    f"[{pj}] ({phase}) excluding unresponsive reviewers: {sorted(no_response)}, excluded={excluded}, effective={effective}"
+                )
 
         # CODE_TEST 進入時: テスト起動情報を notification に保存（ロック外でテスト起動）
         if action.new_state == "CODE_TEST" and action.run_test:
@@ -637,39 +788,68 @@ def process(path: Path):
 
         # NPASS→APPROVED: タイムアウト時の GitLab note 情報を構築
         _npass_timeout_notes: list[dict] = []
-        if state in ("DESIGN_REVIEW_NPASS", "CODE_REVIEW_NPASS") and action.new_state in ("DESIGN_APPROVED", "CODE_APPROVED"):
+        if state in (
+            "DESIGN_REVIEW_NPASS",
+            "CODE_REVIEW_NPASS",
+        ) and action.new_state in ("DESIGN_APPROVED", "CODE_APPROVED"):
             review_key = "design_reviews" if "DESIGN" in state else "code_reviews"
             for reviewer in data.get("_npass_target_reviewers", []):
                 for issue in batch:
                     entry = issue.get(review_key, {}).get(reviewer, {})
                     if entry.get("pass", 1) < entry.get("target_pass", 1):
-                        _npass_timeout_notes.append({
-                            "issue_num": issue["issue"],
-                            "reviewer": reviewer,
-                            "pass": entry.get("pass", 1),
-                            "target_pass": entry.get("target_pass", 1),
-                        })
+                        _npass_timeout_notes.append(
+                            {
+                                "issue_num": issue["issue"],
+                                "reviewer": reviewer,
+                                "pass": entry.get("pass", 1),
+                                "target_pass": entry.get("target_pass", 1),
+                            }
+                        )
             data.pop("_npass_target_reviewers", None)
 
         # ロック外通知用に情報を保存
         # DONE遷移時はbatchが既にクリア済みなので退避分を使う
-        saved_batch = _done_batch if state == "DONE" else (_skip_batch if state == "ASSESSMENT" and action.new_state == "IDLE" else list(data.get("batch", [])))
-        notification.update({
-            "pj": pj,
-            "old_state": state,
-            "action": action,
-            "gitlab": data.get("gitlab", f"{GITLAB_NAMESPACE}/{pj}"),
-            "implementer": data.get("implementer", IMPLEMENTERS[0]),
-            "batch": saved_batch,
-            "repo_path": data.get("repo_path", ""),
-            "review_mode": _done_review_mode if state == "DONE" else (_skip_review_mode if state == "ASSESSMENT" and action.new_state == "IDLE" else data["review_mode"]),
-            "keep_ctx_batch": data.get("keep_ctx_batch", False),
-            "keep_ctx_intra": data.get("keep_ctx_intra", False),
-            "queue_mode": _done_queue_mode if state == "DONE" else (_skip_queue_mode if state == "ASSESSMENT" and action.new_state == "IDLE" else data.get("queue_mode", False)),
-            "p2_fix": data.get("p2_fix", False),
-            "reviewer_number_map": data.get("reviewer_number_map"),
-            "round_suffix": get_round_suffix(data, action.new_state) if action.new_state else "",
-        })
+        saved_batch = (
+            _done_batch
+            if state == "DONE"
+            else (
+                _skip_batch
+                if state == "ASSESSMENT" and action.new_state == "IDLE"
+                else list(data.get("batch", []))
+            )
+        )
+        notification.update(
+            {
+                "pj": pj,
+                "old_state": state,
+                "action": action,
+                "gitlab": data.get("gitlab", f"{GITLAB_NAMESPACE}/{pj}"),
+                "implementer": data.get("implementer", IMPLEMENTERS[0]),
+                "batch": saved_batch,
+                "repo_path": data.get("repo_path", ""),
+                "review_mode": _done_review_mode
+                if state == "DONE"
+                else (
+                    _skip_review_mode
+                    if state == "ASSESSMENT" and action.new_state == "IDLE"
+                    else data["review_mode"]
+                ),
+                "keep_ctx_batch": data.get("keep_ctx_batch", False),
+                "keep_ctx_intra": data.get("keep_ctx_intra", False),
+                "queue_mode": _done_queue_mode
+                if state == "DONE"
+                else (
+                    _skip_queue_mode
+                    if state == "ASSESSMENT" and action.new_state == "IDLE"
+                    else data.get("queue_mode", False)
+                ),
+                "p2_fix": data.get("p2_fix", False),
+                "reviewer_number_map": data.get("reviewer_number_map"),
+                "round_suffix": get_round_suffix(data, action.new_state)
+                if action.new_state
+                else "",
+            }
+        )
         if _npass_timeout_notes:
             notification["_npass_timeout_notes"] = _npass_timeout_notes
         notification["skip_assessment"] = _skip_assessment
@@ -680,7 +860,9 @@ def process(path: Path):
 
         # Issue #206: no_cc モード — 実装者に手動実装通知
         if action.new_state == "IMPLEMENTATION" and data.get("no_cc", False):
-            issues_str = ", ".join(f"#{i['issue']}" for i in data.get("batch", []) if not i.get("commit"))
+            issues_str = ", ".join(
+                f"#{i['issue']}" for i in data.get("batch", []) if not i.get("commit")
+            )
             notification["no_cc_msg"] = (
                 f"Manual implementation mode (--no-cc).\n"
                 f"Target: {issues_str}\n"
@@ -710,7 +892,13 @@ def process(path: Path):
                 "batch": saved_batch,
                 "gitlab": data.get("gitlab", f"{GITLAB_NAMESPACE}/{pj}"),
                 "repo_path": data.get("repo_path", ""),
-                "review_mode": _done_review_mode if state == "DONE" else (_skip_review_mode if state == "ASSESSMENT" and action.new_state == "IDLE" else data["review_mode"]),
+                "review_mode": _done_review_mode
+                if state == "DONE"
+                else (
+                    _skip_review_mode
+                    if state == "ASSESSMENT" and action.new_state == "IDLE"
+                    else data["review_mode"]
+                ),
                 "base_commit": data.get("base_commit"),
             }
         if action.send_merge_summary:
@@ -721,7 +909,8 @@ def process(path: Path):
             _impl = data.get("implementer", IMPLEMENTERS[0])
             if _impl:
                 _report = render(
-                    "dev.blocked", "blocked_prompt_report",
+                    "dev.blocked",
+                    "blocked_prompt_report",
                     project=pj,
                     state=state,
                     impl_msg=action.impl_msg or "",
@@ -741,9 +930,13 @@ def process(path: Path):
     except KeyError as e:
         # review_mode 等の構成エラー: 当該PJを disabled にして安全に停止
         pj = data.get("project", path.stem)
-        log(f"[{pj}] FATAL: configuration error: {e}. Disabling watchdog for this project.")
+        log(
+            f"[{pj}] FATAL: configuration error: {e}. Disabling watchdog for this project."
+        )
+
         def _disable(d: dict) -> None:
             d["enabled"] = False
+
         try:
             update_pipeline(path, _disable)
         except Exception:
@@ -775,18 +968,24 @@ def process(path: Path):
             is_code = "CODE" in state
 
             # 全催促対象レビュアーを統合（重複排除）
-            all_reviewers = sorted(set(
-                notification.get("nudge_reviewers", [])
-                + notification.get("dispute_nudge_reviewers", [])
-            ))
+            all_reviewers = sorted(
+                set(
+                    notification.get("nudge_reviewers", [])
+                    + notification.get("dispute_nudge_reviewers", [])
+                )
+            )
 
             for reviewer in all_reviewers:
                 # 前回催促からINACTIVE_THRESHOLD_SEC未満ならスキップ（レート制限）
                 nudge_key = f"_last_nudge_{reviewer}"
-                last_at = pipeline_data.get(nudge_key) or pipeline_data.get(f"_nudge_failed_{reviewer}")
+                last_at = pipeline_data.get(nudge_key) or pipeline_data.get(
+                    f"_nudge_failed_{reviewer}"
+                )
                 if last_at:
                     try:
-                        elapsed = (_datetime.now(LOCAL_TZ) - _datetime.fromisoformat(last_at)).total_seconds()
+                        elapsed = (
+                            _datetime.now(LOCAL_TZ) - _datetime.fromisoformat(last_at)
+                        ).total_seconds()
                         if elapsed < INACTIVE_THRESHOLD_SEC:
                             continue
                     except (ValueError, TypeError):
@@ -796,7 +995,8 @@ def process(path: Path):
                 normal_pending_issues = []
                 if reviewer in notification.get("nudge_reviewers", []):
                     normal_pending_issues = [
-                        item["issue"] for item in batch
+                        item["issue"]
+                        for item in batch
                         if reviewer not in item.get(review_key, {})
                     ]
 
@@ -805,9 +1005,13 @@ def process(path: Path):
                 if reviewer in notification.get("dispute_nudge_reviewers", []):
                     for item in batch:
                         for d in item.get("disputes", []):
-                            if (d.get("reviewer") == reviewer
-                                    and d.get("status") == "pending"):
-                                dispute_items.append((item["issue"], d.get("reason", "(unknown)")))
+                            if (
+                                d.get("reviewer") == reviewer
+                                and d.get("status") == "pending"
+                            ):
+                                dispute_items.append(
+                                    (item["issue"], d.get("reason", "(unknown)"))
+                                )
 
                 # どちらもなければスキップ
                 if not normal_pending_issues and not dispute_items:
@@ -816,6 +1020,7 @@ def process(path: Path):
                 # メッセージ組み立て（1通にまとめる）
                 from notify import review_command
                 from pipeline_io import get_current_round
+
                 round_num = get_current_round(pipeline_data)
                 msg_parts = []
 
@@ -827,23 +1032,40 @@ def process(path: Path):
                         lines.append(
                             f"  #{issue_num}: {reason}\n"
                             f"    {GOKRAX_CLI} review --pj {pj} --issue {issue_num} "
-                            f"--reviewer {reviewer} --verdict <APPROVE/P0/P1/P2> --summary \"...\" --force"
+                            f'--reviewer {reviewer} --verdict <APPROVE/P0/P1/P2> --summary "..." --force'
                         )
-                    msg_parts.append(render(review_module, "nudge_dispute",
-                        project=pj, dispute_lines="\n".join(lines),
-                    ))
+                    msg_parts.append(
+                        render(
+                            review_module,
+                            "nudge_dispute",
+                            project=pj,
+                            dispute_lines="\n".join(lines),
+                        )
+                    )
 
                 if normal_pending_issues:
                     cmd_lines = "\n".join(
-                        review_command(pj, num, reviewer, round_num=round_num if round_num > 0 else None,
-                                       phase="code" if is_code else "design") for num in normal_pending_issues
+                        review_command(
+                            pj,
+                            num,
+                            reviewer,
+                            round_num=round_num if round_num > 0 else None,
+                            phase="code" if is_code else "design",
+                        )
+                        for num in normal_pending_issues
                     )
 
                     # §3-6: refresher commands (same pattern as NPASS notify.py:325-341)
                     gitlab_ref = pipeline_data.get("gitlab", "")
                     gitlab_flag = f" -R {gitlab_ref}" if gitlab_ref else ""
-                    view_cmds = [f"`glab issue view {n}{gitlab_flag}`" for n in normal_pending_issues]
-                    note_cmds = [f"`{GOKRAX_CLI} get-comments --pj {pj} --issue {n}`" for n in normal_pending_issues]
+                    view_cmds = [
+                        f"`glab issue view {n}{gitlab_flag}`"
+                        for n in normal_pending_issues
+                    ]
+                    note_cmds = [
+                        f"`{GOKRAX_CLI} get-comments --pj {pj} --issue {n}`"
+                        for n in normal_pending_issues
+                    ]
                     refresher_lines = (
                         "Issue body: " + ", ".join(view_cmds) + "\n"
                         "Previous comments: " + ", ".join(note_cmds)
@@ -859,20 +1081,31 @@ def process(path: Path):
 
                     # §3-6: phase-specific fixed instructions (reuse existing message funcs)
                     from messages import render as _render_msg
-                    nudge_phase_note = "" if is_code else _render_msg("dev.design_review", "phase_note")
+
+                    nudge_phase_note = (
+                        ""
+                        if is_code
+                        else _render_msg("dev.design_review", "phase_note")
+                    )
                     nudge_guidance = _render_msg(
                         "dev.code_review" if is_code else "dev.design_review",
                         "guidance_code" if is_code else "guidance_design",
                     )
 
-                    msg_parts.append(render(review_module, "nudge_review",
-                        project=pj,
-                        issues_display=", ".join(f"#{n}" for n in normal_pending_issues),
-                        cmd_lines=cmd_lines,
-                        refresher_cmds=refresher_lines,
-                        phase_note=nudge_phase_note,
-                        guidance=nudge_guidance,
-                    ))
+                    msg_parts.append(
+                        render(
+                            review_module,
+                            "nudge_review",
+                            project=pj,
+                            issues_display=", ".join(
+                                f"#{n}" for n in normal_pending_issues
+                            ),
+                            cmd_lines=cmd_lines,
+                            refresher_cmds=refresher_lines,
+                            phase_note=nudge_phase_note,
+                            guidance=nudge_guidance,
+                        )
+                    )
 
                 msg = "\n\n".join(msg_parts)
 
@@ -884,11 +1117,13 @@ def process(path: Path):
             # 催促タイムスタンプを一括更新
             nudged = woken + failed
             if nudged:
+
                 def _set_nudge_ts(data, reviewers=nudged, ok=woken, ng=failed):
                     for r in reviewers:
                         data[f"_last_nudge_{r}"] = _datetime.now(LOCAL_TZ).isoformat()
                     for r in ng:
                         data[f"_nudge_failed_{r}"] = _datetime.now(LOCAL_TZ).isoformat()
+
                 update_pipeline(notify_path, _set_nudge_ts)
 
             if woken:
@@ -896,8 +1131,12 @@ def process(path: Path):
                 q_prefix = "[Queue]" if notification.get("queue_mode") else ""
                 reviewers_with_ts = f"{', '.join(woken)} ({ts})"
                 review_module = "dev.code_review" if is_code else "dev.design_review"
-                nudge_notify = render(review_module, "notify_nudge_reviewers",
-                    project=pj, reviewers=reviewers_with_ts, q_prefix=q_prefix,
+                nudge_notify = render(
+                    review_module,
+                    "notify_nudge_reviewers",
+                    project=pj,
+                    reviewers=reviewers_with_ts,
+                    q_prefix=q_prefix,
                 )
                 log(nudge_notify)
                 notify_discord(nudge_notify)
@@ -918,7 +1157,9 @@ def process(path: Path):
             elif nudge_state == "CODE_TEST_FIX":
                 nudge_msg = render("dev.code_test_fix", "nudge")
             elif nudge_state == "ASSESSMENT":
-                nudge_msg = render("dev.assessment", "nudge", batch=data.get("batch", []))
+                nudge_msg = render(
+                    "dev.assessment", "nudge", batch=data.get("batch", [])
+                )
             else:
                 nudge_msg = "[Remind] Please proceed and complete your work."
 
@@ -927,12 +1168,16 @@ def process(path: Path):
             send_to_agent_queued(notification["implementer"], nudge_msg)
             ts = _datetime.now(LOCAL_TZ).strftime("%m/%d %H:%M")
             q_prefix = "[Queue]" if notification.get("queue_mode") else ""
-            notify_discord(f"{q_prefix}[{pj}] {action.nudge}: nudging implementer {notification['implementer']} ({ts})")
+            notify_discord(
+                f"{q_prefix}[{pj}] {action.nudge}: nudging implementer {notification['implementer']} ({ts})"
+            )
             return
 
         ts = _datetime.now(LOCAL_TZ).strftime("%m/%d %H:%M")
         q_prefix = "[Queue]" if notification.get("queue_mode") else ""
-        notify_discord(f"{q_prefix}[{pj}] {notification['old_state']} → {action.new_state}{notification['round_suffix']} ({ts})")
+        notify_discord(
+            f"{q_prefix}[{pj}] {notification['old_state']} → {action.new_state}{notification['round_suffix']} ({ts})"
+        )
 
         # BLOCKED: impl_msg を Discord に送信
         if action.new_state == "BLOCKED" and action.impl_msg:
@@ -953,6 +1198,7 @@ def process(path: Path):
         _npass_timeout_notes = notification.get("_npass_timeout_notes", [])
         if _npass_timeout_notes:
             from notify import post_gitlab_note, mask_agent_name
+
             gitlab = notification.get("gitlab", "")
             _rnm = notification.get("reviewer_number_map")
             for note in _npass_timeout_notes:
@@ -966,10 +1212,18 @@ def process(path: Path):
 
         # ASSESSMENT遷移時: assessment 結果を GitLab note に投稿 (Issue #186)
         _RISK_LABELS = {"none": "No Risk", "low": "Low Risk", "high": "High Risk"}
-        if notification.get("old_state") == "ASSESSMENT" and action.new_state in ("IMPLEMENTATION", "IDLE"):
+        if notification.get("old_state") == "ASSESSMENT" and action.new_state in (
+            "IMPLEMENTATION",
+            "IDLE",
+        ):
             from notify import post_gitlab_note
+
             gitlab = notification.get("gitlab", "")
-            _assess_batch = notification.get("skip_batch") if action.new_state == "IDLE" else notification.get("batch", [])
+            _assess_batch = (
+                notification.get("skip_batch")
+                if action.new_state == "IDLE"
+                else notification.get("batch", [])
+            )
             for issue in _assess_batch:
                 assessment = issue.get("assessment")
                 if not assessment:
@@ -990,7 +1244,9 @@ def process(path: Path):
                 body = "\n\n".join(lines)
                 ok = post_gitlab_note(gitlab, issue["issue"], body)
                 if not ok:
-                    log(f"[{pj}] WARNING: assessment note failed for issue #{issue['issue']}")
+                    log(
+                        f"[{pj}] WARNING: assessment note failed for issue #{issue['issue']}"
+                    )
 
             # Issue #200: 一部除外時、除外 Issue にも assessment note を投稿（Excluded 付記）
             skipped = notification.get("skipped_issues", [])
@@ -1013,16 +1269,26 @@ def process(path: Path):
                     body = "\n\n".join(lines)
                     ok = post_gitlab_note(gitlab, issue["issue"], body)
                     if not ok:
-                        log(f"[{pj}] WARNING: assessment note (excluded) failed for issue #{issue['issue']}")
+                        log(
+                            f"[{pj}] WARNING: assessment note (excluded) failed for issue #{issue['issue']}"
+                        )
 
                 from notify import post_discord
                 from config import DISCORD_CHANNEL
-                skipped_nums = ", ".join(f"#{i['issue']}" for i in skipped if isinstance(i, dict) and "issue" in i)
-                post_discord(DISCORD_CHANNEL, f"[{pj}] Excluded by risk filter: {skipped_nums}")
+
+                skipped_nums = ", ".join(
+                    f"#{i['issue']}"
+                    for i in skipped
+                    if isinstance(i, dict) and "issue" in i
+                )
+                post_discord(
+                    DISCORD_CHANNEL, f"[{pj}] Excluded by risk filter: {skipped_nums}"
+                )
 
         # BLOCKED: impl_msg を GitLab note として投稿（永続記録）
         if action.new_state == "BLOCKED" and action.impl_msg:
             from notify import post_gitlab_note
+
             gitlab = notification.get("gitlab", "")
             for issue in notification.get("batch", []):
                 issue_num = issue.get("issue") if isinstance(issue, dict) else issue
@@ -1040,22 +1306,27 @@ def process(path: Path):
 
         # REVISE遷移時: P0サマリーを投稿
         if action.new_state in ("DESIGN_REVISE", "CODE_REVISE"):
-            review_key = "design_reviews" if "DESIGN" in action.new_state else "code_reviews"
+            review_key = (
+                "design_reviews" if "DESIGN" in action.new_state else "code_reviews"
+            )
             batch = notification["batch"]
             p2_fix = notification.get("p2_fix", False)
             lines = []
             for item in batch:
                 reviews = item.get(review_key, {})
                 p0_reviewers = [
-                    r for r, rev in reviews.items()
+                    r
+                    for r, rev in reviews.items()
                     if rev.get("verdict", "").upper() in ("P0", "REJECT")
                 ]
                 p1_reviewers = [
-                    r for r, rev in reviews.items()
+                    r
+                    for r, rev in reviews.items()
                     if rev.get("verdict", "").upper() == "P1"
                 ]
                 p2_reviewers = [
-                    r for r, rev in reviews.items()
+                    r
+                    for r, rev in reviews.items()
                     if rev.get("verdict", "").upper() == "P2"
                 ]
                 parts = []
@@ -1068,31 +1339,49 @@ def process(path: Path):
                 if parts:
                     lines.append(f"#{item['issue']}: {', '.join(parts)}")
             if lines:
-                notify_discord(render("dev.design_revise", "notify_revise_summary",
-                    project=pj, revise_lines="\n".join(lines), q_prefix=q_prefix,
-                ))
+                notify_discord(
+                    render(
+                        "dev.design_revise",
+                        "notify_revise_summary",
+                        project=pj,
+                        revise_lines="\n".join(lines),
+                        q_prefix=q_prefix,
+                    )
+                )
 
         # バッチ開始時のみIssue一覧を別メッセージで通知
         if notification.get("old_state") == "INITIALIZE":
             batch = notification.get("batch", [])
             if batch:
                 issue_lines = [f"#{i['issue']}: {i.get('title', '')}" for i in batch]
-                notify_discord(render("dev.design_plan", "notify_issues",
-                    project=pj, issue_lines="\n".join(issue_lines), q_prefix=q_prefix,
-                ))
+                notify_discord(
+                    render(
+                        "dev.design_plan",
+                        "notify_issues",
+                        project=pj,
+                        issue_lines="\n".join(issue_lines),
+                        q_prefix=q_prefix,
+                    )
+                )
 
         # MERGE_SUMMARY_SENT遷移時: #gokrax にサマリーを投稿（リトライ付き）
         if action.send_merge_summary:
             from config import DISCORD_CHANNEL
             from notify import post_discord, get_bot_token
+
             batch = notification["batch"]
             # automerge フラグを最新のパイプラインから読み取る (Issue #45)
             notify_path = get_path(pj)
             pipeline_data = load_pipeline(notify_path)
             automerge = pipeline_data.get("automerge", False)
             from config import MERGE_SUMMARY_FOOTER
-            content = render("dev.merge_summary_sent", "format_merge_summary",
-                project=pj, batch=batch, automerge=automerge,
+
+            content = render(
+                "dev.merge_summary_sent",
+                "format_merge_summary",
+                project=pj,
+                batch=batch,
+                automerge=automerge,
                 queue_mode=notification.get("queue_mode", False),
                 MERGE_SUMMARY_FOOTER=MERGE_SUMMARY_FOOTER,
                 reviewer_number_map=pipeline_data.get("reviewer_number_map"),
@@ -1102,7 +1391,9 @@ def process(path: Path):
                 result = post_discord(DISCORD_CHANNEL, content)
                 message_id = result.message_id
                 if result.is_partial:
-                    log(f"[{pj}] WARNING: partial delivery — some notification chunks failed")
+                    log(
+                        f"[{pj}] WARNING: partial delivery — some notification chunks failed"
+                    )
             else:
                 message_id = None
                 log(f"[{pj}] Discord not configured; skipping merge-summary post")
@@ -1110,8 +1401,10 @@ def process(path: Path):
             if message_id is not None:
                 # summary_message_id をパイプラインに保存
                 notify_path = get_path(pj)
+
                 def _save_summary_id(data):
                     data["summary_message_id"] = message_id
+
                 update_pipeline(notify_path, _save_summary_id)
                 log(f"[{pj}] merge summary posted (message_id={message_id})")
                 clear_pending_notification(pj, "merge_summary")
@@ -1119,34 +1412,47 @@ def process(path: Path):
                 # 実装者セッションに通知 (Issue #48)
                 pipeline_data_fresh = load_pipeline(notify_path)
                 implementer = pipeline_data_fresh.get("implementer") or IMPLEMENTERS[0]
-                prompt = render("dev.done", "batch_done",
-                    project=pj, content=content,
+                prompt = render(
+                    "dev.done",
+                    "batch_done",
+                    project=pj,
+                    content=content,
                 )
                 try:
                     ok = notify_implementer(implementer, prompt)
                     if ok:
                         log(f"[{pj}] implementer notified: {implementer}")
                     else:
-                        log(f"[{pj}] WARNING: implementer notification failed (returned False)")
+                        log(
+                            f"[{pj}] WARNING: implementer notification failed (returned False)"
+                        )
                 except Exception as e:
                     log(f"[{pj}] WARNING: implementer notification failed: {e}")
             else:
                 if discord_available:
                     # Discord configured but post failed after retries → rollback
-                    log(f"[{pj}] WARNING: merge summary post failed after 3 attempts, rolling back state")
+                    log(
+                        f"[{pj}] WARNING: merge summary post failed after 3 attempts, rolling back state"
+                    )
                     notify_path = get_path(pj)
                     old_state = notification["old_state"]
+
                     def _rollback(data, restore=old_state):
                         data["state"] = restore
+
                     update_pipeline(notify_path, _rollback)
                     clear_pending_notification(pj, "merge_summary")
                 else:
                     # Discord not configured → proceed with empty summary_message_id
                     notify_path = get_path(pj)
+
                     def _save_empty_summary_id(data):
                         data["summary_message_id"] = ""
+
                     update_pipeline(notify_path, _save_empty_summary_id)
-                    log(f"[{pj}] merge summary skipped (no Discord), proceeding with empty summary_message_id")
+                    log(
+                        f"[{pj}] merge summary skipped (no Discord), proceeding with empty summary_message_id"
+                    )
                     clear_pending_notification(pj, "merge_summary")
 
         # DONE遷移時: git push + issue close を自動実行
@@ -1162,10 +1468,15 @@ def process(path: Path):
         if notification.get("old_state") == "ASSESSMENT" and action.new_state == "IDLE":
             from notify import post_discord
             from config import DISCORD_CHANNEL
+
             skip_assessment = notification.get("skip_assessment", {})
             skip_batch = notification.get("skip_batch", [])
             domain_risk = skip_assessment.get("domain_risk", "none")
-            issue_nums = ", ".join(f"#{i['issue']}" for i in skip_batch if isinstance(i, dict) and "issue" in i)
+            issue_nums = ", ".join(
+                f"#{i['issue']}"
+                for i in skip_batch
+                if isinstance(i, dict) and "issue" in i
+            )
             skip_q_prefix = "[Queue]" if notification.get("queue_mode") else ""
             skip_msg = (
                 f"{skip_q_prefix}[{pj}] ⏭️ All issues excluded by risk filter\n"
@@ -1175,13 +1486,16 @@ def process(path: Path):
 
         # IDLE遷移後: キューモードのときだけ次行を自動起動 (Issue #45, #181)
         # DONE→IDLE, ASSESSMENT→IDLE(リスクスキップ) の両方をカバー
-        if (action.new_state == "IDLE"
-                and notification.get("queue_mode")):
-            log(f"[{pj}] _check_queue() start (queue_mode={notification.get('queue_mode')})")
+        if action.new_state == "IDLE" and notification.get("queue_mode"):
+            log(
+                f"[{pj}] _check_queue() start (queue_mode={notification.get('queue_mode')})"
+            )
             _check_queue()
             log(f"[{pj}] _check_queue() done")
 
-        skip_reset = True  # reset not executed if reset_reviewers=False -> already_reset=False
+        skip_reset = (
+            True  # reset not executed if reset_reviewers=False -> already_reset=False
+        )
         if action.reset_reviewers:
             review_mode = notification.get("review_mode", "")
             state = notification.get("old_state", "")
@@ -1201,13 +1515,17 @@ def process(path: Path):
             phase_config = get_phase_config(pipeline_data, reset_phase)
 
             if skip_reset:
-                log(f"[{pj}] reset_reviewers SKIPPED: reason=keep_ctx from_state={state} new_state={action.new_state}")
+                log(
+                    f"[{pj}] reset_reviewers SKIPPED: reason=keep_ctx from_state={state} new_state={action.new_state}"
+                )
                 _reset_short_context_reviewers(phase_config)
                 excluded = []
             else:
                 # 実装担当も常にリセット（レビュアーと同タイミングで/new）
                 impl = notification.get("implementer", "")
-                log(f"[{pj}] reset_reviewers triggered: from_state={state} new_state={action.new_state} impl='{impl}' review_mode={review_mode}")
+                log(
+                    f"[{pj}] reset_reviewers triggered: from_state={state} new_state={action.new_state} impl='{impl}' review_mode={review_mode}"
+                )
                 excluded = _reset_reviewers(phase_config, implementer=impl)
 
             # Save excluded_reviewers and min_reviews_override inside update_pipeline lock
@@ -1223,6 +1541,7 @@ def process(path: Path):
                 data["excluded_reviewers"] = list(excluded)
                 data.pop("_transient_dispatch_warned", None)
                 from engine.agent_meta import snapshot
+
                 for r in phase_config["members"]:
                     snapshot(data, r)
                 # reviewer_number_map は初回のみ生成（バッチ内で安定させるため）
@@ -1239,14 +1558,18 @@ def process(path: Path):
                     # フォールバックしない（空集合は意図的な設定）。
                     if not rc:
                         all_phase_members = set(phase_config.get("members", []))
-                    active_reviewers = sorted(r for r in all_phase_members if r not in excluded)
+                    active_reviewers = sorted(
+                        r for r in all_phase_members if r not in excluded
+                    )
                     n = len(active_reviewers)
                     numbers = list(range(1, n + 1))
                     random.shuffle(numbers)
                     data["reviewer_number_map"] = dict(zip(active_reviewers, numbers))
 
                 # Calculate effective reviewer count
-                effective_count = len([m for m in phase_config["members"] if m not in excluded])
+                effective_count = len(
+                    [m for m in phase_config["members"] if m not in excluded]
+                )
                 min_reviews = get_min_reviews(phase_config)
 
                 # Clamp min_reviews if deadlock would occur
@@ -1280,12 +1603,14 @@ def process(path: Path):
 
             base_commit = pipeline_data.get("base_commit")
             from pipeline_io import get_current_round
+
             round_num = get_current_round(pipeline_data)
             # Derive phase_config for notify_reviewers
             notify_phase = STATE_PHASE_MAP.get(action.new_state or "", "design")
             pipeline_data = load_pipeline(get_path(pj))
             phase_config = get_phase_config(pipeline_data, notify_phase)
             from engine.backend import soft_reap
+
             prev_submitted = {r for reviews in prev_reviews.values() for r in reviews}
             for r in phase_config["members"]:
                 if r in excluded or r not in prev_submitted:
@@ -1296,7 +1621,10 @@ def process(path: Path):
                     log(f"[{pj}] soft-reap failed for {r}: {e}")
             try:
                 failed = notify_reviewers(
-                    pj, action.new_state, notification["batch"], notification["gitlab"],
+                    pj,
+                    action.new_state,
+                    notification["batch"],
+                    notification["gitlab"],
                     repo_path=notification.get("repo_path", ""),
                     review_mode=review_mode,
                     prev_reviews=prev_reviews,
@@ -1308,9 +1636,13 @@ def process(path: Path):
                     phase_config=phase_config,
                 )
             except KeyError as e:
-                log(f"[{pj}] FATAL: notify_reviewers failed due to configuration error: {e}. Disabling watchdog.")
+                log(
+                    f"[{pj}] FATAL: notify_reviewers failed due to configuration error: {e}. Disabling watchdog."
+                )
+
                 def _disable_on_notify_error(data: dict) -> None:
                     data["enabled"] = False
+
                 update_pipeline(get_path(pj), _disable_on_notify_error)
                 return
 
@@ -1318,13 +1650,17 @@ def process(path: Path):
             # nudge 経路で再試行される。観測性のため Discord 警告を 1 バッチ内で1回だけ出す。
             if isinstance(failed, list) and failed:
                 _warn_flag = [False]
+
                 def _mark_transient_warn(data: dict) -> None:
                     if not data.get("_transient_dispatch_warned"):
                         data["_transient_dispatch_warned"] = True
                         _warn_flag[0] = True
+
                 update_pipeline(get_path(pj), _mark_transient_warn)
                 if _warn_flag[0]:
-                    q_prefix = "[Queue]" if notification.get("queue_mode", False) else ""
+                    q_prefix = (
+                        "[Queue]" if notification.get("queue_mode", False) else ""
+                    )
                     notify_discord(
                         f"{q_prefix}[{pj}] ⚠️ review dispatch transient failure: "
                         f"{', '.join(failed)} — will retry via nudge"
@@ -1333,8 +1669,13 @@ def process(path: Path):
             clear_pending_notification(pj, "review")
         if action.run_cc:
             try:
-                _start_cc(pj, notification["batch"], notification["gitlab"],
-                          notification.get("repo_path", ""), path)
+                _start_cc(
+                    pj,
+                    notification["batch"],
+                    notification["gitlab"],
+                    notification.get("repo_path", ""),
+                    path,
+                )
             except Exception as e:
                 log(f"[{pj}] _start_cc failed: {e}")
                 ts = _datetime.now(LOCAL_TZ).strftime("%m/%d %H:%M")
@@ -1362,12 +1703,14 @@ def process(path: Path):
                 _start_code_test(pj, pipeline_data, path)
             except Exception as e:
                 log(f"[{pj}] _start_code_test failed: {e}")
+
                 def _block_test_fail(data: dict) -> None:
                     data["state"] = "BLOCKED"
                     data["enabled"] = False
                     data["blocked_reason"] = None
                     add_history(data, "CODE_TEST", "BLOCKED", actor="watchdog")
                     _kill_code_test(data, pj)
+
                 update_pipeline(path, _block_test_fail)
                 notify_discord(f"[{pj}] ⚠️ test launch failed: {e}")
 
@@ -1378,11 +1721,13 @@ def process(path: Path):
                 _start_cc_test_fix(pj, notification["batch"], pipeline_data, path)
             except Exception as e:
                 log(f"[{pj}] _start_cc_test_fix failed: {e}")
+
                 def _block_cc_fail(data: dict) -> None:
                     data["state"] = "BLOCKED"
                     data["enabled"] = False
                     data["blocked_reason"] = None
                     add_history(data, "CODE_TEST_FIX", "BLOCKED", actor="watchdog")
+
                 update_pipeline(path, _block_cc_fail)
                 notify_discord(f"[{pj}] ⚠️ CC test-fix launch failed: {e}")
 
@@ -1390,14 +1735,21 @@ def process(path: Path):
         if action.new_state == "CODE_TEST_FIX":
             pipeline_data = load_pipeline(path)
             if pipeline_data.get("state") != "CODE_TEST_FIX":
-                log(f"[{pj}] skipping CODE_TEST_FIX notification: state is {pipeline_data.get('state')}")
+                log(
+                    f"[{pj}] skipping CODE_TEST_FIX notification: state is {pipeline_data.get('state')}"
+                )
             else:
                 test_output = pipeline_data.get("test_output", "")
                 retry_count = pipeline_data.get("test_retry_count", 0)
                 from config import MAX_TEST_RETRY, GOKRAX_CLI as _GOKRAX_CLI
-                msg = render("dev.code_test_fix", "transition",
-                    project=pj, test_output=test_output,
-                    retry_count=retry_count, max_retry=MAX_TEST_RETRY,
+
+                msg = render(
+                    "dev.code_test_fix",
+                    "transition",
+                    project=pj,
+                    test_output=test_output,
+                    retry_count=retry_count,
+                    max_retry=MAX_TEST_RETRY,
                     GOKRAX_CLI=_GOKRAX_CLI,
                 )
                 try:
@@ -1408,13 +1760,13 @@ def process(path: Path):
                         phase="code",
                     )
                 except Exception as e:
-                    log(f"[{pj}] WARNING: CODE_TEST_FIX implementer notification failed: {e}")
+                    log(
+                        f"[{pj}] WARNING: CODE_TEST_FIX implementer notification failed: {e}"
+                    )
 
 
 # _stop_loop_if_idle は廃止。crontab/loop.sh は常時稼働し、
 # enabledチェックは process() 内の早期returnで行う。
-
-
 
 
 def _handle_qrun(msg_id: str):
@@ -1429,7 +1781,13 @@ def _handle_qrun(msg_id: str):
     """
     from config import DISCORD_CHANNEL, QUEUE_FILE
     from notify import post_discord
-    from task_queue import pop_next_queue_entry, restore_queue_entry, save_queue_options_to_pipeline, rollback_queue_mode, QueueSkipError
+    from task_queue import (
+        pop_next_queue_entry,
+        restore_queue_entry,
+        save_queue_options_to_pipeline,
+        rollback_queue_mode,
+        QueueSkipError,
+    )
     from gokrax import cmd_start
     from pipeline_io import update_pipeline, get_path
     import config
@@ -1461,13 +1819,17 @@ def _handle_qrun(msg_id: str):
         if entry.get("type") in ("wait", "wait_until"):
             try:
                 from commands.dev.queue import _start_queue_wait
+
                 _start_queue_wait(entry)
             except Exception as e:
                 from config import QUEUE_WAIT_FILE
+
                 QUEUE_WAIT_FILE.unlink(missing_ok=True)
                 restore_queue_entry(QUEUE_FILE, entry["original_line"])
                 try:
-                    post_discord(DISCORD_CHANNEL, f"qrun: wait failed, entry restored: {e}")
+                    post_discord(
+                        DISCORD_CHANNEL, f"qrun: wait failed, entry restored: {e}"
+                    )
                 except Exception:
                     pass
                 log(f"[qrun] wait failed: {e} (msg_id={msg_id})")
@@ -1507,13 +1869,17 @@ def _handle_qrun(msg_id: str):
             exclude_high_risk=entry.get("exclude_high_risk", False),
             exclude_any_risk=entry.get("exclude_any_risk", False),
             allow_closed=entry.get("allow_closed", False),
-            autopull=entry["autopull"] if "autopull" in entry.get("_explicit_keys", set()) else None,
+            autopull=entry["autopull"]
+            if "autopull" in entry.get("_explicit_keys", set())
+            else None,
         )
 
         # queue_mode を先に設定（cmd_start 内の遷移通知で [Queue] prefix を使うため）
         path = get_path(project)
+
         def _set_queue_mode_early(data):
             data["queue_mode"] = True
+
         update_pipeline(path, _set_queue_mode_early)
 
         # Call cmd_start with try-catch
@@ -1550,7 +1916,9 @@ def _handle_qrun(msg_id: str):
         automerge_flag = entry.get("automerge", False)
         parts: list[str] = []
         if skipped_entries:
-            parts.append(f"skipped {len(skipped_entries)}: {', '.join(skipped_entries)}")
+            parts.append(
+                f"skipped {len(skipped_entries)}: {', '.join(skipped_entries)}"
+            )
         parts.append(f"{project} started (issues={issues}, automerge={automerge_flag})")
         success_msg = "qrun: " + " → ".join(parts)
         post_discord(DISCORD_CHANNEL, success_msg)
@@ -1596,11 +1964,16 @@ def _handle_qadd(msg_id: str, content: str):
     raw_lines = content.strip().split("\n")
     first_line_parts = raw_lines[0].strip().split(None, 1)
     if len(first_line_parts) < 2:
-        post_discord(DISCORD_CHANNEL, "qadd: argument required (e.g.: qadd BeamShifter 33,34 lite no-automerge)")
+        post_discord(
+            DISCORD_CHANNEL,
+            "qadd: argument required (e.g.: qadd BeamShifter 33,34 lite no-automerge)",
+        )
         return
 
     lines = [first_line_parts[1]]  # remainder of first line after "qadd"
-    lines.extend(l.strip() for l in raw_lines[1:] if l.strip() and not l.strip().startswith("#"))
+    lines.extend(
+        l.strip() for l in raw_lines[1:] if l.strip() and not l.strip().startswith("#")
+    )
 
     if not lines:
         post_discord(DISCORD_CHANNEL, "qadd: argument required")
@@ -1631,7 +2004,9 @@ def _handle_qadd(msg_id: str, content: str):
     wait_info = _load_wait_info()
     text = get_qstatus_text(entries, running=running, wait_info=wait_info)
     added_text = "\n".join(f"  {a}" for a in added)
-    post_discord(DISCORD_CHANNEL, f"Added {len(added)} entries:\n{added_text}\n```\n{text}\n```")
+    post_discord(
+        DISCORD_CHANNEL, f"Added {len(added)} entries:\n{added_text}\n```\n{text}\n```"
+    )
     log(f"Processed Discord qadd command ({len(added)} entries, msg_id={msg_id})")
 
 
@@ -1648,7 +2023,9 @@ def _handle_qdel(msg_id: str, content: str):
 
     parts = content.strip().split()
     if len(parts) < 2:
-        post_discord(DISCORD_CHANNEL, "qdel: argument required (e.g.: qdel last / qdel 2)")
+        post_discord(
+            DISCORD_CHANNEL, "qdel: argument required (e.g.: qdel last / qdel 2)"
+        )
         return
 
     target = parts[1]
@@ -1658,7 +2035,9 @@ def _handle_qdel(msg_id: str, content: str):
         try:
             idx = int(target)
         except ValueError:
-            post_discord(DISCORD_CHANNEL, f"qdel: invalid argument '{target}' (number or 'last')")
+            post_discord(
+                DISCORD_CHANNEL, f"qdel: invalid argument '{target}' (number or 'last')"
+            )
             return
 
     result = delete_entry(QUEUE_FILE, idx)
@@ -1692,7 +2071,10 @@ def _handle_qedit(msg_id: str, content: str):
 
     parts = content.strip().split(None, 2)
     if len(parts) < 3:
-        post_discord(DISCORD_CHANNEL, "qedit: argument required (e.g.: qedit 1 gokrax 105 full ...)")
+        post_discord(
+            DISCORD_CHANNEL,
+            "qedit: argument required (e.g.: qedit 1 gokrax 105 full ...)",
+        )
         return
 
     target = parts[1]
@@ -1704,7 +2086,10 @@ def _handle_qedit(msg_id: str, content: str):
         try:
             idx = int(target)
         except ValueError:
-            post_discord(DISCORD_CHANNEL, f"qedit: invalid argument '{target}' (number or 'last')")
+            post_discord(
+                DISCORD_CHANNEL,
+                f"qedit: invalid argument '{target}' (number or 'last')",
+            )
             return
 
     try:
@@ -1746,12 +2131,15 @@ def check_discord_commands():
 
     # 1. Load state
     from pipeline_io import load_gokrax_state, update_gokrax_state
+
     state = load_gokrax_state()
     last_id_raw = state.get("last_command_message_id", "0")
     try:
         last_id = int(last_id_raw)
     except (ValueError, TypeError):
-        log(f"[discord-commands] Invalid last_command_message_id={last_id_raw!r}, self-healing")
+        log(
+            f"[discord-commands] Invalid last_command_message_id={last_id_raw!r}, self-healing"
+        )
         # Self-heal: メッセージを fetch して数値として妥当な最新IDで state を修復
         messages = fetch_discord_latest(DISCORD_CHANNEL, 10)
         if messages:
@@ -1765,14 +2153,20 @@ def check_discord_commands():
                     int(heal_id)  # validate as numeric
                 except (ValueError, TypeError):
                     continue
+
                 def _heal(s, _hid=heal_id):
                     s["last_command_message_id"] = _hid
+
                 update_gokrax_state(_heal)
-                log(f"[discord-commands] Self-healed last_command_message_id to {heal_id}")
+                log(
+                    f"[discord-commands] Self-healed last_command_message_id to {heal_id}"
+                )
                 healed = True
                 break
             if not healed:
-                log("[discord-commands] Self-heal failed: no valid message id found in fetched messages")
+                log(
+                    "[discord-commands] Self-heal failed: no valid message id found in fetched messages"
+                )
         return
 
     # 2. Fetch latest messages
@@ -1790,14 +2184,18 @@ def check_discord_commands():
         content_lower = content.strip().lower()
         cmd_word = content_lower.split()[0] if content_lower else ""
         # Filter: from M, not from bot, first word is a known command
-        if (author_id in ALLOWED_COMMAND_USER_IDS and
-            author_id != ANNOUNCE_BOT_USER_ID and
-            cmd_word in DISCORD_COMMANDS and
-            msg_id):
+        if (
+            author_id in ALLOWED_COMMAND_USER_IDS
+            and author_id != ANNOUNCE_BOT_USER_ID
+            and cmd_word in DISCORD_COMMANDS
+            and msg_id
+        ):
             try:
                 msg_id_int = int(msg_id)
             except (ValueError, TypeError):
-                log(f"[discord-commands] Skipping message with invalid id: msg_id={msg_id!r}")
+                log(
+                    f"[discord-commands] Skipping message with invalid id: msg_id={msg_id!r}"
+                )
                 continue
             if msg_id_int > last_id:
                 candidates.append(msg)
@@ -1819,7 +2217,9 @@ def check_discord_commands():
             response = f"```\n{status}\n```"
 
             if config.DRY_RUN:
-                log(f"[dry-run] Discord status command response skipped (msg_id={msg_id})")
+                log(
+                    f"[dry-run] Discord status command response skipped (msg_id={msg_id})"
+                )
             else:
                 post_discord(DISCORD_CHANNEL, response)
 
@@ -1841,6 +2241,7 @@ def check_discord_commands():
         # 6. Update state (even in dry-run to test deduplication)
         def _update_last_id(s, _mid=msg_id):
             s["last_command_message_id"] = _mid
+
         update_gokrax_state(_update_last_id)
         log(f"Processed Discord {cmd_word} command (msg_id={msg_id})")
 
@@ -1857,7 +2258,11 @@ def _load_error_counts() -> dict[str, int]:
         return {}
     if not isinstance(data, dict):
         return {}
-    return {k: v for k, v in data.items() if isinstance(k, str) and isinstance(v, int) and v >= 0}
+    return {
+        k: v
+        for k, v in data.items()
+        if isinstance(k, str) and isinstance(v, int) and v >= 0
+    }
 
 
 def _save_error_counts(counts: dict[str, int]) -> None:
@@ -1878,29 +2283,37 @@ def main():
 
     from engine.backend import validate_overrides
     from engine.gemini_quota import validate_fallback_config
-    from engine.openai_codex_quota import validate_fallback_config as validate_codex_fallback
+    from engine.openai_codex_quota import (
+        validate_fallback_config as validate_codex_fallback,
+    )
     from engine.shared import log as _log
+
     validate_overrides()
     for warn in validate_fallback_config():
         _log(warn)
     for warn in validate_codex_fallback():
         _log(warn)
     from engine.agy_quota import validate_fallback_config as validate_agy_fallback
+
     for warn in validate_agy_fallback():
         _log(warn)
     from engine.kimi_quota import validate_fallback_config as validate_kimi_fallback
+
     for warn in validate_kimi_fallback():
         _log(warn)
 
     # CCI preflight: verify pexpect + cci_runner importability when cci is enabled
     import config as _cci_cfg
+
     if _cci_cfg.IMPL_PHASE_ENGINE == "cci":
         try:
             import pexpect  # noqa: F401
             import engine.cci_runner  # noqa: F401
         except ImportError as e:
-            _log(f"WARNING: IMPL_PHASE_ENGINE='cci' but import failed: {e}. "
-                 f"Falling back to 'cc'. Install pexpect or set IMPL_PHASE_ENGINE='cc'.")
+            _log(
+                f"WARNING: IMPL_PHASE_ENGINE='cci' but import failed: {e}. "
+                f"Falling back to 'cc'. Install pexpect or set IMPL_PHASE_ENGINE='cc'."
+            )
             _cci_cfg.IMPL_PHASE_ENGINE = "cc"
 
     # Check Discord commands BEFORE pipeline processing

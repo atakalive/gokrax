@@ -16,13 +16,17 @@ import pipeline_io
 
 # ── ヘルパー ──────────────────────────────────────────────────────────────────
 
+
 def _make_batch(n=1, **kwargs):
     items = []
     for i in range(1, n + 1):
         item = {
-            "issue": i, "title": f"Issue {i}", "commit": None,
+            "issue": i,
+            "title": f"Issue {i}",
+            "commit": None,
             "cc_session_id": None,
-            "design_reviews": {}, "code_reviews": {},
+            "design_reviews": {},
+            "code_reviews": {},
             "added_at": "2025-01-01T00:00:00+09:00",
         }
         item.update(kwargs)
@@ -60,8 +64,8 @@ def _base_pipeline(**overrides):
 
 # ── Test 1: pending written on transition ─────────────────────────────────
 
-class TestPendingWrittenOnTransition:
 
+class TestPendingWrittenOnTransition:
     def test_pending_written_on_transition(self, tmp_path, monkeypatch):
         """watchdog do_transition がロック内で _pending_notifications を書く"""
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
@@ -84,10 +88,12 @@ class TestPendingWrittenOnTransition:
             raw = _read_pipeline(path)
             pending_at_notify_time.update(raw.get("_pending_notifications", {}))
 
-        with patch("watchdog.notify_implementer"), \
-             patch("watchdog.notify_reviewers", side_effect=capture_pending), \
-             patch("watchdog.notify_discord"), \
-             patch("watchdog._reset_reviewers", return_value=[]):
+        with (
+            patch("watchdog.notify_implementer"),
+            patch("watchdog.notify_reviewers", side_effect=capture_pending),
+            patch("watchdog.notify_discord"),
+            patch("watchdog._reset_reviewers", return_value=[]),
+        ):
             process(path)
 
         # notify_reviewers 呼び出し時点で pending.review が存在していた
@@ -96,8 +102,8 @@ class TestPendingWrittenOnTransition:
 
 # ── Test 2: pending cleared after notification ────────────────────────────
 
-class TestPendingClearedAfterNotification:
 
+class TestPendingClearedAfterNotification:
     def test_pending_cleared_after_notification(self, tmp_path, monkeypatch):
         """通知完了後に _pending_notifications がクリアされる"""
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
@@ -112,10 +118,12 @@ class TestPendingClearedAfterNotification:
 
         from watchdog import process
 
-        with patch("watchdog.notify_implementer"), \
-             patch("watchdog.notify_reviewers"), \
-             patch("watchdog.notify_discord"), \
-             patch("watchdog._reset_reviewers", return_value=[]):
+        with (
+            patch("watchdog.notify_implementer"),
+            patch("watchdog.notify_reviewers"),
+            patch("watchdog.notify_discord"),
+            patch("watchdog._reset_reviewers", return_value=[]),
+        ):
             process(path)
 
         result = _read_pipeline(path)
@@ -125,8 +133,8 @@ class TestPendingClearedAfterNotification:
 
 # ── Test 3: recovery on restart ───────────────────────────────────────────
 
-class TestRecoveryOnRestart:
 
+class TestRecoveryOnRestart:
     def test_recovery_resends_impl(self, tmp_path, monkeypatch):
         """手動書き込みした pending.impl を process() が再送してクリア"""
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
@@ -134,7 +142,7 @@ class TestRecoveryOnRestart:
 
         path = tmp_path / "test-pj.json"
         data = _base_pipeline(
-            state="DESIGN_REVIEW",
+            state="DESIGN_PLAN",
             batch=_make_batch(1),
             _pending_notifications={
                 "impl": {
@@ -148,13 +156,17 @@ class TestRecoveryOnRestart:
         from watchdog import process
 
         mock_impl = MagicMock()
-        with patch("engine.fsm.notify_implementer", mock_impl), \
-             patch("engine.fsm.notify_discord"):
+        with (
+            patch("engine.fsm.notify_implementer", mock_impl),
+            patch("engine.fsm.notify_discord"),
+        ):
             process(path)
 
         mock_impl.assert_called_once_with(
-            "implementer1", "[gokrax] test-pj: test message",
-            project="", phase="",
+            "implementer1",
+            "[gokrax] test-pj: test message",
+            project="",
+            phase="",
         )
         result = _read_pipeline(path)
         assert "_pending_notifications" not in result
@@ -183,8 +195,10 @@ class TestRecoveryOnRestart:
         from watchdog import process
 
         mock_review = MagicMock()
-        with patch("engine.fsm.notify_reviewers", mock_review), \
-             patch("engine.fsm.notify_discord"):
+        with (
+            patch("engine.fsm.notify_reviewers", mock_review),
+            patch("engine.fsm.notify_discord"),
+        ):
             process(path)
 
         mock_review.assert_called_once()
@@ -194,8 +208,8 @@ class TestRecoveryOnRestart:
 
 # ── Test 4: recovery returns early ────────────────────────────────────────
 
-class TestRecoveryReturnsEarly:
 
+class TestRecoveryReturnsEarly:
     def test_recovery_returns_early(self, tmp_path, monkeypatch):
         """リカバリ後は通常の遷移処理をスキップ"""
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
@@ -217,9 +231,11 @@ class TestRecoveryReturnsEarly:
 
         from watchdog import process
 
-        with patch("engine.fsm.notify_implementer"), \
-             patch("engine.fsm.notify_discord"), \
-             patch("watchdog.check_transition") as mock_check:
+        with (
+            patch("engine.fsm.notify_implementer"),
+            patch("engine.fsm.notify_discord"),
+            patch("watchdog.check_transition") as mock_check,
+        ):
             process(path)
 
         # リカバリで return するため check_transition は呼ばれない
@@ -231,8 +247,8 @@ class TestRecoveryReturnsEarly:
 
 # ── Test 5: CLI transition pending atomic ─────────────────────────────────
 
-class TestCliTransitionPendingAtomic:
 
+class TestCliTransitionPendingAtomic:
     def test_cli_transition_writes_pending(self, tmp_path, monkeypatch):
         """cmd_transition で state と pending が同一ロック内で書かれる"""
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
@@ -258,6 +274,7 @@ class TestCliTransitionPendingAtomic:
                 # callback 直後の data を検査
                 callback_data_snapshot["state"] = data.get("state")
                 callback_data_snapshot["pending"] = data.get("_pending_notifications")
+
             return orig_update(p, wrapped_cb)
 
         args = MagicMock()
@@ -268,11 +285,13 @@ class TestCliTransitionPendingAtomic:
         args.dry_run = False
         args.resume = False
 
-        with patch("commands.dev.update_pipeline", side_effect=capturing_update), \
-             patch("commands.dev.notify_implementer"), \
-             patch("commands.dev.notify_reviewers"), \
-             patch("commands.dev.notify_discord"), \
-             patch("watchdog._reset_reviewers", return_value=[]):
+        with (
+            patch("commands.dev.update_pipeline", side_effect=capturing_update),
+            patch("commands.dev.notify_implementer"),
+            patch("commands.dev.notify_reviewers"),
+            patch("commands.dev.notify_discord"),
+            patch("watchdog._reset_reviewers", return_value=[]),
+        ):
             cmd_transition(args)
 
         # callback 内で state と pending が同時に書かれている
@@ -283,8 +302,8 @@ class TestCliTransitionPendingAtomic:
 
 # ── Test 6: CLI transition pending cleared ────────────────────────────────
 
-class TestCliTransitionPendingCleared:
 
+class TestCliTransitionPendingCleared:
     def test_cli_transition_pending_cleared(self, tmp_path, monkeypatch):
         """CLI通知完了後にpendingクリア"""
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
@@ -307,10 +326,12 @@ class TestCliTransitionPendingCleared:
         args.dry_run = False
         args.resume = False
 
-        with patch("commands.dev.notify_implementer"), \
-             patch("commands.dev.notify_reviewers"), \
-             patch("commands.dev.notify_discord"), \
-             patch("watchdog._reset_reviewers", return_value=[]):
+        with (
+            patch("commands.dev.notify_implementer"),
+            patch("commands.dev.notify_reviewers"),
+            patch("commands.dev.notify_discord"),
+            patch("watchdog._reset_reviewers", return_value=[]),
+        ):
             cmd_transition(args)
 
         result = _read_pipeline(path)
@@ -319,8 +340,8 @@ class TestCliTransitionPendingCleared:
 
 # ── Test 7: merge_summary pending skip with discord ───────────────────────
 
-class TestMergeSummaryPendingSkipWithDiscord:
 
+class TestMergeSummaryPendingSkipWithDiscord:
     def test_merge_summary_recovery_warns_discord(self, tmp_path, monkeypatch):
         """merge_summary リカバリはDiscord警告+クリアのみ"""
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
@@ -337,8 +358,10 @@ class TestMergeSummaryPendingSkipWithDiscord:
         from watchdog import process
 
         mock_discord = MagicMock()
-        with patch("engine.fsm.notify_discord", mock_discord), \
-             patch("engine.fsm.notify_implementer"):
+        with (
+            patch("engine.fsm.notify_discord", mock_discord),
+            patch("engine.fsm.notify_implementer"),
+        ):
             process(path)
 
         # Discord に WARNING メッセージが送られた
@@ -351,8 +374,8 @@ class TestMergeSummaryPendingSkipWithDiscord:
 
 # ── Test 8: run_cc pending skip with discord ──────────────────────────────
 
-class TestRunCcPendingSkipWithDiscord:
 
+class TestRunCcPendingSkipWithDiscord:
     def test_run_cc_recovery_warns_discord(self, tmp_path, monkeypatch):
         """run_cc リカバリもDiscord警告+クリアのみ"""
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
@@ -369,8 +392,10 @@ class TestRunCcPendingSkipWithDiscord:
         from watchdog import process
 
         mock_discord = MagicMock()
-        with patch("engine.fsm.notify_discord", mock_discord), \
-             patch("engine.fsm.notify_implementer"):
+        with (
+            patch("engine.fsm.notify_discord", mock_discord),
+            patch("engine.fsm.notify_implementer"),
+        ):
             process(path)
 
         calls = [str(c) for c in mock_discord.call_args_list]
@@ -382,8 +407,8 @@ class TestRunCcPendingSkipWithDiscord:
 
 # ── Test 9: nudge not pending ─────────────────────────────────────────────
 
-class TestNudgeNotPending:
 
+class TestNudgeNotPending:
     def test_nudge_not_in_pending(self, tmp_path, monkeypatch):
         """nudge系は _pending_notifications に含まれない"""
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
@@ -406,14 +431,17 @@ class TestNudgeNotPending:
 
 # ── Test A: merge preserves existing keys ─────────────────────────────────
 
-class TestMergePendingPreservesExistingKeys:
 
+class TestMergePendingPreservesExistingKeys:
     def test_merge_preserves_existing(self):
         """既存キーが新キー追加時に保持される"""
         from pipeline_io import merge_pending_notifications
+
         data = {"_pending_notifications": {"impl": {"implementer": "x", "msg": "old"}}}
         with patch("pipeline_io.log"):
-            merge_pending_notifications(data, {"review": {"new_state": "CODE_REVIEW"}}, "test-pj")
+            merge_pending_notifications(
+                data, {"review": {"new_state": "CODE_REVIEW"}}, "test-pj"
+            )
         pn = data["_pending_notifications"]
         assert "impl" in pn
         assert "review" in pn
@@ -422,24 +450,28 @@ class TestMergePendingPreservesExistingKeys:
 
 # ── Test B: same key latest wins ──────────────────────────────────────────
 
-class TestMergePendingSameKeyLatestWins:
 
+class TestMergePendingSameKeyLatestWins:
     def test_same_key_latest_wins(self):
         """同一キーは最新値で上書き"""
         from pipeline_io import merge_pending_notifications
+
         data = {"_pending_notifications": {"impl": {"implementer": "x", "msg": "old"}}}
         with patch("pipeline_io.log"):
-            merge_pending_notifications(data, {"impl": {"implementer": "x", "msg": "new"}}, "test-pj")
+            merge_pending_notifications(
+                data, {"impl": {"implementer": "x", "msg": "new"}}, "test-pj"
+            )
         assert data["_pending_notifications"]["impl"]["msg"] == "new"
 
 
 # ── Test C: creates new when empty ────────────────────────────────────────
 
-class TestMergePendingCreatesNewWhenEmpty:
 
+class TestMergePendingCreatesNewWhenEmpty:
     def test_creates_new_when_no_existing(self):
         """既存 pending がない場合は新規作成"""
         from pipeline_io import merge_pending_notifications
+
         with patch("pipeline_io.log"):
             data = {}
             merge_pending_notifications(data, {"run_cc": True}, "test-pj")
@@ -448,11 +480,12 @@ class TestMergePendingCreatesNewWhenEmpty:
 
 # ── Test D: noop when empty ───────────────────────────────────────────────
 
-class TestMergePendingNoopWhenEmpty:
 
+class TestMergePendingNoopWhenEmpty:
     def test_noop_when_pending_empty(self):
         """pending が空 dict なら何もしない"""
         from pipeline_io import merge_pending_notifications
+
         data = {}
         merge_pending_notifications(data, {}, "test-pj")
         assert "_pending_notifications" not in data
@@ -460,10 +493,10 @@ class TestMergePendingNoopWhenEmpty:
 
 # ── Test E: CLI transition merges pending ─────────────────────────────────
 
-class TestCliTransitionMergesPending:
 
-    def test_cli_transition_merges_existing_pending(self, tmp_path, monkeypatch):
-        """CLI cmd_transition で既存 review pending + 新規 impl pending が merge される"""
+class TestCliTransitionMergesPending:
+    def test_cli_force_transition_prunes_existing_pending(self, tmp_path, monkeypatch):
+        """CLI cmd_transition --force で既存 review pending が pruning され、新規 impl pending のみ残る"""
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
 
@@ -493,10 +526,11 @@ class TestCliTransitionMergesPending:
         def capturing_update(p, cb):
             def wrapped_cb(d):
                 cb(d)
-                # callback 直後の _pending_notifications を snapshot
+                # force prune 後の _pending_notifications を snapshot
                 pn = d.get("_pending_notifications")
                 if pn is not None:
                     callback_snapshot.update(pn)
+
             return orig_update(p, wrapped_cb)
 
         args = MagicMock()
@@ -507,24 +541,28 @@ class TestCliTransitionMergesPending:
         args.dry_run = False
         args.resume = False
 
-        with patch("commands.dev.update_pipeline", side_effect=capturing_update), \
-             patch("commands.dev.notify_implementer"), \
-             patch("commands.dev.notify_reviewers"), \
-             patch("commands.dev.notify_discord"), \
-             patch("engine.reviewer._reset_reviewers", return_value=[]):
+        with (
+            patch("commands.dev.update_pipeline", side_effect=capturing_update),
+            patch("commands.dev.notify_implementer"),
+            patch("commands.dev.notify_reviewers"),
+            patch("commands.dev.notify_discord"),
+            patch("engine.reviewer._reset_reviewers", return_value=[]),
+        ):
             cmd_transition(args)
 
-        # merge 発生直後: 既存 review + 新規 impl の両方が共存
-        assert "review" in callback_snapshot, "既存 review pending が消えている（merge 失敗）"
+        # force prune 後: 既存 review は force で pruning、新規 impl は merge で追加
+        assert "review" not in callback_snapshot, (
+            "既存 review pending が force prune されていない"
+        )
         assert "impl" in callback_snapshot, "新規 impl pending が書かれていない"
 
 
 # ── Test F: multi-key recovery ────────────────────────────────────────────
 
-class TestMultiKeyRecovery:
 
-    def test_recovery_sends_both_impl_and_review(self, tmp_path, monkeypatch):
-        """multi-key pending（impl + review）を recovery で両方送信"""
+class TestMultiKeyRecovery:
+    def test_recovery_prunes_stale_impl_sends_review(self, tmp_path, monkeypatch):
+        """DESIGN_REVIEW で impl は stale として pruning、review は正規として recovery"""
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
 
@@ -552,12 +590,16 @@ class TestMultiKeyRecovery:
 
         mock_impl = MagicMock()
         mock_review = MagicMock()
-        with patch("engine.fsm.notify_implementer", mock_impl), \
-             patch("engine.fsm.notify_reviewers", mock_review), \
-             patch("engine.fsm.notify_discord"):
+        with (
+            patch("engine.fsm.notify_implementer", mock_impl),
+            patch("engine.fsm.notify_reviewers", mock_review),
+            patch("engine.fsm.notify_discord"),
+        ):
             process(path)
 
-        mock_impl.assert_called_once()
+        # impl は stale（DESIGN_REVIEW ∉ _IMPL_STATES）→ pruning、送信されない
+        mock_impl.assert_not_called()
+        # review は正規（new_state 一致）→ recovery 送信される
         mock_review.assert_called_once()
 
         result = _read_pipeline(path)
@@ -566,8 +608,8 @@ class TestMultiKeyRecovery:
 
 # ── Test 11: recovery failure preserves pending ───────────────────────────
 
-class TestRecoveryFailurePreservesPending:
 
+class TestRecoveryFailurePreservesPending:
     def test_impl_recovery_failure_preserves_pending(self, tmp_path, monkeypatch):
         """impl 通知が失敗した場合、pending が維持され次回再試行される"""
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
@@ -575,7 +617,7 @@ class TestRecoveryFailurePreservesPending:
 
         path = tmp_path / "test-pj.json"
         data = _base_pipeline(
-            state="DESIGN_REVIEW",
+            state="DESIGN_PLAN",
             batch=_make_batch(1),
             _pending_notifications={
                 "impl": {
@@ -589,8 +631,10 @@ class TestRecoveryFailurePreservesPending:
         from watchdog import process
 
         mock_impl = MagicMock(side_effect=Exception("send failed"))
-        with patch("engine.fsm.notify_implementer", mock_impl), \
-             patch("engine.fsm.notify_discord"):
+        with (
+            patch("engine.fsm.notify_implementer", mock_impl),
+            patch("engine.fsm.notify_discord"),
+        ):
             process(path)
 
         mock_impl.assert_called_once()
@@ -623,8 +667,10 @@ class TestRecoveryFailurePreservesPending:
         from watchdog import process
 
         mock_review = MagicMock(side_effect=Exception("send failed"))
-        with patch("engine.fsm.notify_reviewers", mock_review), \
-             patch("engine.fsm.notify_discord"):
+        with (
+            patch("engine.fsm.notify_reviewers", mock_review),
+            patch("engine.fsm.notify_discord"),
+        ):
             process(path)
 
         mock_review.assert_called_once()
@@ -662,8 +708,10 @@ class TestBaseCommitInPending:
         from watchdog import process
 
         mock_review = MagicMock()
-        with patch("engine.fsm.notify_reviewers", mock_review), \
-             patch("engine.fsm.notify_discord"):
+        with (
+            patch("engine.fsm.notify_reviewers", mock_review),
+            patch("engine.fsm.notify_discord"),
+        ):
             process(path)
 
         mock_review.assert_called_once()
@@ -694,8 +742,10 @@ class TestBaseCommitInPending:
         from watchdog import process
 
         mock_review = MagicMock()
-        with patch("engine.fsm.notify_reviewers", mock_review), \
-             patch("engine.fsm.notify_discord"):
+        with (
+            patch("engine.fsm.notify_reviewers", mock_review),
+            patch("engine.fsm.notify_discord"),
+        ):
             process(path)
 
         mock_review.assert_called_once()
@@ -704,6 +754,7 @@ class TestBaseCommitInPending:
 
 
 # ── Issue #311: impl send failure preserves pending ──────────────────────
+
 
 class TestImplSendFailurePreservesPending:
     """notify_implementer が False を返した場合 pending が残ること"""
@@ -723,9 +774,11 @@ class TestImplSendFailurePreservesPending:
 
         from watchdog import process
 
-        with patch("watchdog.notify_implementer", return_value=False) as mock_impl, \
-             patch("watchdog.notify_reviewers"), \
-             patch("watchdog.notify_discord"):
+        with (
+            patch("watchdog.notify_implementer", return_value=False) as mock_impl,
+            patch("watchdog.notify_reviewers"),
+            patch("watchdog.notify_discord"),
+        ):
             process(path)
 
         mock_impl.assert_called()
@@ -749,9 +802,11 @@ class TestImplSendFailurePreservesPending:
 
         from watchdog import process
 
-        with patch("watchdog.notify_implementer", return_value=True), \
-             patch("watchdog.notify_reviewers"), \
-             patch("watchdog.notify_discord"):
+        with (
+            patch("watchdog.notify_implementer", return_value=True),
+            patch("watchdog.notify_reviewers"),
+            patch("watchdog.notify_discord"),
+        ):
             process(path)
 
         result = _read_pipeline(path)
@@ -761,12 +816,14 @@ class TestImplSendFailurePreservesPending:
 
 # ── Issue #311: blocked_report pending ────────────────────────────────────
 
+
 class TestBlockedReportPending:
     """BLOCKED 遷移で blocked_report が pending に保存されること"""
 
     def test_blocked_report_saved_in_pending(self, tmp_path, monkeypatch):
         """do_transition コールバック内で pending["blocked_report"] が構築される"""
         import messages
+
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(messages, "PROMPT_LANG", "en")
@@ -777,7 +834,16 @@ class TestBlockedReportPending:
             review_mode="lite",
             implementer="impl-agent",
             design_revise_count=config.MAX_REVISE_CYCLES,
-            batch=[{"issue": 1, "design_reviews": {"r0": {"verdict": "APPROVE", "at": ""}, "r1": {"verdict": "P0", "at": ""}}, "code_reviews": {}}],
+            batch=[
+                {
+                    "issue": 1,
+                    "design_reviews": {
+                        "r0": {"verdict": "APPROVE", "at": ""},
+                        "r1": {"verdict": "P0", "at": ""},
+                    },
+                    "code_reviews": {},
+                }
+            ],
         )
         _write_pipeline(path, data)
 
@@ -791,13 +857,16 @@ class TestBlockedReportPending:
                 cb(d)
                 pn = d.get("_pending_notifications", {})
                 callback_pending.update(pn)
+
             return orig_update(p, wrapped_cb)
 
-        with patch("watchdog.update_pipeline", side_effect=capturing_update), \
-             patch("watchdog.notify_discord"), \
-             patch("watchdog.notify_implementer", return_value=True), \
-             patch("notify.post_gitlab_note"), \
-             patch("watchdog.send_to_agent", return_value=True):
+        with (
+            patch("watchdog.update_pipeline", side_effect=capturing_update),
+            patch("watchdog.notify_discord"),
+            patch("watchdog.notify_implementer", return_value=True),
+            patch("notify.post_gitlab_note"),
+            patch("watchdog.send_to_agent", return_value=True),
+        ):
             process(path)
 
         assert "blocked_report" in callback_pending
@@ -807,6 +876,7 @@ class TestBlockedReportPending:
     def test_blocked_report_uses_notification_dict(self, tmp_path, monkeypatch):
         """ロック外送信で notification["blocked_report"]["msg"] が使われ render が再呼出しされない"""
         import messages
+
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(messages, "PROMPT_LANG", "en")
@@ -817,7 +887,16 @@ class TestBlockedReportPending:
             review_mode="lite",
             implementer="impl-agent",
             design_revise_count=config.MAX_REVISE_CYCLES,
-            batch=[{"issue": 1, "design_reviews": {"r0": {"verdict": "APPROVE", "at": ""}, "r1": {"verdict": "P0", "at": ""}}, "code_reviews": {}}],
+            batch=[
+                {
+                    "issue": 1,
+                    "design_reviews": {
+                        "r0": {"verdict": "APPROVE", "at": ""},
+                        "r1": {"verdict": "P0", "at": ""},
+                    },
+                    "code_reviews": {},
+                }
+            ],
         )
         _write_pipeline(path, data)
 
@@ -832,11 +911,13 @@ class TestBlockedReportPending:
             return orig_render(*args, **kwargs)
 
         mock_send = MagicMock(return_value=True)
-        with patch("watchdog.render", side_effect=counting_render), \
-             patch("watchdog.notify_discord"), \
-             patch("watchdog.notify_implementer", return_value=True), \
-             patch("notify.post_gitlab_note"), \
-             patch("watchdog.send_to_agent", new=mock_send):
+        with (
+            patch("watchdog.render", side_effect=counting_render),
+            patch("watchdog.notify_discord"),
+            patch("watchdog.notify_implementer", return_value=True),
+            patch("notify.post_gitlab_note"),
+            patch("watchdog.send_to_agent", new=mock_send),
+        ):
             process(path)
 
         # render is called once (inside do_transition callback), not again outside
@@ -847,6 +928,7 @@ class TestBlockedReportPending:
     def test_blocked_report_send_success_clears_pending(self, tmp_path, monkeypatch):
         """blocked_report 送信成功時に pending がクリアされる"""
         import messages
+
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(messages, "PROMPT_LANG", "en")
@@ -857,16 +939,27 @@ class TestBlockedReportPending:
             review_mode="lite",
             implementer="impl-agent",
             design_revise_count=config.MAX_REVISE_CYCLES,
-            batch=[{"issue": 1, "design_reviews": {"r0": {"verdict": "APPROVE", "at": ""}, "r1": {"verdict": "P0", "at": ""}}, "code_reviews": {}}],
+            batch=[
+                {
+                    "issue": 1,
+                    "design_reviews": {
+                        "r0": {"verdict": "APPROVE", "at": ""},
+                        "r1": {"verdict": "P0", "at": ""},
+                    },
+                    "code_reviews": {},
+                }
+            ],
         )
         _write_pipeline(path, data)
 
         from watchdog import process
 
-        with patch("watchdog.notify_discord"), \
-             patch("watchdog.notify_implementer", return_value=True), \
-             patch("notify.post_gitlab_note"), \
-             patch("watchdog.send_to_agent", return_value=True):
+        with (
+            patch("watchdog.notify_discord"),
+            patch("watchdog.notify_implementer", return_value=True),
+            patch("notify.post_gitlab_note"),
+            patch("watchdog.send_to_agent", return_value=True),
+        ):
             process(path)
 
         result = _read_pipeline(path)
@@ -876,6 +969,7 @@ class TestBlockedReportPending:
     def test_blocked_report_send_failure_keeps_pending(self, tmp_path, monkeypatch):
         """blocked_report 送信失敗時に pending が残る"""
         import messages
+
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
         monkeypatch.setattr(messages, "PROMPT_LANG", "en")
@@ -886,16 +980,27 @@ class TestBlockedReportPending:
             review_mode="lite",
             implementer="impl-agent",
             design_revise_count=config.MAX_REVISE_CYCLES,
-            batch=[{"issue": 1, "design_reviews": {"r0": {"verdict": "APPROVE", "at": ""}, "r1": {"verdict": "P0", "at": ""}}, "code_reviews": {}}],
+            batch=[
+                {
+                    "issue": 1,
+                    "design_reviews": {
+                        "r0": {"verdict": "APPROVE", "at": ""},
+                        "r1": {"verdict": "P0", "at": ""},
+                    },
+                    "code_reviews": {},
+                }
+            ],
         )
         _write_pipeline(path, data)
 
         from watchdog import process
 
-        with patch("watchdog.notify_discord"), \
-             patch("watchdog.notify_implementer", return_value=True), \
-             patch("notify.post_gitlab_note"), \
-             patch("watchdog.send_to_agent", return_value=False):
+        with (
+            patch("watchdog.notify_discord"),
+            patch("watchdog.notify_implementer", return_value=True),
+            patch("notify.post_gitlab_note"),
+            patch("watchdog.send_to_agent", return_value=False),
+        ):
             process(path)
 
         result = _read_pipeline(path)
@@ -904,6 +1009,7 @@ class TestBlockedReportPending:
 
 
 # ── Issue #311: pending recovery with enabled=False ───────────────────────
+
 
 class TestPendingRecoveryDisabled:
     """enabled=False でも pending recovery が実行されること"""
@@ -931,8 +1037,10 @@ class TestPendingRecoveryDisabled:
         from watchdog import process
 
         mock_impl = MagicMock(return_value=True)
-        with patch("engine.fsm.notify_implementer", mock_impl), \
-             patch("engine.fsm.notify_discord"):
+        with (
+            patch("engine.fsm.notify_implementer", mock_impl),
+            patch("engine.fsm.notify_discord"),
+        ):
             process(path)
 
         mock_impl.assert_called_once()
@@ -941,6 +1049,7 @@ class TestPendingRecoveryDisabled:
 
 
 # ── Issue #311: blocked_report recovery ───────────────────────────────────
+
 
 class TestBlockedReportRecovery:
     """_recover_pending_notifications で blocked_report が再送されること"""
@@ -966,8 +1075,10 @@ class TestBlockedReportRecovery:
         from watchdog import process
 
         mock_send = MagicMock(return_value=True)
-        with patch("engine.fsm.send_to_agent", mock_send), \
-             patch("engine.fsm.notify_discord"):
+        with (
+            patch("engine.fsm.send_to_agent", mock_send),
+            patch("engine.fsm.notify_discord"),
+        ):
             process(path)
 
         mock_send.assert_called_once_with("implementer1", "test blocked report prompt")
@@ -995,8 +1106,10 @@ class TestBlockedReportRecovery:
         from watchdog import process
 
         mock_send = MagicMock(return_value=False)
-        with patch("engine.fsm.send_to_agent", mock_send), \
-             patch("engine.fsm.notify_discord"):
+        with (
+            patch("engine.fsm.send_to_agent", mock_send),
+            patch("engine.fsm.notify_discord"),
+        ):
             process(path)
 
         mock_send.assert_called_once()
@@ -1006,6 +1119,7 @@ class TestBlockedReportRecovery:
 
 
 # ── Issue #311: impl recovery with project/phase ─────────────────────────
+
 
 class TestImplRecoveryProjectPhase:
     """impl recovery で project/phase が notify_implementer に渡されること"""
@@ -1017,7 +1131,7 @@ class TestImplRecoveryProjectPhase:
 
         path = tmp_path / "test-pj.json"
         data = _base_pipeline(
-            state="DESIGN_REVIEW",
+            state="DESIGN_PLAN",
             _pending_notifications={
                 "impl": {
                     "implementer": "implementer1",
@@ -1032,13 +1146,17 @@ class TestImplRecoveryProjectPhase:
         from watchdog import process
 
         mock_impl = MagicMock(return_value=True)
-        with patch("engine.fsm.notify_implementer", mock_impl), \
-             patch("engine.fsm.notify_discord"):
+        with (
+            patch("engine.fsm.notify_implementer", mock_impl),
+            patch("engine.fsm.notify_discord"),
+        ):
             process(path)
 
         mock_impl.assert_called_once_with(
-            "implementer1", "[gokrax] test-pj: message",
-            project="test-pj", phase="design",
+            "implementer1",
+            "[gokrax] test-pj: message",
+            project="test-pj",
+            phase="design",
         )
 
     def test_recovery_backward_compat_no_project_phase(self, tmp_path, monkeypatch):
@@ -1048,7 +1166,7 @@ class TestImplRecoveryProjectPhase:
 
         path = tmp_path / "test-pj.json"
         data = _base_pipeline(
-            state="DESIGN_REVIEW",
+            state="DESIGN_PLAN",
             _pending_notifications={
                 "impl": {
                     "implementer": "implementer1",
@@ -1061,13 +1179,17 @@ class TestImplRecoveryProjectPhase:
         from watchdog import process
 
         mock_impl = MagicMock(return_value=True)
-        with patch("engine.fsm.notify_implementer", mock_impl), \
-             patch("engine.fsm.notify_discord"):
+        with (
+            patch("engine.fsm.notify_implementer", mock_impl),
+            patch("engine.fsm.notify_discord"),
+        ):
             process(path)
 
         mock_impl.assert_called_once_with(
-            "implementer1", "[gokrax] test-pj: old message",
-            project="", phase="",
+            "implementer1",
+            "[gokrax] test-pj: old message",
+            project="",
+            phase="",
         )
         result = _read_pipeline(path)
         assert "_pending_notifications" not in result
@@ -1094,10 +1216,12 @@ class TestNoCcPendingSave:
 
         from watchdog import process
 
-        with patch("watchdog.notify_implementer", return_value=True), \
-             patch("watchdog.notify_reviewers"), \
-             patch("watchdog.notify_discord"), \
-             patch("watchdog._reset_reviewers", return_value=[]):
+        with (
+            patch("watchdog.notify_implementer", return_value=True),
+            patch("watchdog.notify_reviewers"),
+            patch("watchdog.notify_discord"),
+            patch("watchdog._reset_reviewers", return_value=[]),
+        ):
             process(path)
 
         result = _read_pipeline(path)
@@ -1126,11 +1250,13 @@ class TestNoCcSendSuccessClear:
         from watchdog import process
 
         mock_clear = MagicMock()
-        with patch("watchdog.notify_implementer", return_value=True), \
-             patch("watchdog.notify_reviewers"), \
-             patch("watchdog.notify_discord"), \
-             patch("watchdog._reset_reviewers", return_value=[]), \
-             patch("watchdog.clear_pending_notification", mock_clear):
+        with (
+            patch("watchdog.notify_implementer", return_value=True),
+            patch("watchdog.notify_reviewers"),
+            patch("watchdog.notify_discord"),
+            patch("watchdog._reset_reviewers", return_value=[]),
+            patch("watchdog.clear_pending_notification", mock_clear),
+        ):
             process(path)
 
         # clear_pending_notification should have been called for "impl"
@@ -1155,10 +1281,12 @@ class TestNoCcSendFailurePreservesPending:
 
         from watchdog import process
 
-        with patch("watchdog.notify_implementer", return_value=False), \
-             patch("watchdog.notify_reviewers"), \
-             patch("watchdog.notify_discord"), \
-             patch("watchdog._reset_reviewers", return_value=[]):
+        with (
+            patch("watchdog.notify_implementer", return_value=False),
+            patch("watchdog.notify_reviewers"),
+            patch("watchdog.notify_discord"),
+            patch("watchdog._reset_reviewers", return_value=[]),
+        ):
             process(path)
 
         result = _read_pipeline(path)
@@ -1185,10 +1313,12 @@ class TestNoCcExceptionPreservesPending:
 
         from watchdog import process
 
-        with patch("watchdog.notify_implementer", side_effect=Exception("agent down")), \
-             patch("watchdog.notify_reviewers"), \
-             patch("watchdog.notify_discord"), \
-             patch("watchdog._reset_reviewers", return_value=[]):
+        with (
+            patch("watchdog.notify_implementer", side_effect=Exception("agent down")),
+            patch("watchdog.notify_reviewers"),
+            patch("watchdog.notify_discord"),
+            patch("watchdog._reset_reviewers", return_value=[]),
+        ):
             process(path)  # should not crash
 
         result = _read_pipeline(path)
@@ -1214,12 +1344,14 @@ class TestFireAndForgetNotCrash:
         from watchdog import process
         from notify import DiscordPostResult
 
-        with patch("watchdog.notify_implementer", side_effect=Exception("agent down")), \
-             patch("watchdog.notify_reviewers"), \
-             patch("watchdog.notify_discord"), \
-             patch("notify.post_discord", return_value=DiscordPostResult("msg-1")), \
-             patch("notify.get_bot_token", return_value="tok"), \
-             patch("watchdog._reset_reviewers", return_value=[]):
+        with (
+            patch("watchdog.notify_implementer", side_effect=Exception("agent down")),
+            patch("watchdog.notify_reviewers"),
+            patch("watchdog.notify_discord"),
+            patch("notify.post_discord", return_value=DiscordPostResult("msg-1")),
+            patch("notify.get_bot_token", return_value="tok"),
+            patch("watchdog._reset_reviewers", return_value=[]),
+        ):
             process(path)  # should not crash
 
         result = _read_pipeline(path)
@@ -1242,10 +1374,12 @@ class TestFireAndForgetNotCrash:
 
         from watchdog import process
 
-        with patch("watchdog.notify_implementer", side_effect=Exception("agent down")), \
-             patch("watchdog.notify_reviewers"), \
-             patch("watchdog.notify_discord"), \
-             patch("watchdog._reset_reviewers", return_value=[]):
+        with (
+            patch("watchdog.notify_implementer", side_effect=Exception("agent down")),
+            patch("watchdog.notify_reviewers"),
+            patch("watchdog.notify_discord"),
+            patch("watchdog._reset_reviewers", return_value=[]),
+        ):
             process(path)  # should not crash
 
         result = _read_pipeline(path)
@@ -1277,14 +1411,17 @@ class TestCmdTransitionReturnCheck:
         args.resume = False
 
         mock_clear = MagicMock()
-        with patch("commands.dev.notify_implementer", return_value=False), \
-             patch("commands.dev.notify_reviewers"), \
-             patch("commands.dev.notify_discord"), \
-             patch("engine.reviewer._reset_reviewers", return_value=[]), \
-             patch("commands.dev.clear_pending_notification", mock_clear):
+        with (
+            patch("commands.dev.notify_implementer", return_value=False),
+            patch("commands.dev.notify_reviewers"),
+            patch("commands.dev.notify_discord"),
+            patch("engine.reviewer._reset_reviewers", return_value=[]),
+            patch("commands.dev.clear_pending_notification", mock_clear),
+        ):
             cmd_transition(args)
 
         # clear_pending_notification should NOT have been called for "impl"
         for call in mock_clear.call_args_list:
-            assert call[0] != ("test-pj", "impl"), \
+            assert call[0] != ("test-pj", "impl"), (
                 "clear_pending_notification('test-pj', 'impl') should not be called when notify returns False"
+            )

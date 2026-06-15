@@ -25,11 +25,12 @@ from engine.reviewer import (
 from engine.shared import _is_cc_running, _is_ok_reply, log
 from messages import render
 from notify import notify_discord, notify_implementer, notify_reviewers, send_to_agent
-from pipeline_io import clear_pending_notification, get_path, load_pipeline
+from pipeline_io import get_path, load_pipeline, update_pipeline
 
 
 class PhaseConfig(TypedDict):
     """Phase-resolved review config returned by _build_phase_config / get_phase_config."""
+
     members: list[str]
     min_reviews: int
     n_pass: dict[str, int]
@@ -134,6 +135,7 @@ def get_phase_config(data: dict | None, phase: str) -> PhaseConfig:
 @dataclass
 class TransitionAction:
     """check_transition() の返り値。new_state が None なら遷移不要。"""
+
     new_state: str | None = None
     impl_msg: str | None = None
     send_review: bool = False
@@ -141,16 +143,30 @@ class TransitionAction:
     send_merge_summary: bool = False  # post merge summary to #gokrax
     run_cc: bool = False  # launch CC CLI directly
     run_test: bool = False  # test execution trigger (on CODE_TEST entry)
-    nudge: str | None = None   # state name requiring nudge notification
+    nudge: str | None = None  # state name requiring nudge notification
     nudge_reviewers: list | None = None  # list of reviewers requiring nudge
-    dispute_nudge_reviewers: list | None = None  # reviewers requiring nudge with pending dispute
+    dispute_nudge_reviewers: list | None = (
+        None  # reviewers requiring nudge with pending dispute
+    )
     extend_notice: str | None = None  # timeout extension notice message
-    save_grace_met_at: str | None = None  # key name when grace met_at needs to be saved to pipeline
-    clear_grace_met_at: str | None = None  # key name of grace met_at to clear on transition
-    npass_target_reviewers: list | None = None  # target reviewer list for NPASS transition
-    skipped_issues: list[dict] | None = None   # list of Issue dicts excluded in ASSESSMENT
-    remaining_issues: list[dict] | None = None  # list of Issue dicts remaining in ASSESSMENT
-    grace_skipped_reviewers: list[str] | None = None  # reviewers skipped due to grace period expiration
+    save_grace_met_at: str | None = (
+        None  # key name when grace met_at needs to be saved to pipeline
+    )
+    clear_grace_met_at: str | None = (
+        None  # key name of grace met_at to clear on transition
+    )
+    npass_target_reviewers: list | None = (
+        None  # target reviewer list for NPASS transition
+    )
+    skipped_issues: list[dict] | None = (
+        None  # list of Issue dicts excluded in ASSESSMENT
+    )
+    remaining_issues: list[dict] | None = (
+        None  # list of Issue dicts remaining in ASSESSMENT
+    )
+    grace_skipped_reviewers: list[str] | None = (
+        None  # reviewers skipped due to grace period expiration
+    )
     blocked_reason: str | None = None  # BLOCKED cause ("timeout" / None)
 
 
@@ -236,7 +252,6 @@ def _check_nudge(state: str, data: dict) -> TransitionAction | None:
     return nudge
 
 
-
 def _get_reviewer_entry(batch: list, key: str, reviewer: str) -> dict | None:
     """バッチの最初のIssueから指定レビュアーのレビューエントリを取得。"""
     for issue in batch:
@@ -276,7 +291,9 @@ def _read_domain_risk(project: str, repo_path: str) -> str:
     custom = PROJECT_RISK_FILES.get(project)
     if custom:
         if not Path(custom).is_absolute():
-            _logger.warning("PROJECT_RISK_FILES[%s] is a relative path: %s", project, custom)
+            _logger.warning(
+                "PROJECT_RISK_FILES[%s] is a relative path: %s", project, custom
+            )
         risk_path = Path(custom)
     elif repo_path:
         risk_path = Path(repo_path) / "DOMAIN_RISK.md"
@@ -295,7 +312,9 @@ def _read_domain_risk(project: str, repo_path: str) -> str:
         return ""
 
     if len(content) > 10_000:
-        _logger.warning("DOMAIN_RISK.md exceeds 10,000 chars (%d), truncating", len(content))
+        _logger.warning(
+            "DOMAIN_RISK.md exceeds 10,000 chars (%d), truncating", len(content)
+        )
         content = content[:10_000]
 
     return content
@@ -326,41 +345,63 @@ def get_notification_for_state(
         return TransitionAction(send_review=True)
 
     from config import OWNER_NAME
+
     comment_line = f"{OWNER_NAME}'s request: {comment}\n" if comment else ""
 
     if state == "DESIGN_PLAN":
-        issues_str = ", ".join(
-            f"#{i['issue']}" for i in batch if not i.get("design_ready")
-        ) or "(all Issues)"
-        msg = render("dev.design_plan", "transition",
-            project=project, issues_str=issues_str,
-            comment_line=comment_line, GOKRAX_CLI=GOKRAX_CLI,
+        issues_str = (
+            ", ".join(f"#{i['issue']}" for i in batch if not i.get("design_ready"))
+            or "(all Issues)"
+        )
+        msg = render(
+            "dev.design_plan",
+            "transition",
+            project=project,
+            issues_str=issues_str,
+            comment_line=comment_line,
+            GOKRAX_CLI=GOKRAX_CLI,
             repo_path=repo_path,
         )
         return TransitionAction(impl_msg=msg, reset_reviewers=True)
 
     if state == "DESIGN_REVISE":
-        issues_str = _revise_target_issues(batch, "design_reviews", "design_revised", p2_fix=p2_fix)
+        issues_str = _revise_target_issues(
+            batch, "design_reviews", "design_revised", p2_fix=p2_fix
+        )
         p2_note = ""
         if p2_fix:
             p2_note = "\n⚠️ --p2-fix mode: all P2 findings must also be fixed. Even without P0/P1, remaining P2 will cause another REVISE.\n"
         fix_label = "P0/P1/P2 findings" if p2_fix else "P0/P1 findings"
-        msg = render("dev.design_revise", "transition",
-            project=project, issues_str=issues_str, comment_line=comment_line,
-            fix_label=fix_label, p2_note=p2_note, GOKRAX_CLI=GOKRAX_CLI,
+        msg = render(
+            "dev.design_revise",
+            "transition",
+            project=project,
+            issues_str=issues_str,
+            comment_line=comment_line,
+            fix_label=fix_label,
+            p2_note=p2_note,
+            GOKRAX_CLI=GOKRAX_CLI,
             repo_path=repo_path,
         )
         return TransitionAction(impl_msg=msg)
 
     if state == "CODE_REVISE":
-        issues_str = _revise_target_issues(batch, "code_reviews", "code_revised", p2_fix=p2_fix)
+        issues_str = _revise_target_issues(
+            batch, "code_reviews", "code_revised", p2_fix=p2_fix
+        )
         p2_note = ""
         if p2_fix:
             p2_note = "\n⚠️ --p2-fix mode: all P2 findings must also be fixed. Even without P0/P1, remaining P2 will cause another REVISE.\n"
         fix_label = "P0/P1/P2 findings" if p2_fix else "P0/P1 findings"
-        msg = render("dev.code_revise", "transition",
-            project=project, issues_str=issues_str, comment_line=comment_line,
-            fix_label=fix_label, p2_note=p2_note, GOKRAX_CLI=GOKRAX_CLI,
+        msg = render(
+            "dev.code_revise",
+            "transition",
+            project=project,
+            issues_str=issues_str,
+            comment_line=comment_line,
+            fix_label=fix_label,
+            p2_note=p2_note,
+            GOKRAX_CLI=GOKRAX_CLI,
             repo_path=repo_path,
         )
         return TransitionAction(impl_msg=msg)
@@ -368,9 +409,13 @@ def get_notification_for_state(
     if state == "ASSESSMENT":
         issues_str = ", ".join(f"#{i['issue']}" for i in batch) or "(all Issues)"
         domain_risk_content = _read_domain_risk(project, repo_path)
-        msg = render("dev.assessment", "transition",
-            project=project, issues_str=issues_str,
-            comment_line=comment_line, GOKRAX_CLI=GOKRAX_CLI,
+        msg = render(
+            "dev.assessment",
+            "transition",
+            project=project,
+            issues_str=issues_str,
+            comment_line=comment_line,
+            GOKRAX_CLI=GOKRAX_CLI,
             domain_risk_content=domain_risk_content,
             batch=batch,
             repo_path=repo_path,
@@ -385,8 +430,12 @@ def get_notification_for_state(
 
 
 def _resolve_review_outcome(
-    state: str, data: dict | None, batch: list,
-    has_p0: bool, has_p1: bool, has_p2: bool,
+    state: str,
+    data: dict | None,
+    batch: list,
+    has_p0: bool,
+    has_p1: bool,
+    has_p2: bool,
     comment: str = "",
 ) -> TransitionAction:
     """min_reviews 到達後の遷移先を決定する。APPROVED or REVISE or BLOCKED.
@@ -409,10 +458,17 @@ def _resolve_review_outcome(
     # P0 or P1 あり → REVISE or BLOCKED/フォールバック
     if has_p0 or has_p1:
         from config import MAX_REVISE_CYCLES, OWNER_NAME
-        counter_key = "design_revise_count" if "DESIGN" in state else "code_revise_count"
+
+        counter_key = (
+            "design_revise_count" if "DESIGN" in state else "code_revise_count"
+        )
         current_count = data.get(counter_key, 0) if data else 0
 
-        max_key = "max_design_revise_cycles" if "DESIGN" in state else "max_code_revise_cycles"
+        max_key = (
+            "max_design_revise_cycles"
+            if "DESIGN" in state
+            else "max_code_revise_cycles"
+        )
         val = data.get(max_key) if data else None
         effective_max = val if val is not None else MAX_REVISE_CYCLES
 
@@ -421,24 +477,42 @@ def _resolve_review_outcome(
             # P0/P1 あり → BLOCKED（いずれも免除しない）
             return TransitionAction(
                 new_state="BLOCKED",
-                impl_msg=render("dev.blocked", "blocked_max_cycles",
-                    state=state, MAX_REVISE_CYCLES=effective_max,
-                    OWNER_NAME=OWNER_NAME, severity=severity,
+                impl_msg=render(
+                    "dev.blocked",
+                    "blocked_max_cycles",
+                    state=state,
+                    MAX_REVISE_CYCLES=effective_max,
+                    OWNER_NAME=OWNER_NAME,
+                    severity=severity,
                 ),
             )
 
         return TransitionAction(
             new_state=revise_state,
-            impl_msg=get_notification_for_state(revise_state, project=pj, batch=batch, p2_fix=p2_fix, comment=comment, repo_path=repo_path).impl_msg,
+            impl_msg=get_notification_for_state(
+                revise_state,
+                project=pj,
+                batch=batch,
+                p2_fix=p2_fix,
+                comment=comment,
+                repo_path=repo_path,
+            ).impl_msg,
         )
 
     # P0/P1 なし + p2_fix 有効 + P2 あり → REVISE（max_revise_cycles フォールバック付き）
     if p2_fix and has_p2:
         from config import MAX_REVISE_CYCLES
-        counter_key = "design_revise_count" if "DESIGN" in state else "code_revise_count"
+
+        counter_key = (
+            "design_revise_count" if "DESIGN" in state else "code_revise_count"
+        )
         current_count = data.get(counter_key, 0) if data else 0
 
-        max_key = "max_design_revise_cycles" if "DESIGN" in state else "max_code_revise_cycles"
+        max_key = (
+            "max_design_revise_cycles"
+            if "DESIGN" in state
+            else "max_code_revise_cycles"
+        )
         val = data.get(max_key) if data else None
         effective_max = val if val is not None else MAX_REVISE_CYCLES
 
@@ -446,22 +520,35 @@ def _resolve_review_outcome(
             # フォールバック: P0/P1 がないので APPROVE する
             return TransitionAction(
                 new_state=appr,
-                impl_msg=get_notification_for_state(appr, project=pj, batch=batch, comment=comment, repo_path=repo_path).impl_msg,
+                impl_msg=get_notification_for_state(
+                    appr, project=pj, batch=batch, comment=comment, repo_path=repo_path
+                ).impl_msg,
             )
 
         return TransitionAction(
             new_state=revise_state,
-            impl_msg=get_notification_for_state(revise_state, project=pj, batch=batch, p2_fix=True, comment=comment, repo_path=repo_path).impl_msg,
+            impl_msg=get_notification_for_state(
+                revise_state,
+                project=pj,
+                batch=batch,
+                p2_fix=True,
+                comment=comment,
+                repo_path=repo_path,
+            ).impl_msg,
         )
 
     # P0/P1/P2 なし or (P2 ありだが p2_fix 無効) → APPROVE
     return TransitionAction(
         new_state=appr,
-        impl_msg=get_notification_for_state(appr, project=pj, batch=batch, comment=comment, repo_path=repo_path).impl_msg,
+        impl_msg=get_notification_for_state(
+            appr, project=pj, batch=batch, comment=comment, repo_path=repo_path
+        ).impl_msg,
     )
 
 
-def check_transition(state: str, batch: list, data: dict | None = None) -> TransitionAction:
+def check_transition(
+    state: str, batch: list, data: dict | None = None
+) -> TransitionAction:
     """現在の状態とバッチから次の遷移アクションを決定する。
 
     data を読み取るが直接変更しない。data への書き込みが必要な場合は
@@ -486,7 +573,10 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
         pj = data.get("project", "") if data else ""
         comment = data.get("comment", "") if data else ""
         notif = get_notification_for_state(
-            "DESIGN_PLAN", project=pj, batch=batch, comment=comment,
+            "DESIGN_PLAN",
+            project=pj,
+            batch=batch,
+            comment=comment,
             repo_path=data.get("repo_path", "") if data else "",
         )
         return TransitionAction(
@@ -510,6 +600,7 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
         # Manual merge: wait for M's OK
         from notify import fetch_discord_replies
         from config import MERGE_APPROVER_DISCORD_ID, DISCORD_CHANNEL
+
         summary_id = data.get("summary_message_id")
         if not summary_id:
             # Discord not configured: summary_message_id is "".
@@ -518,9 +609,11 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
         messages = fetch_discord_replies(DISCORD_CHANNEL, summary_id)
         for msg in messages:
             ref = msg.get("message_reference", {})
-            if (ref.get("message_id") == summary_id
-                    and msg.get("author", {}).get("id") == MERGE_APPROVER_DISCORD_ID
-                    and _is_ok_reply(msg.get("content", ""))):
+            if (
+                ref.get("message_id") == summary_id
+                and msg.get("author", {}).get("id") == MERGE_APPROVER_DISCORD_ID
+                and _is_ok_reply(msg.get("content", ""))
+            ):
                 return TransitionAction(new_state="DONE")
         return TransitionAction()
 
@@ -554,7 +647,11 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
 
         phase = "design" if "DESIGN" in state else "code"
         phase_config = get_phase_config(data, phase)
-        min_rev = data.get("min_reviews_override", phase_config["min_reviews"]) if data else phase_config["min_reviews"]
+        min_rev = (
+            data.get("min_reviews_override", phase_config["min_reviews"])
+            if data
+            else phase_config["min_reviews"]
+        )
         excluded = data.get("excluded_reviewers", []) if data else []
         effective_count = len(phase_config["members"]) - len(excluded)
         grace_sec = phase_config["grace_period_sec"]
@@ -573,11 +670,15 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
             )
             if has_flag_p0:
                 revise_state = "DESIGN_REVISE" if "DESIGN" in state else "CODE_REVISE"
-                log(f"[FLAG] unresolved P0 flag(s) in {flag_phase} phase → {revise_state}")
+                log(
+                    f"[FLAG] unresolved P0 flag(s) in {flag_phase} phase → {revise_state}"
+                )
                 return TransitionAction(new_state=revise_state, send_review=False)
         else:
             # Defensive: should never happen (all REVIEW states are in STATE_PHASE_MAP)
-            log(f"[FLAG] WARNING: unknown state {state} in REVIEW block, skipping flag check")
+            log(
+                f"[FLAG] WARNING: unknown state {state} in REVIEW block, skipping flag check"
+            )
 
         # Check if min_reviews reached
         if count >= min_rev:
@@ -594,7 +695,9 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
 
             # Case 1: All effective reviewers done → immediate
             if count >= effective_count:
-                log(f"[GRACE] all {effective_count} effective reviewers done, transitioning")
+                log(
+                    f"[GRACE] all {effective_count} effective reviewers done, transitioning"
+                )
                 should_transition = True
 
             # Case 2: Grace period check
@@ -604,11 +707,15 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
                     if met_at.tzinfo is None:
                         raise ValueError("naive datetime")
                 except (ValueError, TypeError):
-                    log(f"[GRACE] WARNING: corrupt {met_key}={data.get(met_key)!r}, resetting grace timer")
+                    log(
+                        f"[GRACE] WARNING: corrupt {met_key}={data.get(met_key)!r}, resetting grace timer"
+                    )
                     return TransitionAction(save_grace_met_at=met_key)
                 elapsed = (datetime.now(LOCAL_TZ) - met_at).total_seconds()
                 if elapsed >= grace_sec:
-                    log(f"[GRACE] grace period expired ({elapsed:.1f}s >= {grace_sec}s), transitioning")
+                    log(
+                        f"[GRACE] grace period expired ({elapsed:.1f}s >= {grace_sec}s), transitioning"
+                    )
                     should_transition = True
                     grace_expired = True
                 else:
@@ -631,23 +738,33 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
 
             if should_transition:
                 comment = data.get("comment", "") if data else ""
-                outcome = _resolve_review_outcome(state, data, batch, has_p0, has_p1, has_p2, comment=comment)
+                outcome = _resolve_review_outcome(
+                    state, data, batch, has_p0, has_p1, has_p2, comment=comment
+                )
 
                 # NPASS interception: Round 1（revise_count == 0）かつ
                 # pass < target_pass のレビュアーがいる → verdict に関わらず NPASS へ遷移。
                 # Round 2+（revise_count > 0）ではスキップ。
-                counter_key = "design_revise_count" if "DESIGN" in state else "code_revise_count"
+                counter_key = (
+                    "design_revise_count" if "DESIGN" in state else "code_revise_count"
+                )
                 revise_count = data.get(counter_key, 0) if data else 0
                 if revise_count == 0:
                     npass_targets: list[str] = []
                     seen: set[str] = set()
                     for issue in batch:
                         for reviewer, entry in issue.get(key, {}).items():
-                            if reviewer not in seen and entry.get("pass", 1) < entry.get("target_pass", 1):
+                            if reviewer not in seen and entry.get(
+                                "pass", 1
+                            ) < entry.get("target_pass", 1):
                                 npass_targets.append(reviewer)
                                 seen.add(reviewer)
                     if npass_targets:
-                        npass_state = "DESIGN_REVIEW_NPASS" if "DESIGN" in state else "CODE_REVIEW_NPASS"
+                        npass_state = (
+                            "DESIGN_REVIEW_NPASS"
+                            if "DESIGN" in state
+                            else "CODE_REVIEW_NPASS"
+                        )
                         return TransitionAction(
                             new_state=npass_state,
                             send_review=True,
@@ -660,7 +777,9 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
                     outcome.clear_grace_met_at = met_key
                 # Grace period expired 経路のみ: スキップされたレビュアーを記録
                 if grace_expired:
-                    pending = _get_pending_reviewers(batch, key, phase_config["members"], excluded=excluded)
+                    pending = _get_pending_reviewers(
+                        batch, key, phase_config["members"], excluded=excluded
+                    )
                     if pending:
                         outcome.grace_skipped_reviewers = pending
                 return outcome
@@ -678,7 +797,9 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
                 return TransitionAction()
         # 3. レビュアー催促（最低優先）
         excluded = data.get("excluded_reviewers", []) if data else []
-        pending = _get_pending_reviewers(batch, key, phase_config["members"], excluded=excluded)
+        pending = _get_pending_reviewers(
+            batch, key, phase_config["members"], excluded=excluded
+        )
         dispute_awaiting = _awaiting_dispute_re_review(batch, key, excluded=excluded)
         if pending or dispute_awaiting:
             return TransitionAction(
@@ -760,14 +881,26 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
             _, all_has_p0, all_has_p1, all_has_p2 = count_reviews(batch, key)
             comment = data.get("comment", "") if data else ""
             return _resolve_review_outcome(
-                state, data, batch, all_has_p0, all_has_p1, all_has_p2, comment=comment,
+                state,
+                data,
+                batch,
+                all_has_p0,
+                all_has_p1,
+                all_has_p2,
+                comment=comment,
             )
 
         # 未提出あり — 提出済み verdict に P0/P1 があれば即 REVISE（タイムアウト待ち不要）
         if has_p0 or has_p1:
             comment = data.get("comment", "") if data else ""
             return _resolve_review_outcome(
-                state, data, batch, has_p0, has_p1, has_p2, comment=comment,
+                state,
+                data,
+                batch,
+                has_p0,
+                has_p1,
+                has_p2,
+                comment=comment,
             )
 
         # タイムアウト判定（NPASS は BLOCKED にならない）
@@ -780,13 +913,21 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
         if elapsed >= block_sec:
             pj = data.get("project", "") if data else ""
             comment = data.get("comment", "") if data else ""
-            log(f"[NPASS] timeout ({elapsed:.0f}s >= {block_sec}s), using current verdicts for {pj}")
+            log(
+                f"[NPASS] timeout ({elapsed:.0f}s >= {block_sec}s), using current verdicts for {pj}"
+            )
             # タイムアウト: 全レビュアーの現在の verdict で判定
             # 未完了レビュアーは pass 1 verdict（上書きされていない）、
             # 完了済みは最終パス verdict、n_pass==1 は pass 1 verdict
             _, to_has_p0, to_has_p1, to_has_p2 = count_reviews(batch, key)
             return _resolve_review_outcome(
-                state, data, batch, to_has_p0, to_has_p1, to_has_p2, comment=comment,
+                state,
+                data,
+                batch,
+                to_has_p0,
+                to_has_p1,
+                to_has_p2,
+                comment=comment,
             )
 
         return TransitionAction()
@@ -803,7 +944,10 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
         pj = data.get("project", "") if data else ""
         comment = data.get("comment", "") if data else ""
         notif = get_notification_for_state(
-            "ASSESSMENT", project=pj, batch=batch, comment=comment,
+            "ASSESSMENT",
+            project=pj,
+            batch=batch,
+            comment=comment,
             repo_path=data.get("repo_path", "") if data else "",
         )
         return TransitionAction(
@@ -822,7 +966,9 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
                 a = issue.get("assessment", {})
                 ir = a.get("domain_risk", "n/a")
                 if ir not in valid_risks:
-                    log(f"[ASSESSMENT] WARNING: unknown domain_risk={ir!r} in #{issue.get('issue')}, normalizing to n/a")
+                    log(
+                        f"[ASSESSMENT] WARNING: unknown domain_risk={ir!r} in #{issue.get('issue')}, normalizing to n/a"
+                    )
                     a["domain_risk"] = "n/a"
 
             exclude_any = data.get("exclude_any_risk", False) if data else False
@@ -890,14 +1036,8 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
                 r.get("verdict", "").upper() in ("REJECT", "P0")
                 for r in reviews.values()
             )
-            has_p1 = any(
-                r.get("verdict", "").upper() == "P1"
-                for r in reviews.values()
-            )
-            has_p2 = any(
-                r.get("verdict", "").upper() == "P2"
-                for r in reviews.values()
-            )
+            has_p1 = any(r.get("verdict", "").upper() == "P1" for r in reviews.values())
+            has_p2 = any(r.get("verdict", "").upper() == "P2" for r in reviews.values())
 
             has_unresolved_flag = False
             if flag_phase is not None:
@@ -908,7 +1048,9 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
                     for f in issue.get("flags", [])
                 )
 
-            needs_revision = has_p0 or has_p1 or (p2_fix and has_p2) or has_unresolved_flag
+            needs_revision = (
+                has_p0 or has_p1 or (p2_fix and has_p2) or has_unresolved_flag
+            )
             if needs_revision and not issue.get(revised_key):
                 all_done = False
                 break
@@ -916,6 +1058,7 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
         if all_done:
             if "CODE" in state:
                 from config import TEST_CONFIG
+
                 project = data.get("project", "") if data else ""
                 has_test = bool(TEST_CONFIG.get(project, {}).get("test_command"))
                 skip_test = data.get("skip_test", False) if data else False
@@ -936,6 +1079,7 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
         # 1. 完了判定（最優先）
         if all(i.get("commit") for i in batch):
             from config import TEST_CONFIG
+
             project = data.get("project", "") if data else ""
             has_test = bool(TEST_CONFIG.get(project, {}).get("test_command"))
             skip_test = data.get("skip_test", False) if data else False
@@ -976,6 +1120,7 @@ def check_transition(state: str, batch: list, data: dict | None = None) -> Trans
             return TransitionAction(new_state="CODE_REVIEW", send_review=True)
         # test_result == "fail"
         from config import MAX_TEST_RETRY
+
         retry_count = data.get("test_retry_count", 0)
         if retry_count >= MAX_TEST_RETRY:
             return TransitionAction(
@@ -1002,22 +1147,125 @@ def _format_nudge_message(state: str, project: str, batch: list) -> str:
     return notif.impl_msg or f"[gokrax] {project}: {state} — please take action."
 
 
-def _recover_pending_notifications(pj: str, pending: dict) -> None:
+# send_review=True を返す全状態と一致しなければならない。
+# 乖離は test_review_states_match_send_review で CI 検出する。
+REVIEW_STATES = {
+    "DESIGN_REVIEW",
+    "CODE_REVIEW",
+    "DESIGN_REVIEW_NPASS",
+    "CODE_REVIEW_NPASS",
+}
+
+# 正規の impl pending が存在し得る状態（ホワイトリスト）。
+# これ以外の全状態で impl は stale と判定される。
+# 乖離は test_impl_msg_only_in_impl_states,
+# test_check_transition_impl_msg_targets_impl_states で CI 検出する。
+_IMPL_STATES = {
+    "DESIGN_PLAN",
+    "DESIGN_REVISE",
+    "CODE_REVISE",
+    "ASSESSMENT",
+    "BLOCKED",
+    "DESIGN_APPROVED",
+    "CODE_APPROVED",
+    "IMPLEMENTATION",
+}
+
+
+def stale_pending_keys(state: str, pending: dict) -> list[str]:
+    """現在の state と矛盾する pending 通知キーを返す。"""
+    stale = []
+    if "impl" in pending and state not in _IMPL_STATES:
+        stale.append("impl")
+    if "review" in pending:
+        if state not in REVIEW_STATES:
+            stale.append("review")
+        elif pending["review"].get("new_state") != state:
+            stale.append("review")
+    if "blocked_report" in pending and state != "BLOCKED":
+        stale.append("blocked_report")
+    return stale
+
+
+def _conditional_clear_pending(pj: str, key: str, expected: dict) -> None:
+    """pending[key] の値が expected と一致する場合のみクリアする。
+
+    TOCTOU 保護: snapshot 取得後に CLI が同一キーの pending を差し替えた場合、
+    新しい値を誤削除しない。ロック内で値を比較し、一致した場合のみ削除する。
+    """
+
+    def _cb(data):
+        pn = data.get("_pending_notifications")
+        if pn and key in pn and pn[key] == expected:
+            pn.pop(key)
+            if not pn:
+                data.pop("_pending_notifications", None)
+
+    try:
+        update_pipeline(get_path(pj), _cb)
+    except Exception as e:
+        log(f"[{pj}] WARNING: conditional clear of '{key}' failed: {e}")
+
+
+def _recover_pending_notifications(pj: str, pending: dict, state: str) -> None:
     """未完了通知のリカバリ(Issue #59)。impl/review は再送、merge_summary/run_cc は Discord警告。
 
     At-least-once 保証: 通知成功時のみ pending をクリアする。
     失敗時は pending を維持し、次回 process() で再試行する。
     """
+    stale = stale_pending_keys(state, pending)
+    snapshot_diverged = False
+    actually_pruned = []
+
+    try:
+        if stale:
+
+            def _check_and_prune(data):
+                nonlocal snapshot_diverged
+                current_state = data.get("state", "IDLE")
+                if current_state != state:
+                    snapshot_diverged = True
+                    return
+                pn = data.get("_pending_notifications")
+                if pn:
+                    for key in stale_pending_keys(current_state, pn):
+                        pn.pop(key, None)
+                        actually_pruned.append(key)
+                    if not pn:
+                        data.pop("_pending_notifications", None)
+
+            update_pipeline(get_path(pj), _check_and_prune)
+        else:
+            current_data = load_pipeline(get_path(pj))
+            if current_data.get("state", "IDLE") != state:
+                snapshot_diverged = True
+    except Exception as e:
+        log(f"[{pj}] WARNING: snapshot check/prune failed, continuing recovery: {e}")
+
+    if snapshot_diverged:
+        log(
+            f"[{pj}] state diverged from snapshot ({state}), aborting recovery this cycle"
+        )
+        return
+
+    for key in stale:
+        pending.pop(key, None)
+        if key in actually_pruned:
+            log(f"[{pj}] pruned stale pending '{key}' (state={state})")
+        else:
+            log(f"[{pj}] skipped stale snapshot pending '{key}' (state changed)")
+
     if "impl" in pending:
         info = pending["impl"]
         try:
             ok = notify_implementer(
-                info["implementer"], info["msg"],
+                info["implementer"],
+                info["msg"],
                 project=info.get("project", ""),
                 phase=info.get("phase", ""),
             )
             if ok:
-                clear_pending_notification(pj, "impl")
+                _conditional_clear_pending(pj, "impl", pending["impl"])
             else:
                 log(f"[{pj}] impl recovery: send failed, will retry next cycle")
         except Exception as e:
@@ -1032,7 +1280,10 @@ def _recover_pending_notifications(pj: str, pending: dict) -> None:
             phase = STATE_PHASE_MAP.get(info["new_state"], "design")
             phase_config = get_phase_config(fresh_data, phase)
             notify_reviewers(
-                pj, info["new_state"], info["batch"], info["gitlab"],
+                pj,
+                info["new_state"],
+                info["batch"],
+                info["gitlab"],
                 repo_path=info.get("repo_path", ""),
                 review_mode=info.get("review_mode", ""),
                 excluded=excluded,
@@ -1040,21 +1291,25 @@ def _recover_pending_notifications(pj: str, pending: dict) -> None:
                 comment=comment,
                 phase_config=phase_config,
             )
-            clear_pending_notification(pj, "review")
+            _conditional_clear_pending(pj, "review", pending["review"])
         except Exception as e:
             log(f"[{pj}] WARNING: review recovery failed, will retry next cycle: {e}")
 
     if "merge_summary" in pending:
         try:
-            notify_discord(render("dev.blocked", "notify_recovery_merge_summary", project=pj))
-            clear_pending_notification(pj, "merge_summary")
+            notify_discord(
+                render("dev.blocked", "notify_recovery_merge_summary", project=pj)
+            )
+            _conditional_clear_pending(pj, "merge_summary", pending["merge_summary"])
         except Exception as e:
-            log(f"[{pj}] WARNING: merge_summary recovery warning failed, will retry: {e}")
+            log(
+                f"[{pj}] WARNING: merge_summary recovery warning failed, will retry: {e}"
+            )
 
     if "run_cc" in pending:
         try:
             notify_discord(render("dev.blocked", "notify_recovery_cc", project=pj))
-            clear_pending_notification(pj, "run_cc")
+            _conditional_clear_pending(pj, "run_cc", pending["run_cc"])
         except Exception as e:
             log(f"[{pj}] WARNING: run_cc recovery warning failed, will retry: {e}")
 
@@ -1063,8 +1318,14 @@ def _recover_pending_notifications(pj: str, pending: dict) -> None:
         try:
             ok = send_to_agent(info["implementer"], info["msg"])
             if ok:
-                clear_pending_notification(pj, "blocked_report")
+                _conditional_clear_pending(
+                    pj, "blocked_report", pending["blocked_report"]
+                )
             else:
-                log(f"[{pj}] blocked_report recovery: send failed, will retry next cycle")
+                log(
+                    f"[{pj}] blocked_report recovery: send failed, will retry next cycle"
+                )
         except Exception as e:
-            log(f"[{pj}] WARNING: blocked_report recovery failed, will retry next cycle: {e}")
+            log(
+                f"[{pj}] WARNING: blocked_report recovery failed, will retry next cycle: {e}"
+            )

@@ -14,11 +14,16 @@ class TestResetReviewersPhaseOverride:
     def test_code_phase_excludes_overridden_member(self):
         """code phase_config should only reset override members (reviewer5 excluded)."""
         phase_config = _build_phase_config(TEST_REVIEW_MODES["full"], "code")
-        with patch("engine.reviewer.send_to_agent_queued", return_value=True) as mock_send, \
-             patch("engine.reviewer.ping_agent", return_value=True), \
-             patch("engine.backend.resolve_backend", return_value="openclaw"), \
-             patch("time.sleep"):
+        with (
+            patch(
+                "engine.reviewer.send_to_agent_queued", return_value=True
+            ) as mock_send,
+            patch("engine.reviewer.ping_agent", return_value=True),
+            patch("engine.backend.resolve_backend", return_value="openclaw"),
+            patch("time.sleep"),
+        ):
             from engine.reviewer import _reset_reviewers
+
             _reset_reviewers(phase_config)
 
         sent_agents = [c.args[0] for c in mock_send.call_args_list]
@@ -33,11 +38,16 @@ class TestResetReviewersPhaseOverride:
     def test_design_phase_includes_all_base_members(self):
         """design phase_config should reset all base members including reviewer5."""
         phase_config = _build_phase_config(TEST_REVIEW_MODES["full"], "design")
-        with patch("engine.reviewer.send_to_agent_queued", return_value=True) as mock_send, \
-             patch("engine.reviewer.ping_agent", return_value=True), \
-             patch("engine.backend.resolve_backend", return_value="openclaw"), \
-             patch("time.sleep"):
+        with (
+            patch(
+                "engine.reviewer.send_to_agent_queued", return_value=True
+            ) as mock_send,
+            patch("engine.reviewer.ping_agent", return_value=True),
+            patch("engine.backend.resolve_backend", return_value="openclaw"),
+            patch("time.sleep"),
+        ):
             from engine.reviewer import _reset_reviewers
+
             _reset_reviewers(phase_config)
 
         sent_agents = [c.args[0] for c in mock_send.call_args_list]
@@ -54,10 +64,15 @@ class TestResetShortContextPhaseOverride:
     def test_code_phase_no_short_context(self):
         """code phase_config has no short-context members -> no /new sent."""
         phase_config = _build_phase_config(TEST_REVIEW_MODES["full"], "code")
-        with patch("engine.reviewer.send_to_agent_queued", return_value=True) as mock_send, \
-             patch("engine.backend.resolve_backend", return_value="openclaw"), \
-             patch("time.sleep"):
+        with (
+            patch(
+                "engine.reviewer.send_to_agent_queued", return_value=True
+            ) as mock_send,
+            patch("engine.backend.resolve_backend", return_value="openclaw"),
+            patch("time.sleep"),
+        ):
             from engine.reviewer import _reset_short_context_reviewers
+
             _reset_short_context_reviewers(phase_config)
 
         mock_send.assert_not_called()
@@ -68,10 +83,15 @@ class TestResetShortContextPhaseOverride:
     def test_design_phase_resets_short_context(self):
         """design phase_config includes reviewer5 (short-context) -> /new sent."""
         phase_config = _build_phase_config(TEST_REVIEW_MODES["full"], "design")
-        with patch("engine.reviewer.send_to_agent_queued", return_value=True) as mock_send, \
-             patch("engine.backend.resolve_backend", return_value="openclaw"), \
-             patch("time.sleep"):
+        with (
+            patch(
+                "engine.reviewer.send_to_agent_queued", return_value=True
+            ) as mock_send,
+            patch("engine.backend.resolve_backend", return_value="openclaw"),
+            patch("time.sleep"),
+        ):
             from engine.reviewer import _reset_short_context_reviewers
+
             _reset_short_context_reviewers(phase_config)
 
         sent_agents = [c.args[0] for c in mock_send.call_args_list]
@@ -88,15 +108,22 @@ class TestNotifyReviewersPhaseOverride:
     def test_code_review_excludes_overridden_member(self):
         """CODE_REVIEW with code phase_config should not notify reviewer5."""
         phase_config = _build_phase_config(TEST_REVIEW_MODES["full"], "code")
-        with patch("notify.send_to_agent", return_value=True) as mock_send, \
-             patch("notify.format_review_request", return_value="review msg"), \
-             patch("notify._check_squash", return_value=[]), \
-             patch("notify._write_review_file"), \
-             patch("pipeline_io.append_metric"):
+        with (
+            patch("notify.send_to_agent", return_value=True) as mock_send,
+            patch("notify.format_review_request", return_value="review msg"),
+            patch("notify._check_squash", return_value=[]),
+            patch("notify._write_review_file"),
+            patch("pipeline_io.append_metric"),
+        ):
             from notify import notify_reviewers
+
             notify_reviewers(
-                "test-pj", "CODE_REVIEW", self._make_batch(), "testns/test-pj",
-                review_mode="full", phase_config=phase_config,
+                "test-pj",
+                "CODE_REVIEW",
+                self._make_batch(),
+                "testns/test-pj",
+                review_mode="full",
+                phase_config=phase_config,
             )
 
         sent_agents = [c.args[0] for c in mock_send.call_args_list]
@@ -111,15 +138,22 @@ class TestNotifyReviewersPhaseOverride:
     def test_design_review_includes_all_base_members(self):
         """DESIGN_REVIEW with design phase_config should notify all base members."""
         phase_config = _build_phase_config(TEST_REVIEW_MODES["full"], "design")
-        with patch("notify.send_to_agent", return_value=True) as mock_send, \
-             patch("notify.format_review_request", return_value="review msg"), \
-             patch("notify._check_squash", return_value=[]), \
-             patch("notify._write_review_file"), \
-             patch("pipeline_io.append_metric"):
+        with (
+            patch("notify.send_to_agent", return_value=True) as mock_send,
+            patch("notify.format_review_request", return_value="review msg"),
+            patch("notify._check_squash", return_value=[]),
+            patch("notify._write_review_file"),
+            patch("pipeline_io.append_metric"),
+        ):
             from notify import notify_reviewers
+
             notify_reviewers(
-                "test-pj", "DESIGN_REVIEW", self._make_batch(), "testns/test-pj",
-                review_mode="full", phase_config=phase_config,
+                "test-pj",
+                "DESIGN_REVIEW",
+                self._make_batch(),
+                "testns/test-pj",
+                review_mode="full",
+                phase_config=phase_config,
             )
 
         sent_agents = [c.args[0] for c in mock_send.call_args_list]
@@ -142,17 +176,24 @@ class TestNotifyReviewersPhaseOverride:
             written_reviewers.append(reviewer)
             return f"/tmp/fake-{reviewer}"
 
-        with patch("notify.send_to_agent", return_value=True), \
-             patch("notify.format_review_request", return_value="short msg"), \
-             patch("notify._check_squash", return_value=[]), \
-             patch("notify._write_review_file", side_effect=fake_write_review_file), \
-             patch("notify._save_npass_review_file_path"), \
-             patch("notify._build_file_review_message", return_value="file msg"), \
-             patch("pipeline_io.append_metric"):
+        with (
+            patch("notify.send_to_agent", return_value=True),
+            patch("notify.format_review_request", return_value="short msg"),
+            patch("notify._check_squash", return_value=[]),
+            patch("notify._write_review_file", side_effect=fake_write_review_file),
+            patch("notify._save_npass_review_file_path"),
+            patch("notify._build_file_review_message", return_value="file msg"),
+            patch("pipeline_io.append_metric"),
+        ):
             from notify import notify_reviewers
+
             notify_reviewers(
-                "test-pj", "CODE_REVIEW", self._make_batch(), "testns/test-pj",
-                review_mode="full", phase_config=phase_config,
+                "test-pj",
+                "CODE_REVIEW",
+                self._make_batch(),
+                "testns/test-pj",
+                review_mode="full",
+                phase_config=phase_config,
             )
 
         # reviewer1 should be force-externalized (n_pass=2 > 1)
@@ -175,6 +216,7 @@ class TestSaveExcludedPhaseConfig:
         assert effective_count == 3
 
         from engine.fsm import get_min_reviews
+
         min_reviews = get_min_reviews(phase_config)
         # min_reviews should be capped at members count (3)
         assert min_reviews <= 3
@@ -187,6 +229,7 @@ class TestRecoverPendingNotificationsPhaseConfig:
     def test_phase_config_passed_on_recovery(self, tmp_path, monkeypatch):
         """CODE_REVIEW recovery should pass phase_config to notify_reviewers."""
         import config
+
         monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
 
         review_config = {
@@ -210,15 +253,24 @@ class TestRecoverPendingNotificationsPhaseConfig:
             },
         }
 
-        with patch("engine.fsm.load_pipeline", return_value=pipeline_data), \
-             patch("engine.fsm.notify_reviewers") as mock_notify, \
-             patch("engine.fsm.clear_pending_notification"):
+        with (
+            patch("engine.fsm.load_pipeline", return_value=pipeline_data),
+            patch("engine.fsm.notify_reviewers") as mock_notify,
+            patch("engine.fsm._conditional_clear_pending"),
+        ):
             from engine.fsm import _recover_pending_notifications
-            _recover_pending_notifications("test-pj", pipeline_data["pending_notifications"])
+
+            _recover_pending_notifications(
+                "test-pj", pipeline_data["pending_notifications"], "CODE_REVIEW"
+            )
 
         mock_notify.assert_called_once()
         kwargs = mock_notify.call_args.kwargs
         assert "phase_config" in kwargs
         assert kwargs["phase_config"] is not None
         # code phase_config should have the override members
-        assert kwargs["phase_config"]["members"] == ["reviewer1", "reviewer3", "reviewer6"]
+        assert kwargs["phase_config"]["members"] == [
+            "reviewer1",
+            "reviewer3",
+            "reviewer6",
+        ]

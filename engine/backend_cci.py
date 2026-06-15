@@ -18,6 +18,7 @@ PID + /proc/<pid>/cmdline validity, and session jsonl mtime freshness.
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import logging
@@ -129,6 +130,30 @@ def _last_error_path(agent_id: str) -> Path:
     return _session_dir(agent_id) / "last_error"
 
 
+def _child_pid_path(agent_id: str) -> Path:
+    """Return the path to the child_pid file (TUI process) for an agent."""
+    return _session_dir(agent_id) / "child_pid"
+
+
+def _read_child_pid(agent_id: str) -> tuple[int, int] | None:
+    """Read and validate the child_pid file.
+
+    Returns (pid, starttime_ticks) or None if missing/invalid/stale.
+    The caller must verify starttime against /proc before killing.
+    """
+    try:
+        text = _child_pid_path(agent_id).read_text(encoding="utf-8").strip()
+    except (OSError, FileNotFoundError):
+        return None
+    parts = text.split()
+    if len(parts) != 2:
+        return None
+    try:
+        return int(parts[0]), int(parts[1])
+    except ValueError:
+        return None
+
+
 def _claude_project_dir(cwd: Path) -> Path:
     """Return the Claude Code session JSONL storage directory for a given cwd."""
     project_key = str(cwd.resolve()).replace("/", "-")
@@ -193,6 +218,237 @@ def _read_persisted_state(agent_id: str) -> PersistedCcState:
     pid_text: str | None = pid_text_raw if pid_text_raw else None
 
     return PersistedCcState(session_id=session_id, pid_text=pid_text)
+
+
+def _proc_age_sec(pid: int) -> float | None:
+    """Return elapsed seconds since *pid* started, or None if unreadable.
+
+    Uses /proc/<pid>/stat field 22 (starttime in clock ticks since boot)
+    and /proc/uptime to compute wall-clock age.  Linux only.
+    """
+    try:
+        stat_line = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+    except (OSError, FileNotFoundError):
+        return None
+    try:
+        uptime_text = Path("/proc/uptime").read_text(encoding="utf-8")
+    except (OSError, FileNotFoundError):
+        return None
+    close_paren = stat_line.rfind(")")
+    if close_paren == -1:
+        return None
+    try:
+        after_comm = stat_line[close_paren + 2 :]
+        fields = after_comm.split()
+        starttime_ticks = int(fields[19])  # field 22 = index 19 after comm
+        clk_tck = os.sysconf("SC_CLK_TCK")
+        uptime_sec = float(uptime_text.split()[0])
+        return uptime_sec - (starttime_ticks / clk_tck)
+    except (IndexError, ValueError, OSError):
+        return None
+
+
+def _proc_starttime_ticks(pid: int) -> int | None:
+    """Read field 22 (starttime in clock ticks) from /proc/<pid>/stat."""
+    try:
+        stat_line = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+    except (OSError, FileNotFoundError):
+        return None
+    close_paren = stat_line.rfind(")")
+    if close_paren == -1:
+        return None
+    try:
+        fields = stat_line[close_paren + 2 :].split()
+        return int(fields[19])
+    except (IndexError, ValueError):
+        return None
+
+
+def _is_zombie(pid: int) -> bool:
+    """Return True if *pid* is in zombie (Z) state."""
+    try:
+        stat_line = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+    except (OSError, FileNotFoundError):
+        return False
+    close_paren = stat_line.rfind(")")
+    if close_paren == -1:
+        return False
+    after_comm = stat_line[close_paren + 2 :]
+    # Field 3 (state) is the first token after comm.
+    return after_comm.split(maxsplit=1)[0] == "Z" if after_comm else False
+
+
+def _proc_children(pid: int) -> list[int] | None:
+    """Return direct child PIDs of *pid* via procfs, or None if unreadable.
+
+    Uses /proc/<pid>/task/<pid>/children (requires CONFIG_PROC_CHILDREN).
+    Returns an empty list when the process has no children.
+    Returns None when the file is unreadable (kernel config, race, etc.).
+    """
+    try:
+        text = Path(f"/proc/{pid}/task/{pid}/children").read_text(
+            encoding="utf-8",
+        ).strip()
+    except (OSError, FileNotFoundError):
+        return None
+    if not text:
+        return []
+    try:
+        return [int(p) for p in text.split()]
+    except ValueError:
+        return None
+
+
+_SIGKILL_GRACE_SEC = 5
+
+
+def _kill_pid(pid: int, label: str) -> bool:
+    """Best-effort kill of a single pid: SIGTERM → wait → SIGKILL → wait.
+
+    Returns True if the process is confirmed gone, zombie, or was already
+    gone. A zombie has released all file descriptors and cannot write to
+    the session, so it is functionally equivalent to gone.
+    Returns False if it could not be killed (EPERM, D state, etc.).
+    """
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return True
+    except OSError:
+        return False
+
+    deadline = time.monotonic() + _SIGKILL_GRACE_SEC
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)
+        except OSError as e:
+            if e.errno == errno.ESRCH:
+                return True
+            return True  # EPERM = PID reused by another user → original is gone
+        if _is_zombie(pid):
+            return True
+        time.sleep(0.5)
+
+    logger.warning("cci %s pid=%d survived SIGTERM, escalating to SIGKILL", label, pid)
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        return True
+    except OSError:
+        return False
+
+    kill_deadline = time.monotonic() + _SIGKILL_GRACE_SEC
+    while time.monotonic() < kill_deadline:
+        try:
+            os.kill(pid, 0)
+        except OSError as e:
+            if e.errno == errno.ESRCH:
+                return True
+            return True
+        if _is_zombie(pid):
+            return True
+        time.sleep(0.5)
+
+    logger.error("cci %s pid=%d survived SIGKILL (D state?)", label, pid)
+    return False
+
+
+def _reap_stale_owner(pid: int, agent_id: str) -> bool:
+    """Kill a stale runner AND its child TUI whose age exceeds the threshold.
+
+    The runner (pid) and child TUI are in SEPARATE process groups
+    (pexpect.spawn uses pty.fork → os.setsid), so they must be killed
+    individually.
+
+    Child TUI discovery: first tries the child_pid file (written by the
+    runner at spawn time).  If the file is absent, stale (starttime
+    mismatch / process gone), or unreadable, falls back to
+    /proc/<runner>/task/<runner>/children to discover child processes.
+
+    Returns True only if BOTH the runner AND the child TUI are confirmed
+    gone. If either survives, returns False to keep BUSY and prevent a
+    new runner from touching the same session.
+    """
+    max_age = (
+        config.CCI_COMPLETION_TIMEOUT_SEC
+        + config.CCI_STARTUP_TIMEOUT_SEC
+        + config.CCI_REAP_MARGIN_SEC
+    )
+    age = _proc_age_sec(pid)
+    if age is None:
+        # Can't determine age (proc unreadable). The caller already confirmed
+        # the process exists via _check_session_ownership (reads /proc/cmdline),
+        # so this is an unusual restriction (seccomp, etc.). Stay BUSY to avoid
+        # false reap.
+        return False
+    if age < max_age:
+        return False
+
+    logger.warning(
+        "cci reaping stale runner pid=%d for %s (age=%.0fs > %ds)",
+        pid, agent_id, age, max_age,
+    )
+
+    # Kill child TUI first.
+    child_gone = None  # None = needs fallback discovery
+    child_info = _read_child_pid(agent_id)
+    if child_info is not None:
+        child_pid, recorded_starttime = child_info
+        current_starttime = _proc_starttime_ticks(child_pid)
+        if current_starttime is not None and current_starttime == recorded_starttime:
+            # Verified: this child_pid belongs to the current runner's child.
+            child_gone = _kill_pid(child_pid, f"child-tui({agent_id})")
+        else:
+            # child_pid is stale: recorded child is gone (PID reused or
+            # process exited), but the CURRENT runner may have spawned a
+            # different child not reflected in this file. Fall through to
+            # _proc_children discovery.
+            if current_starttime is not None:
+                logger.info(
+                    "cci child pid=%d for %s: starttime mismatch "
+                    "(recorded=%d, current=%d), PID reused — "
+                    "falling through to /proc children discovery",
+                    child_pid, agent_id, recorded_starttime, current_starttime,
+                )
+
+    if child_gone is None:
+        # No verified child info: child_pid missing, stale, or unreadable.
+        # Discover actual children via /proc/<runner>/task/<runner>/children.
+        discovered = _proc_children(pid)
+        if discovered is None:
+            # /proc/<runner>/task/children unreadable (kernel config, race).
+            # Can't verify child absence → stay BUSY.
+            logger.warning(
+                "cci reap %s: no verified child_pid and /proc children "
+                "unreadable; staying BUSY", agent_id,
+            )
+            child_gone = False
+        elif not discovered:
+            # Runner has no child processes → nothing to orphan.
+            child_gone = True
+        else:
+            # Kill all discovered children.
+            child_gone = all(
+                _kill_pid(cpid, f"child-discovered({agent_id})")
+                for cpid in discovered
+            )
+
+    if not child_gone:
+        logger.error(
+            "cci child TUI for %s survived kill; staying BUSY to prevent "
+            "concurrent session writers",
+            agent_id,
+        )
+        return False
+
+    # Kill the runner.
+    runner_gone = _kill_pid(pid, f"runner({agent_id})")
+    if not runner_gone:
+        logger.error(
+            "cci runner pid=%d for %s survived kill; staying BUSY",
+            pid, agent_id,
+        )
+    return runner_gone
 
 
 def _check_session_ownership(state: PersistedCcState) -> SessionOwnership:
@@ -376,20 +632,38 @@ def send(agent_id: str, message: str, timeout: int) -> SendResult:
     ownership = _check_session_ownership(state)
 
     if ownership.has_live_owner:
-        marker_ts = _starting_markers.get(agent_id)
-        if marker_ts is not None and (time.time() - marker_ts) < config.CCI_START_GRACE_SEC:
-            logger.warning(
-                "cci send refused for %s session %s: live owner within starting grace; "
-                "deferring spawn (busy)",
+        pid = int(state.pid_text)  # guaranteed parseable by ownership check
+        if _reap_stale_owner(pid, agent_id):
+            _starting_markers.pop(agent_id, None)
+            try:
+                _pid_path(agent_id).unlink(missing_ok=True)
+            except OSError:
+                pass
+            try:
+                _child_pid_path(agent_id).unlink(missing_ok=True)
+            except OSError:
+                pass
+            logger.info(
+                "cci send for %s: reaped stale owner pid=%d, proceeding to spawn",
+                agent_id, pid,
+            )
+            state = _read_persisted_state(agent_id)
+            ownership = _check_session_ownership(state)
+        else:
+            marker_ts = _starting_markers.get(agent_id)
+            if marker_ts is not None and (time.time() - marker_ts) < config.CCI_START_GRACE_SEC:
+                logger.warning(
+                    "cci send refused for %s session %s: live owner within starting grace; "
+                    "deferring spawn (busy)",
+                    agent_id, state.session_id,
+                )
+                return SendResult.BUSY
+
+            logger.info(
+                "cci send refused for %s session %s: live owner pid present (busy)",
                 agent_id, state.session_id,
             )
             return SendResult.BUSY
-
-        logger.info(
-            "cci send refused for %s session %s: live owner pid present (busy)",
-            agent_id, state.session_id,
-        )
-        return SendResult.BUSY
 
     is_resume = ownership.has_valid_session
     assert state.session_id is not None or not is_resume
@@ -647,6 +921,31 @@ def is_inactive(agent_id: str, pipeline_data: dict | None = None,
 # reset_session
 # ---------------------------------------------------------------------------
 
+def soft_reap(agent_id: str) -> None:
+    """Context-preserving reap: kill a stale runner + child TUI but keep session files.
+
+    Unlike reset_session, this does NOT delete session_id / last_error
+    files. The session survives so that the next send() can resume it.
+    """
+    if config.DRY_RUN:
+        return
+    state = _read_persisted_state(agent_id)
+    ownership = _check_session_ownership(state)
+    if not ownership.has_live_owner:
+        return
+    pid = int(state.pid_text)
+    if _reap_stale_owner(pid, agent_id):
+        _starting_markers.pop(agent_id, None)
+        try:
+            _pid_path(agent_id).unlink(missing_ok=True)
+        except OSError:
+            pass
+        try:
+            _child_pid_path(agent_id).unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
 def reset_session(agent_id: str) -> None:
     """Best-effort session reset: SIGTERM a live runner, then delete session files.
 
@@ -705,5 +1004,12 @@ def reset_session(agent_id: str) -> None:
     except OSError as exc:
         logger.warning(
             "reset_session: failed to delete last_error file for %s: %s",
+            agent_id, exc,
+        )
+    try:
+        _child_pid_path(agent_id).unlink(missing_ok=True)
+    except OSError as exc:
+        logger.warning(
+            "reset_session: failed to delete child_pid file for %s: %s",
             agent_id, exc,
         )

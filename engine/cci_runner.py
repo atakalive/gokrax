@@ -45,6 +45,7 @@ TRUST_RE = re.compile(r"Yes,?\s+I\s+trust\s+this\s+folder", re.IGNORECASE)
 POST_READY_DELAY = 12.0
 _FILE_WAIT_FALLBACK = 10.0
 _POLL_INTERVAL = 0.25
+_DRAIN_MAX_ITERATIONS = 4096  # cap drain loop: 16MB (4096×4096B) PTY buffer is unrealistic
 
 BRACKETED_PASTE_START = "\x1b[200~"
 BRACKETED_PASTE_END = "\x1b[201~"
@@ -286,9 +287,25 @@ class _CompletionDetector:
         return False
 
 
+def _read_starttime_ticks(pid: int) -> int | None:
+    """Read field 22 (starttime) from /proc/<pid>/stat. None if unreadable."""
+    try:
+        stat_line = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+    except (OSError, FileNotFoundError):
+        return None
+    close_paren = stat_line.rfind(")")
+    if close_paren == -1:
+        return None
+    try:
+        fields = stat_line[close_paren + 2 :].split()
+        return int(fields[19])  # field 22 = index 19 after comm
+    except (IndexError, ValueError):
+        return None
+
+
 def _drain_pty(child: pexpect.spawn) -> None:
     """Drain the PTY buffer until empty (prevents write() deadlock in the TUI)."""
-    while True:
+    for _ in range(_DRAIN_MAX_ITERATIONS):
         try:
             child.read_nonblocking(size=4096, timeout=0)
         except (pexpect.TIMEOUT, pexpect.EOF):
@@ -520,10 +537,19 @@ def main(argv: list[str] | None = None) -> int:
     try:
         signal.signal(signal.SIGTERM, _cleanup_handler)
         signal.signal(signal.SIGINT, _cleanup_handler)
+        signal.signal(signal.SIGALRM, _cleanup_handler)
     except ValueError:
         pass  # not in main thread (e.g. some test runners)
 
     args = _parse_args(argv)
+
+    # Absolute self-deadline: shorter than the external age-based reap so the
+    # runner normally dies on its own. Fires _cleanup_handler (exit 142).
+    try:
+        alarm_sec = args.completion_timeout + args.startup_timeout + config.CCI_ALARM_MARGIN_SEC
+        signal.alarm(alarm_sec)
+    except (ValueError, OSError):
+        pass
 
     session_id: str | None = None
     try:
@@ -558,6 +584,19 @@ def main(argv: list[str] | None = None) -> int:
             dimensions=(40, 120),
         )
         _child = child
+
+        # Persist child TUI pid + starttime for external reap with PID-reuse safety.
+        if args.agent_id:
+            child_pid_path = config.CCI_SESSIONS_DIR / args.agent_id / "child_pid"
+            try:
+                starttime = _read_starttime_ticks(child.pid)
+                if starttime is not None:
+                    child_pid_path.write_text(
+                        f"{child.pid} {starttime}",
+                        encoding="utf-8",
+                    )
+            except OSError:
+                pass
 
         _startup_handshake(child, timeout=args.startup_timeout)
 
@@ -595,11 +634,24 @@ def main(argv: list[str] | None = None) -> int:
         _write_last_error(args.agent_id, "exception", session_id)
         return 1
     finally:
+        # Cancel the self-deadline alarm so a normal/exception exit is never
+        # turned into a SIGALRM (142) during interpreter shutdown.
+        try:
+            signal.alarm(0)
+        except (ValueError, OSError):
+            pass
         # Child reaping: guarantees no orphan TUI on any exit path.
         if _child is not None and _child.isalive():
             try:
                 _child.terminate(force=True)
             except Exception:
+                pass
+        # Clean up child_pid file. If the runner died via SIGKILL this finally
+        # does not run and the file is left for the external reap to read.
+        if args.agent_id:
+            try:
+                (config.CCI_SESSIONS_DIR / args.agent_id / "child_pid").unlink(missing_ok=True)
+            except OSError:
                 pass
         # Temp file cleanup (opt-in via --delete-prompt-file).
         if args.delete_prompt_file and _prompt_file_path is not None:

@@ -200,6 +200,9 @@ def soft_reap(agent_id: str) -> None:
     if configured == "agy":
         from engine.backend_agy import soft_reap as agy_soft_reap
         agy_soft_reap(agent_id)
+    elif configured == "cci":
+        from engine.backend_cci import soft_reap as cci_soft_reap
+        cci_soft_reap(agent_id)
 
 
 def reset_session(agent_id: str) -> None:

@@ -1112,6 +1112,12 @@ class TestBackendSoftReapDispatch:
             backend.soft_reap("reviewer1")
         mock_agy.assert_called_once_with("reviewer1")
 
+    def test_cci_calls_cci_soft_reap(self, monkeypatch):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "cci")
+        with patch("engine.backend_cci.soft_reap") as mock_cci:
+            backend.soft_reap("reviewer1")
+        mock_cci.assert_called_once_with("reviewer1")
+
     def test_pi_is_noop(self, monkeypatch):
         monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "pi")
         with patch("engine.backend_agy.soft_reap") as mock_agy:

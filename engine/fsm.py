@@ -137,6 +137,38 @@ def get_phase_config(data: dict | None, phase: str) -> PhaseConfig:
     return _build_phase_config(mode_config, phase)
 
 
+def resolve_active_phase(data: dict | None) -> str:
+    """Resolve the active review phase for a pipeline.
+
+    Returns the phase string that ``STATE_PHASE_MAP`` maps the current state to
+    ("design" / "code" / "spec"), falling back to "design" for unmapped states.
+
+    ``BLOCKED`` carries no phase of its own, so walk ``history`` back to the most
+    recent entry that entered ``BLOCKED`` and map that entry's ``from`` state
+    (the watchdog records every transition via ``add_history(data, from, to)``).
+    If no such entry resolves to a mapped phase, fall back to "design" and emit a
+    debug log so a future BLOCKED-setting path that bypasses ``add_history`` is
+    observable rather than silently mis-resolving.
+    """
+    if not data:
+        return "design"
+    state = data.get("state", "IDLE")
+    if state == "BLOCKED":
+        resolved = None
+        for entry in reversed(data.get("history", [])):
+            if isinstance(entry, dict) and entry.get("to") == "BLOCKED":
+                resolved = entry.get("from", "")
+                break
+        if not resolved or resolved not in STATE_PHASE_MAP:
+            log(
+                "[resolve_active_phase] BLOCKED with no resolvable review phase in "
+                f"history (from={resolved!r}); falling back to 'design'"
+            )
+            return "design"
+        state = resolved
+    return STATE_PHASE_MAP.get(state, "design")
+
+
 @dataclass
 class TransitionAction:
     """check_transition() の返り値。new_state が None なら遷移不要。"""
@@ -652,13 +684,18 @@ def check_transition(
 
         phase = "design" if "DESIGN" in state else "code"
         phase_config = get_phase_config(data, phase)
-        min_rev = (
-            data.get("min_reviews_override", phase_config["min_reviews"])
-            if data
-            else phase_config["min_reviews"]
-        )
-        excluded = data.get("excluded_reviewers", []) if data else []
-        effective_count = len(phase_config["members"]) - len(excluded)
+        # Defect C: intersection (a cross-phase excluded reviewer must not deflate the count).
+        excluded = set(data.get("excluded_reviewers", [])) if data else set()
+        effective_count = len([m for m in phase_config["members"] if m not in excluded])
+        # Defect B: start from the capped-safe min_reviews; only a phase-matched override lowers it.
+        if effective_count >= 1:
+            min_rev = min(phase_config["min_reviews"], effective_count)
+            override = data.get("min_reviews_override") if data else None
+            override_phase = data.get("min_reviews_override_phase") if data else None
+            if override is not None and override_phase == phase and 1 <= override < min_rev:
+                min_rev = override
+        else:
+            min_rev = phase_config["min_reviews"]
         grace_sec = phase_config["grace_period_sec"]
 
         count, has_p0, has_p1, has_p2 = count_reviews(batch, key)

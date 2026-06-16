@@ -749,6 +749,7 @@ def process(path: Path):
                     data["min_reviews_override"] = max(
                         1, min(phase_config["min_reviews"], effective)
                     )
+                    data["min_reviews_override_phase"] = phase
                 log(
                     f"[{pj}] ({phase}) excluding unresponsive reviewers: {sorted(no_response)}, excluded={excluded}, effective={effective}"
                 )
@@ -1606,8 +1607,10 @@ def process(path: Path):
                         f"[{pj}] [DEADLOCK] effective reviewers ({effective_count}) < min_reviews ({min_reviews}), clamping to {clamped}"
                     )
                     data["min_reviews_override"] = clamped
+                    data["min_reviews_override_phase"] = reset_phase
                 else:
                     data.pop("min_reviews_override", None)
+                    data.pop("min_reviews_override_phase", None)
 
             update_pipeline(notify_path, _save_excluded)
 

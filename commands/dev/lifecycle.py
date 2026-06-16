@@ -31,7 +31,7 @@ from pipeline_io import (
 )
 from engine.filter import require_issue_author, UnauthorizedAuthorError
 from engine.glab import run_glab
-from engine.fsm import get_notification_for_state, stale_pending_keys
+from engine.fsm import get_notification_for_state, stale_pending_keys, resolve_active_phase
 from notify import (
     notify_implementer,
     notify_reviewers,
@@ -96,7 +96,7 @@ def get_status_text(enabled_only: bool = False) -> str:
         if has_review_info:
             from engine.fsm import get_phase_config
 
-            phase = "code" if state.startswith("CODE_") else "design"
+            phase = resolve_active_phase(data)
             phase_config = get_phase_config(data, phase)
             reviewers_str = ", ".join(f'"{r}"' for r in phase_config["members"])
         else:
@@ -412,6 +412,7 @@ def cmd_triage(args):
         if len(batch) == 0:
             data.pop("excluded_reviewers", None)
             data.pop("min_reviews_override", None)
+            data.pop("min_reviews_override_phase", None)
             data.pop("design_min_reviews_met_at", None)
             data.pop("code_min_reviews_met_at", None)
             data.pop("review_config", None)
@@ -1018,8 +1019,7 @@ def cmd_exclude(args):
             # deadlock clamp
             from engine.fsm import get_phase_config as _get_phase_config_ex
 
-            state = data.get("state", "IDLE")
-            phase = "code" if state.startswith("CODE_") else "design"
+            phase = resolve_active_phase(data)
             _phase_cfg = _get_phase_config_ex(data, phase)
             effective_count = len(
                 [m for m in _phase_cfg["members"] if m not in excluded]
@@ -1028,9 +1028,11 @@ def cmd_exclude(args):
             if effective_count < min_reviews:
                 clamped = max(effective_count, 0)
                 data["min_reviews_override"] = clamped
+                data["min_reviews_override_phase"] = phase
                 clamp_msg = f"  deadlock clamp: effective={effective_count} < min_reviews={min_reviews}, override={clamped}"
             else:
                 data.pop("min_reviews_override", None)
+                data.pop("min_reviews_override_phase", None)
             added_names = added
             final_excluded = list(excluded)
 
@@ -1066,8 +1068,7 @@ def cmd_exclude(args):
             # deadlock clamp
             from engine.fsm import get_phase_config as _get_phase_config_ex
 
-            state = data.get("state", "IDLE")
-            phase = "code" if state.startswith("CODE_") else "design"
+            phase = resolve_active_phase(data)
             _phase_cfg = _get_phase_config_ex(data, phase)
             effective_count = len(
                 [m for m in _phase_cfg["members"] if m not in excluded]
@@ -1076,9 +1077,11 @@ def cmd_exclude(args):
             if effective_count < min_reviews:
                 clamped = max(effective_count, 0)
                 data["min_reviews_override"] = clamped
+                data["min_reviews_override_phase"] = phase
                 clamp_msg_r = f"  deadlock clamp: effective={effective_count} < min_reviews={min_reviews}, override={clamped}"
             else:
                 data.pop("min_reviews_override", None)
+                data.pop("min_reviews_override_phase", None)
             removed_names = removed
             final_excluded_r = list(excluded)
 

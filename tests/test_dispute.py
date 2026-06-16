@@ -726,6 +726,7 @@ class TestCheckTransitionDisputeReReview:
         ]
         data = self._make_review_data(reviews=reviews, disputes=disputes)
         data["min_reviews_override"] = 2
+        data["min_reviews_override_phase"] = "design"
         import watchdog
         action = watchdog.check_transition("DESIGN_REVIEW", data["batch"], data)
         assert action.new_state == "DESIGN_APPROVED"

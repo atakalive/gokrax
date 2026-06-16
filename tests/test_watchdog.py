@@ -1996,6 +1996,7 @@ class TestReviseP0Summary:
             "review_mode": "lite",
             "p2_fix": True,
             "min_reviews_override": 1,
+            "min_reviews_override_phase": "code",
         }
         _write_pipeline(path, data)
 
@@ -3253,6 +3254,7 @@ class TestDesignApprovedExcludeNoResponse:
             "project": "test-pj",
             "enabled": True,
             "min_reviews_override": 1,  # Override to 1 since only 2 members
+            "min_reviews_override_phase": "design",
             "history": [
                 {"from": "DESIGN_PLAN", "to": "DESIGN_REVIEW", "at": entered_at.isoformat()}
             ],
@@ -3320,6 +3322,7 @@ class TestDesignApprovedExcludeNoResponse:
             "project": "test-pj",
             "enabled": True,
             "min_reviews_override": 1,  # Set to 1 since only 2 members
+            "min_reviews_override_phase": "design",
             "history": [
                 {"from": "DESIGN_PLAN", "to": "DESIGN_REVIEW", "at": entered_at.isoformat()}
             ],
@@ -3448,16 +3451,14 @@ class TestDesignApprovedExcludeNoResponse:
         monkeypatch.setattr("watchdog._start_cc", lambda *a, **k: None)
         monkeypatch.setattr("watchdog.PIPELINES_DIR", tmp_path / "pipelines")
 
-        # Capture logs
-        import io
-        log_capture = io.StringIO()
-        original_log = config.LOG_FILE
-        monkeypatch.setattr("config.LOG_FILE", log_capture)
+        # Capture logs (real file: log() calls open(), so a StringIO is unusable)
+        log_path = tmp_path / "capture.log"
+        monkeypatch.setattr("config.LOG_FILE", str(log_path))
 
         process(pj_path)
 
         # Check for WARNING log
-        log_output = log_capture.getvalue()
+        log_output = log_path.read_text() if log_path.exists() else ""
         assert "WARNING: effective==0" in log_output or True, \
             "Should log WARNING when effective==0 (or skip exclusion logic)"
 
@@ -3508,6 +3509,7 @@ class TestDesignApprovedExcludeNoResponse:
             "enabled": True,
             "excluded_reviewers": [r3],  # Pre-existing
             "min_reviews_override": 1,  # Adjusted: 3 members - 1 excluded - 1 required = 1
+            "min_reviews_override_phase": "design",
             "design_min_reviews_met_at": met_at.isoformat(),  # Grace already met and expired
             "history": [
                 {"from": "DESIGN_PLAN", "to": "DESIGN_REVIEW", "at": entered_at.isoformat()}
@@ -3679,6 +3681,7 @@ class TestCodeApprovedExcludeNoResponse:
             "enabled": True,
             "excluded_reviewers": [r4],
             "min_reviews_override": 2,
+            "min_reviews_override_phase": "design",
             "history": [
                 {"from": "DESIGN_PLAN", "to": "DESIGN_REVIEW", "at": entered_at.isoformat()}
             ],

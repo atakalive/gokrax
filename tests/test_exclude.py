@@ -287,3 +287,81 @@ class TestExcludeList:
             cmd_exclude(args)
         out = capsys.readouterr().out
         assert "excluded_reviewers = ['reviewer1']" in out
+
+
+class TestPhaseResolution:
+    """Issue #381: cmd_exclude resolves the correct phase and tags the override."""
+
+    _REVIEW_CONFIG = {
+        "code": {
+            "members": ["reviewer1", "reviewer2", "reviewer3"],
+            "min_reviews": 3,
+            "n_pass": {},
+            "grace_period_sec": 0,
+        },
+        "design": {
+            "members": ["reviewer1", "reviewer2", "reviewer3", "reviewer4"],
+            "min_reviews": 4,
+            "n_pass": {},
+            "grace_period_sec": 0,
+        },
+    }
+
+    def test_blocked_from_code_review_resolves_code(self, tmp_path, patch_allowed):
+        """BLOCKED-from-CODE_REVIEW: recover "code" from history → override=2, tag "code"."""
+        pipeline = tmp_path / "myproject.json"
+        _write_pipeline(pipeline, {
+            "project": "myproject",
+            "state": "BLOCKED",
+            "history": [{"from": "CODE_REVIEW", "to": "BLOCKED"}],
+            "review_mode": "standard",
+            "excluded_reviewers": [],
+            "review_config": self._REVIEW_CONFIG,
+        })
+        args = argparse.Namespace(
+            project="myproject", add=["reviewer1"], remove=None, list=False,
+        )
+        with patch("commands.dev.get_path", return_value=pipeline):
+            cmd_exclude(args)
+        data = _load(pipeline)
+        assert data["min_reviews_override"] == 2
+        assert data["min_reviews_override_phase"] == "code"
+        assert data["excluded_reviewers"] == ["reviewer1"]
+
+    def test_live_code_review_resolves_code(self, tmp_path, patch_allowed):
+        """Live CODE_REVIEW: exclude reviewer1 → override=2, tag "code"."""
+        pipeline = tmp_path / "myproject.json"
+        _write_pipeline(pipeline, {
+            "project": "myproject",
+            "state": "CODE_REVIEW",
+            "review_mode": "standard",
+            "excluded_reviewers": [],
+            "review_config": self._REVIEW_CONFIG,
+        })
+        args = argparse.Namespace(
+            project="myproject", add=["reviewer1"], remove=None, list=False,
+        )
+        with patch("commands.dev.get_path", return_value=pipeline):
+            cmd_exclude(args)
+        data = _load(pipeline)
+        assert data["min_reviews_override"] == 2
+        assert data["min_reviews_override_phase"] == "code"
+
+    def test_live_design_review_resolves_design(self, tmp_path, patch_allowed):
+        """Live DESIGN_REVIEW: exclude reviewer1 → override=3, tag "design"."""
+        pipeline = tmp_path / "myproject.json"
+        _write_pipeline(pipeline, {
+            "project": "myproject",
+            "state": "DESIGN_REVIEW",
+            "review_mode": "standard",
+            "excluded_reviewers": [],
+            "review_config": self._REVIEW_CONFIG,
+        })
+        args = argparse.Namespace(
+            project="myproject", add=["reviewer1"], remove=None, list=False,
+        )
+        with patch("commands.dev.get_path", return_value=pipeline):
+            cmd_exclude(args)
+        data = _load(pipeline)
+        assert data["min_reviews_override"] == 3
+        assert data["min_reviews_override_phase"] == "design"

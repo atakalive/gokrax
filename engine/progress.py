@@ -168,9 +168,11 @@ register("cci", ClaudeJsonlReader(config.CCI_SESSIONS_DIR))
 # Helpers
 # ---------------------------------------------------------------------------
 
+_LAST_MIN_WINDOW = 60.0  # trailing window (seconds) for the "last min" tool-call count
+
 _PROGRESS_KEYS = (
     "progress_phase", "progress_transcript", "progress_offset", "progress_count",
-    "progress_started_ts", "progress_msg_id", "progress_prev_count", "progress_prev_ts",
+    "progress_started_ts", "progress_msg_id", "progress_samples",
 )
 
 
@@ -182,6 +184,41 @@ def _fmt_elapsed(seconds: float) -> str:
     if h > 0:
         return f"{h}h {m}m {s}s"
     return f"{m}m {s}s"
+
+
+def _last_min_count(samples: list, count: int, now: float, started_ts: float) -> int:
+    """Tool calls in the trailing 60s, derived from prior tick snapshots.
+
+    `samples` is the persisted ring buffer, ordered oldest→newest (the invariant
+    maintained by `_append_and_prune`). We pick the latest snapshot at/before the
+    window edge as the baseline and return `count - baseline`.
+    """
+    window_start = now - _LAST_MIN_WINDOW
+    base: int | None = None
+    for ts, c in samples:               # sorted ascending → last match = newest pre-window snapshot
+        if ts <= window_start:
+            base = int(c)
+    if base is None:
+        if started_ts >= window_start:  # phase began inside the window → all calls are recent
+            return count
+        base = int(samples[0][1]) if samples else 0  # first-tick / mid-restart fallback
+    return max(0, count - base)
+
+
+def _append_and_prune(samples: list, now: float, count: int) -> list:
+    """Append the current snapshot; keep the in-window samples plus one anchor just older.
+
+    The anchor is the newest snapshot strictly older than the window edge — `_last_min_count`
+    needs it as the `count_at(now - 60s)` baseline. Older snapshots beyond that single anchor
+    are dropped. Returns a fresh list of `[ts, count]` pairs (no aliasing of the input),
+    ordered oldest→newest, bounded to roughly `60s / interval + 2` entries (~4–7 in practice).
+    """
+    window_start = now - _LAST_MIN_WINDOW
+    kept = [list(s) for s in samples if s[0] >= window_start]
+    older = [s for s in samples if s[0] < window_start]
+    out = ([list(max(older, key=lambda s: s[0]))] if older else []) + kept
+    out.append([now, count])
+    return out
 
 
 def _clear_progress(path: Path) -> None:
@@ -217,12 +254,18 @@ def update_phase_progress(path: Path, state: str, data: dict) -> None:
             return
         phase = data.get("progress_phase", "phase")
         count = int(data.get("progress_count", 0))
+        started_ts = data.get("progress_started_ts")
+        suffix = ""
+        if started_ts is not None:
+            elapsed = max(now - float(started_ts), 1.0)
+            avg = count / (elapsed / 60.0)
+            suffix = f" · avg {avg:.1f}/min · ⏱ {_fmt_elapsed(elapsed)}"
         if state == "BLOCKED":
-            text = f"[{pj}] ⏹ {phase} ended ({data.get('blocked_reason') or 'blocked'}) — {count} tool calls"
+            text = f"[{pj}] ⏹ {phase} ended ({data.get('blocked_reason') or 'blocked'}) — {count} tool calls{suffix}"
         elif state in ("IDLE", "DONE"):
-            text = f"[{pj}] ⏹ {phase} ended — {count} tool calls"
+            text = f"[{pj}] ⏹ {phase} ended — {count} tool calls{suffix}"
         else:
-            text = f"[{pj}] ✅ {phase} complete — {count} tool calls"
+            text = f"[{pj}] ✅ {phase} complete — {count} tool calls{suffix}"
         msg_id = data.get("progress_msg_id")
         if msg_id:
             notify.edit_discord_message(config.DISCORD_CHANNEL, msg_id, text)
@@ -286,7 +329,7 @@ def update_phase_progress(path: Path, state: str, data: dict) -> None:
             started_ts = now
             offset = size
             count = 0
-        prev_count, prev_ts = count, now
+        samples = []
         same_cycle = (data.get("progress_phase") == state) and (
             cur_start is None
             or abs(float(data.get("progress_started_ts", 0)) - cur_start) <= 1.0
@@ -301,20 +344,18 @@ def update_phase_progress(path: Path, state: str, data: dict) -> None:
             return
         added, offset = r
         count += added
-        prev_count = int(data.get("progress_prev_count", count))
-        prev_ts = float(data.get("progress_prev_ts", now))
+        samples = data.get("progress_samples") or []
         msg_id = data.get("progress_msg_id")
 
     # 6. 指標算出（ガード順序重要）。
     elapsed = max(now - started_ts, 1.0)
     avg = count / (elapsed / 60.0)
-    dt = now - prev_ts
-    now_rate = avg if dt <= 0 else max(0.0, (count - prev_count) / (dt / 60.0))
+    last_min = _last_min_count(samples, count, now, started_ts)
     elapsed_str = _fmt_elapsed(elapsed)
 
     text = (
         f"[{pj}] 🔧 {state} in progress — {count} tool calls · "
-        f"avg {avg:.1f}/min · now {now_rate:.1f}/min · ⏱ {elapsed_str}"
+        f"avg {avg:.1f}/min · last min {last_min} · ⏱ {elapsed_str}"
     )
 
     # 7. 投稿 / 編集。
@@ -331,6 +372,7 @@ def update_phase_progress(path: Path, state: str, data: dict) -> None:
     final_count = count
     final_started = started_ts
     final_msg_id = msg_id
+    final_samples = _append_and_prune(samples, now, final_count)
 
     def _cb(d: dict) -> None:
         d["progress_phase"] = state
@@ -338,8 +380,7 @@ def update_phase_progress(path: Path, state: str, data: dict) -> None:
         d["progress_offset"] = final_offset
         d["progress_count"] = final_count
         d["progress_started_ts"] = final_started
-        d["progress_prev_count"] = final_count
-        d["progress_prev_ts"] = now
+        d["progress_samples"] = final_samples
         if final_msg_id is not None:
             d["progress_msg_id"] = final_msg_id
         else:

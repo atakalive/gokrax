@@ -70,13 +70,15 @@ def _make_full_data() -> dict:
         "reviewer_number_map": {"r1": 1},
         # Merge summary
         "summary_message_id": "msg-123",
-        # Phase progress notification (#382)
+        # Phase progress notification (#382, #384)
         "progress_phase": "DESIGN_PLAN",
         "progress_transcript": "/home/u/.claude/projects/x/sess.jsonl",
         "progress_offset": 1024,
         "progress_count": 42,
         "progress_started_ts": 1700000000.0,
         "progress_msg_id": "msg-progress-1",
+        "progress_samples": [[1700000010.0, 40]],
+        # 移行期間: 旧キーも in-flight pipeline に残るため cleanup 対象に含む
         "progress_prev_count": 40,
         "progress_prev_ts": 1700000010.0,
         # Pending notifications
@@ -121,7 +123,8 @@ _CLEANUP_KEYS = {
     "review_config", "reviewer_number_map",
     "summary_message_id",
     "progress_phase", "progress_transcript", "progress_offset", "progress_count",
-    "progress_started_ts", "progress_msg_id", "progress_prev_count", "progress_prev_ts",
+    "progress_started_ts", "progress_msg_id", "progress_samples",
+    "progress_prev_count", "progress_prev_ts",
     "_pending_notifications",
     "_state_entered_at",
     "_prev_design_reviews", "_prev_code_reviews",

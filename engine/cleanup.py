@@ -82,13 +82,16 @@ def _cleanup_batch_state(data: dict, pj: str) -> None:
     # Merge summary
     data.pop("summary_message_id", None)
     data.pop("merge_approved", None)
-    # Phase progress notification (#382)
+    # Phase progress notification (#382, #384)
     data.pop("progress_phase", None)
     data.pop("progress_transcript", None)
     data.pop("progress_offset", None)
     data.pop("progress_count", None)
     data.pop("progress_started_ts", None)
     data.pop("progress_msg_id", None)
+    data.pop("progress_samples", None)
+    # 後方互換: #382→#384 で廃止した旧キー。in-flight pipeline に残るため、
+    # バッチ完了時にここで確実に除去する（読み出しはしないが JSON に残さない）。
     data.pop("progress_prev_count", None)
     data.pop("progress_prev_ts", None)
     # Pending notifications

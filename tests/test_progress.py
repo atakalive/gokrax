@@ -203,8 +203,7 @@ class TestUpdatePhaseProgress:
             progress_started_ts=STARTED,
             progress_offset=100,
             progress_count=5,
-            progress_prev_count=5,
-            progress_prev_ts=NOW - 60.0,
+            progress_samples=[[NOW - 60.0, 5]],
             progress_msg_id="existing",
         )
         _write(pf, data)
@@ -218,13 +217,14 @@ class TestUpdatePhaseProgress:
         text = edit.call_args.args[2]
         assert "8 tool calls" in text
         assert "avg 4.0/min" in text   # 8 / (120/60)
-        assert "now 3.0/min" in text   # (8-5)/(60/60)
+        assert "last min 3" in text    # 8 - 5 (baseline at window edge 1940)
         # increment read: since_epoch None
         assert reader.calls == [(100, None)]
         out = _read(pf)
         assert out["progress_count"] == 8
         assert out["progress_offset"] == 160
         assert out["progress_msg_id"] == "existing"
+        assert out["progress_samples"] == [[1940.0, 5], [2000.0, 8]]
 
     def test_d_finalize_forward_complete(self, tmp_path):
         from engine.progress import update_phase_progress
@@ -233,6 +233,7 @@ class TestUpdatePhaseProgress:
             state="DESIGN_REVIEW",
             progress_phase="DESIGN_PLAN",
             progress_count=12,
+            progress_started_ts=STARTED,
             progress_msg_id="m1",
         )
         _write(pf, data)
@@ -242,6 +243,8 @@ class TestUpdatePhaseProgress:
         text = edit.call_args.args[2]
         assert "✅ DESIGN_PLAN complete" in text
         assert "12 tool calls" in text
+        assert "avg 6.0/min" in text   # 12 / (120/60)
+        assert "⏱ 2m 0s" in text
         out = _read(pf)
         assert "progress_phase" not in out
         assert "progress_msg_id" not in out
@@ -251,13 +254,16 @@ class TestUpdatePhaseProgress:
         pf = tmp_path / "proj.json"
         data = _base_data(
             state="BLOCKED", enabled=False, blocked_reason="timeout",
-            progress_phase="DESIGN_PLAN", progress_count=3, progress_msg_id="m1",
+            progress_phase="DESIGN_PLAN", progress_count=3,
+            progress_started_ts=STARTED, progress_msg_id="m1",
         )
         _write(pf, data)
         with _patched(None, None) as (post, edit):
             update_phase_progress(pf, "BLOCKED", data)
         text = edit.call_args.args[2]
         assert "⏹ DESIGN_PLAN ended (timeout)" in text
+        assert "avg 1.5/min" in text   # 3 / (120/60)
+        assert "⏱ 2m 0s" in text
         assert "progress_phase" not in _read(pf)
 
     def test_d_finalize_idle(self, tmp_path):
@@ -265,7 +271,8 @@ class TestUpdatePhaseProgress:
         pf = tmp_path / "proj.json"
         data = _base_data(
             state="IDLE", enabled=False,
-            progress_phase="CODE_REVISE", progress_count=9, progress_msg_id="m1",
+            progress_phase="CODE_REVISE", progress_count=9,
+            progress_started_ts=STARTED, progress_msg_id="m1",
         )
         _write(pf, data)
         with _patched(None, None) as (post, edit):
@@ -273,7 +280,25 @@ class TestUpdatePhaseProgress:
         text = edit.call_args.args[2]
         assert "⏹ CODE_REVISE ended" in text
         assert "(timeout)" not in text
+        assert "avg 4.5/min" in text   # 9 / (120/60)
+        assert "⏱ 2m 0s" in text
         assert "progress_phase" not in _read(pf)
+
+    def test_d_finalize_no_started_ts_degrades(self, tmp_path):
+        from engine.progress import update_phase_progress
+        pf = tmp_path / "proj.json"
+        data = _base_data(
+            state="DESIGN_REVIEW",
+            progress_phase="DESIGN_PLAN", progress_count=12, progress_msg_id="m1",
+        )  # no progress_started_ts → no avg/⏱ suffix
+        _write(pf, data)
+        with _patched(None, None) as (post, edit):
+            update_phase_progress(pf, "DESIGN_REVIEW", data)
+        text = edit.call_args.args[2]
+        assert "✅ DESIGN_PLAN complete" in text
+        assert "12 tool calls" in text
+        assert "avg" not in text
+        assert "⏱" not in text
 
     def test_e_post_failure_keeps_count_no_msg_id(self, tmp_path):
         from engine.progress import update_phase_progress
@@ -299,7 +324,7 @@ class TestUpdatePhaseProgress:
         data = _base_data(
             progress_phase="DESIGN_PLAN", progress_transcript=str(transcript),
             progress_started_ts=STARTED, progress_offset=100, progress_count=5,
-            progress_prev_count=5, progress_prev_ts=NOW - 60.0, progress_msg_id="keep-me",
+            progress_samples=[[NOW - 60.0, 5]], progress_msg_id="keep-me",
         )
         _write(pf, data)
         reader = _FakeReader(transcript, [(1, 110)])
@@ -315,7 +340,7 @@ class TestUpdatePhaseProgress:
         data = _base_data(
             progress_phase="DESIGN_PLAN", progress_transcript=str(transcript),
             progress_started_ts=STARTED, progress_offset=100, progress_count=5,
-            progress_prev_count=5, progress_prev_ts=NOW - 60.0, progress_msg_id="gone",
+            progress_samples=[[NOW - 60.0, 5]], progress_msg_id="gone",
         )
         _write(pf, data)
         # tick 1: edit returns "deleted" → msg_id cleared
@@ -393,7 +418,7 @@ class TestUpdatePhaseProgress:
         data = _base_data(
             progress_phase="DESIGN_PLAN", progress_transcript=str(transcript),
             progress_started_ts=STARTED, progress_offset=99999, progress_count=5,
-            progress_prev_count=5, progress_prev_ts=NOW - 60.0, progress_msg_id="existing",
+            progress_samples=[[NOW - 60.0, 5]], progress_msg_id="existing",
         )
         _write(pf, data)
         reader = _FakeReader(transcript, [(2, 50)])
@@ -433,7 +458,7 @@ class TestUpdatePhaseProgress:
         data = _base_data(
             progress_phase="DESIGN_PLAN", progress_transcript=str(transcript),
             progress_started_ts=old_started, progress_offset=500, progress_count=99,
-            progress_prev_count=99, progress_prev_ts=old_started, progress_msg_id="old-msg",
+            progress_samples=[[NOW - 60.0, 5]], progress_msg_id="old-msg",
         )
         _write(pf, data)
         reader = _FakeReader(transcript, [(4, 80)])
@@ -509,3 +534,42 @@ class TestUpdatePhaseProgress:
         edit.assert_not_called()
         assert "progress_phase" not in _read(pf)
         assert "progress_phase" not in _read(pf)
+
+
+# ---------------------------------------------------------------------------
+# _last_min_count / _append_and_prune — direct (#384)
+# ---------------------------------------------------------------------------
+
+class TestLastMinHelpers:
+
+    def test_last_min_multi_sample_base_lookup(self):
+        from engine.progress import _last_min_count
+        # window edge 940; baseline = snapshot at/before 940 = 53; 64 - 53 = 11
+        assert _last_min_count(
+            [[940.0, 53], [955.0, 55], [985.0, 61]],
+            count=64, now=1000.0, started_ts=500.0,
+        ) == 11
+
+    def test_last_min_phase_began_inside_window(self):
+        from engine.progress import _last_min_count
+        # started_ts >= now - 60 → all calls recent → full count
+        assert _last_min_count([], count=7, now=1000.0, started_ts=970.0) == 7
+
+    def test_last_min_empty_samples_old_start(self):
+        from engine.progress import _last_min_count
+        # no samples → baseline 0 → full count
+        assert _last_min_count([], count=7, now=1000.0, started_ts=100.0) == 7
+
+    def test_last_min_mid_restart_fallback(self):
+        from engine.progress import _last_min_count
+        # samples exist but none old enough → baseline = oldest sample (5); 9 - 5 = 4
+        assert _last_min_count([[980.0, 5]], count=9, now=1000.0, started_ts=100.0) == 4
+
+    def test_append_and_prune_two_pre_window(self):
+        from engine.progress import _append_and_prune
+        src = [[850.0, 0], [900.0, 1], [945.0, 3], [970.0, 5]]
+        out = _append_and_prune(src, now=1000.0, count=8)
+        assert out == [[900.0, 1], [945.0, 3], [970.0, 5], [1000.0, 8]]
+        # fresh list: mutating the result does not touch the input
+        out[0][1] = 999
+        assert src == [[850.0, 0], [900.0, 1], [945.0, 3], [970.0, 5]]

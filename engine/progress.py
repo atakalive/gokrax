@@ -203,6 +203,10 @@ def update_phase_progress(path: Path, state: str, data: dict) -> None:
     now = time.time()
     pj = data.get("project", path.stem)
 
+    # マスタースイッチ（#382）。settings.py で PROGRESS_NOTIFY=True にすると有効化。
+    if not config.PROGRESS_NOTIFY:
+        return
+
     # Discord 可用性は DISCORD_CHANNEL の有無のみで判定（token / DRY_RUN は notify 側に委ねる）。
     if not config.DISCORD_CHANNEL:
         return

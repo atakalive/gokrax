@@ -134,6 +134,7 @@ def _patched(reader, entered, now=NOW, post_result=None, edit_result="ok",
          patch("engine.progress.time.time", return_value=now), \
          patch("notify.post_discord", return_value=post_result) as post_mock, \
          patch("notify.edit_discord_message", return_value=edit_result) as edit_mock, \
+         patch.object(config, "PROGRESS_NOTIFY", True), \
          patch.object(config, "DISCORD_CHANNEL", "chan-123"):
         yield post_mock, edit_mock
 
@@ -483,8 +484,28 @@ class TestUpdatePhaseProgress:
         pf = tmp_path / "proj.json"
         data = _base_data()
         _write(pf, data)
-        with patch.object(config, "DISCORD_CHANNEL", ""), \
+        with patch.object(config, "PROGRESS_NOTIFY", True), \
+             patch.object(config, "DISCORD_CHANNEL", ""), \
              patch("notify.post_discord") as post:
             update_phase_progress(pf, "DESIGN_PLAN", data)
         post.assert_not_called()
+
+    def test_progress_notify_disabled_noop(self, tmp_path):
+        # マスタースイッチ OFF（デフォルト）では reader/Discord に一切触れず、
+        # progress_* も書かない（#382 トグル）。
+        from engine.progress import update_phase_progress
+        pf = tmp_path / "proj.json"
+        data = _base_data()
+        _write(pf, data)
+        reader = _FakeReader(tmp_path / "t.jsonl", [(5, 100)])
+        with patch.object(config, "PROGRESS_NOTIFY", False), \
+             patch.object(config, "DISCORD_CHANNEL", "chan-123"), \
+             patch("engine.progress.get_reader", return_value=reader) as get_reader, \
+             patch("notify.post_discord") as post, \
+             patch("notify.edit_discord_message") as edit:
+            update_phase_progress(pf, "DESIGN_PLAN", data)
+        get_reader.assert_not_called()
+        post.assert_not_called()
+        edit.assert_not_called()
+        assert "progress_phase" not in _read(pf)
         assert "progress_phase" not in _read(pf)

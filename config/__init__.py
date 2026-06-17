@@ -33,6 +33,11 @@ EXIT_QUEUE_SKIP = 75
 DISCORD_CHANNEL: str = ""
 DISCORD_BOT_TOKEN: str = ""
 
+# DESIGN_PLAN / DESIGN_REVISE / CODE_REVISE フェーズの tool-call 進捗を Discord に随時上書き通知する
+# マスタースイッチ（#382）。他システムが tool-call メッセージ編集に対応するまではデフォルト OFF。
+# settings.py で PROGRESS_NOTIFY = True にすると有効化。
+PROGRESS_NOTIFY: bool = False
+
 DEFAULT_QUEUE_OPTIONS: dict[str, bool | str] = {}
 
 PROJECT_QUEUE_OPTIONS: dict[str, dict[str, bool | str]] = {}

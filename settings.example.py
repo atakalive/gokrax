@@ -47,6 +47,7 @@ LOCAL_TZ = timezone(timedelta(hours=0))  # UTC = 0
 CC_MODEL_PLAN = "sonnet"
 CC_MODEL_IMPL = "sonnet"
 MASK_AGENT_NAMES = True  # if False, your agent names are shown in GitLab notes. (Default: True)
+PROGRESS_NOTIFY = False  # if True, live tool-call progress is posted/edited to Discord during DESIGN/REVISE phases. (Default: False)
 
 DEFAULT_QUEUE_OPTIONS: dict[str, bool | str] = {
     "automerge": True,          # Auto-merge after CODE_APPROVED without waiting for owner OK. (Default: True)

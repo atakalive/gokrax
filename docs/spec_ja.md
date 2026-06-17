@@ -349,7 +349,7 @@ IDLE -> INITIALIZE -> DESIGN_PLAN -> DESIGN_REVIEW -> DESIGN_APPROVED -> ASSESSM
 
 **送信時の OpenAI Codex クォータ fallback (pi backend、`engine/openai_codex_quota.py`):**
 
-`send()` が `pi` に解決され、かつ `agents/config_pi.json` の該当エージェントの provider が `openai-codex` の場合、`should_fallback(agent_id)` が ChatGPT の `/wham/usage` エンドポイントを叩いて週単位 quota を更新する。使用率が閾値を超えていれば今回の send だけを fallback backend に振り直す。発動条件は当該エージェントの per-agent 設定で `fallback` / `fallback_provider` / `fallback_model` / `usage_threshold` (0–100) が揃っていること。キャッシュディレクトリ: `OPENAI_CODEX_QUOTA_CACHE_DIR` (`config/paths.py`)。Anthropic 系 backend は source provider として対象外。fallback 発火時、対象エージェントの PI session JSONL がリセットされ、fallback provider に古い context が持ち越されるのを防ぐ。
+`send()` が `pi` に解決され、かつ `agents/config_pi.json` の該当エージェントの provider が `openai-codex` の場合、`should_fallback(agent_id)` が ChatGPT の `/wham/usage` エンドポイントを叩いて週単位 quota を更新する。使用率が閾値を超えていれば今回の send だけを fallback backend に振り直す。発動条件は当該エージェントの per-agent 設定で `fallback` / `fallback_provider` / `fallback_model` / `usage_threshold` (0–100) が揃っていること。オプションの `fallback_backend` フィールドでリダイレクト先を選ぶ: 省略または `"pi"` = Mode A（pi に留まり `fallback_provider`/`fallback_model` を切替）、`"cc"` または `"openclaw"` を指定 = Mode B（送信を丸ごとその backend にリダイレクト）。`fallback_backend` の有効値は `{"pi", "cc", "openclaw"}`（`"pi"` は Mode A を指定し、実際の Mode B リダイレクト先は `"cc"` / `"openclaw"` のみ）。quota 連動 backend（gemini/agy/kimi）は推移的ループ防止のため拒否される。Mode B も Mode A と同じく `fallback: true` と active provider `openai-codex` が前提。キャッシュディレクトリ: `OPENAI_CODEX_QUOTA_CACHE_DIR` (`config/paths.py`)。Anthropic 系 backend は source provider として対象外。fallback 発火時、対象エージェントの PI session JSONL がリセットされ、fallback provider に古い context が持ち越されるのを防ぐ。
 
 **送信時の agy クォータ fallback (`engine/agy_quota.py`) — #356:**
 
@@ -397,7 +397,7 @@ OS ごとの CLI 引数サイズ上限 (`_get_max_cli_arg_bytes`):
 
 ### 7.6 Discord 通知
 
-- 全状態遷移を Discord 通知チャンネルに投稿 (形式: `[PJ] OLD -> NEW (timestamp)`)
+- 全状態遷移を Discord 通知チャンネルに投稿 (形式: `[PJ] OLD -> NEW (timestamp)`)。2 回目以降のレビューラウンドでは、DESIGN/CODE のレビューサイクル遷移 — REVIEW（および NPASS バリアント）、REVISE、APPROVED、TEST（CODE_TEST_FIX を含む）— に末尾 ` Rn` 接尾辞（` R2`, ` R3`, …。ラウンド 1 は接尾辞なし）が付与され、`design_revise_count` / `code_revise_count` から導出される。
 - DESIGN_PLAN 開始時のみ Issue 一覧を別メッセージで投稿
 - CC 進捗: Plan 開始 -> Plan 完了 -> Impl 開始 -> Impl 完了
 - マージサマリー: 全 Issue x 全レビュアーの判定を一覧投稿
@@ -435,6 +435,7 @@ pipeline JSON のフィールドは 3 カテゴリに分類される。
 | summary_message_id | str \| null | マージサマリーの Discord メッセージ ID |
 | skip_cc_plan | bool | CC Plan フェーズをスキップ |
 | skip_test | bool | CODE_TEST をスキップ |
+| autopull | bool | INITIALIZE 時に `git pull --ff-only` |
 | keep_ctx_batch | bool | バッチ間コンテキスト保持 |
 | keep_ctx_intra | bool | バッチ内コンテキスト保持 |
 | base_commit | str \| null | ベースコミットハッシュ |

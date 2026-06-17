@@ -47,7 +47,7 @@ LOCAL_TZ = timezone(timedelta(hours=0))  # UTC = 0
 CC_MODEL_PLAN = "sonnet"
 CC_MODEL_IMPL = "sonnet"
 MASK_AGENT_NAMES = True  # if False, your agent names are shown in GitLab notes. (Default: True)
-PROGRESS_NOTIFY = False  # if True, live tool-call progress is posted/edited to Discord during DESIGN/REVISE phases. (Default: False)
+PROGRESS_NOTIFY = False  # if True, live tool-call progress is posted/edited to Discord during DESIGN_PLAN / DESIGN_REVISE / CODE_REVISE phases, with a completion summary at the end. (Default: False)
 
 DEFAULT_QUEUE_OPTIONS: dict[str, bool | str] = {
     "automerge": True,          # Auto-merge after CODE_APPROVED without waiting for owner OK. (Default: True)
@@ -126,9 +126,9 @@ REVIEW_MODES = {
 # CCI backend settings (if using cci backend)
 # CCI_BIN: str = "claude"                    # claude binary name/path
 # CCI_START_GRACE_SEC: int = 60              # Grace period for TUI boot (default: 60)
-# CCI_STARTUP_TIMEOUT_SEC: int = 120         # _startup_handshake の deadline（秒）。TUI フッター検出までの上限。大きいセッションや並行プロセスでの資源競合下では 60s を超えうるため余裕を持たせる
-# CCI_BOOT_GRACE_SEC: int = 60   # claude 起動～最初の jsonl 追記までの固定猶予（秒）
-# CCI_COMPLETION_TIMEOUT_SEC: int = 1200     # cci_runner が agent 通信の 1 ターン完了を待つ上限（秒）。plan/impl/test_fix 本体は BLOCK_TIMERS から取得するため本値は影響しないが、commit retry と agent 通信の既定値には使われる
+# CCI_STARTUP_TIMEOUT_SEC: int = 120         # DEPRECATED / UNUSED: gated the removed _startup_handshake TUI-footer detection (removed in #378); retained only for backward-compatible config loading
+# CCI_BOOT_GRACE_SEC: int = 60   # fixed grace period (seconds) from claude launch until the first jsonl append
+# CCI_COMPLETION_TIMEOUT_SEC: int = 1200     # max seconds cci_runner waits for one agent-communication turn to complete; plan/impl/test_fix bodies take their timeout from BLOCK_TIMERS so this value does not affect them, but it is used as the default for commit retries and agent communication
 # IMPL_PHASE_ENGINE: str = "cc"  # "cc" (claude -p, default) or "cci" (interactive TUI, -p retirement prep)
 # AGENT_SEND_TIMEOUT = 30
 # DISCORD_POST_TIMEOUT = 10

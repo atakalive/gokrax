@@ -193,7 +193,9 @@ agents/
 
 #### エージェントごとのモデル設定
 
-各 backend の設定ファイルでエージェントごとにプロバイダ・モデル・thinking レベル・使用ツールを設定する: `agents/config_pi.json` (pi)、`agents/config_cc.json` (cc)、`agents/config_gemini.json` (gemini)、`agents/config_kimi.json` (kimi)、`agents/config_agy.json` (agy)。openclaw backend は gokrax 側の per-agent 設定ファイルを持たず、エージェント設定は openclaw Gateway 側で管理される。各エージェントは、自身に解決された backend の設定ファイル内で `agent_id` をキーにエントリを参照する。レビュアーも gokrax に完了報告を行うため、`bash` が必要（`INSTRUCTION.md` で書き込み禁止の指示はしてある）。実装者の使用ツール指定は不要（=> 全て許可）。
+各 backend の設定ファイルでエージェントごとにプロバイダ・モデル・thinking レベル・effort・使用ツールを設定する: `agents/config_pi.json` (pi)、`agents/config_cc.json` (cc)、`agents/config_cci.json` (cci)、`agents/config_gemini.json` (gemini)、`agents/config_kimi.json` (kimi)、`agents/config_agy.json` (agy)。openclaw backend は gokrax 側の per-agent 設定ファイルを持たず、エージェント設定は openclaw Gateway 側で管理される。各エージェントは、自身に解決された backend の設定ファイル内で `agent_id` をキーにエントリを参照する。レビュアーも gokrax に完了報告を行うため、`bash` が必要（`INSTRUCTION.md` で書き込み禁止の指示はしてある）。実装者の使用ツール指定は不要（=> 全て許可）。
+
+`effort` フィールド（cc / cci backend）は推論の effort を指定する: `low` / `medium` / `high` / `xhigh` / `max` / `ultracode`。`ultracode` は `xhigh` effort + 動的ワークフロー編成にマッピングされ、対応モデル（Fable 5 / Opus 4.8 / 4.7）と動的ワークフロー有効化を要し、トークン消費が大きい。全フィールドの詳細は `agents/config_cc.example.json` / `agents/config_cci.example.json` を参照。
 
 `pi --list-models` で現在有効なプロバイダ・モデルの一覧を出せる。
 
@@ -261,8 +263,9 @@ PI backend で `openai-codex` を使用するエージェントに対し、ChatG
 
 キー:
 - `fallback`: `true` で quota ベースの fallback を有効化 (openai-codex のみ対応)
-- `fallback_provider`: fallback 時の遷移先 PI provider
-- `fallback_model`: fallback 時の遷移先モデル
+- `fallback_backend`: 任意。省略または `"pi"` で pi に留まり provider/model のみ切替（**Mode A**）。他 backend（`"cc"` / `"openclaw"`）を指定すると、その backend へ送信を丸ごとリダイレクト（**Mode B**）。quota 連動 backend（`gemini`/`agy`/`kimi`）は推移的ループ防止のため拒否される。
+- `fallback_provider`: Mode A fallback 時の遷移先 PI provider（Mode B では無視）
+- `fallback_model`: Mode A fallback 時の遷移先モデル（Mode B では無視）
 - `usage_threshold`: weekly 使用率がこの値 (0-100) 以上で切替。デフォルト 95
 
 認証 (いずれか一方):

@@ -196,7 +196,9 @@ The startup file for each backend (`AGENTS.md` for pi and agy, `CLAUDE.md` for c
 
 #### Per-Agent Model Configuration
 
-Configure the provider, model, thinking level, and available tools for each agent in the backend's config file: `agents/config_pi.json` (pi), `agents/config_cc.json` (cc), `agents/config_gemini.json` (gemini), `agents/config_kimi.json` (kimi), or `agents/config_agy.json` (agy). The openclaw backend does not use a gokrax-side per-agent config file — its agent config is managed on the openclaw Gateway side. Each agent looks up its entry by `agent_id` in the config file of the backend resolved for it. Reviewers also need `bash` to report completion to gokrax (`INSTRUCTION.md` instructs them not to write to the repository). No tool specification is needed for implementers (all tools are permitted).
+Configure the provider, model, thinking level, effort, and available tools for each agent in the backend's config file: `agents/config_pi.json` (pi), `agents/config_cc.json` (cc), `agents/config_cci.json` (cci), `agents/config_gemini.json` (gemini), `agents/config_kimi.json` (kimi), or `agents/config_agy.json` (agy). The openclaw backend does not use a gokrax-side per-agent config file — its agent config is managed on the openclaw Gateway side. Each agent looks up its entry by `agent_id` in the config file of the backend resolved for it. Reviewers also need `bash` to report completion to gokrax (`INSTRUCTION.md` instructs them not to write to the repository). No tool specification is needed for implementers (all tools are permitted).
+
+The `effort` field (cc / cci backends) sets the reasoning effort: `low`, `medium`, `high`, `xhigh`, `max`, or `ultracode`. `ultracode` maps to `xhigh` effort plus dynamic-workflow orchestration and requires a capable model (Fable 5 / Opus 4.8 / 4.7) with dynamic workflows enabled; it has a high token cost. See `agents/config_cc.example.json` / `agents/config_cci.example.json` for the full field reference.
 
 Run `pi --list-models` to list currently available providers and models.
 
@@ -264,8 +266,9 @@ To enable, add fallback fields to the agent's profile in `agents/config_pi.json`
 
 Keys:
 - `fallback`: set to `true` to enable quota-based fallback (openai-codex only)
-- `fallback_provider`: target PI provider when fallback triggers
-- `fallback_model`: target model when fallback triggers
+- `fallback_backend`: optional. Omit or set to `"pi"` to stay in pi and only swap the provider/model (**Mode A**). Set to another backend (`"cc"` or `"openclaw"`) to redirect the whole send to that backend (**Mode B**). Quota-aware backends (`gemini`/`agy`/`kimi`) are rejected to avoid transitive fallback loops.
+- `fallback_provider`: target PI provider when Mode A fallback triggers (ignored in Mode B)
+- `fallback_model`: target model when Mode A fallback triggers (ignored in Mode B)
 - `usage_threshold`: switch when weekly usage reaches this percent (0-100, default 95)
 
 Authentication (one of the following):

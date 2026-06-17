@@ -349,7 +349,7 @@ Prerequisite: Gemini OAuth credentials (`GEMINI_OAUTH_CREDS`) and Gemini `settin
 
 **Send-time fallback for OpenAI Codex quota (pi backend, `engine/openai_codex_quota.py`):**
 
-When `send()` resolves to `pi` and the active provider per `agents/config_pi.json` is `openai-codex`, `should_fallback(agent_id)` may call ChatGPT's `/wham/usage` endpoint to refresh the weekly quota. If usage ≥ threshold, the send is redirected to a fallback backend. Eligibility requires the per-agent entry to specify `fallback`, `fallback_provider`, `fallback_model`, and a `usage_threshold` (0–100). Cache directory: `OPENAI_CODEX_QUOTA_CACHE_DIR` (see `config/paths.py`). Anthropic backends are not eligible as the source provider. On fallback activation the pi session JSONL is reset for the affected agent so stale context is not carried into the fallback provider.
+When `send()` resolves to `pi` and the active provider per `agents/config_pi.json` is `openai-codex`, `should_fallback(agent_id)` may call ChatGPT's `/wham/usage` endpoint to refresh the weekly quota. If usage ≥ threshold, the send is redirected to a fallback backend. Eligibility requires the per-agent entry to specify `fallback`, `fallback_provider`, `fallback_model`, and a `usage_threshold` (0–100). The optional `fallback_backend` field selects the redirect target: omit or `"pi"` = Mode A (stay in pi, swap `fallback_provider`/`fallback_model`); set to `"cc"` or `"openclaw"` = Mode B (redirect the whole send to that backend). Valid values for `fallback_backend` are `{"pi", "cc", "openclaw"}` (where `"pi"` selects Mode A and only `"cc"` / `"openclaw"` are actual Mode-B redirect targets); quota-aware backends (gemini/agy/kimi) are rejected to avoid transitive loops. Mode B requires `fallback: true` and the agent's active provider to be `openai-codex`, the same prerequisite as Mode A. Cache directory: `OPENAI_CODEX_QUOTA_CACHE_DIR` (see `config/paths.py`). Anthropic backends are not eligible as the source provider. On fallback activation the pi session JSONL is reset for the affected agent so stale context is not carried into the fallback provider.
 
 **Send-time fallback for agy quota (`engine/agy_quota.py`) — #356:**
 
@@ -397,7 +397,7 @@ Per-OS CLI argument size limits (`_get_max_cli_arg_bytes`):
 
 ### 7.6 Discord Notifications
 
-- All state transitions are posted to the Discord notification channel (format: `[PJ] OLD -> NEW (timestamp)`)
+- All state transitions are posted to the Discord notification channel (format: `[PJ] OLD -> NEW (timestamp)`). From the 2nd review round onward, the DESIGN/CODE review-cycle transitions — REVIEW (and its NPASS variant), REVISE, APPROVED, and TEST (including CODE_TEST_FIX) — get a trailing ` Rn` suffix (` R2`, ` R3`, …; round 1 has no suffix), derived from `design_revise_count` / `code_revise_count`.
 - Issue list is posted as a separate message only at DESIGN_PLAN start
 - CC progress: Plan start -> Plan complete -> Impl start -> Impl complete
 - Merge summary: All Issue x Reviewer verdicts posted as a list
@@ -435,6 +435,7 @@ Pipeline JSON fields are classified into 3 categories.
 | summary_message_id | str \| null | Discord message ID of the merge summary |
 | skip_cc_plan | bool | Skip CC Plan phase |
 | skip_test | bool | Skip CODE_TEST |
+| autopull | bool | `git pull --ff-only` during INITIALIZE |
 | keep_ctx_batch | bool | Preserve context across batches |
 | keep_ctx_intra | bool | Preserve context within a batch |
 | base_commit | str \| null | Base commit hash |

@@ -120,6 +120,8 @@ gokrax start --pj myproject --mode standard
 | `--allow-closed` | No | allow closed issues in batch (skip closed-issue filtering) |
 | `--automerge` | No | auto-merge after CODE_APPROVED without owner confirmation |
 | `--no-automerge` | No | explicitly require owner confirmation before merge (negates `--automerge`) |
+| `--autopull` | No | run `git pull --ff-only` during INITIALIZE (default: True) |
+| `--no-autopull` | No | skip the INITIALIZE `git pull --ff-only` (negates `--autopull`) |
 
 Defaults for the skip / context / automerge flags come from `DEFAULT_QUEUE_OPTIONS` in `settings.py` (per-project values in `PROJECT_QUEUE_OPTIONS` take precedence). Passing the flag here overrides the default for this batch only.
 
@@ -534,13 +536,14 @@ gokrax qedit last myproject 50 standard
 
 ## Agent Backends
 
-gokrax routes every agent send through one of six backends, selected by `DEFAULT_AGENT_BACKEND` (default fallback when no override matches) and `AGENT_BACKEND_OVERRIDE` (per-agent map) in `settings.py`.
+gokrax routes every agent send through one of seven backends, selected by `DEFAULT_AGENT_BACKEND` (default fallback when no override matches) and `AGENT_BACKEND_OVERRIDE` (per-agent map) in `settings.py`.
 
 | Backend | Source | Notes |
 |---------|--------|-------|
 | `openclaw` | openclaw Gateway | per-agent config lives on the Gateway side; no `agents/config_openclaw.json` |
 | `pi` | pi-coding-agent CLI | `agents/config_pi.json`; supports `openai-codex` quota fallback (see README) |
 | `cc` | Claude Code CLI | `agents/config_cc.json` |
+| `cci` | Claude Code CLI (interactive TUI) | `agents/config_cci.json`; subscription-billed alternative to `cc`; each `send()` drives the interactive `claude` TUI one turn via `engine/cci_runner.py` |
 | `gemini` | Gemini CLI (oneshot) | `agents/config_gemini.json`; supports Gemini Pro quota fallback |
 | `kimi` | Kimi CLI (oneshot) | `agents/config_kimi.json` |
 | `agy` | Antigravity CLI (oneshot) | `agents/config_agy.json`; supports proactive REST quota fallback |

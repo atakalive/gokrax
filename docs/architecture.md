@@ -467,7 +467,7 @@ PROJECT ISSUES [MODE] [OPTIONS...]
 
 ### Queue Options
 
-Available options: `automerge`, `skip_cc_plan`, `no-cc`, `keep_ctx_intra`, `skip_test`, `skip_assess`, `skip_design`, `impl=MODEL`, `plan=MODEL`.
+Available options: `automerge`, `skip_cc_plan`, `no-cc`, `keep_ctx_intra`, `skip_test`, `skip_assess`, `skip_design`, `autopull`, `impl=MODEL`, `plan=MODEL`.
 See `settings.example.py` `DEFAULT_QUEUE_OPTIONS` for defaults.
 
 ### Discord Integration

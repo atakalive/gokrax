@@ -656,6 +656,50 @@ def post_discord(channel_id: str, content: str, retries: int = 3) -> DiscordPost
     return DiscordPostResult(last_id)
 
 
+def edit_discord_message(channel_id: str, message_id: str, content: str, retries: int = 3) -> str:
+    """Discord メッセージを編集(PATCH)する。
+
+    Returns:
+        "ok"      — 編集成功 (HTTP 200)。
+        "deleted" — メッセージ消失 / 恒久クライアントエラー (404 / 400 / 401 / 403 等の
+                    429 以外の 4xx)。同一 msg_id への再編集は諦め、呼び出し側で再 post させる。
+        "error"   — DRY_RUN / token 無し / 一時障害 (429 / 5xx / RequestException) が
+                    全リトライ後も解消しない。msg_id を保持し次 tick で同一メッセージへ再 edit。
+    """
+    if config.DRY_RUN:
+        logger.info("[dry-run] edit_discord_message skipped (channel=%s)", channel_id)
+        return "error"
+    token = get_bot_token()
+    if not token:
+        return "error"
+
+    import time as _time
+    content = content[:2000]
+    for attempt in range(retries):
+        try:
+            resp = requests.patch(
+                f"https://discord.com/api/v10/channels/{channel_id}/messages/{message_id}",
+                headers={"Authorization": f"Bot {token}", "Content-Type": "application/json"},
+                json={"content": content},
+                timeout=DISCORD_POST_TIMEOUT,
+            )
+            if resp.status_code == 200:
+                return "ok"
+            if 400 <= resp.status_code < 500 and resp.status_code != 429:
+                # 恒久的クライアントエラー(メッセージ消失等): リトライ不要、即 return。
+                logger.warning("Discord edit permanent error (status=%d): %s",
+                              resp.status_code, resp.text[:200])
+                return "deleted"
+            # 一時障害 (429 / 5xx): リトライ対象。
+            logger.warning("Discord edit failed (attempt %d/%d, status=%d): %s",
+                          attempt + 1, retries, resp.status_code, resp.text[:200])
+        except requests.RequestException as e:
+            logger.warning("Discord edit error (attempt %d/%d): %s", attempt + 1, retries, e)
+        if attempt < retries - 1:
+            _time.sleep(2)
+    return "error"
+
+
 def _split_message(text: str, limit: int = 2000) -> list[str]:
     """テキストを改行境界で limit 文字以下に分割する。"""
     if len(text) <= limit:

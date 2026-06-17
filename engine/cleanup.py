@@ -82,6 +82,15 @@ def _cleanup_batch_state(data: dict, pj: str) -> None:
     # Merge summary
     data.pop("summary_message_id", None)
     data.pop("merge_approved", None)
+    # Phase progress notification (#382)
+    data.pop("progress_phase", None)
+    data.pop("progress_transcript", None)
+    data.pop("progress_offset", None)
+    data.pop("progress_count", None)
+    data.pop("progress_started_ts", None)
+    data.pop("progress_msg_id", None)
+    data.pop("progress_prev_count", None)
+    data.pop("progress_prev_ts", None)
     # Pending notifications
     data.pop("_pending_notifications", None)
     # State timer

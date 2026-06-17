@@ -49,6 +49,7 @@ def _block_external_calls(request, tmp_path):
         return
     _patches = [
         patch("notify.post_discord", return_value=DiscordPostResult("mock-msg-id")),
+        patch("notify.edit_discord_message", return_value="ok"),
         patch("notify.send_to_agent", return_value=True),
         patch("notify.send_to_agent_queued", return_value=True),
         patch("notify.ping_agent", return_value=True),

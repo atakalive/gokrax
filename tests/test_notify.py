@@ -192,6 +192,97 @@ class TestPostDiscord:
         assert "chunk 1/2" in caplog.text
 
 
+class TestEditDiscordMessage:
+
+    def test_success_returns_ok(self):
+        import notify
+        mock_resp = MagicMock(status_code=200)
+        with patch.object(config, "DRY_RUN", False), \
+             patch.object(notify, "get_bot_token", return_value="fake-token"), \
+             patch("notify.requests.patch", return_value=mock_resp) as mp:
+            result = notify.edit_discord_message("chan-1", "msg-1", "hello")
+        assert result == "ok"
+        # URL / headers / body 検証
+        args, kwargs = mp.call_args
+        assert args[0] == "https://discord.com/api/v10/channels/chan-1/messages/msg-1"
+        assert kwargs["headers"]["Authorization"] == "Bot fake-token"
+        assert kwargs["json"] == {"content": "hello"}
+
+    def test_dry_run_returns_error(self):
+        import notify
+        with patch.object(config, "DRY_RUN", True), \
+             patch("notify.requests.patch") as mp:
+            result = notify.edit_discord_message("chan-1", "msg-1", "hello")
+        assert result == "error"
+        mp.assert_not_called()
+
+    def test_no_token_returns_error(self):
+        import notify
+        with patch.object(config, "DRY_RUN", False), \
+             patch.object(notify, "get_bot_token", return_value=None), \
+             patch("notify.requests.patch") as mp:
+            result = notify.edit_discord_message("chan-1", "msg-1", "hello")
+        assert result == "error"
+        mp.assert_not_called()
+
+    @pytest.mark.parametrize("status", [404, 400, 403, 401])
+    def test_permanent_4xx_returns_deleted_no_retry(self, status):
+        import notify
+        mock_resp = MagicMock(status_code=status, text="err")
+        with patch.object(config, "DRY_RUN", False), \
+             patch.object(notify, "get_bot_token", return_value="fake-token"), \
+             patch("notify.requests.patch", return_value=mock_resp) as mp, \
+             patch("time.sleep") as msleep:
+            result = notify.edit_discord_message("chan-1", "msg-1", "hello")
+        assert result == "deleted"
+        assert mp.call_count == 1  # 即 return, リトライなし
+        msleep.assert_not_called()
+
+    def test_rate_limit_retries_then_error(self):
+        import notify
+        mock_resp = MagicMock(status_code=429, text="rate")
+        with patch.object(config, "DRY_RUN", False), \
+             patch.object(notify, "get_bot_token", return_value="fake-token"), \
+             patch("notify.requests.patch", return_value=mock_resp) as mp, \
+             patch("time.sleep") as msleep:
+            result = notify.edit_discord_message("chan-1", "msg-1", "hello", retries=3)
+        assert result == "error"
+        assert mp.call_count == 3
+        assert msleep.call_count == 2
+
+    def test_5xx_retries_then_error(self):
+        import notify
+        mock_resp = MagicMock(status_code=500, text="boom")
+        with patch.object(config, "DRY_RUN", False), \
+             patch.object(notify, "get_bot_token", return_value="fake-token"), \
+             patch("notify.requests.patch", return_value=mock_resp) as mp, \
+             patch("time.sleep"):
+            result = notify.edit_discord_message("chan-1", "msg-1", "hello", retries=3)
+        assert result == "error"
+        assert mp.call_count == 3
+
+    def test_request_exception_retries_then_error(self):
+        import notify
+        import requests
+        with patch.object(config, "DRY_RUN", False), \
+             patch.object(notify, "get_bot_token", return_value="fake-token"), \
+             patch("notify.requests.patch", side_effect=requests.ConnectionError("x")) as mp, \
+             patch("time.sleep"):
+            result = notify.edit_discord_message("chan-1", "msg-1", "hello", retries=3)
+        assert result == "error"
+        assert mp.call_count == 3
+
+    def test_content_truncated_to_2000(self):
+        import notify
+        mock_resp = MagicMock(status_code=200)
+        long = "x" * 3000
+        with patch.object(config, "DRY_RUN", False), \
+             patch.object(notify, "get_bot_token", return_value="fake-token"), \
+             patch("notify.requests.patch", return_value=mock_resp) as mp:
+            notify.edit_discord_message("chan-1", "msg-1", long)
+        assert len(mp.call_args.kwargs["json"]["content"]) == 2000
+
+
 class TestFormatReviewRequest:
 
     def _make_batch_item(self, issue_num, title="t", commit=None):

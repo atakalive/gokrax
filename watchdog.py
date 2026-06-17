@@ -111,6 +111,8 @@ from engine.fsm import (
     get_phase_config,
 )
 
+from engine.progress import update_phase_progress
+
 
 from engine.fsm_spec import (
     SpecTransitionAction,
@@ -247,6 +249,14 @@ def process(path: Path):
         log(f"[{pj_recover}] recovering pending notifications: {list(pending.keys())}")
         _recover_pending_notifications(pj_recover, pending, data.get("state", "IDLE"))
         return
+
+    # === #382: フェーズ進捗通知（tool call 数）の上書き更新 ===
+    # enabled チェックの前に置く: 対象フェーズが timeout で BLOCKED(enabled=False) に
+    # なったときに最終化フックを発火させるため。best-effort（失敗しても通常処理を阻害しない）。
+    try:
+        update_phase_progress(path, data.get("state", "IDLE"), data)
+    except Exception:
+        pass
 
     if not data.get("enabled", False):
         return

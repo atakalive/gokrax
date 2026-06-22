@@ -15,6 +15,7 @@ from __future__ import annotations
 import glob
 import json
 import logging
+import math
 import os
 import time
 from datetime import datetime
@@ -52,6 +53,22 @@ class TranscriptReader(Protocol):
         ...
 
 
+class ContextSizeReader(Protocol):
+    """任意拡張インターフェース: 現在の入力コンテキストサイズ (トークン) を返せる reader。
+
+    TranscriptReader の必須メンバーではない。実装している reader だけが進捗通知に
+    ctx を出せる。呼び出し側は getattr で存在確認するため、未実装 backend を登録しても
+    型・実行とも安全（その backend では ctx 表示がスキップされるだけ）。
+    """
+
+    def read_context_size(self, path: Path) -> int | None:
+        """入力コンテキスト総トークン数を返す。取得不能なら None。
+
+        None のとき表示をスキップするか直前値へフォールバックするかは呼び出し側が決める。
+        """
+        ...
+
+
 _READERS: dict[str, TranscriptReader] = {}
 
 
@@ -76,6 +93,8 @@ class ClaudeJsonlReader:
     各 backend の session_id ファイル位置 (CC_SESSIONS_DIR / CCI_SESSIONS_DIR) だけが
     異なるため、sessions_dir をコンストラクタで受ける。
     """
+
+    _CTX_TAIL_BYTES = 2_097_152  # tail read で読む末尾バイト数 (2 MiB)
 
     def __init__(self, sessions_dir: Path) -> None:
         self.sessions_dir = sessions_dir
@@ -159,6 +178,64 @@ class ClaudeJsonlReader:
                     count += 1
         return count, new_offset
 
+    def read_context_size(self, path: Path) -> int | None:
+        """最新 assistant エントリの message.usage から入力コンテキスト総トークン数を返す。
+
+        = input_tokens + cache_read_input_tokens + cache_creation_input_tokens
+        (3 キーは相互排他なので二重カウントにならない。output_tokens は含めない)。
+
+        効率のため count_tool_calls の offset 増分読みとは異なり、ファイル末尾
+        _CTX_TAIL_BYTES (2 MiB) だけを seek して読み、新しい行から走査する
+        (tail-seek の byte 境界最適化はこれで十分。whole-file read はしない)。
+        有効なトークンキーを 1 つ以上持つ usage の合計を返す。どのエントリにも
+        有効キーが無い / 読めない / OSError は None。本メソッドは例外を投げない。
+        """
+        try:
+            with open(path, "rb") as f:
+                f.seek(0, os.SEEK_END)
+                size = f.tell()
+                f.seek(max(0, size - self._CTX_TAIL_BYTES))
+                raw_bytes = f.read()
+        except OSError:
+            return None
+        # tail 読みの先頭要素は途中で切れた部分行になりうるが、reverse 走査では最後に
+        # 評価され、json.loads 失敗で安全にスキップされる。
+        for raw in reversed(raw_bytes.split(b"\n")):
+            if not raw.strip():
+                continue
+            try:
+                entry = json.loads(raw)
+            except Exception:
+                continue
+            if not isinstance(entry, dict) or entry.get("type") != "assistant":
+                continue
+            message = entry.get("message")
+            if not isinstance(message, dict):
+                continue
+            usage = message.get("usage")
+            if not isinstance(usage, dict):
+                continue
+            total = 0
+            found = False
+            for key in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"):
+                v = usage.get(key)
+                # json.loads は NaN/Infinity と任意精度 int を生む。int はそのまま採用（finite）、
+                # float のみ math.isfinite で篩う。int に math.isfinite を使うと巨大 int で
+                # OverflowError になり「例外を投げない」契約を壊すため、型で分岐する。
+                if isinstance(v, bool):
+                    continue
+                if isinstance(v, int):
+                    total += v
+                    found = True
+                elif isinstance(v, float) and math.isfinite(v):
+                    total += int(v)
+                    found = True
+            if found:
+                return total
+            # usage はあるが有効なトークンキーが 1 つも無い → このエントリは捨て、より古い行を試す
+            # (~0 tok を「取得失敗」と区別がつかない形で出さないため)。
+        return None
+
 
 register("cc", ClaudeJsonlReader(config.CC_SESSIONS_DIR))
 register("cci", ClaudeJsonlReader(config.CCI_SESSIONS_DIR))
@@ -173,6 +250,7 @@ _LAST_MIN_WINDOW = 60.0  # trailing window (seconds) for the "last min" tool-cal
 _PROGRESS_KEYS = (
     "progress_phase", "progress_transcript", "progress_offset", "progress_count",
     "progress_started_ts", "progress_msg_id", "progress_samples",
+    "progress_ctx_tokens",
 )
 
 
@@ -184,6 +262,36 @@ def _fmt_elapsed(seconds: float) -> str:
     if h > 0:
         return f"{h}h {m}m {s}s"
     return f"{m}m {s}s"
+
+
+def format_ctx_tokens(tokens: int) -> str:
+    """トークン数を人間可読な近似文字列にする (取得は厳密、表示はこの近似)。
+
+    例: 12345 -> '~12.3K tok', 366000 -> '~366K tok', 0 -> '~0 tok'。
+    K/M 区間では mantissa が 100 未満なら小数 1 桁、100 以上は整数。丸めで桁が
+    繰り上がって単位境界を跨ぐケース (999_500 以上 -> '~1.0M tok'、99_950 以上 ->
+    '~100K tok') も連続になるよう、丸め後に単位/小数桁を再判定する。
+    """
+    n = max(0, int(tokens))
+    if n < 1000:
+        return f"~{n} tok"
+    try:
+        if n >= 1_000_000:
+            value, suffix = n / 1_000_000.0, "M"
+        else:
+            value, suffix = n / 1000.0, "K"
+        text = f"{value:.1f}" if value < 100 else f"{value:.0f}"
+        # 丸めで mantissa が 1000 に達したら上位単位へ繰り上げ (K->M。M は最上位)。
+        if float(text) >= 1000 and suffix == "K":
+            value, suffix = n / 1_000_000.0, "M"
+            text = f"{value:.1f}" if value < 100 else f"{value:.0f}"
+        # mantissa<100 だが丸めで 100 に達したら整数表示へ統一 (99.95K -> 100K)。
+        if value < 100 and float(text) >= 100:
+            text = f"{value:.0f}"
+        return f"~{text}{suffix} tok"
+    except OverflowError:
+        # 壊れた transcript 由来の float 変換不能な巨大整数はそのまま表示（表示パスをクラッシュさせない）。
+        return f"~{n} tok"
 
 
 def _last_min_count(samples: list, count: int, now: float, started_ts: float) -> int:
@@ -266,6 +374,9 @@ def update_phase_progress(path: Path, state: str, data: dict) -> None:
             text = f"[{pj}] ⏹ {phase} ended — {count} tool calls{suffix}"
         else:
             text = f"[{pj}] ✅ {phase} complete — {count} tool calls{suffix}"
+        ctx_tokens = data.get("progress_ctx_tokens")
+        if isinstance(ctx_tokens, int) and not isinstance(ctx_tokens, bool):
+            text += f" · ctx {format_ctx_tokens(ctx_tokens)}"
         msg_id = data.get("progress_msg_id")
         if msg_id:
             notify.edit_discord_message(config.DISCORD_CHANNEL, msg_id, text)
@@ -358,6 +469,24 @@ def update_phase_progress(path: Path, state: str, data: dict) -> None:
         f"avg {avg:.1f}/min · last min {last_min} · ⏱ {elapsed_str}"
     )
 
+    # 6b. context size（任意拡張）。supports_ctx=False の未対応 backend は ctx を一切出さない不変条件。
+    read_ctx = getattr(reader, "read_context_size", None)
+    supports_ctx = callable(read_ctx)
+    raw_ctx = read_ctx(pt) if supports_ctx else None
+    # 型検証: int(bool 除く) か None のみ正常。reader が非 int を返したら誤実装 → invalid_ctx。
+    valid_ctx = isinstance(raw_ctx, int) and not isinstance(raw_ctx, bool)
+    ctx_tokens = raw_ctx if valid_ctx else None
+    invalid_ctx = supports_ctx and raw_ctx is not None and not valid_ctx
+    # 表示用フォールバック: 正常な ctx 対応 reader が今回 None(取得失敗) かつ非 fresh のときのみ直前値を使う。
+    # 未対応(not supports_ctx)・誤実装(invalid_ctx) では last-known を出さない（整形関数へ非 int を渡さない）。
+    display_ctx = ctx_tokens
+    if supports_ctx and not invalid_ctx and display_ctx is None and not fresh:
+        prev = data.get("progress_ctx_tokens")
+        if isinstance(prev, int) and not isinstance(prev, bool):
+            display_ctx = prev
+    if display_ctx is not None:
+        text += f" · ctx {format_ctx_tokens(display_ctx)}"
+
     # 7. 投稿 / 編集。
     if not msg_id:
         res = notify.post_discord(config.DISCORD_CHANNEL, text)
@@ -373,6 +502,7 @@ def update_phase_progress(path: Path, state: str, data: dict) -> None:
     final_started = started_ts
     final_msg_id = msg_id
     final_samples = _append_and_prune(samples, now, final_count)
+    final_ctx_tokens = ctx_tokens
 
     def _cb(d: dict) -> None:
         d["progress_phase"] = state
@@ -385,5 +515,11 @@ def update_phase_progress(path: Path, state: str, data: dict) -> None:
             d["progress_msg_id"] = final_msg_id
         else:
             d.pop("progress_msg_id", None)
+        if final_ctx_tokens is not None:
+            d["progress_ctx_tokens"] = final_ctx_tokens
+        elif fresh or not supports_ctx or invalid_ctx:
+            # 新フェーズ初回の取得失敗、ctx 非対応 reader、または誤実装(非int) → 残骸を残さない。
+            d.pop("progress_ctx_tokens", None)
+        # supports_ctx かつ valid かつ not fresh かつ None: 最後に取得できた値を保持（finalize / 次 tick フォールバック用）。
 
     update_pipeline(path, _cb)

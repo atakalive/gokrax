@@ -90,6 +90,7 @@ def _cleanup_batch_state(data: dict, pj: str) -> None:
     data.pop("progress_started_ts", None)
     data.pop("progress_msg_id", None)
     data.pop("progress_samples", None)
+    data.pop("progress_ctx_tokens", None)
     # 後方互換: #382→#384 で廃止した旧キー。in-flight pipeline に残るため、
     # バッチ完了時にここで確実に除去する（読み出しはしないが JSON に残さない）。
     data.pop("progress_prev_count", None)

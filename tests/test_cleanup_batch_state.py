@@ -78,6 +78,7 @@ def _make_full_data() -> dict:
         "progress_started_ts": 1700000000.0,
         "progress_msg_id": "msg-progress-1",
         "progress_samples": [[1700000010.0, 40]],
+        "progress_ctx_tokens": 12345,
         # 移行期間: 旧キーも in-flight pipeline に残るため cleanup 対象に含む
         "progress_prev_count": 40,
         "progress_prev_ts": 1700000010.0,
@@ -124,6 +125,7 @@ _CLEANUP_KEYS = {
     "summary_message_id",
     "progress_phase", "progress_transcript", "progress_offset", "progress_count",
     "progress_started_ts", "progress_msg_id", "progress_samples",
+    "progress_ctx_tokens",
     "progress_prev_count", "progress_prev_ts",
     "_pending_notifications",
     "_state_entered_at",

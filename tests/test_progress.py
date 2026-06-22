@@ -123,6 +123,15 @@ class _FakeReader:
         return self.counts.pop(0)
 
 
+class _FakeReaderCtx(_FakeReader):
+    def __init__(self, path, counts, ctx):
+        super().__init__(path, counts)
+        self._ctx = ctx
+
+    def read_context_size(self, path):
+        return self._ctx
+
+
 @contextmanager
 def _patched(reader, entered, now=NOW, post_result=None, edit_result="ok",
              backend="faketest"):
@@ -534,6 +543,258 @@ class TestUpdatePhaseProgress:
         edit.assert_not_called()
         assert "progress_phase" not in _read(pf)
         assert "progress_phase" not in _read(pf)
+
+    # --- 7-3: 進行中表示への追記 + 永続化 ---
+    def test_ctx_appended_in_progress_and_persisted(self, tmp_path):
+        from engine.progress import update_phase_progress
+        pf = tmp_path / "proj.json"
+        transcript = tmp_path / "t.jsonl"
+        transcript.write_text("x", encoding="utf-8")
+        data = _base_data()
+        _write(pf, data)
+        reader = _FakeReaderCtx(transcript, [(5, 100)], ctx=12345)
+
+        with _patched(reader, _entered()) as (post, edit):
+            update_phase_progress(pf, "DESIGN_PLAN", data)
+
+        assert "ctx ~12.3K tok" in post.call_args.args[1]
+        out = _read(pf)
+        assert out["progress_ctx_tokens"] == 12345
+
+    # --- 7-4: 未実装 reader では ctx を出さず永続化もしない（fresh）---
+    def test_ctx_skipped_when_reader_unsupported(self, tmp_path):
+        from engine.progress import update_phase_progress
+        pf = tmp_path / "proj.json"
+        transcript = tmp_path / "t.jsonl"
+        transcript.write_text("x", encoding="utf-8")
+        data = _base_data()
+        _write(pf, data)
+        reader = _FakeReader(transcript, [(5, 100)])  # read_context_size を持たない
+
+        with _patched(reader, _entered()) as (post, edit):
+            update_phase_progress(pf, "DESIGN_PLAN", data)
+
+        assert "ctx " not in post.call_args.args[1]
+        assert "progress_ctx_tokens" not in _read(pf)
+
+    # --- 7-5: 取得失敗 tick(非fresh)は直前の永続値にフォールバック表示し、値も保持 ---
+    def test_ctx_fallback_to_persisted_when_tick_read_fails(self, tmp_path):
+        from engine.progress import update_phase_progress
+        pf = tmp_path / "proj.json"
+        transcript = tmp_path / "t.jsonl"
+        transcript.write_text("x" * 200, encoding="utf-8")  # size > offset（fresh でない）
+        data = _base_data(
+            progress_phase="DESIGN_PLAN", progress_transcript=str(transcript),
+            progress_started_ts=STARTED, progress_offset=100, progress_count=5,
+            progress_samples=[[NOW - 60.0, 5]], progress_msg_id="existing",
+            progress_ctx_tokens=12345,
+        )
+        _write(pf, data)
+        reader = _FakeReaderCtx(transcript, [(3, 160)], ctx=None)  # この tick は取得失敗
+
+        with _patched(reader, _entered()) as (post, edit):
+            update_phase_progress(pf, "DESIGN_PLAN", data)
+
+        assert "ctx ~12.3K tok" in edit.call_args.args[2]   # 直前値にフォールバック表示
+        assert _read(pf)["progress_ctx_tokens"] == 12345     # 永続値は保持
+
+    # --- 7-6: 完了サマリーに persisted ctx を追記 ---
+    def test_finalize_appends_persisted_ctx(self, tmp_path):
+        from engine.progress import update_phase_progress
+        pf = tmp_path / "proj.json"
+        data = _base_data(
+            state="DONE", progress_phase="DESIGN_PLAN", progress_count=10,
+            progress_started_ts=STARTED, progress_msg_id="m1",
+            progress_ctx_tokens=366000,
+        )
+        _write(pf, data)
+        reader = _FakeReader(tmp_path / "t.jsonl", [])
+
+        with _patched(reader, None) as (post, edit):
+            update_phase_progress(pf, "DONE", data)
+
+        assert "ctx ~366K tok" in edit.call_args.args[2]
+
+    # --- 7-7: fresh フェーズ初回の取得失敗では旧フェーズ残骸を出さず除去（フォールバックしない）---
+    def test_ctx_no_stale_fallback_on_fresh_phase(self, tmp_path):
+        from engine.progress import update_phase_progress
+        pf = tmp_path / "proj.json"
+        transcript = tmp_path / "t.jsonl"
+        transcript.write_text("x", encoding="utf-8")
+        data = _base_data(progress_phase="OTHER", progress_ctx_tokens=99999)
+        _write(pf, data)
+        reader = _FakeReaderCtx(transcript, [(5, 100)], ctx=None)
+
+        with _patched(reader, _entered()) as (post, edit):
+            update_phase_progress(pf, "DESIGN_PLAN", data)
+
+        assert "ctx " not in post.call_args.args[1]      # fresh + None → フォールバックしない
+        assert "progress_ctx_tokens" not in _read(pf)      # 残骸は除去
+
+    # --- 7-8: 未対応 reader は非fresh+残存値でも ctx を出さず残骸を pop（euler R3 P2 不変条件）---
+    def test_ctx_unsupported_reader_pops_stale_when_not_fresh(self, tmp_path):
+        from engine.progress import update_phase_progress
+        pf = tmp_path / "proj.json"
+        transcript = tmp_path / "t.jsonl"
+        transcript.write_text("x" * 200, encoding="utf-8")  # size > offset（fresh でない）
+        data = _base_data(
+            progress_phase="DESIGN_PLAN", progress_transcript=str(transcript),
+            progress_started_ts=STARTED, progress_offset=100, progress_count=5,
+            progress_samples=[[NOW - 60.0, 5]], progress_msg_id="existing",
+            progress_ctx_tokens=12345,  # 残存値
+        )
+        _write(pf, data)
+        reader = _FakeReader(transcript, [(3, 160)])  # read_context_size 未実装（supports_ctx=False）
+
+        with _patched(reader, _entered()) as (post, edit):
+            update_phase_progress(pf, "DESIGN_PLAN", data)
+
+        assert "ctx " not in edit.call_args.args[2]       # 未対応 → フォールバック表示しない
+        assert "progress_ctx_tokens" not in _read(pf)       # 残骸を pop
+
+    # --- 7-9: 誤実装 reader(非int)は非fresh+残存値でも ctx を出さず残骸を pop（hanfei R4 / euler R5 P2）---
+    def test_ctx_invalid_return_pops_stale_when_not_fresh(self, tmp_path):
+        from engine.progress import update_phase_progress
+        pf = tmp_path / "proj.json"
+        transcript = tmp_path / "t.jsonl"
+        transcript.write_text("x" * 200, encoding="utf-8")  # size > offset（fresh でない）
+        data = _base_data(
+            progress_phase="DESIGN_PLAN", progress_transcript=str(transcript),
+            progress_started_ts=STARTED, progress_offset=100, progress_count=5,
+            progress_samples=[[NOW - 60.0, 5]], progress_msg_id="existing",
+            progress_ctx_tokens=12345,  # 残存値
+        )
+        _write(pf, data)
+        reader = _FakeReaderCtx(transcript, [(3, 160)], ctx="oops")  # 非 int を返す誤実装
+
+        with _patched(reader, _entered()) as (post, edit):
+            update_phase_progress(pf, "DESIGN_PLAN", data)
+
+        assert "ctx " not in edit.call_args.args[2]      # 誤実装 → フォールバック表示しない
+        assert "progress_ctx_tokens" not in _read(pf)      # 残骸を pop
+
+
+# ---------------------------------------------------------------------------
+# format_ctx_tokens / read_context_size — direct (#386)
+# ---------------------------------------------------------------------------
+
+def test_format_ctx_tokens_boundaries():
+    from engine.progress import format_ctx_tokens
+    assert format_ctx_tokens(0) == "~0 tok"
+    assert format_ctx_tokens(999) == "~999 tok"
+    assert format_ctx_tokens(1000) == "~1.0K tok"
+    assert format_ctx_tokens(12345) == "~12.3K tok"
+    assert format_ctx_tokens(99999) == "~100K tok"
+    assert format_ctx_tokens(100000) == "~100K tok"
+    assert format_ctx_tokens(366000) == "~366K tok"
+    assert format_ctx_tokens(999499) == "~999K tok"
+    assert format_ctx_tokens(999500) == "~1.0M tok"
+    assert format_ctx_tokens(999949) == "~1.0M tok"
+    assert format_ctx_tokens(999999) == "~1.0M tok"
+    assert format_ctx_tokens(1_000_000) == "~1.0M tok"
+    assert format_ctx_tokens(2_500_000) == "~2.5M tok"
+
+
+def test_format_ctx_tokens_huge_int_does_not_crash():
+    from engine.progress import format_ctx_tokens
+    # float 変換不能な巨大整数（壊れた transcript 由来）でもクラッシュせず、そのまま表示する。
+    huge = 10 ** 400
+    assert format_ctx_tokens(huge) == f"~{huge} tok"
+
+
+class TestClaudeJsonlReaderContextSize:
+
+    def test_latest_usage_sum_excludes_output(self, tmp_path):
+        from engine.progress import ClaudeJsonlReader
+        p = tmp_path / "t.jsonl"
+        older = json.dumps({
+            "type": "assistant",
+            "message": {"usage": {
+                "input_tokens": 100, "cache_read_input_tokens": 0,
+                "cache_creation_input_tokens": 0, "output_tokens": 5,
+            }},
+        })
+        newer = json.dumps({
+            "type": "assistant",
+            "message": {"usage": {
+                "input_tokens": 1000, "cache_read_input_tokens": 2000,
+                "cache_creation_input_tokens": 300, "output_tokens": 50,
+            }},
+        })
+        partial = '{"type":"assistant"'  # 改行なしの末尾部分行
+        p.write_text(older + "\n" + newer + "\n" + partial, encoding="utf-8")
+        reader = ClaudeJsonlReader(tmp_path)
+        # 末尾の部分行はスキップ、最新の完全 assistant 行(newer)の合計。output_tokens 除外。
+        assert reader.read_context_size(p) == 3300
+
+    def test_input_tokens_only_returns_input(self, tmp_path):
+        from engine.progress import ClaudeJsonlReader
+        p = tmp_path / "t.jsonl"
+        # cache_* が欠落し input_tokens のみ有効 → None ではなく input_tokens を返す。
+        line = json.dumps({"type": "assistant",
+                           "message": {"usage": {"input_tokens": 500, "output_tokens": 9}}})
+        p.write_text(line + "\n", encoding="utf-8")
+        reader = ClaudeJsonlReader(tmp_path)
+        assert reader.read_context_size(p) == 500
+
+    def test_missing_usage_returns_none(self, tmp_path):
+        from engine.progress import ClaudeJsonlReader
+        p = tmp_path / "t.jsonl"
+        line = json.dumps({"type": "assistant", "message": {"content": [{"type": "text"}]}})
+        p.write_text(line + "\n", encoding="utf-8")
+        reader = ClaudeJsonlReader(tmp_path)
+        assert reader.read_context_size(p) is None
+
+    def test_usage_without_token_keys_returns_none(self, tmp_path):
+        from engine.progress import ClaudeJsonlReader
+        p = tmp_path / "t.jsonl"
+        # usage は存在するが input/cache_* が 1 つも無い → 0 ではなく None（取得失敗扱い）。
+        line = json.dumps({"type": "assistant", "message": {"usage": {"output_tokens": 7}}})
+        p.write_text(line + "\n", encoding="utf-8")
+        reader = ClaudeJsonlReader(tmp_path)
+        assert reader.read_context_size(p) is None
+
+    def test_read_error_returns_none(self, tmp_path):
+        from engine.progress import ClaudeJsonlReader
+        reader = ClaudeJsonlReader(tmp_path)
+        assert reader.read_context_size(tmp_path / "nope.jsonl") is None
+
+    def test_non_finite_value_is_skipped_without_crash(self, tmp_path):
+        from engine.progress import ClaudeJsonlReader
+        p = tmp_path / "t.jsonl"
+        # json.loads は Infinity を受理する。int(inf) で落とさず、非有限キーはスキップして
+        # 有限キーのみ合計する（壊れた transcript 1 行で watchdog をクラッシュさせない）。
+        line = json.dumps({"type": "assistant", "message": {"usage": {
+            "input_tokens": float("inf"), "cache_read_input_tokens": 2000,
+        }}})
+        assert "Infinity" in line  # allow_nan デフォルトで Infinity トークンが書かれる
+        p.write_text(line + "\n", encoding="utf-8")
+        reader = ClaudeJsonlReader(tmp_path)
+        assert reader.read_context_size(p) == 2000
+
+    def test_all_non_finite_usage_returns_none(self, tmp_path):
+        from engine.progress import ClaudeJsonlReader
+        p = tmp_path / "t.jsonl"
+        # 全キーが NaN/Infinity → 有効キー皆無扱いで None（クラッシュもしない）。
+        line = json.dumps({"type": "assistant", "message": {"usage": {
+            "input_tokens": float("nan"), "cache_read_input_tokens": float("inf"),
+        }}})
+        p.write_text(line + "\n", encoding="utf-8")
+        reader = ClaudeJsonlReader(tmp_path)
+        assert reader.read_context_size(p) is None
+
+    def test_huge_int_usage_does_not_crash(self, tmp_path):
+        from engine.progress import ClaudeJsonlReader
+        p = tmp_path / "t.jsonl"
+        # json は任意精度 int を生む。math.isfinite(巨大int) の OverflowError で落とさず、
+        # int はそのまま合計する（「例外を投げない」契約を巨大整数に対しても守る）。
+        huge = 10 ** 400
+        p.write_text(
+            '{"type":"assistant","message":{"usage":{"input_tokens":%d}}}\n' % huge,
+            encoding="utf-8",
+        )
+        reader = ClaudeJsonlReader(tmp_path)
+        assert reader.read_context_size(p) == huge
 
 
 # ---------------------------------------------------------------------------

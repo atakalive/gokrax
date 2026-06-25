@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import bootstrap_home  # noqa: F401  (normalize_home() runs as an import side-effect)
 from config import (
     PIPELINES_DIR, REVIEWERS, REVIEW_MODES,
     VALID_VERDICTS, VALID_FLAG_VERDICTS,

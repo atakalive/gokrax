@@ -19,6 +19,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import bootstrap_home
 from config import (
     PIPELINES_DIR,
     LOCAL_TZ,
@@ -2341,6 +2342,16 @@ def main():
         handlers=[logging.FileHandler(LOG_FILE)],
         force=True,
     )
+
+    import config as _c
+    _passwd_home = bootstrap_home.real_login_home()
+    _cur_home = os.environ.get("HOME")
+    if _passwd_home and _cur_home != _passwd_home and not bootstrap_home.foreign_home_allowed():
+        log(
+            f"WARNING: HOME drift (normalization did not take effect): "
+            f"$HOME={_cur_home} != passwd home={_passwd_home} "
+            f"PIPELINES_DIR={PIPELINES_DIR} GOKRAX_STATE_PATH={_c.GOKRAX_STATE_PATH}"
+        )
 
     from engine.backend import validate_overrides
     from engine.gemini_quota import validate_fallback_config

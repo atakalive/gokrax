@@ -13,6 +13,25 @@ PGIDFILE="/tmp/gokrax-watchdog-loop-child.pgid"
 INTERVAL=10
 DIR="$(cd "$(dirname "$0")" && pwd)"
 
+# Pin HOME to the login user's passwd home so gokrax state paths don't drift.
+# Covers direct `bash watchdog-loop.sh` launches and the cron entry alike.
+# Truthiness mirrors Python bootstrap_home.foreign_home_allowed() exactly:
+# strip leading/trailing whitespace, then "", "0", "false" => pin (opt-out is any other value).
+_gokrax_afh="$(printf '%s' "${GOKRAX_ALLOW_FOREIGN_HOME:-}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+case "$_gokrax_afh" in
+    ""|0|false) _gokrax_pin_home=1 ;;
+    *) _gokrax_pin_home=0 ;;
+esac
+if [ "$_gokrax_pin_home" = 1 ]; then
+    _login_home="$(getent passwd "$(id -u)" 2>/dev/null | cut -d: -f6)"
+    if [ -z "$_login_home" ]; then
+        _login_home="$(eval echo "~$(id -un)")"
+    fi
+    if [ -n "$_login_home" ] && [ -d "$_login_home" ]; then
+        export HOME="$_login_home"
+    fi
+fi
+
 # cron flock ラッパーから継承された fd を閉じる（二重ロック防止 #145）
 for _fd in 3 4 5 6 7 8 9; do eval "exec ${_fd}>&-" 2>/dev/null; done
 

@@ -52,6 +52,7 @@ pipeline_io.py         # Pipeline JSON read/write (flock exclusive lock)
 task_queue.py          # Task queue management
 settings.py            # User settings (.gitignore'd)
 update_settings.py     # settings.py update utility
+bootstrap_home.py      # HOME normalization (import side-effect; pin to login-user HOME before config import)
 
 # === Spec mode ===
 spec_issue.py          # Spec mode: automatic Issue creation
@@ -151,6 +152,7 @@ ruff check *.py engine/ config/ commands/ messages/ tests/
 - `messages_custom/` — User-customized prompts. Do not edit or delete
   - Exception: #280 allows editing `messages_custom/ja/dev/code_revise.py` and `messages_custom/ja/dev/design_revise.py` (glab→gokrax get-comments replacement only)
 - Transition tables in `config/states.py` (`VALID_TRANSITIONS`, `SPEC_TRANSITIONS`, `STATE_PHASE_MAP`, `BLOCK_TIMERS`, etc.) must remain as plain strings. Do not convert to `State.XX` references for readability
+- When adding a new entrypoint that imports `config`, always place `import bootstrap_home` before `from config import ...` so HOME normalization runs before any `Path.home()`-derived state path is computed
 
 ### Forbidden Commands
 The following gokrax CLI commands cause pipeline halt or state corruption. Never run them during development or testing:

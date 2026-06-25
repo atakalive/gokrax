@@ -320,6 +320,16 @@ graph TD
     WAIT --> SCAN
 ```
 
+### Environment Variables
+
+- `GOKRAX_ALLOW_FOREIGN_HOME` — when truthy (value, stripped, is anything other
+  than ``""``/``0``/``false``), skip HOME normalization (the `bootstrap_home`
+  import side-effect and the `watchdog-loop.sh` pin) and honor the inherited
+  `$HOME` as-is. Use only when intentionally running the watchdog/CLI under a
+  non-login HOME (e.g. a different UID). Otherwise gokrax pins `$HOME` to the
+  login user's passwd home so all `Path.home()`-derived state paths stay
+  consistent. `GOKRAX_PIPELINES_DIR` still takes precedence over both.
+
 ## 5. End-to-End Issue Lifecycle (Sequence)
 
 ```mermaid

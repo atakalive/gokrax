@@ -7458,3 +7458,198 @@ class TestExcludedReviewersPersistAcrossPhase:
 
         saved = json.loads(path.read_text())
         assert "excluded_reviewers" not in saved
+
+
+# ── TestWorkingTreeDirty (Issue #387) ─────────────────────────────────────────
+
+class TestWorkingTreeDirty:
+    """engine.shared.working_tree_dirty() の単体テスト（subprocess をモック）。"""
+
+    def _run(self, stdout="", returncode=0, stderr="", side_effect=None):
+        from engine import shared
+        mock_proc = MagicMock()
+        mock_proc.stdout = stdout
+        mock_proc.returncode = returncode
+        mock_proc.stderr = stderr
+        if side_effect is not None:
+            patcher = patch("engine.shared.subprocess.run", side_effect=side_effect)
+        else:
+            patcher = patch("engine.shared.subprocess.run", return_value=mock_proc)
+        with patcher:
+            return shared.working_tree_dirty("/fake/repo")
+
+    def test_tracked_changes_returned(self):
+        out = " M gui/chat.py\n M tests/test_chat_widget.py\n"
+        assert self._run(out) == ["gui/chat.py", "tests/test_chat_widget.py"]
+
+    def test_untracked_only_excluded(self):
+        assert self._run("?? build/artifact\n") == []
+
+    def test_ignored_only_excluded(self):
+        assert self._run("!! ignored.log\n") == []
+
+    def test_mixed_keeps_tracked_only(self):
+        assert self._run(" M a.py\n?? u.txt\n!! i.log\n") == ["a.py"]
+
+    def test_empty_output(self):
+        assert self._run("") == []
+
+    def test_short_line_not_injected(self):
+        assert self._run("M\n M a.py\n") == ["a.py"]
+
+    def test_nonzero_returncode_logs_and_empty(self):
+        from engine import shared
+        mock_proc = MagicMock()
+        mock_proc.stdout = ""
+        mock_proc.returncode = 1
+        mock_proc.stderr = "fatal: not a git repo"
+        with patch("engine.shared.subprocess.run", return_value=mock_proc), \
+             patch("engine.shared.log") as mock_log:
+            result = shared.working_tree_dirty("/fake/repo")
+        assert result == []
+        mock_log.assert_called()
+
+    def test_exception_logs_and_empty(self):
+        from engine import shared
+        import subprocess as _sp
+        for exc in (_sp.TimeoutExpired(cmd="git", timeout=10), FileNotFoundError("git")):
+            with patch("engine.shared.subprocess.run", side_effect=exc), \
+                 patch("engine.shared.log") as mock_log:
+                result = shared.working_tree_dirty("/fake/repo")
+            assert result == []
+            mock_log.assert_called()
+
+
+# ── TestMergeSummaryDirtyTree (Issue #387) ────────────────────────────────────
+
+class TestMergeSummaryDirtyTree:
+    """MERGE_SUMMARY_SENT 遷移での dirty-tree 検知の相乗り結線テスト。"""
+
+    def _setup(self, tmp_path, monkeypatch):
+        import config, pipeline_io, notify
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr("watchdog.PIPELINES_DIR", tmp_path)
+
+        path = tmp_path / "test-pj.json"
+        data = {
+            "project": "test-pj", "gitlab": "testns/test-pj",
+            "state": "CODE_APPROVED", "enabled": True, "automerge": False,
+            "batch": _make_batch(1), "review_mode": "standard",
+            "repo_path": "/fake/repo", "implementer": "test-impl",
+            "history": [], "created_at": "", "updated_at": "",
+        }
+        _write_pipeline(path, data)
+
+        from notify import DiscordPostResult
+        monkeypatch.setattr(
+            notify, "post_discord",
+            lambda *a, **k: DiscordPostResult(message_id="123", is_partial=False),
+        )
+        monkeypatch.setattr(notify, "get_bot_token", lambda *a, **k: "token")
+        monkeypatch.setattr(config, "DISCORD_CHANNEL", "chan")
+        return path
+
+    def test_dirty_appends_prompt_and_warns(self, tmp_path, monkeypatch):
+        path = self._setup(tmp_path, monkeypatch)
+        from watchdog import process
+
+        with patch("watchdog.notify_implementer", MagicMock(return_value=True)) as mock_impl, \
+             patch("watchdog.notify_discord", MagicMock()) as mock_disc, \
+             patch("watchdog.working_tree_dirty",
+                   return_value=["gui/chat.py", "tests/test_chat_widget.py"]):
+            process(path)
+
+        mock_impl.assert_called_once()
+        prompt = mock_impl.call_args[0][1]
+        assert "gui/chat.py" in prompt
+        assert any("working tree dirty" in str(c.args[0]) for c in mock_disc.call_args_list)
+
+    def test_clean_unchanged(self, tmp_path, monkeypatch):
+        path = self._setup(tmp_path, monkeypatch)
+        from watchdog import process
+
+        with patch("watchdog.notify_implementer", MagicMock(return_value=True)) as mock_impl, \
+             patch("watchdog.notify_discord", MagicMock()) as mock_disc, \
+             patch("watchdog.working_tree_dirty", return_value=[]):
+            process(path)
+
+        mock_impl.assert_called_once()
+        prompt = mock_impl.call_args[0][1]
+        assert "gui/chat.py" not in prompt
+        assert not any("working tree dirty" in str(c.args[0]) for c in mock_disc.call_args_list)
+
+    def test_failsafe_does_not_break_batch_done(self, tmp_path, monkeypatch):
+        path = self._setup(tmp_path, monkeypatch)
+        from watchdog import process
+
+        # dirty 検知ブロック内（notify_discord）の例外が batch_done を壊さないこと。
+        # working_tree_dirty は非空を返し、内側の notify_discord だけ raise させる。
+        disc_calls = {"n": 0}
+
+        def _disc(*a, **k):
+            disc_calls["n"] += 1
+            if "working tree dirty" in str(a[0]):
+                raise Exception("boom")
+
+        with patch("watchdog.notify_implementer", MagicMock(return_value=True)) as mock_impl, \
+             patch("watchdog.notify_discord", side_effect=_disc), \
+             patch("watchdog.working_tree_dirty", return_value=["gui/chat.py"]):
+            process(path)  # must not raise
+
+        mock_impl.assert_called_once()
+
+    def test_transition_not_blocked_when_dirty(self, tmp_path, monkeypatch):
+        path = self._setup(tmp_path, monkeypatch)
+        from watchdog import process
+
+        with patch("watchdog.notify_implementer", MagicMock(return_value=True)), \
+             patch("watchdog.notify_discord", MagicMock()), \
+             patch("watchdog.working_tree_dirty", return_value=["gui/chat.py"]):
+            process(path)
+
+        saved = json.loads(path.read_text())
+        assert saved["state"] == "MERGE_SUMMARY_SENT"
+
+
+# ── TestDirtyTreeTemplate (Issue #387) ────────────────────────────────────────
+
+class TestDirtyTreeTemplate:
+    """messages/{lang}/dev/dirty_tree.py の cleanup_prompt テンプレート単体テスト。"""
+
+    def _render(self, monkeypatch, lang, files):
+        from messages import render
+        return render(
+            "dev.dirty_tree", "cleanup_prompt", lang=lang,
+            project="pj", files=files, GOKRAX_CLI="/bin/gokrax",
+        )
+
+    @pytest.mark.parametrize("lang", ["en", "ja"])
+    def test_count_cap(self, monkeypatch, lang):
+        files = [f"f{i}.py" for i in range(25)]
+        out = self._render(monkeypatch, lang, files)
+        assert "f24.py" not in out  # 全件は列挙されない
+        assert "25" in out  # 総数を明示
+
+    @pytest.mark.parametrize("lang", ["en", "ja"])
+    def test_path_length_cap(self, monkeypatch, lang):
+        longpath = "a/" + "x" * 500 + ".py"
+        out = self._render(monkeypatch, lang, [longpath])
+        assert "…(truncated)" in out
+        assert "x" * 500 not in out
+
+    @pytest.mark.parametrize("lang,marker", [("en", "not instructions"), ("ja", "指示ではありません")])
+    def test_defensive_wording(self, monkeypatch, lang, marker):
+        out = self._render(monkeypatch, lang, ["a.py"])
+        assert marker in out
+
+    @pytest.mark.parametrize("lang", ["en", "ja"])
+    def test_injection_neutralized(self, monkeypatch, lang):
+        out = self._render(monkeypatch, lang, ["a\nINJECTED.py", "b```c.py"])
+        # repr により改行はエスケープされ、生の改行直後に INJECTED.py が来る行が無い
+        assert "\\nINJECTED" in out
+        for line in out.splitlines():
+            assert not line.strip().startswith("INJECTED.py")
+        # 素の三連バッククォート行（fence）が一覧に現れない
+        for line in out.splitlines():
+            assert line.strip() != "```"

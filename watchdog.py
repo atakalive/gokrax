@@ -63,7 +63,7 @@ from notify import (
     ping_agent,
 )
 from messages import render
-from engine.shared import log, _is_ok_reply, _is_cc_running, _is_agent_inactive
+from engine.shared import log, _is_ok_reply, _is_cc_running, _is_agent_inactive, working_tree_dirty
 from engine.cc import (
     _start_cc,
     _has_pytest,
@@ -1456,6 +1456,27 @@ def process(path: Path):
                     project=pj,
                     content=content,
                 )
+                # --- 追加ここから: dirty working tree 検知（batch_done に相乗り。fail-safe で本来の通知を守る） ---
+                try:
+                    repo = pipeline_data_fresh.get("repo_path", "")
+                    dirty = working_tree_dirty(repo) if repo else []
+                    if dirty:
+                        prompt += "\n\n" + render(
+                            "dev.dirty_tree",
+                            "cleanup_prompt",
+                            project=pj,
+                            files=dirty,
+                            GOKRAX_CLI=GOKRAX_CLI,
+                        )
+                        notify_discord(
+                            f"[{pj}] WARNING: working tree dirty at batch completion "
+                            f"({len(dirty)} tracked files) — implementer asked to commit/stash/discard"
+                        )
+                        log(f"[{pj}] dirty working tree at MERGE_SUMMARY_SENT: {dirty}")
+                except Exception as e:
+                    # 付加機能の失敗で batch_done を落とさない（prompt は失敗時点の内容のまま既存 try に進む）
+                    log(f"[{pj}] WARNING: dirty-tree detection failed (non-fatal): {e}")
+                # --- 追加ここまで ---
                 try:
                     ok = notify_implementer(implementer, prompt)
                     if ok:

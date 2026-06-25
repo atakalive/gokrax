@@ -1,6 +1,7 @@
 """engine/shared.py - watchdog/gokrax共通ユーティリティ"""
 
 import json
+import subprocess
 from datetime import datetime
 from pathlib import Path
 
@@ -55,3 +56,44 @@ def _is_agent_inactive(agent_id: str, pipeline_data: dict | None = None) -> bool
     """
     from engine.backend import is_inactive as _dispatch_is_inactive
     return _dispatch_is_inactive(agent_id, pipeline_data)
+
+
+def working_tree_dirty(repo_path: str, timeout: int = 10) -> list[str]:
+    """tracked な未コミット変更のパス一覧を返す。clean なら空リスト。
+
+    untracked (?? 始まり) と ignored (!! 始まり) はビルド成果物等の誤検知を避けるため除外する。
+    判定不能（git 非0終了・例外）のときは空リストを返す（fail-safe: 通知しない側に倒す）が、
+    その場合は必ず log() で可視化する（サイレント障害を作らない）。
+    """
+    try:
+        proc = subprocess.run(
+            ["git", "-C", repo_path, "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except Exception as e:
+        # subprocess.TimeoutExpired / OSError(FileNotFoundError 含む) / その他すべて
+        log(f"working_tree_dirty: git status error (repo={repo_path}): {e}")
+        return []
+
+    if proc.returncode != 0:
+        stderr = (proc.stderr or "").strip()
+        log(
+            f"working_tree_dirty: git status failed "
+            f"(rc={proc.returncode}, repo={repo_path}): {stderr}"
+        )
+        return []
+
+    dirty: list[str] = []
+    for line in proc.stdout.splitlines():
+        if len(line) < 4:
+            continue
+        status = line[:2]
+        if status == "??" or status == "!!":
+            continue
+        path = line[3:].strip()
+        if path:
+            dirty.append(path)
+    return dirty

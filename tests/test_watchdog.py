@@ -7612,6 +7612,214 @@ class TestMergeSummaryDirtyTree:
         assert saved["state"] == "MERGE_SUMMARY_SENT"
 
 
+# ── TestDirtyTreeGateBeforeDone (Issue #389) ──────────────────────────────────
+
+class TestDirtyTreeGateBeforeDone:
+    """MERGE_SUMMARY_SENT → DONE の dirty-tree ゲート（#389）。"""
+
+    def _setup(self, tmp_path, monkeypatch):
+        import config, pipeline_io, notify
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr("watchdog.PIPELINES_DIR", tmp_path)
+
+        path = tmp_path / "test-pj.json"
+        data = {
+            "project": "test-pj", "gitlab": "testns/test-pj",
+            "state": "MERGE_SUMMARY_SENT", "enabled": True, "automerge": True,
+            "review_mode": "standard", "batch": _make_batch(1),
+            "repo_path": "/fake/repo", "implementer": "test-impl",
+            "summary_message_id": "x",
+            "history": [], "created_at": "", "updated_at": "",
+        }
+        _write_pipeline(path, data)
+
+        from notify import DiscordPostResult
+        monkeypatch.setattr(
+            notify, "post_discord",
+            lambda *a, **k: DiscordPostResult(message_id="123", is_partial=False),
+        )
+        monkeypatch.setattr(notify, "get_bot_token", lambda *a, **k: "token")
+        monkeypatch.setattr(config, "DISCORD_CHANNEL", "chan")
+        return path
+
+    def test_dirty_holds_at_merge_summary_sent(self, tmp_path, monkeypatch):
+        path = self._setup(tmp_path, monkeypatch)
+        from watchdog import process
+
+        with patch("watchdog.notify_implementer", MagicMock(return_value=True)) as mock_impl, \
+             patch("watchdog.notify_discord", MagicMock()) as mock_disc, \
+             patch("watchdog._auto_push_and_close", MagicMock()) as mock_push, \
+             patch("watchdog.working_tree_dirty", return_value=["a.py"]):
+            process(path)
+
+        saved = json.loads(path.read_text())
+        assert saved["state"] == "MERGE_SUMMARY_SENT"
+        mock_push.assert_not_called()
+        mock_impl.assert_called_once()
+        assert "a.py" in mock_impl.call_args[0][1]
+        assert "dirty_gate_since" in saved
+        assert "dirty_gate_notified_at" in saved
+        assert any("held" in str(c.args[0]) for c in mock_disc.call_args_list)
+
+    def test_clean_proceeds_to_done(self, tmp_path, monkeypatch):
+        path = self._setup(tmp_path, monkeypatch)
+        from watchdog import process
+
+        with patch("watchdog.notify_implementer", MagicMock(return_value=True)), \
+             patch("watchdog.notify_discord", MagicMock()), \
+             patch("watchdog._auto_push_and_close", MagicMock()) as mock_push, \
+             patch("watchdog.working_tree_dirty", return_value=[]):
+            process(path)
+
+        saved = json.loads(path.read_text())
+        assert saved["state"] == "DONE"
+        mock_push.assert_called_once()
+        assert "dirty_gate_since" not in saved
+        assert "dirty_gate_notified_at" not in saved
+
+    def test_dirty_then_clean_across_cycles(self, tmp_path, monkeypatch):
+        path = self._setup(tmp_path, monkeypatch)
+        from watchdog import process
+
+        with patch("watchdog.notify_implementer", MagicMock(return_value=True)), \
+             patch("watchdog.notify_discord", MagicMock()), \
+             patch("watchdog._auto_push_and_close", MagicMock()), \
+             patch("watchdog.working_tree_dirty", return_value=["a.py"]):
+            process(path)
+        assert json.loads(path.read_text())["state"] == "MERGE_SUMMARY_SENT"
+
+        with patch("watchdog.notify_implementer", MagicMock(return_value=True)), \
+             patch("watchdog.notify_discord", MagicMock()), \
+             patch("watchdog._auto_push_and_close", MagicMock()) as mock_push, \
+             patch("watchdog.working_tree_dirty", return_value=[]):
+            process(path)
+
+        saved = json.loads(path.read_text())
+        assert saved["state"] == "DONE"
+        mock_push.assert_called_once()
+        assert "dirty_gate_since" not in saved
+        assert "dirty_gate_notified_at" not in saved
+
+    def test_timeout_escalates_to_blocked_and_pushes(self, tmp_path, monkeypatch):
+        from datetime import datetime, timedelta
+        from config import LOCAL_TZ
+        import watchdog
+        path = self._setup(tmp_path, monkeypatch)
+        from watchdog import process
+
+        data = json.loads(path.read_text())
+        data["dirty_gate_since"] = (
+            datetime.now(LOCAL_TZ)
+            - timedelta(seconds=watchdog.DIRTY_TREE_TIMEOUT_SEC + 60)
+        ).isoformat()
+        _write_pipeline(path, data)
+
+        with patch("watchdog.notify_implementer", MagicMock(return_value=True)), \
+             patch("watchdog.notify_discord", MagicMock()) as mock_disc, \
+             patch("watchdog._auto_push_and_close", MagicMock()) as mock_push, \
+             patch("watchdog.working_tree_dirty", return_value=["a.py"]):
+            process(path)
+
+        saved = json.loads(path.read_text())
+        assert saved["state"] == "BLOCKED"
+        assert saved["enabled"] is False
+        assert saved["blocked_reason"] == "dirty_tree"
+        assert any(
+            h.get("from") == "MERGE_SUMMARY_SENT" and h.get("to") == "BLOCKED"
+            and h.get("actor") == "watchdog:dirty-tree-gate"
+            for h in saved["history"]
+        )
+        mock_push.assert_called_once()
+        assert any(
+            "gokrax reset" in str(c.args[0]) or "leftover" in str(c.args[0])
+            for c in mock_disc.call_args_list
+        )
+        assert "dirty_gate_since" not in saved
+        assert "dirty_gate_notified_at" not in saved
+
+    def test_notify_cooldown_suppresses_resend(self, tmp_path, monkeypatch):
+        from datetime import datetime, timedelta
+        from config import LOCAL_TZ
+        import watchdog
+        from watchdog import process
+
+        # (a) recent notified_at within cooldown → no resend
+        path = self._setup(tmp_path, monkeypatch)
+        data = json.loads(path.read_text())
+        data["dirty_gate_since"] = datetime.now(LOCAL_TZ).isoformat()
+        data["dirty_gate_notified_at"] = (
+            datetime.now(LOCAL_TZ)
+            - timedelta(seconds=watchdog.DIRTY_TREE_NOTIFY_COOLDOWN_SEC // 2)
+        ).isoformat()
+        _write_pipeline(path, data)
+        with patch("watchdog.notify_implementer", MagicMock(return_value=True)) as mock_impl, \
+             patch("watchdog.notify_discord", MagicMock()), \
+             patch("watchdog._auto_push_and_close", MagicMock()), \
+             patch("watchdog.working_tree_dirty", return_value=["a.py"]):
+            process(path)
+        assert json.loads(path.read_text())["state"] == "MERGE_SUMMARY_SENT"
+        mock_impl.assert_not_called()
+
+        # (b) notified_at backdated beyond cooldown → resend + update
+        data = json.loads(path.read_text())
+        old_ts = (
+            datetime.now(LOCAL_TZ)
+            - timedelta(seconds=watchdog.DIRTY_TREE_NOTIFY_COOLDOWN_SEC + 60)
+        ).isoformat()
+        data["dirty_gate_notified_at"] = old_ts
+        _write_pipeline(path, data)
+        with patch("watchdog.notify_implementer", MagicMock(return_value=True)) as mock_impl, \
+             patch("watchdog.notify_discord", MagicMock()), \
+             patch("watchdog._auto_push_and_close", MagicMock()), \
+             patch("watchdog.working_tree_dirty", return_value=["a.py"]):
+            process(path)
+        saved = json.loads(path.read_text())
+        mock_impl.assert_called_once()
+        assert saved["dirty_gate_notified_at"] != old_ts
+
+        # (c) corrupt notified_at → treated as due
+        data = json.loads(path.read_text())
+        data["dirty_gate_notified_at"] = "garbage"
+        _write_pipeline(path, data)
+        with patch("watchdog.notify_implementer", MagicMock(return_value=True)) as mock_impl, \
+             patch("watchdog.notify_discord", MagicMock()), \
+             patch("watchdog._auto_push_and_close", MagicMock()), \
+             patch("watchdog.working_tree_dirty", return_value=["a.py"]):
+            process(path)
+        mock_impl.assert_called_once()
+
+    def test_git_status_error_fail_open(self, tmp_path, monkeypatch):
+        path = self._setup(tmp_path, monkeypatch)
+        from watchdog import process
+
+        with patch("watchdog.notify_implementer", MagicMock(return_value=True)), \
+             patch("watchdog.notify_discord", MagicMock()), \
+             patch("watchdog._auto_push_and_close", MagicMock()) as mock_push, \
+             patch("watchdog.working_tree_dirty", return_value=[]):
+            process(path)
+
+        assert json.loads(path.read_text())["state"] == "DONE"
+        mock_push.assert_called_once()
+
+    def test_notify_failure_does_not_stamp(self, tmp_path, monkeypatch):
+        path = self._setup(tmp_path, monkeypatch)
+        from watchdog import process
+
+        with patch("watchdog.notify_implementer", MagicMock(return_value=False)) as mock_impl, \
+             patch("watchdog.notify_discord", MagicMock()) as mock_disc, \
+             patch("watchdog._auto_push_and_close", MagicMock()) as mock_push, \
+             patch("watchdog.working_tree_dirty", return_value=["a.py"]):
+            process(path)
+
+        saved = json.loads(path.read_text())
+        assert saved["state"] == "MERGE_SUMMARY_SENT"
+        assert "dirty_gate_notified_at" not in saved
+        assert not any("held" in str(c.args[0]) for c in mock_disc.call_args_list)
+        mock_push.assert_not_called()
+        mock_impl.assert_called_once()
+
+
 # ── TestDirtyTreeTemplate (Issue #387) ────────────────────────────────────────
 
 class TestDirtyTreeTemplate:

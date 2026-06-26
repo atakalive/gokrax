@@ -26,6 +26,9 @@ def _make_full_data() -> dict:
         "max_design_revise_cycles": 8,
         "max_code_revise_cycles": 12,
         "blocked_reason": "timeout",
+        # Dirty working tree gate (#389)
+        "dirty_gate_since": "2025-01-01T00:00:00+09:00",
+        "dirty_gate_notified_at": "2025-01-01T00:00:00+09:00",
         # Queue options
         "automerge": True,
         "p2_fix": True,
@@ -107,6 +110,7 @@ _CLEANUP_KEYS = {
     "design_revise_count", "code_revise_count",
     "max_design_revise_cycles", "max_code_revise_cycles",
     "blocked_reason",
+    "dirty_gate_since", "dirty_gate_notified_at",
     "automerge", "p2_fix", "cc_plan_model", "cc_impl_model",
     "keep_context", "keep_ctx_batch", "keep_ctx_intra",
     "comment", "skip_cc_plan", "skip_test", "skip_assess", "skip_design",

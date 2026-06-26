@@ -34,6 +34,8 @@ from config import (
     STATE_PHASE_MAP,
     GITLAB_NAMESPACE,
     IMPLEMENTERS,
+    DIRTY_TREE_TIMEOUT_SEC,
+    DIRTY_TREE_NOTIFY_COOLDOWN_SEC,
     # WATCHDOG_LOOP_PIDFILE, WATCHDOG_LOOP_CRON_MARKER は gokrax.py の enable/disable 専用
 )
 from config import (
@@ -473,6 +475,62 @@ def process(path: Path):
             if legacy:
                 data["keep_ctx_batch"] = True
                 data["keep_ctx_intra"] = True
+
+        # --- dirty working tree gate before DONE (Issue #389; follow-up to #387) ---
+        if state == "MERGE_SUMMARY_SENT" and action.new_state == "DONE":
+            _gate_repo = data.get("repo_path", "")
+            _dirty = working_tree_dirty(_gate_repo) if _gate_repo else []
+            if _dirty:
+                # Parse / (re)stamp first-seen time (mirror the corrupt-ts handling used for
+                # save_grace_met_at earlier in do_transition).
+                _since = None
+                _since_raw = data.get("dirty_gate_since")
+                if _since_raw:
+                    try:
+                        _since = _datetime.fromisoformat(_since_raw)
+                        if _since.tzinfo is None:
+                            raise ValueError("naive")
+                    except (ValueError, TypeError):
+                        _since = None
+                        log(f"[{pj}] WARNING: corrupt dirty_gate_since={_since_raw!r}, re-stamping")
+                if _since is None:
+                    data["dirty_gate_since"] = now_iso()
+                    _since = _datetime.fromisoformat(data["dirty_gate_since"])
+                    log(f"[{pj}] dirty working tree gate engaged at MERGE_SUMMARY_SENT: {_dirty}")
+                _elapsed = (_datetime.now(LOCAL_TZ) - _since).total_seconds()
+                if _elapsed >= DIRTY_TREE_TIMEOUT_SEC:
+                    log(f"[{pj}] BLOCK MERGE_SUMMARY_SENT: dirty tree timeout after {_elapsed:.0f}s")
+                    data["state"] = "BLOCKED"
+                    # "dirty_tree" is only displayed (engine/progress.py). The single value-branch on
+                    # blocked_reason (commands/dev/lifecycle.py, `_reason != "timeout"`) lives inside the
+                    # `resume and current == "BLOCKED" and target in ("DESIGN_REVISE", "CODE_REVISE")`
+                    # path, which is unreachable from a MERGE_SUMMARY_SENT block (recovery is BLOCKED → IDLE).
+                    # Mirrors the closed-issue-guard's direct mutation.
+                    data["blocked_reason"] = "dirty_tree"
+                    data["enabled"] = False
+                    data.pop("dirty_gate_since", None)
+                    data.pop("dirty_gate_notified_at", None)
+                    add_history(data, "MERGE_SUMMARY_SENT", "BLOCKED", "watchdog:dirty-tree-gate")
+                    # Option A: still push approved commits + close the issue post-lock (the work was
+                    # reviewed and merge-approved). Carry the data _auto_push_and_close needs.
+                    notification["dirty_gate"] = {
+                        "pj": pj, "files": list(_dirty), "blocked": True,
+                        "repo_path": _gate_repo,
+                        "gitlab": data.get("gitlab", f"{GITLAB_NAMESPACE}/{pj}"),
+                        "batch": list(data.get("batch", [])),
+                    }
+                    return
+                # HOLD: abort the DONE transition, stay MERGE_SUMMARY_SENT, keep implementer session.
+                notification["dirty_gate"] = {
+                    "pj": pj, "files": list(_dirty), "blocked": False,
+                    "implementer": data.get("implementer", IMPLEMENTERS[0]),
+                }
+                return
+            else:
+                data.pop("dirty_gate_since", None)
+                data.pop("dirty_gate_notified_at", None)
+                # fall through: clean → normal DONE transition proceeds
+        # --- end gate ---
 
         # DONE状態: バッチを退避してからクリア + watchdog無効化
         if state == "DONE":
@@ -963,6 +1021,73 @@ def process(path: Path):
             f"[{closed_guard['pj']}] ⚠️ INITIALIZE blocked: {closed_guard['detail']}. "
             f"`gokrax reset` で初期化、または意図的なら `--allow-closed` で再起動。"
         )
+    dirty_gate = notification.pop("dirty_gate", None)
+    if dirty_gate:
+        pj = dirty_gate["pj"]
+        files = dirty_gate["files"]
+        if dirty_gate.get("blocked"):
+            # Option A: push approved commits + close the issue (the work that was reviewed and
+            # merge-approved), THEN stay BLOCKED on the leftover dirty tree. _auto_push_and_close
+            # pushes committed history (HEAD) only — the uncommitted dirty changes are NOT pushed —
+            # so this is safe and mirrors the normal DONE push/close. Only the next-batch auto-start
+            # is suppressed (state is already BLOCKED, not DONE→IDLE). Runs outside the flock.
+            try:
+                _auto_push_and_close(
+                    dirty_gate.get("repo_path", ""),
+                    dirty_gate["gitlab"],
+                    dirty_gate["batch"],
+                    pj,
+                )
+            except Exception as e:
+                log(f"[{pj}] WARNING: dirty-gate timeout push/close failed: {e}")
+            # `_auto_push_and_close` degrades SILENTLY on push-all-retries-failure: it marks the issue
+            # title `[PUSH FAILED]` and skips close (returns None, no exception). The notice therefore
+            # must NOT assert success — it says "attempted" and points the recovering human at the
+            # `[PUSH FAILED]` title signal. A precise success/failure message would require
+            # `_auto_push_and_close` to return its status; that contract change is out of scope here.
+            notify_discord(
+                f"[{pj}] BLOCKED: working tree still dirty after {DIRTY_TREE_TIMEOUT_SEC // 60} min. "
+                f"Attempted to push the approved commits and close the issue — if the issue title shows "
+                f"[PUSH FAILED], push manually. Then clean up the {len(files)} leftover tracked "
+                f"file(s) and run `gokrax reset`. Files: {', '.join(files[:10])}"
+            )
+        else:
+            notify_path = get_path(pj)
+            pdata = load_pipeline(notify_path)
+            last = pdata.get("dirty_gate_notified_at")
+            due = True
+            if last:
+                try:
+                    due = (_datetime.now(LOCAL_TZ) - _datetime.fromisoformat(last)).total_seconds() \
+                          >= DIRTY_TREE_NOTIFY_COOLDOWN_SEC
+                except (ValueError, TypeError):
+                    # Corrupt timestamp: log (mirror dirty_gate_since handling) and re-prompt now.
+                    log(f"[{pj}] WARNING: corrupt dirty_gate_notified_at={last!r}, re-prompting")
+                    due = True
+            if due:
+                implementer = dirty_gate.get("implementer") or IMPLEMENTERS[0]
+                prompt = render("dev.dirty_tree", "cleanup_prompt",
+                                project=pj, files=files, GOKRAX_CLI=GOKRAX_CLI)
+                sent = False
+                try:
+                    sent = bool(notify_implementer(implementer, prompt))
+                except Exception as e:
+                    log(f"[{pj}] WARNING: dirty-gate re-notify failed: {e}")
+                # Stamp the cooldown and post the human-facing "held" note ONLY when the implementer
+                # prompt actually went out. A transient notify failure leaves dirty_gate_notified_at
+                # unset, so the next ~20 s cycle retries instead of waiting the full cooldown, and no
+                # Discord "held" spam is produced while delivery keeps failing.
+                if sent:
+                    notify_discord(
+                        f"[{pj}] batch completion held: working tree dirty "
+                        f"({len(files)} tracked files) — waiting for implementer cleanup"
+                    )
+
+                    def _stamp_notified(d):
+                        d["dirty_gate_notified_at"] = now_iso()
+
+                    update_pipeline(notify_path, _stamp_notified)
+
     if notification:
         action = notification["action"]
         pj = notification["pj"]

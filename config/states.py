@@ -60,6 +60,7 @@ __all__ = [
     "BLOCK_TIMERS", "MAX_TIMEOUT_EXTENSION", "EXTENDABLE_STATES",
     "PROGRESS_TRACKED_STATES",
     "NUDGE_GRACE_SEC", "EXTEND_NOTICE_THRESHOLD",
+    "DIRTY_TREE_TIMEOUT_SEC", "DIRTY_TREE_NOTIFY_COOLDOWN_SEC",
     "SPEC_STATES", "SPEC_TRANSITIONS",
     "MAX_SPEC_REVISE_CYCLES",
     "SPEC_BLOCK_TIMERS",
@@ -154,6 +155,10 @@ NUDGE_GRACE_SEC = 600  # 10 min
 
 # 残り時間が閾値未満で延長案内を表示（秒）
 EXTEND_NOTICE_THRESHOLD = 300  # 5 min
+
+# Dirty working tree gate before DONE (#389)
+DIRTY_TREE_TIMEOUT_SEC = 1800         # hold at MERGE_SUMMARY_SENT up to 30 min, then BLOCKED
+DIRTY_TREE_NOTIFY_COOLDOWN_SEC = 300  # re-prompt the implementer at most every 5 min
 
 # ---------------------------------------------------------------------------
 # spec mode 基盤 — Issue #49

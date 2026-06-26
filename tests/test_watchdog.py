@@ -7731,6 +7731,13 @@ class TestDirtyTreeGateBeforeDone:
             for h in saved["history"]
         )
         mock_push.assert_called_once()
+        # Option A: verify the (repo_path, gitlab, batch, project) argument order so a swap
+        # (e.g. gitlab/project transposed) is caught.
+        push_args = mock_push.call_args[0]
+        assert push_args[0] == "/fake/repo"
+        assert push_args[1] == "testns/test-pj"
+        assert [i["issue"] for i in push_args[2]] == [1]
+        assert push_args[3] == "test-pj"
         assert any(
             "gokrax reset" in str(c.args[0]) or "leftover" in str(c.args[0])
             for c in mock_disc.call_args_list
@@ -7818,6 +7825,35 @@ class TestDirtyTreeGateBeforeDone:
         assert not any("held" in str(c.args[0]) for c in mock_disc.call_args_list)
         mock_push.assert_not_called()
         mock_impl.assert_called_once()
+
+    def test_corrupt_dirty_gate_since_restamps_and_holds(self, tmp_path, monkeypatch):
+        # Symmetry with test_notify_cooldown_suppresses_resend (c): a corrupt/naive
+        # dirty_gate_since must re-stamp to a valid tz-aware value, keep HOLDing (not
+        # BLOCK or push), so the next cycle measures elapsed time from a sane baseline.
+        from datetime import datetime
+        from config import LOCAL_TZ
+        from watchdog import process
+
+        naive_iso = datetime.now(LOCAL_TZ).replace(tzinfo=None).isoformat()
+        for bad_since in ("garbage", naive_iso):
+            path = self._setup(tmp_path, monkeypatch)
+            data = json.loads(path.read_text())
+            data["dirty_gate_since"] = bad_since
+            _write_pipeline(path, data)
+
+            with patch("watchdog.notify_implementer", MagicMock(return_value=True)), \
+                 patch("watchdog.notify_discord", MagicMock()), \
+                 patch("watchdog._auto_push_and_close", MagicMock()) as mock_push, \
+                 patch("watchdog.working_tree_dirty", return_value=["a.py"]):
+                process(path)
+
+            saved = json.loads(path.read_text())
+            assert saved["state"] == "MERGE_SUMMARY_SENT", bad_since
+            mock_push.assert_not_called()
+            restamped = saved["dirty_gate_since"]
+            assert restamped != bad_since
+            parsed = datetime.fromisoformat(restamped)
+            assert parsed.tzinfo is not None, bad_since
 
 
 # ── TestDirtyTreeTemplate (Issue #387) ────────────────────────────────────────

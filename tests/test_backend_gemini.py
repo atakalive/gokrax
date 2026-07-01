@@ -112,6 +112,12 @@ class TestSend:
         assert backend_gemini.send(AGENT, "hi", 30) is SendResult.OK
         assert recorder["popen_calls"] == []
 
+    def test_nul_message_refused_before_popen(self, recorder, monkeypatch):
+        """生 NUL 混入 message は Popen 手前で FAIL（#390 の argv ガード）。"""
+        monkeypatch.setattr(config, "DRY_RUN", False)
+        assert backend_gemini.send(AGENT, "a\x00b", 30) is SendResult.FAIL
+        assert recorder["popen_calls"] == []
+
     def test_pid_persisted(self, recorder, monkeypatch):
         monkeypatch.setattr(backend_gemini, "_count_sessions", lambda cwd: 0)
         backend_gemini.send(AGENT, "hi", 30)

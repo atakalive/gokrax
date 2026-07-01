@@ -11,7 +11,7 @@ from __future__ import annotations
 import config
 from engine.backend_pi import SUPPORTED_BACKENDS
 from engine.backend_types import SendResult
-from engine.shared import log
+from engine.shared import log, sanitize_agent_message
 
 
 def resolve_backend(agent_id: str, *, ignore_fallback: bool = False) -> str:
@@ -71,6 +71,11 @@ def validate_overrides() -> list[str]:
 
 def send(agent_id: str, message: str, timeout: int) -> SendResult:
     """Dispatch send to the selected backend."""
+    # 全送信経路の唯一のチョークポイント。ここで制御文字を可視化しておけば
+    # argv 直載せ backend で生 NUL の embedded null byte を踏まない。
+    # pi/cc/cci/openclaw も一律で通るが、いずれも受信側は LLM プロンプトで
+    # 生 NUL に意味依存しないため無害（SSOT 一貫性を優先）。
+    message = sanitize_agent_message(message)
     backend = resolve_backend(agent_id)
     if backend == "gemini":
         from engine.gemini_quota import should_fallback

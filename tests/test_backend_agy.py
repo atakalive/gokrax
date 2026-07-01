@@ -105,6 +105,12 @@ class TestSendArgv:
         assert backend_agy.send(AGENT, "hi", 30) is SendResult.OK
         assert recorder["popen_calls"] == []
 
+    def test_nul_message_refused_before_popen(self, recorder, monkeypatch):
+        """生 NUL 混入 message は Popen 手前で FAIL（#390 の argv ガード）。"""
+        monkeypatch.setattr(config, "DRY_RUN", False)
+        assert backend_agy.send(AGENT, "a\x00b", 30) is SendResult.FAIL
+        assert recorder["popen_calls"] == []
+
     def test_send_includes_add_dir_flag(self, recorder):
         backend_agy.send(AGENT, "hi", 30)
         argv = recorder["popen_calls"][0]["cmd"]

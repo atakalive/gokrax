@@ -273,6 +273,18 @@ def send(agent_id: str, message: str, timeout: int) -> SendResult:
         logger.info("[dry-run] kimi send skipped (agent=%s)", agent_id)
         return SendResult.OK
 
+    # 変更1(engine.backend.send)により通常ここに生 NUL は来ないが、backend.send を
+    # 迂回する将来経路への保険。この backend は message を argv(-p, message)へ直載せ
+    # するため、生 NUL があると Popen が ValueError: embedded null byte を送出し notify を
+    # 巻き込む（#390）。pi/cc(stdin)・cci(file)・openclaw(json エスケープ)は生 NUL を
+    # 安全に扱うため本ガードは持たない（この非対称は意図的）。
+    if "\x00" in message:
+        logger.warning(
+            "kimi send: message contains a NUL byte; refusing spawn for %s "
+            "(would raise 'embedded null byte' on argv)", agent_id,
+        )
+        return SendResult.FAIL
+
     KIMI_PIDS_DIR.mkdir(parents=True, exist_ok=True)
     REVIEW_FILE_DIR.mkdir(parents=True, exist_ok=True)
     _rebuild_kimi_md(agent_id)

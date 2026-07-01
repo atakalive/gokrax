@@ -20,6 +20,7 @@ import config
 from engine.backend_types import SendResult
 from engine.filter import require_issue_author, UnauthorizedAuthorError
 from engine.glab import run_glab
+from engine.shared import sanitize_agent_message
 from config import (
     GOKRAX_CLI, GLAB_BIN, DISCORD_CHANNEL, DISCORD_BOT_TOKEN,
     AGENTS, REVIEW_MODES, MAX_DIFF_CHARS,
@@ -946,87 +947,112 @@ def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
         if r not in AGENTS:
             continue
 
-        if state in ("DESIGN_REVIEW_NPASS", "CODE_REVIEW_NPASS"):
-            msg = _build_npass_review_message(
-                project, state, batch, reviewer=r,
-                round_num=round_num, comment=comment,
-                gitlab=gitlab,
+        # --- 隔離対象: message構築〜送信の成否判定まで（best-effort 隔離、#390）---
+        try:
+            if state in ("DESIGN_REVIEW_NPASS", "CODE_REVIEW_NPASS"):
+                msg = _build_npass_review_message(
+                    project, state, batch, reviewer=r,
+                    round_num=round_num, comment=comment,
+                    gitlab=gitlab,
+                )
+            else:
+                msg = format_review_request(project, state, batch, gitlab, reviewer=r,
+                                            repo_path=repo_path, prev_reviews=prev_reviews,
+                                            base_commit=base_commit, comment=comment,
+                                            round_num=round_num)
+            if not msg:
+                logger.info("No pending issues for %s — skipping review request", r)
+                continue
+
+            # 制御文字を可視化（サイズ判定・外部化ファイル・inline送信の全てを統一）
+            msg = sanitize_agent_message(msg)
+
+            # 強制外部化: CODE_REVIEW で n_pass > 1 のレビュアー → NPASS 用にファイル参照を保存
+            force_externalize = False
+            if state == "CODE_REVIEW":
+                if phase_config is not None:
+                    n_pass = phase_config.get("n_pass", {}).get(r, 1)
+                else:
+                    n_pass = mode_config.get("n_pass", {}).get(r, 1)
+                if n_pass > 1:
+                    force_externalize = True
+
+            # サイズ判定: CLI引数として渡す最終形態（JSON）のバイト数で MAX_CLI_ARG_BYTES と比較
+            params_json_size = len(json.dumps({
+                "sessionKey": f"agent:{r}:main",
+                "message": msg,
+                "idempotencyKey": "00000000-0000-0000-0000-000000000000",
+            }).encode("utf-8"))
+            if force_externalize or params_json_size >= config.MAX_CLI_ARG_BYTES:
+                logger.info("Review message for %s is %d bytes (json), externalizing to file%s",
+                            r, params_json_size, " (forced for n_pass)" if force_externalize else "")
+                file_path = _write_review_file(project, r, msg)
+                if file_path is None:
+                    logger.error("Failed to write review file for %s, skipping", r)
+                    failed_set.add(r)
+                    continue
+                # NPASS 用にファイルパスを保存
+                if force_externalize:
+                    _save_npass_review_file_path(project, r, file_path)
+                is_code = "CODE" in state
+                is_npass = state in ("DESIGN_REVIEW_NPASS", "CODE_REVIEW_NPASS")
+                short_msg = _build_file_review_message(project, is_code, r, file_path, batch, round_num, skip_skills=is_npass)
+                if not send_to_agent(r, short_msg):
+                    logger.warning(
+                        "Failed to send review request to %s (backend=%s)",
+                        r, resolve_backend(r),
+                    )
+                    failed_set.add(r)
+                    continue
+            else:
+                if not send_to_agent(r, msg):
+                    logger.warning(
+                        "Failed to send review request to %s (backend=%s)",
+                        r, resolve_backend(r),
+                    )
+                    failed_set.add(r)
+                    continue
+        except UnauthorizedAuthorError:
+            raise  # セキュリティ例外は fail-closed で伝播（格下げ禁止）
+        except Exception as e:
+            logger.warning(
+                "notify_reviewers: build/send failed for reviewer %s: %s", r, e
             )
-        else:
-            msg = format_review_request(project, state, batch, gitlab, reviewer=r,
-                                        repo_path=repo_path, prev_reviews=prev_reviews,
-                                        base_commit=base_commit, comment=comment,
-                                        round_num=round_num)
-        if not msg:
-            logger.info("No pending issues for %s — skipping review request", r)
+            failed_set.add(r)
             continue
 
-        # 強制外部化: CODE_REVIEW で n_pass > 1 のレビュアー → NPASS 用にファイル参照を保存
-        force_externalize = False
-        if state == "CODE_REVIEW":
-            if phase_config is not None:
-                n_pass = phase_config.get("n_pass", {}).get(r, 1)
-            else:
-                n_pass = mode_config.get("n_pass", {}).get(r, 1)
-            if n_pass > 1:
-                force_externalize = True
-
-        # サイズ判定: CLI引数として渡す最終形態（JSON）のバイト数で MAX_CLI_ARG_BYTES と比較
-        params_json_size = len(json.dumps({
-            "sessionKey": f"agent:{r}:main",
-            "message": msg,
-            "idempotencyKey": "00000000-0000-0000-0000-000000000000",
-        }).encode("utf-8"))
-        if force_externalize or params_json_size >= config.MAX_CLI_ARG_BYTES:
-            logger.info("Review message for %s is %d bytes (json), externalizing to file%s",
-                        r, params_json_size, " (forced for n_pass)" if force_externalize else "")
-            file_path = _write_review_file(project, r, msg)
-            if file_path is None:
-                logger.error("Failed to write review file for %s, skipping", r)
-                failed_set.add(r)
-                continue
-            # NPASS 用にファイルパスを保存
-            if force_externalize:
-                _save_npass_review_file_path(project, r, file_path)
-            is_code = "CODE" in state
-            is_npass = state in ("DESIGN_REVIEW_NPASS", "CODE_REVIEW_NPASS")
-            short_msg = _build_file_review_message(project, is_code, r, file_path, batch, round_num, skip_skills=is_npass)
-            if not send_to_agent(r, short_msg):
-                logger.warning(
-                    "Failed to send review request to %s (backend=%s)",
-                    r, resolve_backend(r),
-                )
-                failed_set.add(r)
-                continue
-        else:
-            if not send_to_agent(r, msg):
-                logger.warning(
-                    "Failed to send review request to %s (backend=%s)",
-                    r, resolve_backend(r),
-                )
-                failed_set.add(r)
-                continue
-
+        # --- 送信成功後の best-effort 記録（失敗しても failed_set に入れない）---
+        # 送信済みレビュアーが記録IO失敗で failed 扱いになり重複通知/誤 BLOCKED を
+        # 招くのを防ぐため、bookkeeping は per-reviewer try の外に置く（#390）。
         # 送信成功直後のスナップショット（Issue #343）
         from engine.agent_meta import snapshot
         from pipeline_io import update_pipeline, get_path
         try:
             update_pipeline(get_path(project), lambda data, _r=r: snapshot(data, _r))
-        except FileNotFoundError:
-            pass
+        except Exception as e:
+            logger.error(
+                "notify_reviewers: snapshot failed for %s (post-send, ignored): %s: %s",
+                r, type(e).__name__, e,
+            )
 
         # メトリクス記録（Issue #81）
         from pipeline_io import append_metric
-        phase_key = "code" if "CODE" in state else "design"
-        review_key = "code_reviews" if "CODE" in state else "design_reviews"
-        for i in batch:
-            existing = i.get(review_key, {}).get(r, {})
-            # NPASS: pass < target_pass なら APPROVE 済みでもメトリクス記録（次パスの通知対象）
-            if existing.get("verdict", "").upper() == "APPROVE":
-                if existing.get("pass", 1) >= existing.get("target_pass", 1):
-                    continue
-            append_metric("review_request", pj=project, issue=i["issue"],
-                          phase=phase_key, reviewer=r)
+        try:
+            phase_key = "code" if "CODE" in state else "design"
+            review_key = "code_reviews" if "CODE" in state else "design_reviews"
+            for i in batch:
+                existing = i.get(review_key, {}).get(r, {})
+                # NPASS: pass < target_pass なら APPROVE 済みでもメトリクス記録（次パスの通知対象）
+                if existing.get("verdict", "").upper() == "APPROVE":
+                    if existing.get("pass", 1) >= existing.get("target_pass", 1):
+                        continue
+                append_metric("review_request", pj=project, issue=i["issue"],
+                              phase=phase_key, reviewer=r)
+        except Exception as e:
+            logger.error(
+                "notify_reviewers: metric record failed for %s (post-send, ignored): %s: %s",
+                r, type(e).__name__, e,
+            )
 
     # 全員失敗時のみ BLOCKED
     effective_set = {r for r in reviewers if r not in excluded and r in AGENTS}

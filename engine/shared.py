@@ -1,12 +1,43 @@
 """engine/shared.py - watchdog/gokrax共通ユーティリティ"""
 
 import json
+import re
 import subprocess
 from datetime import datetime
 from pathlib import Path
 
 import config
 from config import LOCAL_TZ, OPENCLAW_SESSIONS_BASE, INACTIVE_THRESHOLD_SEC
+
+
+_CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def _visualize_control_char(m: "re.Match[str]") -> str:
+    code = ord(m.group(0))
+    # U+2400..U+241F は C0 制御文字(0x00..0x1F)の Control Pictures。
+    # DEL(0x7F) は U+2421 (␡)。
+    return "␡" if code == 0x7f else chr(0x2400 + code)
+
+
+def sanitize_agent_message(message: str) -> str:
+    """エージェント宛 message 中の生 C0/DEL 制御文字（TAB/LF/CR を除く）を
+    可視化 Unicode（Control Pictures）へ置換する。
+
+    2つの目的を1関数で担う:
+    - argv 直載せ backend（agy/gemini/kimi）の安全化: message を argv(-p)へ
+      直接載せる backend で生 NUL による `ValueError: embedded null byte` を防ぐ。
+    - 全 backend にわたるレビュアー向け可視化: レビュアーが読む用途なので、
+      黙って削除せず可視化して「元コードに制御文字が混入している」事実を残す
+      （#387 と同方針）。pi/cc/cci/openclaw は生 NUL を安全に扱えるが、これらの
+      受信側はいずれも LLM プロンプトであり NUL/制御文字に意味依存しないため、
+      可視化しても互換性の問題はない（むしろ可読性が上がる）。
+
+    冪等: 置換先(U+2400..U+2421)は正規表現クラスの範囲外なので二重適用しても不変。
+    前提: message は str。bytes を渡すと re.sub(str パターン)が TypeError になる
+    （現行の型注釈で str が保証されている）。
+    """
+    return _CONTROL_CHAR_RE.sub(_visualize_control_char, message)
 
 
 def log(msg: str) -> None:

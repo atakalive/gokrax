@@ -406,6 +406,70 @@ class TestNotifyReviewers:
         assert "reviewer1" in called_agents
         assert called_agents.count("reviewer1") == 1
 
+    def _setup_modes(self, monkeypatch, members=None):
+        import notify
+        members = members or _TEST_STANDARD_MEMBERS
+        test_modes = {"standard": {"members": members, "min_reviews": len(members)}}
+        test_agents = {r: r for r in members}
+        monkeypatch.setattr(notify, "REVIEW_MODES", test_modes)
+        monkeypatch.setattr(notify, "AGENTS", test_agents)
+        monkeypatch.setattr("config.REVIEW_MODES", test_modes)
+
+    def test_message_is_sanitized_before_send(self, monkeypatch):
+        """format_review_request が NUL を返しても send_to_agent へは可視化済みで渡る（#390）。"""
+        import notify
+        self._setup_modes(monkeypatch, members=["reviewer1"])
+        batch = [self._make_batch_item(1)]
+        with patch("notify.send_to_agent") as mock_send:
+            with patch("notify.format_review_request", return_value="diff\x00here"):
+                notify.notify_reviewers("proj", "DESIGN_REVIEW", batch, "testns/proj",
+                                        review_mode="standard")
+        sent_msg = mock_send.call_args_list[0].args[1]
+        assert "\x00" not in sent_msg
+        assert sent_msg == "diff␀here"
+
+    def test_per_reviewer_build_failure_is_isolated(self, monkeypatch):
+        """1人目の message 構築が例外でも、後続レビュアーには送信され、失敗リストに1人目が入る（#390）。"""
+        import notify
+        self._setup_modes(monkeypatch)
+        batch = [self._make_batch_item(1)]
+        with patch("notify.send_to_agent") as mock_send:
+            with patch("notify.format_review_request",
+                       side_effect=[RuntimeError("boom"), "msg2", "msg3"]):
+                failed = notify.notify_reviewers("proj", "DESIGN_REVIEW", batch,
+                                                 "testns/proj", review_mode="standard")
+        called_agents = [c.args[0] for c in mock_send.call_args_list]
+        assert "reviewer2" in called_agents
+        assert "reviewer3" in called_agents
+        assert "reviewer1" in failed
+
+    def test_post_send_bookkeeping_failure_not_in_failed(self, monkeypatch):
+        """送信成功後の bookkeeping 失敗は failed_set に入れない（#390）。"""
+        import notify
+        import pipeline_io
+        self._setup_modes(monkeypatch, members=["reviewer1"])
+        batch = [self._make_batch_item(1)]
+        with patch("notify.send_to_agent", return_value=True):
+            with patch("notify.format_review_request", return_value="msg"):
+                with patch.object(pipeline_io, "append_metric",
+                                  side_effect=RuntimeError("io fail")):
+                    failed = notify.notify_reviewers("proj", "DESIGN_REVIEW", batch,
+                                                     "testns/proj", review_mode="standard")
+        assert "reviewer1" not in failed
+
+    def test_unauthorized_author_propagates_from_non_first_reviewer(self, monkeypatch):
+        """先頭以外のレビュアーで UnauthorizedAuthorError が出ても握りつぶさず伝播（fail-closed, #390）。"""
+        import notify
+        from engine.filter import UnauthorizedAuthorError
+        self._setup_modes(monkeypatch)
+        batch = [self._make_batch_item(1)]
+        with patch("notify.send_to_agent"):
+            with patch("notify.format_review_request",
+                       side_effect=["msg1", UnauthorizedAuthorError("nope"), "msg3"]):
+                with pytest.raises(UnauthorizedAuthorError):
+                    notify.notify_reviewers("proj", "DESIGN_REVIEW", batch,
+                                            "testns/proj", review_mode="standard")
+
 
 class TestFetchDiscordReplies:
     """fetch_discord_replies のテスト（#18）"""

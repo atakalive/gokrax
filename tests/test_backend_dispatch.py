@@ -181,6 +181,15 @@ class TestBackendSendDispatch:
         assert result is SendResult.OK
         mock_agy.assert_called_once_with("reviewer1", "hello", 30)
 
+    def test_send_sanitizes_control_chars_before_dispatch(self, monkeypatch):
+        """send() が dispatch 前に message の制御文字を可視化すること（#390）。"""
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "openclaw")
+        with patch("engine.backend_openclaw.send", return_value=SendResult.OK) as mock_oc:
+            backend.send("reviewer1", "a\x00b", 30)
+        sent_msg = mock_oc.call_args[0][1]
+        assert "\x00" not in sent_msg
+        assert sent_msg == "a␀b"
+
 
 # ===========================================================================
 # backend.ping dispatch

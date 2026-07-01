@@ -114,6 +114,12 @@ class TestSend:
         assert backend_kimi.send(AGENT, "hi", 30) is SendResult.OK
         assert recorder["popen_calls"] == []
 
+    def test_nul_message_refused_before_popen(self, recorder, monkeypatch):
+        """生 NUL 混入 message は Popen 手前で FAIL（#390 の argv ガード）。"""
+        monkeypatch.setattr(config, "DRY_RUN", False)
+        assert backend_kimi.send(AGENT, "a\x00b", 30) is SendResult.FAIL
+        assert recorder["popen_calls"] == []
+
     def test_pid_persisted(self, recorder):
         backend_kimi.send(AGENT, "hi", 30)
         assert backend_kimi._pid_path(AGENT).read_text() == "4242"

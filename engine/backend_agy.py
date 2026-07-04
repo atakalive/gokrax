@@ -168,22 +168,33 @@ def _agy_last_activity(agent_id: str) -> float | None:
     """Return the most recent mtime among agy activity files, or None.
 
     Considers only files updated by the agent's own working session:
-      - newest ``conversations/*.pb`` mtime (updated on conversation turns)
+      - newest ``conversations/*.db`` mtime (agy 1.0.16 SQLite store) plus
+        legacy ``conversations/*.pb`` (pre-1.0.16 protobuf store). The main
+        ``<id>.db`` mtime advances on real conversation turns.
       - the pid file mtime (most recent spawn time; doubles as the
         launch-grace floor so a freshly spawned process is never reaped
-        before its first ``.pb`` is written)
-      - ``cli.log`` mtime (fallback right after spawn before any ``.pb``)
+        before its first conversation store file is written)
 
-    Files updated by unrelated activity (last_check.timestamp, updater/,
-    cache/, brain/, settings.json) are intentionally excluded.
+    Deliberately does NOT use the ``*.db*`` glob: the SQLite ``-wal`` / ``-shm``
+    WAL sidecars advance on ANY DB access, including agy 1.0.16's background
+    quota/model polling (observed on a hung reviewer: main ``.db`` frozen at
+    the last real turn while ``.db-wal`` / ``.db-shm`` kept advancing for
+    17.5h). Including the sidecars would let a hung session look active — the
+    same masking class this fix removes for ``cli.log``.
+
+    Files updated by unrelated activity are intentionally excluded:
+    last_check.timestamp, updater/, cache/, brain/, settings.json, the WAL
+    sidecars (see above), and ``cli.log`` — the last because agy 1.0.16's
+    background quotaRefreshLoop rewrites it every few minutes (and ``cli.log``
+    is a symlink whose ``stat()`` follows to a fresh ``log/cli-*.log`` target).
     """
     cli_dir = AGENT_PROFILES_DIR / agent_id / ".gemini" / "antigravity-cli"
     candidates: list[Path] = []
     conv_dir = cli_dir / "conversations"
     if conv_dir.is_dir():
+        candidates.extend(conv_dir.glob("*.db"))
         candidates.extend(conv_dir.glob("*.pb"))
     candidates.append(_pid_path(agent_id))
-    candidates.append(cli_dir / "cli.log")
 
     mtimes: list[float] = []
     for path in candidates:
@@ -698,16 +709,22 @@ def send(agent_id: str, message: str, timeout: int) -> SendResult:
                 return SendResult.BUSY          # terminate failed → keep pid (no dual spawn)
             _pid_path(agent_id).unlink(missing_ok=True)
             # has_session preserved → has_prev=True below keeps -c continuation
-            # Warn if no .pb (lost context observability)
+            # Warn if no conversation store remains (lost context observability).
+            # Mirror _agy_last_activity's glob (main "*.db" / legacy "*.pb", NOT
+            # "*.db*"): a lone "-wal"/"-shm" sidecar without the main DB is not a
+            # recoverable store, so it must not suppress this warning.
             conv_dir = (
                 AGENT_PROFILES_DIR / agent_id / ".gemini"
                 / "antigravity-cli" / "conversations"
             )
-            if not (conv_dir.is_dir() and any(conv_dir.glob("*.pb"))):
+            has_store = conv_dir.is_dir() and (
+                any(conv_dir.glob("*.db")) or any(conv_dir.glob("*.pb"))
+            )
+            if not has_store:
                 logger.warning(
-                    "agy send: no .pb found after reap for %s; "
-                    "review context may be lost — nudge refresher commands "
-                    "will provide recovery",
+                    "agy send: no conversation store (.db/.pb) found after reap "
+                    "for %s; review context may be lost — nudge refresher "
+                    "commands will provide recovery",
                     agent_id,
                 )
 

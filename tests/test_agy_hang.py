@@ -58,30 +58,35 @@ class TestLastActivity:
         cli_dir = _cli_dir()
         conv = cli_dir / "conversations"
         conv.mkdir(parents=True)
-        pb = conv / "turn.pb"
-        pb.write_text("x")
+        db = conv / "turn.db"
+        db.write_text("x")
+        # Background-updated files that must be EXCLUDED from activity
+        # detection (WAL sidecars + quotaRefreshLoop cli.log + last_check).
+        (conv / "turn.db-wal").write_text("w")
+        (conv / "turn.db-shm").write_text("s")
         cli_log = cli_dir / "cli.log"
         cli_log.write_text("log")
         pid_file = backend_agy._pid_path(AGENT)
         pid_file.write_text("123")
-
-        # Excluded files updated by unrelated activity — must be ignored.
         (cli_dir / "last_check.timestamp").write_text("x")
 
         now = time.time()
-        _set_mtime(pb, now - 100)
-        _set_mtime(cli_log, now - 200)
+        _set_mtime(db, now - 100)
         _set_mtime(pid_file, now - 300)
-        _set_mtime(cli_dir / "last_check.timestamp", now)  # newest but excluded
+        # All of these are the NEWEST files yet must be ignored:
+        _set_mtime(conv / "turn.db-wal", now)
+        _set_mtime(conv / "turn.db-shm", now)
+        _set_mtime(cli_log, now)
+        _set_mtime(cli_dir / "last_check.timestamp", now)
 
         la = backend_agy._agy_last_activity(AGENT)
         assert la == pytest.approx(now - 100, abs=2)
 
     def test_returns_none_when_no_files(self):
-        # conversations empty/absent, no pid file, no cli.log
+        # conversations empty/absent, no pid file → no candidates
         assert backend_agy._agy_last_activity(AGENT) is None
 
-    def test_pid_file_mtime_used_when_no_pb(self):
+    def test_pid_file_mtime_used_when_no_db(self):
         pid_file = backend_agy._pid_path(AGENT)
         pid_file.write_text("123")
         now = time.time()
@@ -132,11 +137,56 @@ class TestIsInactive:
 
     def test_launch_grace_pid_mtime_floor(self, monkeypatch):
         """Fresh pid file mtime keeps a just-spawned process active even with
-        no .pb yet."""
+        no conversation store yet."""
         monkeypatch.setattr(backend_agy, "_is_agy_pid_alive", lambda p: True)
         (_cli_dir() / "conversations").mkdir(parents=True)  # empty
         backend_agy._pid_path(AGENT).write_text("111")  # fresh
         assert backend_agy.is_inactive(AGENT) is False
+
+    def test_stale_db_not_masked_by_fresh_cli_log(self, monkeypatch):
+        """#391: agy 1.0.16's quotaRefreshLoop keeps cli.log fresh; it must NOT
+        mask a stale conversation .db. is_inactive must still report the hang."""
+        monkeypatch.setattr(backend_agy, "_is_agy_pid_alive", lambda p: True)
+        cli_dir = _cli_dir()
+        conv = cli_dir / "conversations"
+        conv.mkdir(parents=True)
+        (conv / "x.db").write_text("x")
+        cli_log = cli_dir / "cli.log"
+        cli_log.write_text("log")
+        pid_file = backend_agy._pid_path(AGENT)
+        pid_file.write_text("111")
+
+        now = time.time()
+        stale = now - backend_agy.INACTIVE_THRESHOLD_SEC - 100  # well past threshold
+        _set_mtime(conv / "x.db", stale)
+        _set_mtime(pid_file, stale)   # pid mtime is ALSO a candidate → must be
+                                      # stale too, else it masks the stale .db
+        _set_mtime(cli_log, now)      # fresh — must be ignored
+
+        assert backend_agy.is_inactive(AGENT) is True
+
+    def test_stale_db_not_masked_by_fresh_wal_sidecar(self, monkeypatch):
+        """#391 P1: agy 1.0.16's background loop touches the WAL sidecar
+        (.db-wal/.db-shm) without a real turn. A fresh sidecar must NOT mask a
+        stale main .db — is_inactive must still report the hang."""
+        monkeypatch.setattr(backend_agy, "_is_agy_pid_alive", lambda p: True)
+        cli_dir = _cli_dir()
+        conv = cli_dir / "conversations"
+        conv.mkdir(parents=True)
+        (conv / "x.db").write_text("main")
+        (conv / "x.db-wal").write_text("wal")
+        (conv / "x.db-shm").write_text("shm")
+        pid_file = backend_agy._pid_path(AGENT)
+        pid_file.write_text("111")
+
+        now = time.time()
+        stale = now - backend_agy.INACTIVE_THRESHOLD_SEC - 100
+        _set_mtime(conv / "x.db", stale)      # last real turn long ago
+        _set_mtime(pid_file, stale)           # spawn long ago
+        _set_mtime(conv / "x.db-wal", now)    # background poll — must be ignored
+        _set_mtime(conv / "x.db-shm", now)    # background poll — must be ignored
+
+        assert backend_agy.is_inactive(AGENT) is True
 
 
 # ===========================================================================
@@ -237,16 +287,19 @@ class TestSendReap:
         assert backend_agy._session_marker_path(AGENT).exists()
         assert "-c" in send_harness["popen_calls"][0]["cmd"]
 
-    def test_no_pb_after_reap_warns(self, monkeypatch, send_harness, caplog):
+    def test_no_db_after_reap_warns(self, monkeypatch, send_harness, caplog):
         _make_stale_pid(monkeypatch)
-        (_cli_dir() / "conversations").mkdir(parents=True)  # empty, no .pb
+        (_cli_dir() / "conversations").mkdir(parents=True)  # empty, no store
         monkeypatch.setattr(
             backend_agy, "_terminate_pid_tree",
             lambda pid, aid, proc=None: True,
         )
         with caplog.at_level("WARNING"):
             backend_agy.send(AGENT, "hi", 30)
-        assert any("no .pb found after reap" in r.message for r in caplog.records)
+        assert any(
+            "no conversation store (.db/.pb) found after reap" in r.message
+            for r in caplog.records
+        )
 
 
 # ===========================================================================

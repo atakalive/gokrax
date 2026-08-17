@@ -87,7 +87,11 @@ class TestPhaseMembership:
         assert data["batch"][0]["design_reviews"] == {}
 
         captured = capsys.readouterr()
-        assert "not a design phase member" in captured.out
+        assert "not required right now" in captured.out
+        assert "No action required" in captured.out
+        assert "not a design phase member" not in captured.out
+        assert "discarded" not in captured.out
+        assert "design" not in captured.out
 
     def test_phase_omitted_discards_before_membership(self, tmp_pipelines: Path, capsys) -> None:
         """REVIEW 状態 + --phase 省略 → --phase 検証で先に破棄（メンバーシップ未到達）"""
@@ -104,7 +108,11 @@ class TestPhaseMembership:
                 gokrax.cmd_review(args)
 
         captured = capsys.readouterr()
-        assert "--phase not specified" in captured.out
+        assert "not required right now" in captured.out
+        assert "No action required" in captured.out
+        assert "already completed" not in captured.out
+        assert "--phase not specified" not in captured.out
+        assert "discarded" not in captured.out
 
     def test_phase_mismatch_discards_before_membership(self, tmp_pipelines: Path, capsys) -> None:
         """REVIEW 状態 + --phase 不一致 → phase mismatch で先に破棄"""
@@ -121,4 +129,46 @@ class TestPhaseMembership:
                 gokrax.cmd_review(args)
 
         captured = capsys.readouterr()
-        assert "phase mismatch" in captured.out
+        assert "not required right now" in captured.out
+        assert "No action required" in captured.out
+        assert "already completed" not in captured.out
+        assert "phase mismatch" not in captured.out
+        assert "discarded" not in captured.out
+
+    def test_phase_omitted_in_design_review(self, tmp_pipelines: Path, capsys) -> None:
+        """DESIGN_REVIEW + --phase 省略 → 分岐2で破棄。文面B（completed とは言わない）。"""
+        _make_pipeline(tmp_pipelines, state="DESIGN_REVIEW")
+        import gokrax
+        args = argparse.Namespace(
+            project="test-pj", issue=1, reviewer="reviewer2",
+            verdict="APPROVE", summary="LGTM", force=False,
+            round=1, phase=None,
+        )
+        with patch("notify.subprocess.run"):
+            with patch("notify.time.sleep"):
+                gokrax.cmd_review(args)
+        captured = capsys.readouterr()
+        assert "not required right now" in captured.out
+        assert "No action required" in captured.out
+        assert "already completed" not in captured.out
+        assert "--phase not specified" not in captured.out
+        assert "discarded" not in captured.out
+
+    def test_phase_mismatch_code_in_design_review(self, tmp_pipelines: Path, capsys) -> None:
+        """DESIGN_REVIEW + --phase code（未来/誤フェーズ） → 分岐3で破棄。文面B（completed とは言わない）。"""
+        _make_pipeline(tmp_pipelines, state="DESIGN_REVIEW")
+        import gokrax
+        args = argparse.Namespace(
+            project="test-pj", issue=1, reviewer="reviewer2",
+            verdict="APPROVE", summary="LGTM", force=False,
+            round=1, phase="code",
+        )
+        with patch("notify.subprocess.run"):
+            with patch("notify.time.sleep"):
+                gokrax.cmd_review(args)
+        captured = capsys.readouterr()
+        assert "not required right now" in captured.out
+        assert "No action required" in captured.out
+        assert "already completed" not in captured.out
+        assert "phase mismatch" not in captured.out
+        assert "discarded" not in captured.out

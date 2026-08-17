@@ -517,7 +517,7 @@ class TestCmdReviewDisputeAutoResolve:
         assert review.get("verdict") == "APPROVE"
 
     def test_review_in_review_state_existing_review_no_force_without_dispute(
-        self, tmp_pipelines
+        self, tmp_pipelines, capsys
     ):
         """既存レビューあり + dispute なし + force なし → 冪等性チェックで skip"""
         existing_reviews = {
@@ -536,6 +536,11 @@ class TestCmdReviewDisputeAutoResolve:
         # 上書きされず P0 のまま
         review = data["batch"][0]["design_reviews"].get("reviewer1", {})
         assert review.get("verdict") == "P0"
+        captured = capsys.readouterr()
+        assert "is already on record" in captured.out
+        assert "No action required" in captured.out
+        for forbidden in ("already reviewed", "skipping", "discarded", "lost", "silently", "transition", "reset", "DESIGN_REVIEW"):
+            assert forbidden not in captured.out
 
 
 # ---------------------------------------------------------------------------
@@ -1108,7 +1113,7 @@ class TestDisputeNudgeIntegration:
 class TestReviewSilentDiscard:
     """非レビュー状態で review コマンドが静かに破棄されることを検証。"""
 
-    def test_implementation_state_discards_silently(self, tmp_pipelines):
+    def test_implementation_state_discards_silently(self, tmp_pipelines, capsys):
         """IMPLEMENTATION 状態でのレビューは SystemExit にならず破棄される。"""
         _make_pipeline(tmp_pipelines, state="IMPLEMENTATION")
         import gokrax
@@ -1121,11 +1126,21 @@ class TestReviewSilentDiscard:
         data = _read_pipeline(tmp_pipelines / "test-pj.json")
         assert "reviewer3" not in data["batch"][0].get("design_reviews", {})
         assert "reviewer3" not in data["batch"][0].get("code_reviews", {})
+        captured = capsys.readouterr()
+        assert "not required right now" in captured.out
+        assert "No action required" in captured.out
+        for forbidden in ("discarded", "lost", "silently", "transition", "reset", "IMPLEMENTATION", "already completed"):
+            assert forbidden not in captured.out
 
-    def test_idle_state_discards_silently(self, tmp_pipelines):
+    def test_idle_state_discards_silently(self, tmp_pipelines, capsys):
         """IDLE 状態でも同様に破棄される。"""
         _make_pipeline(tmp_pipelines, state="IDLE")
         import gokrax
         with patch("commands.dev._post_gitlab_note") as mock_note:
             gokrax.cmd_review(_review_args(reviewer="reviewer3", verdict="P1", summary="test", force=False))
         mock_note.assert_not_called()
+        captured = capsys.readouterr()
+        assert "not required right now" in captured.out
+        assert "No action required" in captured.out
+        for forbidden in ("discarded", "lost", "silently", "transition", "reset", "IDLE", "already completed"):
+            assert forbidden not in captured.out

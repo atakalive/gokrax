@@ -143,7 +143,7 @@ def cmd_review(args):
             # 非レビュー状態（IMPLEMENTATION 等）で届いたレビューは静かに破棄する。
             # エラーにするとレビュアーが transition --force で状態を巻き戻す事故が起きる (#135, #136)。
             _skipped = True
-            print(f"#{args.issue}: review by {_masked_reviewer(args.reviewer, _pipeline.get('reviewer_number_map'))} silently discarded (state={state})")
+            print(f"#{args.issue}: review by {_masked_reviewer(args.reviewer, _pipeline.get('reviewer_number_map'))} is not required right now. You will be called again when a review is needed. No action required.")
             return
         # phase 検証: REVIEW 状態では --phase 必須。
         # 旧コマンド（--phase なし）の遅延応答、または前フェーズの遅延応答を拒否する。
@@ -155,22 +155,18 @@ def cmd_review(args):
             if _phase_arg is None:
                 # --phase 省略: 旧コマンドの遅延応答と見なし破棄
                 _skipped = True
-                print(f"#{args.issue}: review by {_masked_reviewer(args.reviewer, _pipeline.get('reviewer_number_map'))} silently discarded "
-                      f"(--phase not specified, current phase is {current_phase})")
+                print(f"#{args.issue}: review by {_masked_reviewer(args.reviewer, _pipeline.get('reviewer_number_map'))} is not required right now. You will be called again when a review is needed. No action required.")
                 return
             if _phase_arg != current_phase:
                 _skipped = True
-                print(f"#{args.issue}: review by {_masked_reviewer(args.reviewer, _pipeline.get('reviewer_number_map'))} silently discarded "
-                      f"(phase mismatch: --phase {_phase_arg}, current {current_phase})")
+                print(f"#{args.issue}: review by {_masked_reviewer(args.reviewer, _pipeline.get('reviewer_number_map'))} is not required right now. You will be called again when a review is needed. No action required.")
                 return
             # メンバーシップ検証: フェーズに参加していないレビュアーの応答を破棄する。
             from engine.fsm import get_phase_config as _get_phase_config_mem
             _pc = _get_phase_config_mem(data, current_phase)
             if args.reviewer not in _pc["members"]:
                 _skipped = True
-                print(f"#{args.issue}: review by "
-                      f"{_masked_reviewer(args.reviewer, _pipeline.get('reviewer_number_map'))} "
-                      f"silently discarded (not a {current_phase} phase member)")
+                print(f"#{args.issue}: review by {_masked_reviewer(args.reviewer, _pipeline.get('reviewer_number_map'))} is not required right now. You will be called again when a review is needed. No action required.")
                 return
         # ラウンド番号検証: stale なレビュー（前サイクルの Remind 応答等）を拒否する。
         # DESIGN_REVISE/CODE_REVISE 状態では dispute レビュー（--force 必須）のみ
@@ -219,7 +215,7 @@ def cmd_review(args):
             # NPASS: pass < target_pass なら上書きを許可（次のパスのレビュー）
             npass_overwrite = existing.get("pass", 1) < existing.get("target_pass", 1)
             if not args.force and not npass_overwrite:
-                print(f"#{args.issue}: already reviewed by {_masked_reviewer(args.reviewer, _pipeline.get('reviewer_number_map'))}, skipping")
+                print(f"#{args.issue}: review by {_masked_reviewer(args.reviewer, _pipeline.get('reviewer_number_map'))} is already on record. No action required.")
                 _skipped = True
                 return
             if npass_overwrite:

@@ -68,6 +68,8 @@ def guidance_design(**_kw) -> str:
         "- Is it mathematically precise (verify rigorously)\n"
         "- Is the spec in the Issue body clear and implementable\n"
         "- Are there any contradictions, edge cases, or unexpected pitfalls"
+        "\n\nWorking tree constraints:\n"
+        "- The working tree is shared with the implementer. Do not run git operations that change its state (checkout / switch / stash / restore / reset / clean)\n"
         "\n\nVerdict selection:\n"
         "- If you have any P0/P1/P2 findings, set the verdict to the most severe one\n"
         "- Use APPROVE only when you have zero findings\n"

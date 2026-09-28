@@ -78,6 +78,8 @@ def guidance_code(**_kw) -> str:
         "- Do not assert that files, functions, or variables not in the diff \"do not exist\"\n"
         "- Findings of \"X is not found\" must remain P2 (suggestion) and must not be P0/P1\n"
         "- When raising a P0/P1 finding that depends on code outside the diff, confirm the evidence explicitly exists within the diff"
+        "\n\nWorking tree constraints:\n"
+        "- The working tree is shared with the implementer. Do not run git operations that change its state (checkout / switch / stash / restore / reset / clean)\n"
         "\n\nVerdict selection:\n"
         "- If you have any P0/P1/P2 findings, set the verdict to the most severe one\n"
         "- Use APPROVE only when you have zero findings\n"

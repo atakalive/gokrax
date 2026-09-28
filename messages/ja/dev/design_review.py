@@ -66,6 +66,8 @@ def guidance_design(**_kw) -> str:
         "- 数理的に精確か（厳しく検証せよ）\n"
         "- Issue本文の仕様が明確か、実装可能か\n"
         "- 矛盾やエッジケースがないか、思わぬ落とし穴がないか"
+        "\n\nツリー制約:\n"
+        "- 作業ツリーは実装者と共有している。状態を変える git 操作（checkout / switch / stash / restore / reset / clean）は禁止\n"
         "\n\nverdict の選び方:\n"
         "- P0/P1/P2 いずれかの指摘がある場合、最も重い指摘に合わせた verdict を使え\n"
         "- APPROVE は指摘ゼロの場合のみ使用可\n"

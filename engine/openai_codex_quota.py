@@ -35,7 +35,7 @@ _USAGE_URL = "https://chatgpt.com/backend-api/wham/usage"
 _HTTP_TIMEOUT = 10
 _WEEKLY_KEYS = ("secondary_window", "weekly", "secondary")
 _PRIMARY_KEYS = ("primary_window", "five_hour", "primary")
-# Valid Mode B (backend redirect) targets. Quota-aware backends (gemini/agy/kimi)
+# Valid Mode B (backend redirect) targets. Quota-aware backends (gemini/agy/kimi/codex)
 # are intentionally excluded to prevent transitive loops (e.g. pi→agy→pi).
 # Defined locally (not imported from backend_pi) to avoid circular import,
 # consistent with gemini/agy/kimi quota modules.
@@ -84,32 +84,41 @@ def _load_pi_config() -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def _load_codex_auth() -> tuple[str, str] | None:
-    """Read access_token + account_id with 2-stage fallback.
+def _load_pi_codex_auth() -> tuple[str, str] | None:
+    """Read access_token + account_id from pi auth only.
 
-    1. ~/.pi/agent/auth.json -> openai-codex entry (expires in ms)
-    2. ~/.codex/auth.json -> tokens.{access_token, account_id} (expires_at in sec)
-
+    ``~/.pi/agent/auth.json`` -> openai-codex entry (expires in ms).
     Returns (access_token, account_id) or None on any failure / expired token.
     """
-    # pi auth (preferred)
     try:
         with open(_paths.PI_AUTH_FILE, "r") as f:
             pi_auth = json.load(f)
     except (OSError, json.JSONDecodeError):
-        pi_auth = None
-    if isinstance(pi_auth, dict):
-        entry = pi_auth.get("openai-codex")
-        if isinstance(entry, dict):
-            access = entry.get("access")
-            account_id = entry.get("accountId")
-            expires = entry.get("expires")
-            if isinstance(access, str) and access and isinstance(account_id, str) and account_id:
-                expired = isinstance(expires, (int, float)) and expires / 1000.0 < time.time()
-                if not expired:
-                    return (access, account_id)
+        return None
+    if not isinstance(pi_auth, dict):
+        return None
+    entry = pi_auth.get("openai-codex")
+    if not isinstance(entry, dict):
+        return None
+    access = entry.get("access")
+    account_id = entry.get("accountId")
+    expires = entry.get("expires")
+    if not isinstance(access, str) or not access:
+        return None
+    if not isinstance(account_id, str) or not account_id:
+        return None
+    if isinstance(expires, (int, float)) and expires / 1000.0 < time.time():
+        return None
+    return (access, account_id)
 
-    # codex auth (fallback)
+
+def _load_codex_cli_auth() -> tuple[str, str] | None:
+    """Read access_token + account_id from the Codex CLI auth only.
+
+    ``~/.codex/auth.json`` -> tokens.{access_token, account_id} (expires_at
+    in sec, checked only when present). Never falls back to pi auth.
+    Returns (access_token, account_id) or None on any failure / expired token.
+    """
     try:
         with open(_paths.CODEX_AUTH_FILE, "r") as f:
             codex_auth = json.load(f)
@@ -131,6 +140,20 @@ def _load_codex_auth() -> tuple[str, str] | None:
         if expires_at < time.time():
             return None
     return (access, account_id)
+
+
+def _load_codex_auth() -> tuple[str, str] | None:
+    """Read access_token + account_id with 2-stage fallback.
+
+    1. ~/.pi/agent/auth.json -> openai-codex entry (``_load_pi_codex_auth``)
+    2. ~/.codex/auth.json -> tokens (``_load_codex_cli_auth``)
+
+    Returns (access_token, account_id) or None on any failure / expired token.
+    """
+    creds = _load_pi_codex_auth()
+    if creds is not None:
+        return creds
+    return _load_codex_cli_auth()
 
 
 def _parse_reset(wk: dict) -> datetime | None:
@@ -223,66 +246,76 @@ def _parse_window(wk: object, label: str) -> tuple[float, datetime | None] | Non
 def get_codex_usage() -> CodexUsage:
     """Fetch openai-codex weekly and 5-hour window usage.
 
-    Each window is parsed independently: an unparseable window becomes None
-    (with a WARN) and the other window and the limit flag are still
-    evaluated. Returns ``_FAIL_OPEN`` on any error or when no usable window
-    and no limit flag is present.
+    Credentials come from ``_load_codex_auth`` (pi first, then Codex CLI).
+    Returns ``_FAIL_OPEN`` on any error; see ``_fetch_codex_usage``.
     """
     try:
         creds = _load_codex_auth()
         if creds is None:
             return _FAIL_OPEN
         access, account_id = creds
-        req = urllib.request.Request(
-            _USAGE_URL,
-            headers={
-                "Authorization": f"Bearer {access}",
-                "ChatGPT-Account-Id": account_id,
-                "Accept": "application/json",
-                "Origin": "https://chatgpt.com",
-                "Referer": "https://chatgpt.com/",
-                "User-Agent": "Mozilla/5.0",
-            },
-            method="GET",
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT) as resp:
-                payload = json.loads(resp.read().decode("utf-8"))
-        except Exception as e:
-            log(f"WARN openai_codex_quota: GET {_USAGE_URL} failed: {e!r}")
-            return _FAIL_OPEN
-        if not isinstance(payload, dict):
-            log(f"WARN openai_codex_quota: payload not dict; type={type(payload).__name__}")
-            return _FAIL_OPEN
-        rl = payload.get("rate_limit") or payload.get("rate_limits") or {}
-        if not isinstance(rl, dict):
-            log(f"WARN openai_codex_quota: rate_limit invalid; type={type(rl).__name__}")
-            return _FAIL_OPEN
-        weekly_raw = next((rl[k] for k in _WEEKLY_KEYS if rl.get(k) is not None), None)
-        primary_raw = next((rl[k] for k in _PRIMARY_KEYS if rl.get(k) is not None), None)
-        weekly = _parse_window(weekly_raw, "weekly") if weekly_raw is not None else None
-        primary = _parse_window(primary_raw, "5h") if primary_raw is not None else None
-        limit_reached = rl.get("allowed") is False or rl.get("limit_reached") is True
-
-        if weekly is None and primary is None and not limit_reached:
-            if weekly_raw is None and primary_raw is None:
-                log(
-                    f"WARN openai_codex_quota: no usage window found; "
-                    f"rate_limit_keys={sorted(rl.keys())[:20]}"
-                )
-            return _FAIL_OPEN
-
-        return CodexUsage(
-            ok=True,
-            weekly_used=weekly[0] if weekly is not None else None,
-            weekly_reset=weekly[1] if weekly is not None else None,
-            primary_used=primary[0] if primary is not None else None,
-            primary_reset=primary[1] if primary is not None else None,
-            limit_reached=limit_reached,
-        )
+        return _fetch_codex_usage(access, account_id)
     except Exception as e:
         log(f"WARN openai_codex_quota: get_codex_usage exception: {e!r}")
         return _FAIL_OPEN
+
+
+def _fetch_codex_usage(access: str, account_id: str) -> CodexUsage:
+    """GET /wham/usage with the given credentials and parse both windows.
+
+    Each window is parsed independently: an unparseable window becomes None
+    (with a WARN) and the other window and the limit flag are still
+    evaluated. Returns ``_FAIL_OPEN`` on HTTP failure or when no usable
+    window and no limit flag is present. Other unexpected exceptions
+    propagate; callers wrap this in ``try/except Exception``.
+    """
+    req = urllib.request.Request(
+        _USAGE_URL,
+        headers={
+            "Authorization": f"Bearer {access}",
+            "ChatGPT-Account-Id": account_id,
+            "Accept": "application/json",
+            "Origin": "https://chatgpt.com",
+            "Referer": "https://chatgpt.com/",
+            "User-Agent": "Mozilla/5.0",
+        },
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+    except Exception as e:
+        log(f"WARN openai_codex_quota: GET {_USAGE_URL} failed: {e!r}")
+        return _FAIL_OPEN
+    if not isinstance(payload, dict):
+        log(f"WARN openai_codex_quota: payload not dict; type={type(payload).__name__}")
+        return _FAIL_OPEN
+    rl = payload.get("rate_limit") or payload.get("rate_limits") or {}
+    if not isinstance(rl, dict):
+        log(f"WARN openai_codex_quota: rate_limit invalid; type={type(rl).__name__}")
+        return _FAIL_OPEN
+    weekly_raw = next((rl[k] for k in _WEEKLY_KEYS if rl.get(k) is not None), None)
+    primary_raw = next((rl[k] for k in _PRIMARY_KEYS if rl.get(k) is not None), None)
+    weekly = _parse_window(weekly_raw, "weekly") if weekly_raw is not None else None
+    primary = _parse_window(primary_raw, "5h") if primary_raw is not None else None
+    limit_reached = rl.get("allowed") is False or rl.get("limit_reached") is True
+
+    if weekly is None and primary is None and not limit_reached:
+        if weekly_raw is None and primary_raw is None:
+            log(
+                f"WARN openai_codex_quota: no usage window found; "
+                f"rate_limit_keys={sorted(rl.keys())[:20]}"
+            )
+        return _FAIL_OPEN
+
+    return CodexUsage(
+        ok=True,
+        weekly_used=weekly[0] if weekly is not None else None,
+        weekly_reset=weekly[1] if weekly is not None else None,
+        primary_used=primary[0] if primary is not None else None,
+        primary_reset=primary[1] if primary is not None else None,
+        limit_reached=limit_reached,
+    )
 
 
 def _evaluate(usage: CodexUsage, threshold: int) -> tuple[list[str], list[datetime | None]]:

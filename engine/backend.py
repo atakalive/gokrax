@@ -17,7 +17,8 @@ from engine.shared import log, sanitize_agent_message
 def resolve_backend(agent_id: str, *, ignore_fallback: bool = False) -> str:
     """Resolve backend for the given agent.
 
-    Override > default > quota fallback (cache file read only; gemini/agy/kimi).
+    Override > default > quota fallback (cache file read, no HTTP; gemini/agy/kimi/codex;
+    codex also checks config_codex.json while its cache is active).
     Raises ValueError if the resolved backend is not in SUPPORTED_BACKENDS.
 
     If ``ignore_fallback`` is True, skip all quota fallback checks
@@ -45,6 +46,11 @@ def resolve_backend(agent_id: str, *, ignore_fallback: bool = False) -> str:
         from engine.kimi_quota import resolve_fallback
         fb = resolve_fallback(agent_id)
         if fb in SUPPORTED_BACKENDS and fb != "kimi":
+            return fb
+    if not ignore_fallback and backend == "codex":
+        from engine.codex_cli_quota import resolve_fallback
+        fb = resolve_fallback(agent_id)
+        if fb in SUPPORTED_BACKENDS and fb != "codex":
             return fb
     if not ignore_fallback and backend == "pi":
         from engine.openai_codex_quota import resolve_fallback_backend
@@ -96,6 +102,14 @@ def send(agent_id: str, message: str, timeout: int) -> SendResult:
             from engine.kimi_quota import should_fallback as kimi_should_fallback
             active, fallback_to, _new_period = kimi_should_fallback(agent_id)
             if active and fallback_to in SUPPORTED_BACKENDS and fallback_to != "kimi":
+                backend = fallback_to
+    if backend == "codex":
+        # Guard: only evaluate codex quota fallback when codex IS the agent's
+        # configured backend. Same pattern as the kimi guard above.
+        if resolve_backend(agent_id, ignore_fallback=True) == "codex":
+            from engine.codex_cli_quota import should_fallback as codex_cli_should_fallback
+            active, fallback_to, _new_period = codex_cli_should_fallback(agent_id)
+            if active and fallback_to in SUPPORTED_BACKENDS and fallback_to != "codex":
                 backend = fallback_to
     if backend == "pi":
         # Mode B (backend redirect): only when pi IS the agent's configured
@@ -226,7 +240,7 @@ def reset_session(agent_id: str) -> None:
     """Dispatch reset_session to the selected backend.
 
     Resets both the configured backend and any active quota fallback target
-    (gemini, agy, or kimi). This ensures that when an agent has a fallback
+    (gemini, agy, kimi, or codex). This ensures that when an agent has a fallback
     active, both the primary session and the fallback session are cleared —
     otherwise stale context could resume on either side when the fallback
     expires or a phase begins.
@@ -306,6 +320,18 @@ def reset_session(agent_id: str) -> None:
         fb = resolve_fallback_backend(agent_id)
         if fb in SUPPORTED_BACKENDS and fb != configured:
             if fb == "cc":
+                from engine.backend_cc import reset_session as cc_reset
+                cc_reset(agent_id)
+            # openclaw: no-op (session reset via /new)
+
+    if configured == "codex":
+        from engine.codex_cli_quota import settle_for_reset as codex_cli_settle_for_reset
+        fb = codex_cli_settle_for_reset(agent_id)
+        if fb in SUPPORTED_BACKENDS and fb != configured:
+            if fb == "pi":
+                from engine.backend_pi import reset_session as pi_reset
+                pi_reset(agent_id)
+            elif fb == "cc":
                 from engine.backend_cc import reset_session as cc_reset
                 cc_reset(agent_id)
             # openclaw: no-op (session reset via /new)

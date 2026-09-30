@@ -2498,6 +2498,10 @@ def main():
 
     for warn in validate_kimi_fallback():
         _log(warn)
+    from engine.codex_cli_quota import validate_fallback_config as validate_codex_cli_fallback
+
+    for warn in validate_codex_cli_fallback():
+        _log(warn)
 
     # CCI preflight: verify pexpect + cci_runner importability when cci is enabled
     import config as _cci_cfg

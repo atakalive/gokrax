@@ -31,6 +31,7 @@ graph LR
         QF_GM["Gemini Quota Fallback<br/>(engine/gemini_quota.py)"]
         QF_CDX["OpenAI Codex Quota Fallback<br/>(engine/openai_codex_quota.py)"]
         QF_AGY["agy Quota Fallback<br/>(engine/agy_quota.py)"]
+        QF_CXC["codex CLI Quota Fallback<br/>(engine/codex_cli_quota.py)"]
         CC1["Claude Code CLI<br/>(Impl Lead 1)"]
         CC2["Claude Code CLI<br/>(Impl Lead 2)"]
         BD --> BE_OC
@@ -44,6 +45,7 @@ graph LR
         BE_PI -. weekly >= threshold / 5h exhausted .-> QF_CDX
         BE_GM -. Pro usage >= threshold .-> QF_GM
         BE_AGY -. usage >= threshold .-> QF_AGY
+        BE_CX -. weekly >= threshold / 5h exhausted .-> QF_CXC
         BE_CC --> CC1
         BE_CC --> CC2
     end
@@ -206,7 +208,8 @@ provider/model/think_level resolved at dispatch time. Schema per entry:
 
 Resolved by `engine.agent_meta._resolve()` from the active backend's `_load_config()` plus
 quota fallback caches for `openai-codex` (pi only, `engine/openai_codex_quota.py`),
-Gemini Pro (`engine/gemini_quota.py`), and agy (`engine/agy_quota.py`). Updated:
+Gemini Pro (`engine/gemini_quota.py`), agy (`engine/agy_quota.py`), and codex CLI
+(`engine/codex_cli_quota.py`). Updated:
 
 - On `_reset_reviewers()` paths (watchdog `_save_excluded`, `commands/spec.py do_start`,
   `commands/dev/lifecycle.py` post-reset).

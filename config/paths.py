@@ -38,6 +38,7 @@ __all__ = [
     "PI_AUTH_FILE",
     "CODEX_AUTH_FILE",
     "OPENAI_CODEX_QUOTA_CACHE_DIR",
+    "CODEX_CLI_QUOTA_CACHE_DIR",
 ]
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -112,3 +113,6 @@ GEMINI_QUOTA_CACHE_DIR = Path.home() / ".gokrax" / "quota-cache"
 PI_AUTH_FILE = Path.home() / ".pi" / "agent" / "auth.json"
 CODEX_AUTH_FILE = Path.home() / ".codex" / "auth.json"
 OPENAI_CODEX_QUOTA_CACHE_DIR = Path.home() / ".gokrax" / "quota-cache-codex"
+
+# codex CLI quota cache (codex backend; quota-cache-codex is used by pi)
+CODEX_CLI_QUOTA_CACHE_DIR = Path.home() / ".gokrax" / "quota-cache-codex-cli"

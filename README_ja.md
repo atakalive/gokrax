@@ -265,7 +265,7 @@ PI backend で `openai-codex` を使用するエージェントに対し、ChatG
 
 キー:
 - `fallback`: `true` で quota ベースの fallback を有効化 (openai-codex のみ対応)
-- `fallback_backend`: 任意。省略または `"pi"` で pi に留まり provider/model のみ切替（**Mode A**）。他 backend（`"cc"` / `"openclaw"`）を指定すると、その backend へ送信を丸ごとリダイレクト（**Mode B**）。quota 連動 backend（`gemini`/`agy`/`kimi`）は推移的ループ防止のため拒否される。
+- `fallback_backend`: 任意。省略または `"pi"` で pi に留まり provider/model のみ切替（**Mode A**）。他 backend（`"cc"` / `"openclaw"`）を指定すると、その backend へ送信を丸ごとリダイレクト（**Mode B**）。quota 連動 backend（`gemini`/`agy`/`kimi`/`codex`）は推移的ループ防止のため拒否される。
 - `fallback_provider`: Mode A fallback 時の遷移先 PI provider（Mode B では無視）
 - `fallback_model`: Mode A fallback 時の遷移先モデル（Mode B では無視）
 - `usage_threshold`: weekly 使用率がこの値 (0-100) 以上で切替。デフォルト 95。weekly ウィンドウにのみ適用され、5 時間ウィンドウは常に枯渇時のみ発火する
@@ -335,6 +335,41 @@ quota は Code Assist REST エンドポイント `cloudcode-pa.googleapis.com:fe
 - セッションは `~/.codex/sessions/` に残る。gokrax はこれを削除しない。
 - `codex exec --json` はシェルコマンドの実行中に何も出力しないため、`INACTIVE_THRESHOLD_SEC`（603 秒）を超える単一コマンドは次回 send でハングとみなされ reap される。session id と出力は保持され、次回 send でスレッドを resume する。
 - 復旧手順: ログに `refusing to kill` が出て BUSY が続く場合は、`fuser -v <repo>/.codex-pids/<agent>.out.jsonl` でロックを持っているプロセスを特定して kill する。次の送信から自動で再開する。
+
+#### codex quota fallback (`agents/config_codex.json`)
+
+`codex` backend は、ChatGPT のクォータが逼迫している間、そのエージェントの送信を別の backend に振り直せる。使用率は Codex CLI 自身の認証情報（`~/.codex/auth.json`）で ChatGPT の `/wham/usage` エンドポイントから取得する。gokrax はこのファイルを読むだけで、トークンの更新や書き込みはしない。pi の認証情報（`~/.pi/agent/auth.json`）は使わない。
+
+```json
+{
+  "example_reviewer": {
+    "model": "",
+    "effort": "high",
+    "compile-startup-md": false,
+    "fallback": true,
+    "fallback_backend": "pi",
+    "usage_threshold": 95
+  }
+}
+```
+
+キー:
+- `fallback`: `true` で quota ベースの fallback を有効化
+- `fallback_backend`: `{"pi", "cc", "openclaw"}` のいずれか。quota 連動 backend（`gemini`/`agy`/`kimi`/`codex`）は推移的ループ防止のため拒否される
+- `usage_threshold`: weekly 使用率がこの値以上で切替。0〜100 の整数で指定する（デフォルト 95）。それ以外の値（`0.95` のような小数、`"90"` のような文字列、真偽値、`null`）は 95 として扱い、watchdog 起動時に警告ログを出す。weekly ウィンドウにのみ適用され、5 時間ウィンドウは枯渇時のみ発火する
+
+挙動:
+- 発火条件とキャッシュの `until` は上の openai-codex quota fallback と同じ（[#396](https://gitlab.com/atakalive/gokrax/-/issues/396)）: weekly 使用率 >= `usage_threshold`、または 5 時間ウィンドウの枯渇（100%、または `allowed=false` / `limit_reached=true`）。
+- fallback 発火時は fallback 先のセッションをリセットする（pi/cc。openclaw にはリセットするセッションが無い）。cache 期限切れ後、codex への送信もそのエージェントのセッションリセットも挟まずに再発火した場合は、そのセッションを維持する（再リセットしない。best effort）。codex 自身のセッションは fallback ではリセットしない。
+- キャッシュは、`agents/config_codex.json` が同じ fallback 先を有効にしている間だけ使う。fallback を途中で終わらせるには `fallback` を `false` にする: gokrax がそのエージェントの振り先を次に決めるとき（送信・ping・活動確認・セッションリセットのどれか）にキャッシュを消すので、後で設定を戻しても復活しない。`fallback_backend` を変えた場合もキャッシュを消し、次の送信でクォータを確認し直して、まだ逼迫していれば新しい backend に切り替える。`~/.gokrax/quota-cache-codex-cli/<agent_id>.json` を削除しても終わる。fallback 中に Codex CLI が別アカウントでログインし直したときや、fallback 先が送信できないときは、これらの手順で終わらせる。
+- fallback 中にそのエージェントのセッションをリセットする（フェーズの切り替わりなど）と、fallback 先のセッションもリセットする。期限切れ、または設定と合わなくなった fallback 期間は、リセットのときに閉じる。後で再発火したときは新しい期間になり、fallback 先のセッションもリセットされる。
+- `agents/config_codex.json` が読めない間（書き直しの途中や、JSON として壊れているとき）は、進行中の fallback をそのまま続け、新しい判定も削除もしない。gokrax がファイルを読んで失敗するたび（fallback 中なら、そのエージェントへの送信・ping・活動確認のたび）と、watchdog 起動時に警告ログを出す。
+- `~/.codex/auth.json` が無い・拒否される（期限切れトークンなど）、または quota API に到達できない場合は、エラーにせず codex のまま送る（fail-open）。負キャッシュは持たないので、fallback を有効にした codex エージェントは、fallback 期間外の送信のたびに API を叩く。判定は `/wham/usage` だけで行い、codex 自身が送信を拒否したことは検出しない。
+- fallback 先が pi の場合、振り直した送信にも pi は自分の `config_pi.json` の設定を適用する。pi の openai-codex fallback（Mode A: provider/model の切替）も含まれ、これは pi 自身がクォータを確認する。振り直しがさらに別の backend へ連鎖することはない（pi の Mode B は適用されない）。
+- 同じアカウントでサインインしていれば、codex backend と pi の `openai-codex` provider は同じ ChatGPT クォータを使う。`fallback_backend: "pi"` で、そのエージェントの `config_pi.json` の provider が `openai-codex` の場合、watchdog 起動時に警告ログを出す。この fallback が役に立つのは、pi の Mode A が provider を切り替える場合だけ。
+- codex は他の backend の fallback 先にはならない。
+
+キャッシュ: `~/.gokrax/quota-cache-codex-cli/<agent_id>.json`（pi の `quota-cache-codex` とは別）。キャッシュ有効中は codex のクォータを問い合わせない。watchdog 起動時に `engine/codex_cli_quota.py:validate_fallback_config()` が config を検証して警告ログを出す。実装の詳細は [#398](https://gitlab.com/atakalive/gokrax/-/issues/398) を参照。
 
 ### glab CLI のインストール
 

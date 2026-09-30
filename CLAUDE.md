@@ -38,6 +38,7 @@ engine/backend_codex.py     # codex (OpenAI Codex CLI) backend implementation
 engine/gemini_quota.py      # Gemini Pro quota detection & fallback
 engine/openai_codex_quota.py # OpenAI Codex (ChatGPT) quota detection & fallback (pi backend)
 engine/agy_quota.py         # agy quota detection & fallback (proactive REST)
+engine/codex_cli_quota.py   # codex CLI (ChatGPT) quota detection & fallback (codex backend)
 engine/fallback_cache.py    # Quota fallback cache primitives
 engine/glab.py         # GitLab CLI / API wrapper
 engine/cleanup.py      # Batch state cleanup
@@ -122,7 +123,7 @@ ruff check *.py engine/ config/ commands/ messages/ tests/
 - **Do not call `time.sleep()` directly in test code.** `time.sleep` is globally mocked in conftest. Production code sleep calls accumulate during tests and cause timeouts.
 - To verify sleep behavior, use `patch("time.sleep") as mock_sleep` and assert call count/arguments.
 - **Do not make external calls (Discord, agent send) in tests.** Mocked globally in conftest via `_block_external_calls`. When adding new external call functions, add corresponding mocks to conftest.
-  - **Mock exemption modules:** `test_notify`, `test_config`, `test_short_context`, `test_phase_override`, `test_run_glab`, `test_gemini_quota`, `test_openai_codex_quota`, `test_agy_quota`. These bypass the global mocks because they exercise the internal implementations directly. New quota/notification tests that need real wiring should be added to this exemption list in `tests/conftest.py`.
+  - **Mock exemption modules:** `test_notify`, `test_config`, `test_short_context`, `test_phase_override`, `test_run_glab`, `test_gemini_quota`, `test_openai_codex_quota`, `test_agy_quota`, `test_codex_cli_quota`. These bypass the global mocks because they exercise the internal implementations directly. New quota/notification tests that need real wiring should be added to this exemption list in `tests/conftest.py`.
 - **Patch the binding target after `from ... import`, not the source module.** If `watchdog.py` does `from engine.cc import _start_cc`, then `patch("engine.cc._start_cc")` is ineffective. Use `patch("watchdog._start_cc")` instead. `from X import Y` binds at module load time, so patching the source module does not affect existing bindings.
 - **Do not call `_reset_reviewers` / `_reset_short_context_reviewers` in tests.** Mocked in conftest. For direct testing, configure mocks individually as in `test_short_context.py`.
 - **Tests are hermetic from your `settings.py`.** `tests/conftest.py` sets `GOKRAX_SETTINGS` to the committed `tests/hermetic_settings.py` before `config` is first imported, so the suite never loads your local, `.gitignore`'d `settings.py`. Never write a test that depends on personal settings. To pin a config value for the whole suite, edit `tests/hermetic_settings.py` — the single source of truth for the `TEST_*` constants (`REVIEWERS`, `REVIEW_MODES`, namespace, thresholds, …) that `conftest.py` imports. Do not rely on config defaults or your local settings.

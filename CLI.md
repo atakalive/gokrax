@@ -547,7 +547,7 @@ gokrax routes every agent send through one of eight backends, selected by `DEFAU
 | `gemini` | Gemini CLI (oneshot) | `agents/config_gemini.json`; supports Gemini Pro quota fallback |
 | `kimi` | Kimi CLI (oneshot) | `agents/config_kimi.json` |
 | `agy` | Antigravity CLI (oneshot) | `agents/config_agy.json`; supports proactive REST quota fallback |
-| `codex` | OpenAI Codex CLI (oneshot, `codex exec`) | `agents/config_codex.json`; continues sessions by thread id via `codex exec resume` |
+| `codex` | OpenAI Codex CLI (oneshot, `codex exec`) | `agents/config_codex.json`; continues sessions by thread id via `codex exec resume`; supports ChatGPT quota fallback (see README) |
 
 Example mix:
 

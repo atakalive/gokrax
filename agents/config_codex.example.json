@@ -2,11 +2,17 @@
   "_comment": {
     "model": "Codex model slug passed as -m (e.g. 'gpt-6-astra'). Omit or leave empty to use the Codex CLI default model. Values starting with '-' are rejected with a WARNING.",
     "effort": "Reasoning effort passed as -c model_reasoning_effort=\"<effort>\". Lowercase letters only (e.g. low, medium, high, xhigh). Accepted values depend on the model; values with other characters are rejected with a WARNING and the flag is omitted.",
-    "compile-startup-md": "If true, compile IDENTITY.md + INSTRUCTION.md + MEMORY.md into cwd/AGENTS.md (same file and content as pi/agy; change detection via .codex_hash)"
+    "compile-startup-md": "If true, compile IDENTITY.md + INSTRUCTION.md + MEMORY.md into cwd/AGENTS.md (same file and content as pi/agy; change detection via .codex_hash)",
+    "fallback": "If true, route to fallback_backend when the ChatGPT weekly usage >= usage_threshold or the 5-hour window is exhausted (100% or allowed=false). Same rules as the pi openai-codex fallback; usage is read with ~/.codex/auth.json. Setting it to false ends an active fallback the next time gokrax routes or resets this agent",
+    "fallback_backend": "Backend to fall back to: pi, cc, or openclaw. Quota-aware backends (gemini/agy/kimi/codex) are rejected to prevent transitive fallback chains. A pi agent whose provider is openai-codex draws on the same ChatGPT quota (warned at watchdog startup)",
+    "usage_threshold": "Codex weekly usage percent, an integer in [0-100]. Default 95. Other values (e.g. 0.95, 90.0, \"90\", true) are treated as 95 with a startup warning. Applies to the weekly window only; the 5-hour window triggers only on exhaustion"
   },
   "example_reviewer": {
     "model": "",
     "effort": "high",
-    "compile-startup-md": false
+    "compile-startup-md": false,
+    "fallback": false,
+    "fallback_backend": "",
+    "usage_threshold": 95
   }
 }

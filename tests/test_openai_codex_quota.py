@@ -1310,3 +1310,48 @@ class TestSessionContinuity:
         cache = self._read_cache(tmp_paths)
         assert cache["fallback_backend"] == "cc"
         assert cache["clear_on_revert"] is True
+
+
+# ---------------------------------------------------------------------------
+# Split auth loaders (#398)
+# ---------------------------------------------------------------------------
+
+class TestSplitAuthLoaders:
+    def test_codex_cli_auth_ignores_pi_auth(self, tmp_paths):
+        _write_pi_auth(tmp_paths["pi_auth"])
+        _write_codex_auth(tmp_paths["codex_auth"])
+        assert oq._load_codex_cli_auth() == ("tok_codex", "acct_codex")
+
+    def test_codex_cli_auth_none_when_only_pi(self, tmp_paths):
+        _write_pi_auth(tmp_paths["pi_auth"])
+        assert oq._load_codex_cli_auth() is None
+
+    def test_pi_codex_auth_standalone(self, tmp_paths):
+        _write_pi_auth(tmp_paths["pi_auth"])
+        assert oq._load_pi_codex_auth() == ("tok_pi", "acct_pi")
+
+    def test_pi_codex_auth_none_when_only_codex(self, tmp_paths):
+        _write_codex_auth(tmp_paths["codex_auth"])
+        assert oq._load_pi_codex_auth() is None
+
+    def test_pi_codex_auth_expired(self, tmp_paths):
+        _write_pi_auth(tmp_paths["pi_auth"], expires_ms=int((time.time() - 100) * 1000))
+        assert oq._load_pi_codex_auth() is None
+
+
+class TestFetchCodexUsage:
+    def test_uses_given_credentials(self, tmp_paths):
+        data = {"rate_limit": {"secondary_window": {"used_percent": 42},
+                               "primary_window": {"used_percent": 7}}}
+        with patch("urllib.request.urlopen", return_value=_mk_response(data)) as mock_urlopen:
+            usage = oq._fetch_codex_usage("tok_x", "acct_x")
+        req = mock_urlopen.call_args[0][0]
+        assert req.get_header("Authorization") == "Bearer tok_x"
+        assert req.get_header("Chatgpt-account-id") == "acct_x"
+        assert usage.ok is True
+        assert usage.weekly_used == 42.0
+        assert usage.primary_used == 7.0
+
+    def test_http_error_returns_fail_open(self, tmp_paths):
+        with patch("urllib.request.urlopen", side_effect=Exception("boom")):
+            assert oq._fetch_codex_usage("tok_x", "acct_x") == CodexUsage(ok=False)

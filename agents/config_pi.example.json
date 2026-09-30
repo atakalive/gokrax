@@ -3,7 +3,7 @@
     "provider": "Provider name passed to pi --model (e.g. 'openai-codex', 'github-copilot')",
     "model": "Model name (e.g. 'gpt-5.4')",
     "fallback": "If true, route to fallback target when weekly usage >= usage_threshold or the 5-hour window is exhausted (openai-codex only). Required for both Mode A and Mode B",
-    "fallback_backend": "Optional. Omit or 'pi' = stay in pi, swap provider/model (Mode A; 'pi' is the recommended explicit form to avoid mix-ups). Set to another backend (e.g. 'cc'/'openclaw') = redirect the whole backend (Mode B). Quota-aware backends (gemini/agy/kimi) are rejected to avoid transitive loops",
+    "fallback_backend": "Optional. Omit or 'pi' = stay in pi, swap provider/model (Mode A; 'pi' is the recommended explicit form to avoid mix-ups). Set to another backend (e.g. 'cc'/'openclaw') = redirect the whole backend (Mode B). Quota-aware backends (gemini/agy/kimi/codex) are rejected to avoid transitive loops",
     "fallback_provider": "Target provider when Mode A fallback triggers; ignored if fallback=false or when fallback_backend points to a non-pi backend (Mode B)",
     "fallback_model": "Target model when Mode A fallback triggers; ignored if fallback=false or when fallback_backend points to a non-pi backend (Mode B)",
     "usage_threshold": "Codex weekly usage percent [0-100]. Default 95. Applies to the weekly window only; the 5-hour window triggers only on exhaustion (100% or allowed=false)"

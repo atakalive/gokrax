@@ -268,7 +268,7 @@ To enable, add fallback fields to the agent's profile in `agents/config_pi.json`
 
 Keys:
 - `fallback`: set to `true` to enable quota-based fallback (openai-codex only)
-- `fallback_backend`: optional. Omit or set to `"pi"` to stay in pi and only swap the provider/model (**Mode A**). Set to another backend (`"cc"` or `"openclaw"`) to redirect the whole send to that backend (**Mode B**). Quota-aware backends (`gemini`/`agy`/`kimi`) are rejected to avoid transitive fallback loops.
+- `fallback_backend`: optional. Omit or set to `"pi"` to stay in pi and only swap the provider/model (**Mode A**). Set to another backend (`"cc"` or `"openclaw"`) to redirect the whole send to that backend (**Mode B**). Quota-aware backends (`gemini`/`agy`/`kimi`/`codex`) are rejected to avoid transitive fallback loops.
 - `fallback_provider`: target PI provider when Mode A fallback triggers (ignored in Mode B)
 - `fallback_model`: target model when Mode A fallback triggers (ignored in Mode B)
 - `usage_threshold`: switch when weekly usage reaches this percent (0-100, default 95). Applies to the weekly window only; the 5-hour window triggers only on exhaustion
@@ -338,6 +338,41 @@ Notes:
 - Sessions remain under `~/.codex/sessions/`; gokrax does not delete them.
 - `codex exec --json` writes nothing while a shell command runs, so a single command longer than `INACTIVE_THRESHOLD_SEC` (603 s) is treated as hung and reaped on the next send. The session id and output are kept, and the next send resumes the thread.
 - Recovery: if the log shows `refusing to kill` and sends keep returning BUSY, identify the lock holder with `fuser -v <repo>/.codex-pids/<agent>.out.jsonl` and kill it. The next send resumes automatically.
+
+#### codex quota fallback (`agents/config_codex.json`)
+
+The `codex` backend can route an agent's sends to another backend while its ChatGPT quota is low. Usage is read from ChatGPT's `/wham/usage` endpoint with the Codex CLI's own credentials (`~/.codex/auth.json`). gokrax only reads that file; it never refreshes or writes the token. pi's auth (`~/.pi/agent/auth.json`) is not used.
+
+```json
+{
+  "example_reviewer": {
+    "model": "",
+    "effort": "high",
+    "compile-startup-md": false,
+    "fallback": true,
+    "fallback_backend": "pi",
+    "usage_threshold": 95
+  }
+}
+```
+
+Keys:
+- `fallback`: set to `true` to enable quota-based fallback
+- `fallback_backend`: one of `{"pi", "cc", "openclaw"}`. Quota-aware backends (`gemini`/`agy`/`kimi`/`codex`) are rejected to avoid transitive fallback loops
+- `usage_threshold`: switch when weekly usage reaches this percent. Must be an integer from 0 to 100 (default 95); any other value (a float such as `0.95`, a string such as `"90"`, a boolean, `null`) is treated as 95 and logged as a warning at watchdog startup. Applies to the weekly window only; the 5-hour window triggers only on exhaustion
+
+Behavior:
+- The firing rules and the cache `until` are the same as the openai-codex quota fallback above ([#396](https://gitlab.com/atakalive/gokrax/-/issues/396)): weekly usage >= `usage_threshold`, or the 5-hour window exhausted (100%, or `allowed=false` / `limit_reached=true`).
+- When fallback activates, the fallback backend's session is reset (pi/cc; openclaw has no session to reset). If fallback fires again after the cache expires and neither a send to codex nor a session reset for the agent happened in between, that session is kept instead of being reset again (best effort). The codex session itself is not reset by the fallback.
+- The cache is honored only while `agents/config_codex.json` still enables fallback to the same backend. To end a fallback early, set `fallback` to `false`: the cache is deleted the next time gokrax routes or resets the agent (a send, ping, activity check or session reset), so reverting the config afterwards does not bring it back. Changing `fallback_backend` also deletes it; the next send re-checks the quota and switches to the new backend if the quota is still low. Deleting `~/.gokrax/quota-cache-codex-cli/<agent_id>.json` also ends it. Use one of these if the Codex CLI signs in to another account during a fallback, or if the fallback backend cannot serve.
+- A session reset for the agent (e.g. at a phase change) also resets the fallback backend's session while a fallback is active. An expired or no longer configured fallback period is closed instead, so a later fire starts a new period with a freshly reset fallback session.
+- While `agents/config_codex.json` cannot be read (for example while it is being rewritten, or it is not valid JSON), an active fallback continues and nothing new is decided or deleted. A warning is logged every time gokrax reads the file and fails (while a fallback is active, that is every send, ping and activity check for the agent), and at watchdog startup.
+- If `~/.codex/auth.json` is missing or rejected (e.g. an expired token), or the quota API is unreachable, sends stay on codex without error (fail-open). There is no negative cache, so each send of a fallback-enabled codex agent outside an active fallback period queries the API. The decision uses `/wham/usage` only; a send that codex itself rejects is not detected.
+- When the fallback backend is pi, pi still applies its own `config_pi.json` settings to the redirected send, including pi's openai-codex fallback (Mode A: provider/model swap), which runs its own quota check. The redirect never chains to a further backend (pi's Mode B does not apply to it).
+- The codex backend and pi's `openai-codex` provider share the same ChatGPT quota when they sign in with the same account. With `fallback_backend: "pi"`, watchdog logs a warning at startup if that agent's `config_pi.json` provider is `openai-codex`; such a fallback helps only if pi's Mode A switches the provider.
+- codex is never used as a fallback target by other backends.
+
+Cache: `~/.gokrax/quota-cache-codex-cli/<agent_id>.json` (separate from pi's `quota-cache-codex`). While the cache is active, the codex quota is not queried. At watchdog startup, `engine/codex_cli_quota.py:validate_fallback_config()` logs warnings for invalid configurations. See [#398](https://gitlab.com/atakalive/gokrax/-/issues/398) for implementation details.
 
 ### Installing glab CLI
 

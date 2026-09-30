@@ -41,7 +41,7 @@ def _block_external_calls(request, tmp_path):
     _helpers.LOG_FILE = tmp_log
 
     module = Path(request.node.fspath).stem
-    if module in ("test_notify", "test_config", "test_short_context", "test_phase_override", "test_run_glab", "test_gemini_quota", "test_openai_codex_quota", "test_agy_quota", "test_kimi_quota"):
+    if module in ("test_notify", "test_config", "test_short_context", "test_phase_override", "test_run_glab", "test_gemini_quota", "test_openai_codex_quota", "test_agy_quota", "test_kimi_quota", "test_codex_cli_quota"):
         yield
         config.LOG_FILE = orig_config
         watchdog.LOG_FILE = orig_watchdog
@@ -78,6 +78,10 @@ def _block_external_calls(request, tmp_path):
         patch("engine.kimi_quota.resolve_fallback", return_value=""),
         patch("engine.kimi_quota.should_fallback", return_value=(False, "", False)),
         patch("engine.kimi_quota.get_kimi_quota", return_value=(False, 0.0, None)),
+        patch("engine.codex_cli_quota.resolve_fallback", return_value=""),
+        patch("engine.codex_cli_quota.should_fallback", return_value=(False, "", False)),
+        patch("engine.codex_cli_quota.get_codex_cli_usage", return_value=CodexUsage(ok=False)),
+        patch("engine.codex_cli_quota.settle_for_reset", return_value=""),
         patch("time.sleep"),
     ]
     with contextlib.ExitStack() as stack:

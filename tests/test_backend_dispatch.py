@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import ast
+import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -11,7 +13,9 @@ import pytest
 import config
 import notify
 from engine import backend, backend_agy, backend_cc, backend_cci, backend_kimi, backend_openclaw, backend_pi, reviewer as _reviewer_mod
+from engine import openai_codex_quota as _codex_quota
 from engine.backend_types import SendResult
+from engine.openai_codex_quota import CodexUsage
 
 # Save real function references before conftest's autouse fixtures replace them
 # with mocks. Module-level imports execute before per-test fixtures.
@@ -22,6 +26,7 @@ _real_ping_agent = notify.ping_agent
 _real_backend_send = backend.send
 _real_backend_ping = backend.ping
 _real_backend_soft_reap = backend.soft_reap
+_real_codex_should_fallback = _codex_quota.should_fallback
 
 
 # ---------------------------------------------------------------------------
@@ -910,6 +915,35 @@ class TestPiFallback:
         mock_sf.assert_called_once_with("a1")
         mock_cc.assert_called_once()
         mock_pi.assert_not_called()
+
+    def test_send_mode_b_real_should_fallback_5h_exhaustion_routes_to_cc(self, tmp_path, monkeypatch):
+        profile = {"provider": "openai-codex", "fallback": True, "fallback_backend": "cc"}
+        cfg = tmp_path / "config_pi.json"
+        cfg.write_text(json.dumps({"a1": profile}))
+        monkeypatch.setattr("config.paths.PI_AGENT_CONFIG", cfg)
+        monkeypatch.setattr("config.paths.OPENAI_CODEX_QUOTA_CACHE_DIR", tmp_path / "quota-cache-codex")
+        usage = CodexUsage(
+            ok=True,
+            weekly_used=68.0,
+            primary_used=100.0,
+            primary_reset=datetime.now(timezone.utc) + timedelta(hours=2),
+            limit_reached=True,
+        )
+        with patch("engine.openai_codex_quota.resolve_fallback_backend", return_value=""), \
+             patch("engine.backend_pi._load_config", return_value={"a1": profile}), \
+             patch("engine.openai_codex_quota.should_fallback", _real_codex_should_fallback), \
+             patch("engine.openai_codex_quota.get_codex_usage", return_value=usage), \
+             patch("engine.backend_cc.reset_session") as mock_cc_reset, \
+             patch("engine.backend_cc.send", return_value=SendResult.OK) as mock_cc, \
+             patch("engine.backend_pi.send") as mock_pi:
+            result = backend.send("a1", "msg", 30)
+        assert result is SendResult.OK
+        mock_cc.assert_called_once()
+        mock_pi.assert_not_called()
+        mock_cc_reset.assert_called_once_with("a1")
+        cache_file = tmp_path / "quota-cache-codex" / "a1.json"
+        assert cache_file.exists()
+        assert json.loads(cache_file.read_text())["fallback_backend"] == "cc"
 
     def test_send_mode_a_delegates_to_pi_without_should_fallback(self, monkeypatch):
         """Mode A (no fallback_backend): backend.py does NOT call should_fallback."""

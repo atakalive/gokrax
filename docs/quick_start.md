@@ -162,7 +162,7 @@ Minimal (no fallback):
 }
 ```
 
-With openai-codex quota fallback (switches to `github-copilot` when weekly usage >= 95%):
+With openai-codex quota fallback (switches to `github-copilot` when weekly usage >= 95% or the 5-hour window is exhausted):
 
 ```json
 {
@@ -186,7 +186,7 @@ With openai-codex quota fallback (switches to `github-copilot` when weekly usage
 }
 ```
 
-`usage_threshold` is the weekly usage percent at which fallback triggers (default 95). The 5-hour window is not checked. Requires `pi /login openai-codex` or an existing `~/.codex/auth.json` for authentication.
+`usage_threshold` is the weekly usage percent at which fallback triggers (default 95). The 5-hour window is not compared against the threshold; it triggers fallback only when exhausted (100% or `allowed=false`). Requires `pi /login openai-codex` or an existing `~/.codex/auth.json` for authentication.
 
 ## 6. Register a Project and Create a Sample Issue
 

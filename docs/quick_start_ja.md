@@ -163,7 +163,7 @@ nano agents/config_pi.json
 }
 ```
 
-openai-codex quota fallback あり (weekly 使用率 >= 95% で `github-copilot` に切替):
+openai-codex quota fallback あり (weekly 使用率 >= 95%、または 5 時間ウィンドウ枯渇で `github-copilot` に切替):
 
 ```json
 {
@@ -187,7 +187,7 @@ openai-codex quota fallback あり (weekly 使用率 >= 95% で `github-copilot`
 }
 ```
 
-`usage_threshold` は fallback が発火する weekly 使用率 (デフォルト 95)。5 時間ウィンドウは参照しない。認証には `pi /login openai-codex` または既存の `~/.codex/auth.json` が必要。
+`usage_threshold` は fallback が発火する weekly 使用率 (デフォルト 95)。5 時間ウィンドウは閾値と比較せず、枯渇時 (100% または `allowed=false`) のみ発火する。認証には `pi /login openai-codex` または既存の `~/.codex/auth.json` が必要。
 
 ## 6. プロジェクト登録とサンプル Issue
 

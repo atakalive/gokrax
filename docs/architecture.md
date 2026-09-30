@@ -39,7 +39,7 @@ graph LR
         BD --> BE_GM
         BD --> BE_KM
         BD --> BE_AGY
-        BE_PI -. quota >= threshold .-> QF_CDX
+        BE_PI -. weekly >= threshold / 5h exhausted .-> QF_CDX
         BE_GM -. Pro usage >= threshold .-> QF_GM
         BE_AGY -. usage >= threshold .-> QF_AGY
         BE_CC --> CC1

@@ -246,7 +246,7 @@ The template is `agents/config_gemini.example.json`.
 
 #### openai-codex quota fallback (`agents/config_pi.json`)
 
-When an agent uses `openai-codex` as its PI provider, gokrax can automatically switch to a different provider (e.g. `github-copilot`) when the weekly ChatGPT quota runs low. This avoids pipeline stalls during quota exhaustion.
+When an agent uses `openai-codex` as its PI provider, gokrax can automatically switch to a different provider (e.g. `github-copilot`) when the weekly ChatGPT quota runs low or the 5-hour window is exhausted. This avoids pipeline stalls during quota exhaustion.
 
 To enable, add fallback fields to the agent's profile in `agents/config_pi.json`:
 
@@ -269,21 +269,21 @@ Keys:
 - `fallback_backend`: optional. Omit or set to `"pi"` to stay in pi and only swap the provider/model (**Mode A**). Set to another backend (`"cc"` or `"openclaw"`) to redirect the whole send to that backend (**Mode B**). Quota-aware backends (`gemini`/`agy`/`kimi`) are rejected to avoid transitive fallback loops.
 - `fallback_provider`: target PI provider when Mode A fallback triggers (ignored in Mode B)
 - `fallback_model`: target model when Mode A fallback triggers (ignored in Mode B)
-- `usage_threshold`: switch when weekly usage reaches this percent (0-100, default 95)
+- `usage_threshold`: switch when weekly usage reaches this percent (0-100, default 95). Applies to the weekly window only; the 5-hour window triggers only on exhaustion
 
 Authentication (one of the following):
 - **Recommended**: run `pi /login openai-codex`. gokrax reads `~/.pi/agent/auth.json` -- no additional setup needed
 - **Alternative**: if `~/.codex/auth.json` exists (from the Codex CLI), it is used as a fallback credential source. `pi /login` is not required in this case
 - Priority: pi auth is checked first; codex auth is tried only when pi auth is absent or expired
-- Only the **weekly** quota window is checked; the 5-hour window is ignored
+- Fallback fires when weekly usage >= `usage_threshold`, **or** when the 5-hour window is exhausted (100%, or the API reports `allowed=false` / `limit_reached=true`). The 5-hour window is never compared against the threshold, so it does not flip back and forth near the threshold. The cache `until` is the latest reset time among the windows that fired; when only the `allowed`/`limit_reached` flag fired, the 5-hour window's reset is used. A reset in the past becomes now + 5 minutes, and a missing reset or one more than 7 days away becomes now + 6 hours
 - If authentication is missing or the quota API is unreachable, the original provider continues without error (fail-open)
 - Only `openai-codex` is supported as the source provider; Anthropic backends are not eligible
 
-When fallback activates, the PI session JSONL is reset for the affected agent to avoid carrying stale context to the fallback provider. When the cache expires and the original provider resumes, the session is not reset (same behavior as Gemini fallback).
+When fallback activates, the PI session JSONL is reset for the affected agent to avoid carrying stale context to the fallback provider. If fallback fires again after the cache expires and the agent has not been switched back to the original provider in between, the session is kept instead of being reset again (best effort: a failed cache cleanup or two processes racing on the same agent can skip one reset). When the cache expires and the original provider resumes, the session is not reset (same behavior as Gemini fallback).
 
 Cache: `~/.gokrax/quota-cache-codex/<agent_id>.json`. While the cache is active, no HTTP calls are made to check quota.
 
-The template is `agents/config_pi.example.json`. See [#336](https://gitlab.com/atakalive/gokrax/-/issues/336) for implementation details.
+The template is `agents/config_pi.example.json`. See [#336](https://gitlab.com/atakalive/gokrax/-/issues/336) for implementation details. The 5-hour exhaustion trigger was added in [#396](https://gitlab.com/atakalive/gokrax/-/issues/396): an exhausted 5-hour window stops the agent completely until reset (up to 5 hours), and a stopped required reviewer stalls the pipeline.
 
 #### agy quota fallback (`agents/config_agy.json`)
 

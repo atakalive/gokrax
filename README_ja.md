@@ -243,7 +243,7 @@ Gemini CLI は `thinking` や `effort` のつまみを提供しないため、�
 
 #### openai-codex quota fallback (`agents/config_pi.json`)
 
-PI backend で `openai-codex` を使用するエージェントに対し、ChatGPT の weekly quota が逼迫した際に別の provider (例: `github-copilot`) へ自動退避する機能。quota 枯渇によるパイプライン停止を防ぐ。
+PI backend で `openai-codex` を使用するエージェントに対し、ChatGPT の weekly quota が逼迫した際、または 5 時間ウィンドウが枯渇した際に別の provider (例: `github-copilot`) へ自動退避する機能。quota 枯渇によるパイプライン停止を防ぐ。
 
 有効化するには `agents/config_pi.json` のエージェントプロファイルに fallback フィールドを追加する:
 
@@ -266,21 +266,21 @@ PI backend で `openai-codex` を使用するエージェントに対し、ChatG
 - `fallback_backend`: 任意。省略または `"pi"` で pi に留まり provider/model のみ切替（**Mode A**）。他 backend（`"cc"` / `"openclaw"`）を指定すると、その backend へ送信を丸ごとリダイレクト（**Mode B**）。quota 連動 backend（`gemini`/`agy`/`kimi`）は推移的ループ防止のため拒否される。
 - `fallback_provider`: Mode A fallback 時の遷移先 PI provider（Mode B では無視）
 - `fallback_model`: Mode A fallback 時の遷移先モデル（Mode B では無視）
-- `usage_threshold`: weekly 使用率がこの値 (0-100) 以上で切替。デフォルト 95
+- `usage_threshold`: weekly 使用率がこの値 (0-100) 以上で切替。デフォルト 95。weekly ウィンドウにのみ適用され、5 時間ウィンドウは常に枯渇時のみ発火する
 
 認証 (いずれか一方):
 - **推奨**: `pi /login openai-codex` を実行。gokrax は `~/.pi/agent/auth.json` を読み、追加セットアップは不要
 - **代替**: `~/.codex/auth.json` (Codex CLI 管理) が存在すれば、それが予備の認証情報として使用される。この場合 `pi /login` は不要
 - 優先順位: pi auth を先に確認し、不在または期限切れの場合のみ codex auth を試行する
-- **weekly** quota のみを参照する。5 時間ウィンドウは無視する
+- weekly 使用率 >= `usage_threshold`、**または** 5 時間ウィンドウの枯渇 (100%、または API が `allowed=false` / `limit_reached=true` を返す) で発火する。5 時間ウィンドウは閾値と比較しないため、閾値付近で切替が往復することはない。キャッシュの `until` は発火したウィンドウの reset 時刻のうち最も遅いもの。`allowed`/`limit_reached` フラグだけで発火した場合は 5 時間ウィンドウの reset を使う。過去の reset は現在 + 5 分、reset 不明または 7 日より先の reset は現在 + 6 時間に丸める
 - 認証情報が未設定、または quota API に到達できない場合は元の provider で続行する (fail-open)
 - 対象は `openai-codex` のみ。Anthropic 系は対象外
 
-fallback 発火時、対象エージェントの PI session JSONL がリセットされ、fallback provider に古い context が持ち越されるのを防ぐ。cache 期限切れで元の provider に戻る際はリセットしない (Gemini fallback と同等の挙動)。
+fallback 発火時、対象エージェントの PI session JSONL がリセットされ、fallback provider に古い context が持ち越されるのを防ぐ。cache 期限切れ後、元の provider への切り戻しを挟まずに再発火した場合は、セッションを維持する (再リセットしない。best effort: キャッシュ削除の失敗や同一エージェントへの並行送信の競合では 1 回分のリセットが省略されうる)。cache 期限切れで元の provider に戻る際はリセットしない (Gemini fallback と同等の挙動)。
 
 キャッシュ: `~/.gokrax/quota-cache-codex/<agent_id>.json`。キャッシュ有効中は quota 確認の HTTP を打たない。
 
-テンプレートは `agents/config_pi.example.json`。実装の詳細は [#336](https://gitlab.com/atakalive/gokrax/-/issues/336) を参照。
+テンプレートは `agents/config_pi.example.json`。実装の詳細は [#336](https://gitlab.com/atakalive/gokrax/-/issues/336) を参照。5 時間ウィンドウ枯渇での発火は [#396](https://gitlab.com/atakalive/gokrax/-/issues/396) で追加した: 5 時間ウィンドウが枯渇すると reset まで (最大 5 時間) 完全に停止し、必須レビュアーが止まるとパイプラインが止まるため。
 
 #### agy quota fallback (`agents/config_agy.json`)
 

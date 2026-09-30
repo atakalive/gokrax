@@ -3,10 +3,14 @@
 Reuses pi (or codex CLI) OAuth credentials to query
 ``https://chatgpt.com/backend-api/wham/usage`` and routes a PI agent's
 ``--model`` argument from openai-codex to a configured fallback
-provider/model when weekly quota is near exhaustion.
+provider/model when the weekly window reaches ``usage_threshold`` or the
+5-hour window is exhausted (100% used, or ``allowed=false`` /
+``limit_reached=true``). The 5-hour window is never compared against the
+threshold, so it does not flip back and forth near the threshold.
 
 Public surface:
-    get_codex_usage() -> tuple[bool, float, datetime | None]
+    CodexUsage (frozen dataclass)
+    get_codex_usage() -> CodexUsage
     should_fallback(agent_id) -> tuple[bool, str, str, bool]
     resolve_fallback_backend(agent_id) -> str
     is_mode_b_backend(fb_backend) -> bool
@@ -20,6 +24,7 @@ import json
 import math
 import time
 import urllib.request
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 import config.paths as _paths
@@ -28,11 +33,34 @@ from engine.shared import log
 
 _USAGE_URL = "https://chatgpt.com/backend-api/wham/usage"
 _HTTP_TIMEOUT = 10
+_WEEKLY_KEYS = ("secondary_window", "weekly", "secondary")
+_PRIMARY_KEYS = ("primary_window", "five_hour", "primary")
 # Valid Mode B (backend redirect) targets. Quota-aware backends (gemini/agy/kimi)
 # are intentionally excluded to prevent transitive loops (e.g. pi→agy→pi).
 # Defined locally (not imported from backend_pi) to avoid circular import,
 # consistent with gemini/agy/kimi quota modules.
 _VALID_FALLBACK_BACKENDS = frozenset({"pi", "cc", "openclaw"})
+
+
+@dataclass(frozen=True)
+class CodexUsage:
+    """Parsed /wham/usage snapshot.
+
+    ``weekly_*`` / ``primary_*`` (5-hour window) are None when the window is
+    absent or unparseable. ``limit_reached`` is True iff the API reports
+    ``allowed is False`` or ``limit_reached is True`` (strict identity).
+    ``ok`` is False only for fail-open (no usable window and no flag).
+    """
+
+    ok: bool
+    weekly_used: float | None = None
+    weekly_reset: datetime | None = None
+    primary_used: float | None = None
+    primary_reset: datetime | None = None
+    limit_reached: bool = False
+
+
+_FAIL_OPEN = CodexUsage(ok=False)
 
 
 def is_mode_b_backend(fb_backend: str) -> bool:
@@ -106,7 +134,7 @@ def _load_codex_auth() -> tuple[str, str] | None:
 
 
 def _parse_reset(wk: dict) -> datetime | None:
-    """Parse weekly reset time from the window dict.
+    """Parse a usage window's reset time from the window dict.
 
     Supports (in order): reset_at as Unix seconds (int/float, new schema),
     reset_after_seconds (int/float, new schema, relative), reset_time_ms
@@ -142,15 +170,68 @@ def _parse_reset(wk: dict) -> datetime | None:
     return None
 
 
-def get_codex_usage() -> tuple[bool, float, datetime | None]:
-    """Fetch openai-codex weekly quota usage.
+def _to_percent(raw: object) -> float | None:
+    """float(raw) clamped to [0, 100]; None for bool, non-numeric or non-finite."""
+    if isinstance(raw, bool):
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if not math.isfinite(value):
+        return None
+    return max(0.0, min(100.0, value))
 
-    Returns (ok, used_percent, reset_dt). Fail-open on any error.
+
+def _parse_window(wk: object, label: str) -> tuple[float, datetime | None] | None:
+    """Parse one usage window into (used_percent, reset_dt).
+
+    ``used_percent`` wins over ``percent_left`` / ``remaining_percent``; the
+    value is clamped to [0, 100]. A positive remaining percent always maps
+    to a used percent strictly below 100.0. Returns None (after a WARN
+    naming ``label``) when the window is not a dict or has no usable percent.
+    """
+    if not isinstance(wk, dict):
+        log(f"WARN openai_codex_quota: {label} window: not a dict; type={type(wk).__name__}")
+        return None
+    used_raw = wk.get("used_percent")
+    if used_raw is not None:
+        used_percent = _to_percent(used_raw)
+        if used_percent is None:
+            log(
+                f"WARN openai_codex_quota: {label} window: unusable used_percent={used_raw!r}; "
+                f"window_keys={sorted(wk.keys())[:20]}"
+            )
+            return None
+    else:
+        left_raw = wk.get("percent_left", wk.get("remaining_percent"))
+        left = _to_percent(left_raw)
+        if left is None:
+            log(
+                f"WARN openai_codex_quota: {label} window: no usable percent; "
+                f"window_keys={sorted(wk.keys())[:20]} percent_left={left_raw!r}"
+            )
+            return None
+        used_percent = 100.0 - left
+        if left > 0.0 and used_percent >= 100.0:
+            # 100.0 - 1e-15 rounds to 100.0 in double precision; some quota
+            # left must never read as exhausted.
+            used_percent = math.nextafter(100.0, 0.0)
+    return (used_percent, _parse_reset(wk))
+
+
+def get_codex_usage() -> CodexUsage:
+    """Fetch openai-codex weekly and 5-hour window usage.
+
+    Each window is parsed independently: an unparseable window becomes None
+    (with a WARN) and the other window and the limit flag are still
+    evaluated. Returns ``_FAIL_OPEN`` on any error or when no usable window
+    and no limit flag is present.
     """
     try:
         creds = _load_codex_auth()
         if creds is None:
-            return (False, 0.0, None)
+            return _FAIL_OPEN
         access, account_id = creds
         req = urllib.request.Request(
             _USAGE_URL,
@@ -169,56 +250,70 @@ def get_codex_usage() -> tuple[bool, float, datetime | None]:
                 payload = json.loads(resp.read().decode("utf-8"))
         except Exception as e:
             log(f"WARN openai_codex_quota: GET {_USAGE_URL} failed: {e!r}")
-            return (False, 0.0, None)
+            return _FAIL_OPEN
         if not isinstance(payload, dict):
             log(f"WARN openai_codex_quota: payload not dict; type={type(payload).__name__}")
-            return (False, 0.0, None)
+            return _FAIL_OPEN
         rl = payload.get("rate_limit") or payload.get("rate_limits") or {}
         if not isinstance(rl, dict):
             log(f"WARN openai_codex_quota: rate_limit invalid; type={type(rl).__name__}")
-            return (False, 0.0, None)
-        wk = rl.get("secondary_window") or rl.get("weekly") or rl.get("secondary") or {}
-        if not isinstance(wk, dict) or not wk:
-            log(
-                f"WARN openai_codex_quota: weekly window key not found; "
-                f"rate_limit_keys={sorted(rl.keys())[:20]}"
-            )
-            return (False, 0.0, None)
+            return _FAIL_OPEN
+        weekly_raw = next((rl[k] for k in _WEEKLY_KEYS if rl.get(k) is not None), None)
+        primary_raw = next((rl[k] for k in _PRIMARY_KEYS if rl.get(k) is not None), None)
+        weekly = _parse_window(weekly_raw, "weekly") if weekly_raw is not None else None
+        primary = _parse_window(primary_raw, "5h") if primary_raw is not None else None
+        limit_reached = rl.get("allowed") is False or rl.get("limit_reached") is True
 
-        used_raw = wk.get("used_percent")
-        if used_raw is not None:
-            try:
-                used_percent = float(used_raw)
-            except (TypeError, ValueError):
+        if weekly is None and primary is None and not limit_reached:
+            if weekly_raw is None and primary_raw is None:
                 log(
-                    f"WARN openai_codex_quota: non-numeric used_percent={used_raw!r}; "
-                    f"window_keys={sorted(wk.keys())[:20]}"
+                    f"WARN openai_codex_quota: no usage window found; "
+                    f"rate_limit_keys={sorted(rl.keys())[:20]}"
                 )
-                return (False, 0.0, None)
-            if not math.isfinite(used_percent):
-                log(f"WARN openai_codex_quota: non-finite used_percent={used_raw!r}")
-                return (False, 0.0, None)
-            used_percent = max(0.0, min(100.0, used_percent))
-        else:
-            left_raw = wk.get("percent_left", wk.get("remaining_percent"))
-            try:
-                left = float(left_raw)
-            except (TypeError, ValueError):
-                log(
-                    f"WARN openai_codex_quota: no usable percent in window; "
-                    f"window_keys={sorted(wk.keys())[:20]} percent_left={left_raw!r}"
-                )
-                return (False, 0.0, None)
-            if not math.isfinite(left):
-                log(f"WARN openai_codex_quota: non-finite percent_left={left_raw!r}")
-                return (False, 0.0, None)
-            left = max(0.0, min(100.0, left))
-            used_percent = 100.0 - left
+            return _FAIL_OPEN
 
-        return (True, used_percent, _parse_reset(wk))
+        return CodexUsage(
+            ok=True,
+            weekly_used=weekly[0] if weekly is not None else None,
+            weekly_reset=weekly[1] if weekly is not None else None,
+            primary_used=primary[0] if primary is not None else None,
+            primary_reset=primary[1] if primary is not None else None,
+            limit_reached=limit_reached,
+        )
     except Exception as e:
         log(f"WARN openai_codex_quota: get_codex_usage exception: {e!r}")
-        return (False, 0.0, None)
+        return _FAIL_OPEN
+
+
+def _evaluate(usage: CodexUsage, threshold: int) -> tuple[list[str], list[datetime | None]]:
+    """Pure fallback decision. Returns (reasons, reset candidates).
+
+    - weekly fires at ``weekly_used >= threshold``.
+    - 5h fires only on exhaustion (``primary_used >= 100.0``); it is never
+      compared against ``threshold``.
+    - the limit flag fires on its own. It is a global value that does not
+      say which window refused, so it adds ``primary_reset`` (None allowed)
+      as a short re-probe period, and only when no window fired, so a None
+      candidate (now+6h after clamping) cannot outvote a real window reset.
+      A re-fire after that period keeps the session (``_is_continuation``).
+
+    Invariant: reasons non-empty => candidates non-empty.
+    """
+    reasons: list[str] = []
+    candidates: list[datetime | None] = []
+    weekly_hit = usage.weekly_used is not None and usage.weekly_used >= threshold
+    primary_hit = usage.primary_used is not None and usage.primary_used >= 100.0
+    if weekly_hit:
+        reasons.append(f"Codex usage {int(round(usage.weekly_used))}% (>={threshold})")
+        candidates.append(usage.weekly_reset)
+    if primary_hit:
+        reasons.append(f"Codex 5h window exhausted ({int(round(usage.primary_used))}%)")
+        candidates.append(usage.primary_reset)
+    if usage.limit_reached:
+        reasons.append("Codex limit reached (allowed/limit_reached flag)")
+        if not (weekly_hit or primary_hit):
+            candidates.append(usage.primary_reset)
+    return reasons, candidates
 
 
 def _cache_path(agent_id: str):
@@ -277,11 +372,62 @@ def _reset_target_backend(agent_id: str, target: str) -> None:
         log(f"WARN openai_codex_quota: reset_session({agent_id}, {target}) failed: {e!r}")
 
 
+def _clear_stale_cache(agent_id: str, existing: dict | None) -> None:
+    """Delete an inactive cache once a no-fallback decision is made.
+
+    Called on every no-fallback decision taken after the cache check, i.e.
+    right before the send goes to the original provider. Guarantee (one
+    direction only): a ``clear_on_revert`` cache still on disk was never seen
+    as inactive by a later no-fallback decision. ``_is_continuation`` reads
+    that as "the original provider has not been used since". Accepted
+    exceptions, each able to skip at most one session reset: the delete
+    fails (logged; the decision stays "no fallback"), or a decision races
+    with a concurrent activation (the cache is re-checked under the
+    per-agent lock and an active one is never deleted, but this send still
+    goes to the original provider).
+    """
+    if existing is None:
+        return
+    try:
+        lock_path = _paths.OPENAI_CODEX_QUOTA_CACHE_DIR / f"{agent_id}.lock"
+        with open(lock_path, "w") as lock_f:
+            fcntl.flock(lock_f.fileno(), fcntl.LOCK_EX)
+            current = fallback_cache.read_cache(_cache_path(agent_id))
+            if current is None or _cache_active(current) or _cache_active_mode_b(current):
+                return
+            _cache_path(agent_id).unlink(missing_ok=True)
+    except Exception as e:
+        log(f"WARN openai_codex_quota: clear stale cache({agent_id}) failed: {e!r}")
+
+
+def _is_continuation(existing: dict | None, target: dict[str, str]) -> bool:
+    """True if ``existing`` is an inactive period of this module for the same target.
+
+    ``clear_on_revert`` marks caches written under the ``_clear_stale_cache``
+    guarantee (caches from older versions lack it and never count). Such a
+    cache still on disk is taken to mean the fallback session is still the
+    live one, so a re-fire does not reset it again (best effort; see the
+    exceptions in ``_clear_stale_cache``).
+    """
+    return (
+        isinstance(existing, dict)
+        and existing.get("active") is True
+        and existing.get("clear_on_revert") is True
+        and all(existing.get(k) == v for k, v in target.items())
+    )
+
+
 def should_fallback(agent_id: str) -> tuple[bool, str, str, bool]:
     """Decide whether to fall back.
 
     Mode A: called from backend_pi.send() — swaps provider/model within pi.
     Mode B: called from engine.backend.send() — redirects to another backend.
+
+    Fires when the weekly window reaches ``usage_threshold`` or the 5-hour
+    window is exhausted (see ``_evaluate``). The cache ``until`` is the
+    latest clamped reset among the windows that fired. A re-fire after the
+    previous period expired, with no no-fallback decision in between, keeps
+    the session instead of resetting it again (``new_period`` is False).
 
     Returns (active, value, model, new_period). ``value`` is the fallback
     provider in Mode A (e.g. "github-copilot") and the fallback backend name
@@ -321,10 +467,13 @@ def should_fallback(agent_id: str) -> tuple[bool, str, str, bool]:
             if _cache_active(existing):
                 return (True, existing["fallback_provider"], existing["fallback_model"], False)
 
-        ok, used_percent, reset_dt = get_codex_usage()
-        if not ok:
+        usage = get_codex_usage()
+        if not usage.ok:
+            _clear_stale_cache(agent_id, existing)
             return (False, "", "", False)
-        if used_percent < threshold:
+        reasons, candidates = _evaluate(usage, threshold)
+        if not reasons:
+            _clear_stale_cache(agent_id, existing)
             return (False, "", "", False)
 
         cache_dir = _paths.OPENAI_CODEX_QUOTA_CACHE_DIR
@@ -334,38 +483,57 @@ def should_fallback(agent_id: str) -> tuple[bool, str, str, bool]:
             fcntl.flock(lock_f.fileno(), fcntl.LOCK_EX)
             existing = fallback_cache.read_cache(_cache_path(agent_id))
 
-            until = fallback_cache.clamp_reset_time(
-                reset_dt, default_hrs=6, max_hrs=168,
+            until = max(
+                fallback_cache.clamp_reset_time(c, default_hrs=6, max_hrs=168)
+                for c in (candidates or [None])
             )
-            pct_disp = int(round(used_percent))
+            reason = "; ".join(reasons)
 
             if mode_b:
                 if _cache_active_mode_b(existing):
                     return (True, existing["fallback_backend"], "", False)
-                # Reset the backend that will take over (the redirect target).
-                _reset_target_backend(agent_id, fb_backend)
+                renewed = _is_continuation(existing, {"fallback_backend": fb_backend})
+                if not renewed:
+                    # Reset the backend that will take over (the redirect target).
+                    _reset_target_backend(agent_id, fb_backend)
                 payload = {
                     "active": True,
                     "fallback_backend": fb_backend,
                     "until": until.isoformat(),
-                    "reason": f"Codex usage {pct_disp}% (>={threshold})",
+                    "reason": reason,
+                    "clear_on_revert": True,
                 }
                 fallback_cache.atomic_write_cache(_cache_path(agent_id), payload)
-                return (True, fb_backend, "", True)
+                verb = "renewed" if renewed else "activated"
+                log(
+                    f"openai_codex_quota: fallback {verb} agent={agent_id} mode=B "
+                    f"reason={reason!r} until={until.isoformat()}"
+                )
+                return (True, fb_backend, "", not renewed)
 
             if _cache_active(existing):
                 return (True, existing["fallback_provider"], existing["fallback_model"], False)
-            # Mode A: reset pi itself (which keeps handling the work).
-            _reset_target_backend(agent_id, "pi")
+            renewed = _is_continuation(
+                existing, {"fallback_provider": fb_provider, "fallback_model": fb_model},
+            )
+            if not renewed:
+                # Mode A: reset pi itself (which keeps handling the work).
+                _reset_target_backend(agent_id, "pi")
             payload = {
                 "active": True,
                 "fallback_provider": fb_provider,
                 "fallback_model": fb_model,
                 "until": until.isoformat(),
-                "reason": f"Codex usage {pct_disp}% (>={threshold})",
+                "reason": reason,
+                "clear_on_revert": True,
             }
             fallback_cache.atomic_write_cache(_cache_path(agent_id), payload)
-            return (True, fb_provider, fb_model, True)
+            verb = "renewed" if renewed else "activated"
+            log(
+                f"openai_codex_quota: fallback {verb} agent={agent_id} mode=A "
+                f"reason={reason!r} until={until.isoformat()}"
+            )
+            return (True, fb_provider, fb_model, not renewed)
     except Exception as e:
         log(f"WARN openai_codex_quota: should_fallback({agent_id}) exception: {e!r}")
         return (False, "", "", False)

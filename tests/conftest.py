@@ -47,6 +47,7 @@ def _block_external_calls(request, tmp_path):
         watchdog.LOG_FILE = orig_watchdog
         _helpers.LOG_FILE = orig_helpers
         return
+    from engine.openai_codex_quota import CodexUsage
     _patches = [
         patch("notify.post_discord", return_value=DiscordPostResult("mock-msg-id")),
         patch("notify.edit_discord_message", return_value="ok"),
@@ -70,7 +71,7 @@ def _block_external_calls(request, tmp_path):
         patch("engine.gemini_quota.get_pro_quota", return_value=(False, 0.0, None)),
         patch("engine.openai_codex_quota.should_fallback", return_value=(False, "", "", False)),
         patch("engine.openai_codex_quota.resolve_fallback_backend", return_value=""),
-        patch("engine.openai_codex_quota.get_codex_usage", return_value=(False, 0.0, None)),
+        patch("engine.openai_codex_quota.get_codex_usage", return_value=CodexUsage(ok=False)),
         patch("engine.agy_quota.resolve_fallback", return_value=""),
         patch("engine.agy_quota.should_fallback", return_value=(False, "", False)),
         patch("engine.agy_quota.get_agy_quota", return_value=(False, 0.0, None)),

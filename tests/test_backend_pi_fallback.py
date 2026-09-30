@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from engine import backend_pi
 from engine.backend_types import SendResult
+from engine.openai_codex_quota import CodexUsage, should_fallback as _real_should_fallback
 
 
 @pytest.fixture(autouse=True)
@@ -27,6 +29,7 @@ def _set_config(monkeypatch, tmp_path, profile):
     cfg_path.write_text(json.dumps({"impl1": profile}))
     monkeypatch.setattr("config.PI_AGENT_CONFIG", cfg_path)
     monkeypatch.setattr("engine.backend_pi.PI_AGENT_CONFIG", cfg_path)
+    monkeypatch.setattr("config.paths.PI_AGENT_CONFIG", cfg_path)
 
 
 def _capture_popen():
@@ -143,3 +146,39 @@ def test_send_does_not_mutate_cached_profile(tmp_path, monkeypatch):
     cached = backend_pi._agent_config_cache["impl1"]
     assert cached["provider"] == "openai-codex"
     assert cached["model"] == "gpt-5.4"
+
+
+def test_send_real_should_fallback_switches_on_5h_exhaustion(tmp_path, monkeypatch):
+    _set_config(monkeypatch, tmp_path, {
+        "provider": "openai-codex",
+        "model": "gpt-5.4",
+        "fallback": True,
+        "fallback_provider": "github-copilot",
+        "fallback_model": "gpt-5.4",
+    })
+    monkeypatch.setattr("config.paths.OPENAI_CODEX_QUOTA_CACHE_DIR", tmp_path / "quota-cache-codex")
+    now = datetime.now(timezone.utc)
+    usage = CodexUsage(
+        ok=True,
+        weekly_used=68.0,
+        weekly_reset=now + timedelta(days=5),
+        primary_used=100.0,
+        primary_reset=now + timedelta(hours=2),
+        limit_reached=True,
+    )
+    factory, _ = _capture_popen()
+    with patch("subprocess.Popen", factory), \
+         patch("engine.openai_codex_quota.should_fallback", _real_should_fallback), \
+         patch("engine.openai_codex_quota.get_codex_usage", return_value=usage), \
+         patch("engine.backend_pi.reset_session") as mock_reset:
+        result = backend_pi.send("impl1", "hi", timeout=10)
+    assert result is SendResult.OK
+    cmd = factory.call_args[0][0]
+    idx = cmd.index("--model")
+    assert cmd[idx + 1] == "github-copilot/gpt-5.4"
+    mock_reset.assert_called_once_with("impl1")
+    cache_file = tmp_path / "quota-cache-codex" / "impl1.json"
+    assert cache_file.exists()
+    assert json.loads(cache_file.read_text())["reason"] == (
+        "Codex 5h window exhausted (100%); Codex limit reached (allowed/limit_reached flag)"
+    )

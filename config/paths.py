@@ -33,6 +33,8 @@ __all__ = [
     "AGY_AGENT_CONFIG",
     "AGY_OAUTH_TOKEN",
     "AGY_QUOTA_CACHE_DIR",
+    "CODEX_PIDS_DIR",
+    "CODEX_AGENT_CONFIG",
     "PI_AUTH_FILE",
     "CODEX_AUTH_FILE",
     "OPENAI_CODEX_QUOTA_CACHE_DIR",
@@ -96,6 +98,10 @@ AGY_PIDS_DIR = _PROJECT_ROOT / ".agy-pids"
 AGY_AGENT_CONFIG = AGENT_PROFILES_DIR / "config_agy.json"
 AGY_OAUTH_TOKEN = Path.home() / ".gemini" / "antigravity-cli" / "antigravity-oauth-token"
 AGY_QUOTA_CACHE_DIR = Path.home() / ".gokrax" / "quota-cache-agy"
+
+# codex (OpenAI Codex CLI) backend pids / per-agent config
+CODEX_PIDS_DIR = _PROJECT_ROOT / ".codex-pids"
+CODEX_AGENT_CONFIG = AGENT_PROFILES_DIR / "config_codex.json"
 
 # gemini OAuth / settings / quota cache
 GEMINI_OAUTH_CREDS = Path.home() / ".gemini" / "oauth_creds.json"

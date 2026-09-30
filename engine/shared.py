@@ -29,7 +29,7 @@ def sanitize_agent_message(message: str) -> str:
       直接載せる backend で生 NUL による `ValueError: embedded null byte` を防ぐ。
     - 全 backend にわたるレビュアー向け可視化: レビュアーが読む用途なので、
       黙って削除せず可視化して「元コードに制御文字が混入している」事実を残す
-      （#387 と同方針）。pi/cc/cci/openclaw は生 NUL を安全に扱えるが、これらの
+      （#387 と同方針）。pi/cc/cci/codex/openclaw は生 NUL を安全に扱えるが、これらの
       受信側はいずれも LLM プロンプトであり NUL/制御文字に意味依存しないため、
       可視化しても互換性の問題はない（むしろ可読性が上がる）。
 

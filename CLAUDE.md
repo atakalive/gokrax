@@ -34,6 +34,7 @@ engine/backend_cci.py  # cci backend (via claude TUI, subscription-billed)
 engine/backend_gemini.py    # Gemini CLI backend implementation
 engine/backend_kimi.py      # Kimi CLI backend implementation
 engine/backend_agy.py       # agy (Antigravity CLI) backend implementation
+engine/backend_codex.py     # codex (OpenAI Codex CLI) backend implementation
 engine/gemini_quota.py      # Gemini Pro quota detection & fallback
 engine/openai_codex_quota.py # OpenAI Codex (ChatGPT) quota detection & fallback (pi backend)
 engine/agy_quota.py         # agy quota detection & fallback (proactive REST)
@@ -76,6 +77,7 @@ agents/                # Agent profiles (IDENTITY/INSTRUCTION/MEMORY)
   config_gemini.json   # gemini backend per-agent configuration
   config_kimi.json     # kimi backend per-agent configuration
   config_agy.json      # agy backend per-agent configuration
+  config_codex.json    # codex backend per-agent configuration
 
 # === Other ===
 reviews/               # Externalized review request files

@@ -219,10 +219,11 @@ def _rebuild_gemini_md(agent_id: str) -> None:
     """Rebuild GEMINI.md from IDENTITY.md + INSTRUCTION.md + MEMORY.md.
 
     IMPORTANT: This function is a near-exact copy of
-    backend_pi.py:_rebuild_agents_md and backend_kimi.py:_rebuild_kimi_md.
-    The three functions MUST stay in sync beyond filename differences. If you
-    modify the logic here, mirror the change to pi and kimi (and vice versa),
-    or extract a shared helper.
+    backend_pi.py:_rebuild_agents_md, backend_kimi.py:_rebuild_kimi_md,
+    backend_agy.py:_rebuild_agy_md, and backend_codex.py:_rebuild_codex_md.
+    The five functions MUST stay in sync beyond filename differences. If you
+    modify the logic here, mirror the change to the other four (and vice
+    versa), or extract a shared helper.
     """
     try:
         config_data = _load_config()

@@ -12,7 +12,7 @@ import pytest
 
 import config
 import notify
-from engine import backend, backend_agy, backend_cc, backend_cci, backend_kimi, backend_openclaw, backend_pi, reviewer as _reviewer_mod
+from engine import backend, backend_agy, backend_cc, backend_cci, backend_codex, backend_kimi, backend_openclaw, backend_pi, reviewer as _reviewer_mod
 from engine import openai_codex_quota as _codex_quota
 from engine.backend_types import SendResult
 from engine.openai_codex_quota import CodexUsage
@@ -186,6 +186,13 @@ class TestBackendSendDispatch:
         assert result is SendResult.OK
         mock_agy.assert_called_once_with("reviewer1", "hello", 30)
 
+    def test_codex_send_dispatches_to_backend_codex(self, monkeypatch):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "codex")
+        with patch("engine.backend_codex.send", return_value=SendResult.OK) as mock_cx:
+            result = backend.send("reviewer1", "hello", 30)
+        assert result is SendResult.OK
+        mock_cx.assert_called_once()
+
     def test_send_sanitizes_control_chars_before_dispatch(self, monkeypatch):
         """send() が dispatch 前に message の制御文字を可視化すること（#390）。"""
         monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "openclaw")
@@ -242,6 +249,13 @@ class TestBackendPingDispatch:
             result = backend.ping("reviewer1", 20)
         assert result is True
         mock_agy.assert_called_once_with("reviewer1", 20)
+
+    def test_codex_ping_dispatches_to_backend_codex(self, monkeypatch):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "codex")
+        with patch("engine.backend_codex.ping", return_value=True) as mock_cx:
+            result = backend.ping("reviewer1", 20)
+        assert result is True
+        mock_cx.assert_called_once()
 
 
 # ===========================================================================
@@ -303,6 +317,15 @@ class TestBackendIsInactiveDispatch:
         assert result is True
         mock_agy.assert_called_once()
         _, kwargs = mock_agy.call_args
+        assert "cc_running" in kwargs
+
+    def test_codex_is_inactive_dispatches_to_backend_codex(self, monkeypatch):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "codex")
+        with patch("engine.backend_codex.is_inactive", return_value=True) as mock_cx:
+            result = backend.is_inactive("reviewer1", {"some": "data"})
+        assert result is True
+        mock_cx.assert_called_once()
+        _, kwargs = mock_cx.call_args
         assert "cc_running" in kwargs
 
     def test_gemini_cc_running_passed(self, monkeypatch):
@@ -476,6 +499,15 @@ class TestReviewerResetDispatch:
         assert mock_reset.call_count > 0
         mock_send.assert_not_called()
 
+    def test_codex_calls_reset_session_not_new(self, monkeypatch):
+        """codex backend calls reset_session, not /new."""
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "codex")
+        with patch("engine.backend.reset_session") as mock_reset, \
+             patch.object(_reviewer_mod, "send_to_agent_queued") as mock_send:
+            _real_reset_reviewers(self._phase_config())
+        assert mock_reset.call_count > 0
+        mock_send.assert_not_called()
+
     def test_agy_reset_returns_empty_excluded(self, monkeypatch):
         monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "agy")
         with patch("engine.backend.reset_session"):
@@ -610,6 +642,26 @@ class TestShortContextResetDispatch:
         actual_targets = sorted(c[0][0] for c in mock_reset.call_args_list)
         assert actual_targets == expected_targets
 
+    def test_codex_calls_reset_session_not_new(self, monkeypatch):
+        """codex backend calls reset_session (no /new, no sleep)."""
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "codex")
+        from engine.reviewer import get_tier
+        phase_config = self._phase_config()
+        expected_targets = sorted(
+            m for m in phase_config["members"]
+            if get_tier(m) == "short-context" and m in config.AGENTS
+        )
+        assert len(expected_targets) > 0, "Test prerequisite failed: empty target set"
+        with patch("engine.backend.reset_session") as mock_reset, \
+             patch.object(_reviewer_mod, "send_to_agent_queued") as mock_send, \
+             patch("time.sleep") as mock_sleep:
+            _real_reset_short_context(phase_config)
+        mock_send.assert_not_called()
+        mock_sleep.assert_not_called()
+        assert mock_reset.call_count == len(expected_targets)
+        actual_targets = sorted(c[0][0] for c in mock_reset.call_args_list)
+        assert actual_targets == expected_targets
+
     def test_cc_calls_reset_session_no_sleep(self, monkeypatch):
         monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "cc")
         from engine.reviewer import get_tier
@@ -683,6 +735,12 @@ class TestResolveBackend:
         monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "openclaw")
         monkeypatch.setattr(config, "AGENT_BACKEND_OVERRIDE", {"reviewer1": "agy"})
         assert backend.resolve_backend("reviewer1") == "agy"
+
+    def test_codex_accepted_as_backend(self, monkeypatch):
+        """resolve_backend accepts 'codex' (in SUPPORTED_BACKENDS)."""
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "openclaw")
+        monkeypatch.setattr(config, "AGENT_BACKEND_OVERRIDE", {"reviewer1": "codex"})
+        assert backend.resolve_backend("reviewer1") == "codex"
 
 
 # ===========================================================================
@@ -1116,6 +1174,12 @@ class TestBackendResetSessionDispatch:
             backend.reset_session("reviewer1")
         mock_agy.assert_called_once_with("reviewer1")
 
+    def test_codex_calls_codex_reset_session(self, monkeypatch):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "codex")
+        with patch("engine.backend_codex.reset_session") as mock_cx:
+            backend.reset_session("reviewer1")
+        mock_cx.assert_called_once()
+
     def test_openclaw_is_noop(self, monkeypatch):
         """openclaw reset_session does not raise."""
         monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "openclaw")
@@ -1160,6 +1224,12 @@ class TestBackendSoftReapDispatch:
         with patch("engine.backend_cci.soft_reap") as mock_cci:
             backend.soft_reap("reviewer1")
         mock_cci.assert_called_once_with("reviewer1")
+
+    def test_codex_calls_codex_soft_reap(self, monkeypatch):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "codex")
+        with patch("engine.backend_codex.soft_reap") as mock_cx:
+            backend.soft_reap("reviewer1")
+        mock_cx.assert_called_once()
 
     def test_pi_is_noop(self, monkeypatch):
         monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "pi")
@@ -1317,6 +1387,32 @@ class TestArchitectureGuard:
         assert "ping" in top_level_funcs, "backend_agy missing public ping()"
         assert "is_inactive" in top_level_funcs, "backend_agy missing public is_inactive()"
         assert "reset_session" in top_level_funcs, "backend_agy missing public reset_session()"
+
+    def test_backend_codex_does_not_import_engine_shared(self):
+        """engine.backend_codex must not import engine.shared to avoid cycles."""
+        source = Path(backend_codex.__file__).read_text()
+        tree = ast.parse(source)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    assert not alias.name.startswith("engine.shared"), \
+                        f"engine.backend_codex imports {alias.name}"
+            elif isinstance(node, ast.ImportFrom):
+                if node.module and node.module.startswith("engine.shared"):
+                    pytest.fail(
+                        f"engine.backend_codex imports from {node.module}"
+                    )
+
+    def test_backend_codex_exposes_public_api(self):
+        """engine/backend_codex.py must expose the full backend public API."""
+        source = Path(backend_codex.__file__).read_text()
+        tree = ast.parse(source)
+        top_level_funcs = set()
+        for node in ast.iter_child_nodes(tree):
+            if isinstance(node, ast.FunctionDef) and not node.name.startswith("_"):
+                top_level_funcs.add(node.name)
+        for name in ("send", "ping", "is_inactive", "soft_reap", "reset_session"):
+            assert name in top_level_funcs, f"backend_codex missing public {name}()"
 
     def test_backend_agy_does_not_import_engine_shared(self):
         """engine.backend_agy must not import engine.shared to avoid cycles."""

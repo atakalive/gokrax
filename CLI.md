@@ -536,7 +536,7 @@ gokrax qedit last myproject 50 standard
 
 ## Agent Backends
 
-gokrax routes every agent send through one of seven backends, selected by `DEFAULT_AGENT_BACKEND` (default fallback when no override matches) and `AGENT_BACKEND_OVERRIDE` (per-agent map) in `settings.py`.
+gokrax routes every agent send through one of eight backends, selected by `DEFAULT_AGENT_BACKEND` (default fallback when no override matches) and `AGENT_BACKEND_OVERRIDE` (per-agent map) in `settings.py`.
 
 | Backend | Source | Notes |
 |---------|--------|-------|
@@ -547,6 +547,7 @@ gokrax routes every agent send through one of seven backends, selected by `DEFAU
 | `gemini` | Gemini CLI (oneshot) | `agents/config_gemini.json`; supports Gemini Pro quota fallback |
 | `kimi` | Kimi CLI (oneshot) | `agents/config_kimi.json` |
 | `agy` | Antigravity CLI (oneshot) | `agents/config_agy.json`; supports proactive REST quota fallback |
+| `codex` | OpenAI Codex CLI (oneshot, `codex exec`) | `agents/config_codex.json`; continues sessions by thread id via `codex exec resume` |
 
 Example mix:
 

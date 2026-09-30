@@ -1,6 +1,6 @@
 # gokrax — Architecture & State Machine Diagrams
 
-> Last updated: 2026-05-29
+> Last updated: 2026-10-01
 
 ## 1. System Architecture (Overall Flow)
 
@@ -27,6 +27,7 @@ graph LR
         BE_GM["gemini Backend<br/>(engine/backend_gemini.py)"]
         BE_KM["kimi Backend<br/>(engine/backend_kimi.py)"]
         BE_AGY["agy Backend<br/>(engine/backend_agy.py)"]
+        BE_CX["codex Backend<br/>(engine/backend_codex.py)"]
         QF_GM["Gemini Quota Fallback<br/>(engine/gemini_quota.py)"]
         QF_CDX["OpenAI Codex Quota Fallback<br/>(engine/openai_codex_quota.py)"]
         QF_AGY["agy Quota Fallback<br/>(engine/agy_quota.py)"]
@@ -39,6 +40,7 @@ graph LR
         BD --> BE_GM
         BD --> BE_KM
         BD --> BE_AGY
+        BD --> BE_CX
         BE_PI -. weekly >= threshold / 5h exhausted .-> QF_CDX
         BE_GM -. Pro usage >= threshold .-> QF_GM
         BE_AGY -. usage >= threshold .-> QF_AGY

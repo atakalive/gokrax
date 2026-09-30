@@ -92,6 +92,31 @@ def test_resolve_agy(monkeypatch):
     assert meta.think_level == ""
 
 
+def test_resolve_codex(monkeypatch):
+    _patch_backend(monkeypatch, "codex")
+    monkeypatch.setattr(
+        "engine.backend_codex._load_config",
+        lambda: {"x1": {"model": "m1", "effort": "high"}},
+    )
+    meta = _resolve("x1")
+    assert meta.backend == "codex"
+    assert meta.provider == "openai-codex"
+    assert meta.model == "m1"
+    assert meta.think_level == "high"
+
+
+def test_resolve_codex_invalid_values(monkeypatch):
+    _patch_backend(monkeypatch, "codex")
+    monkeypatch.setattr(
+        "engine.backend_codex._load_config",
+        lambda: {"x1": {"model": "-x", "effort": "HIGH"}},
+    )
+    meta = _resolve("x1")
+    assert meta.backend == "codex"
+    assert meta.model is None
+    assert meta.think_level == ""
+
+
 def test_resolve_openclaw(monkeypatch):
     _patch_backend(monkeypatch, "openclaw")
     meta = _resolve("oc1")

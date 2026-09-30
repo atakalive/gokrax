@@ -184,10 +184,11 @@ def _rebuild_kimi_md(agent_id: str) -> None:
     """Rebuild KIMI.md from IDENTITY.md + INSTRUCTION.md + MEMORY.md.
 
     IMPORTANT: This function is a near-exact copy of
-    backend_pi.py:_rebuild_agents_md and backend_gemini.py:_rebuild_gemini_md.
-    The three functions MUST stay in sync beyond filename differences. If you
-    modify the logic here, mirror the change to pi and gemini (and vice versa),
-    or extract a shared helper.
+    backend_pi.py:_rebuild_agents_md, backend_gemini.py:_rebuild_gemini_md,
+    backend_agy.py:_rebuild_agy_md, and backend_codex.py:_rebuild_codex_md.
+    The five functions MUST stay in sync beyond filename differences. If you
+    modify the logic here, mirror the change to the other four (and vice
+    versa), or extract a shared helper.
     """
     try:
         config_data = _load_config()
@@ -276,7 +277,7 @@ def send(agent_id: str, message: str, timeout: int) -> SendResult:
     # 変更1(engine.backend.send)により通常ここに生 NUL は来ないが、backend.send を
     # 迂回する将来経路への保険。この backend は message を argv(-p, message)へ直載せ
     # するため、生 NUL があると Popen が ValueError: embedded null byte を送出し notify を
-    # 巻き込む（#390）。pi/cc(stdin)・cci(file)・openclaw(json エスケープ)は生 NUL を
+    # 巻き込む（#390）。pi/cc/codex(stdin)・cci(file)・openclaw(json エスケープ)は生 NUL を
     # 安全に扱うため本ガードは持たない（この非対称は意図的）。
     if "\x00" in message:
         logger.warning(

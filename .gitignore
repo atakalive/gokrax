@@ -33,3 +33,7 @@ agents/config_kimi.json
 .agy-pids/
 agents/config_agy.json
 !agents/config_agy.example.json
+.codex-pids/
+agents/config_codex.json
+!agents/config_codex.example.json
+agents/*/.codex_hash

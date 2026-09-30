@@ -149,6 +149,7 @@ CCI_ALARM_MARGIN_SEC: int = 60       # runner 内 signal.alarm の余裕分（�
 GEMINI_BIN: str = "gemini"
 KIMI_BIN: str = "kimi"
 AGY_BIN: str = "agy"
+CODEX_BIN: str = "codex"
 
 # 非アクティブ判定 (秒) — nudge 専用の閾値。
 # _is_agent_inactive() が「最後の書き込みからこの秒数経過したら進行中作業が止まっていると

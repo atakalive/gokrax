@@ -1,7 +1,7 @@
 """engine/backend.py - backend dispatch layer for agent communication.
 
-Thin router that delegates to the selected backend (openclaw, pi, cc, gemini,
-or kimi). Backend is resolved per-agent: AGENT_BACKEND_OVERRIDE[agent_id]
+Thin router that delegates to the selected backend (openclaw, pi, cc, cci,
+gemini, kimi, agy, or codex). Backend is resolved per-agent: AGENT_BACKEND_OVERRIDE[agent_id]
 takes precedence over DEFAULT_AGENT_BACKEND.  Backend-specific state (e.g.
 pi/cc starting markers) lives in the backend module, not here.
 """
@@ -73,7 +73,7 @@ def send(agent_id: str, message: str, timeout: int) -> SendResult:
     """Dispatch send to the selected backend."""
     # 全送信経路の唯一のチョークポイント。ここで制御文字を可視化しておけば
     # argv 直載せ backend で生 NUL の embedded null byte を踏まない。
-    # pi/cc/cci/openclaw も一律で通るが、いずれも受信側は LLM プロンプトで
+    # pi/cc/cci/codex/openclaw も一律で通るが、いずれも受信側は LLM プロンプトで
     # 生 NUL に意味依存しないため無害（SSOT 一貫性を優先）。
     message = sanitize_agent_message(message)
     backend = resolve_backend(agent_id)
@@ -129,6 +129,9 @@ def send(agent_id: str, message: str, timeout: int) -> SendResult:
     elif backend == "agy":
         from engine.backend_agy import send as agy_send
         return agy_send(agent_id, message, timeout)
+    elif backend == "codex":
+        from engine.backend_codex import send as cx_send
+        return cx_send(agent_id, message, timeout)
     # openclaw: delegate to the openclaw-specific implementation
     from engine.backend_openclaw import send as oc_send
     return oc_send(agent_id, message, timeout)
@@ -155,6 +158,9 @@ def ping(agent_id: str, timeout: int) -> bool:
     elif backend == "agy":
         from engine.backend_agy import ping as agy_ping
         return agy_ping(agent_id, timeout)
+    elif backend == "codex":
+        from engine.backend_codex import ping as cx_ping
+        return cx_ping(agent_id, timeout)
     from engine.backend_openclaw import ping as oc_ping
     return oc_ping(agent_id, timeout)
 
@@ -190,6 +196,9 @@ def is_inactive(agent_id: str, pipeline_data: dict | None = None) -> bool:
     elif backend == "agy":
         from engine.backend_agy import is_inactive as agy_is_inactive
         return agy_is_inactive(agent_id, pipeline_data, cc_running=cc_running)
+    elif backend == "codex":
+        from engine.backend_codex import is_inactive as cx_is_inactive
+        return cx_is_inactive(agent_id, pipeline_data, cc_running=cc_running)
 
     # openclaw: preserve original semantics
     if cc_running:
@@ -208,6 +217,9 @@ def soft_reap(agent_id: str) -> None:
     elif configured == "cci":
         from engine.backend_cci import soft_reap as cci_soft_reap
         cci_soft_reap(agent_id)
+    elif configured == "codex":
+        from engine.backend_codex import soft_reap as cx_soft_reap
+        cx_soft_reap(agent_id)
 
 
 def reset_session(agent_id: str) -> None:
@@ -246,6 +258,9 @@ def reset_session(agent_id: str) -> None:
     elif configured == "agy":
         from engine.backend_agy import reset_session as agy_reset
         agy_reset(agent_id)
+    elif configured == "codex":
+        from engine.backend_codex import reset_session as cx_reset
+        cx_reset(agent_id)
     # openclaw: no-op (session reset is done via /new message)
 
     if configured == "gemini":

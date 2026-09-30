@@ -20,8 +20,8 @@ GOKRAX_CLI = Path.home() / ".local/bin/gokrax"     # must be symbolic link to go
 # pins $HOME to the login user's passwd home so state paths don't drift). Set only
 # when intentionally running under a non-login HOME (e.g. a different UID).
 
-DEFAULT_AGENT_BACKEND = "openclaw"    # one of: "openclaw", "pi", "cc", "cci", "gemini", "kimi", "agy"
-AGENT_BACKEND_OVERRIDE = {}     # per-agent override, e.g. {"impl1": "openclaw", "reviewer1": "cc", "reviewer2": "cci", "reviewer3": "kimi"}
+DEFAULT_AGENT_BACKEND = "openclaw"    # one of: "openclaw", "pi", "cc", "cci", "gemini", "kimi", "agy", "codex"
+AGENT_BACKEND_OVERRIDE = {}     # per-agent override, e.g. {"impl1": "openclaw", "reviewer1": "cc", "reviewer2": "cci", "reviewer3": "kimi", "reviewer4": "codex"}
 
 # openclaw settings (if using openclaw backend)
 OPENCLAW_GATEWAY_PORT = int(os.environ.get("OPENCLAW_GATEWAY_PORT", "18789"))  # openclaw gateway port (localhost)
@@ -126,6 +126,7 @@ REVIEW_MODES = {
 # CC_BIN = "claude"    # Uses PATH by default. Override with absolute path if needed (e.g. "/home/user/.local/bin/claude")
 # CC_AGENT_CONFIG = AGENT_PROFILES_DIR / "config_cc.json"  # cc backend per-agent config
 # CC_START_GRACE_SEC = 30       # seconds to treat a just-spawned cc agent as active
+# CODEX_BIN = "codex"  # Uses PATH by default. Override with absolute path if the watchdog's cron PATH lacks it (e.g. "/home/user/.local/bin/codex")
 # CCI backend settings (if using cci backend)
 # CCI_BIN: str = "claude"                    # claude binary name/path
 # CCI_START_GRACE_SEC: int = 60              # Grace period for TUI boot (default: 60)

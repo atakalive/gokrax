@@ -66,7 +66,7 @@ If critical issues (P0/P1) are raised during review, the pipeline enters a revis
 - **OS**: Linux (including WSL2), macOS
 - **Remote operation**: Possible via Discord regardless of OS
 - **Python**: 3.11 or higher. External dependencies: `requests`, `PyYAML`
-- **Agent framework**: [openclaw](https://github.com/openclaw/openclaw), [pi-coding-agent](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent), [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code), [Gemini CLI](https://github.com/google-gemini/gemini-cli), [Kimi CLI](https://github.com/MoonshotAI/kimi-cli), or [Antigravity CLI](https://antigravity.google) (agy). Used for LLM agent authentication and prompt dispatch for design, revision, and review
+- **Agent framework**: [openclaw](https://github.com/openclaw/openclaw), [pi-coding-agent](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent), [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code), [Gemini CLI](https://github.com/google-gemini/gemini-cli), [Kimi CLI](https://github.com/MoonshotAI/kimi-cli), [Antigravity CLI](https://antigravity.google) (agy), or [Codex CLI](https://github.com/openai/codex) (codex). Used for LLM agent authentication and prompt dispatch for design, revision, and review
 - **GitLab**: Issue tracker and code hosting. Requires git push access to managed projects (SSH key or HTTPS token)
 - **[glab CLI](https://gitlab.com/gitlab-org/cli)**: Used for GitLab operations (Issue retrieval/editing, comment retrieval/posting, Issue closing)
 - **[Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code)**: Called internally as the implementation agent (recommended)
@@ -74,7 +74,7 @@ If critical issues (P0/P1) are raised during review, the pipeline enters a revis
 
 ### LLM Providers
 
-gokrax is not tied to any specific LLM provider — any provider that openclaw, pi, cc, cci, gemini, kimi, or agy can authenticate with is supported:
+gokrax is not tied to any specific LLM provider — any provider that openclaw, pi, cc, cci, gemini, kimi, agy, or codex can authenticate with is supported:
 
 - Anthropic (Claude)
 - Google (Gemini)
@@ -133,8 +133,9 @@ gokrax requires a backend for agent provider authentication and prompt dispatch.
 - Gemini CLI (gemini backend)
 - Kimi CLI (kimi backend)
 - Antigravity CLI (agy backend) — Google Antigravity oneshot CLI (successor of the subscriber gemini-cli)
+- OpenAI Codex CLI (codex backend)
 
-If openclaw is already running in your environment, using it directly is the easiest option. Otherwise, pi is simpler to set up. Claude Code CLI can also be used as a backend for all agent roles, not just implementation. Gemini CLI is a minimal oneshot backend (1 prompt = 1 process) and useful when the Gemini quota is the desired provider. Antigravity CLI (agy) is also a oneshot backend; it reads `AGENTS.md` (plus any `GEMINI.md`) and the model is selected via `~/.gemini/antigravity-cli/settings.json` (`/usage` slash command is not available in `-p` mode).
+If openclaw is already running in your environment, using it directly is the easiest option. Otherwise, pi is simpler to set up. Claude Code CLI can also be used as a backend for all agent roles, not just implementation. Gemini CLI is a minimal oneshot backend (1 prompt = 1 process) and useful when the Gemini quota is the desired provider. Antigravity CLI (agy) is also a oneshot backend; it reads `AGENTS.md` (plus any `GEMINI.md`) and the model is selected via `~/.gemini/antigravity-cli/settings.json` (`/usage` slash command is not available in `-p` mode). Codex CLI (codex) is also a oneshot backend; it reads `AGENTS.md` in its cwd and continues sessions by thread id.
 
 Note that gokrax requires at least 2 agents (an implementer and a reviewer).
 
@@ -181,10 +182,11 @@ agents/
 │   ├── IDENTITY.md       # Name, etc.
 │   ├── INSTRUCTION.md    # Role, rules, review guidelines
 │   ├── MEMORY.md         # Lessons learned, known issues
-│   ├── AGENTS.md         # Auto-generated from IDENTITY + INSTRUCTION + MEMORY (pi and agy)
+│   ├── AGENTS.md         # Auto-generated from IDENTITY + INSTRUCTION + MEMORY (pi, agy and codex)
 │   ├── CLAUDE.md         # Auto-generated (same source) — used by cc backend
 │   ├── GEMINI.md         # Auto-generated (same source) — used by gemini backend
 │   ├── KIMI.md           # Auto-generated (same source) — used by kimi backend
+│   ├── .codex_hash       # Change-detection hash for the codex backend (auto-generated)
 │   └── .agents_hash      # Used to detect content changes (auto-generated)
 ├── reviewer2/
 │   └── ...
@@ -192,11 +194,11 @@ agents/
     └── ...
 ```
 
-The startup file for each backend (`AGENTS.md` for pi and agy, `CLAUDE.md` for cc, `GEMINI.md` for gemini, `KIMI.md` for kimi) is auto-generated from `IDENTITY.md`, `INSTRUCTION.md`, and `MEMORY.md` (only when content changes, and only when the backend's `compile-startup-md: true`). There is no need to edit these generated files directly. agy additionally reads any `GEMINI.md` that happens to live alongside, so on `gemini→agy` migration any stale `GEMINI.md` is preserved as a `.bak` and removed from the agent's cwd before launch.
+The startup file for each backend (`AGENTS.md` for pi, agy and codex, `CLAUDE.md` for cc, `GEMINI.md` for gemini, `KIMI.md` for kimi) is auto-generated from `IDENTITY.md`, `INSTRUCTION.md`, and `MEMORY.md` (only when content changes, and only when the backend's `compile-startup-md: true`). There is no need to edit these generated files directly. agy additionally reads any `GEMINI.md` that happens to live alongside, so on `gemini→agy` migration any stale `GEMINI.md` is preserved as a `.bak` and removed from the agent's cwd before launch.
 
 #### Per-Agent Model Configuration
 
-Configure the provider, model, thinking level, effort, and available tools for each agent in the backend's config file: `agents/config_pi.json` (pi), `agents/config_cc.json` (cc), `agents/config_cci.json` (cci), `agents/config_gemini.json` (gemini), `agents/config_kimi.json` (kimi), or `agents/config_agy.json` (agy). The openclaw backend does not use a gokrax-side per-agent config file — its agent config is managed on the openclaw Gateway side. Each agent looks up its entry by `agent_id` in the config file of the backend resolved for it. Reviewers also need `bash` to report completion to gokrax (`INSTRUCTION.md` instructs them not to write to the repository). No tool specification is needed for implementers (all tools are permitted).
+Configure the provider, model, thinking level, effort, and available tools for each agent in the backend's config file: `agents/config_pi.json` (pi), `agents/config_cc.json` (cc), `agents/config_cci.json` (cci), `agents/config_gemini.json` (gemini), `agents/config_kimi.json` (kimi), `agents/config_agy.json` (agy), or `agents/config_codex.json` (codex). The openclaw backend does not use a gokrax-side per-agent config file — its agent config is managed on the openclaw Gateway side. Each agent looks up its entry by `agent_id` in the config file of the backend resolved for it. Reviewers also need `bash` to report completion to gokrax (`INSTRUCTION.md` instructs them not to write to the repository). No tool specification is needed for implementers (all tools are permitted).
 
 The `effort` field (cc / cci backends) sets the reasoning effort: `low`, `medium`, `high`, `xhigh`, `max`, or `ultracode`. `ultracode` maps to `xhigh` effort plus dynamic-workflow orchestration and requires a capable model (Fable 5 / Opus 4.8 / 4.7) with dynamic workflows enabled; it has a high token cost. See `agents/config_cc.example.json` / `agents/config_cci.example.json` for the full field reference.
 
@@ -309,6 +311,33 @@ Keys:
 Quota is fetched via the Code Assist REST endpoint `cloudcode-pa.googleapis.com:fetchAvailableModels` using agy's own OAuth token. The OAuth token file is read-only (in-memory refresh only — gokrax never writes it back). A negative cache throttles API failures and is invalidated when the OAuth token file's mtime changes. At watchdog startup, `engine/agy_quota.py:validate_fallback_config()` logs warnings for invalid configurations.
 
 Cache directory: `AGY_QUOTA_CACHE_DIR` (see `config/paths.py`). See [#356](https://gitlab.com/atakalive/gokrax/-/issues/356) for implementation details.
+
+#### codex backend config (`agents/config_codex.json`)
+
+The `codex` backend runs the OpenAI Codex CLI (`codex exec`) as a oneshot process. Prerequisites: `npm install -g @openai/codex` and `codex login` (ChatGPT sign-in). Both `codex` and `node` must be on the watchdog's cron `PATH`; otherwise set `CODEX_BIN` in `settings.py` to the absolute path of `codex`.
+
+```json
+{
+  "example_reviewer": {
+    "model": "",
+    "effort": "high",
+    "compile-startup-md": false
+  }
+}
+```
+
+Keys:
+- `model`: Codex model slug passed as `-m` (e.g. `gpt-6-astra`). Omit or leave empty to use the Codex CLI default model. Values starting with `-` are rejected with a WARNING.
+- `effort`: reasoning effort passed as `-c model_reasoning_effort="<effort>"`. Lowercase letters only (e.g. `low`, `medium`, `high`, `xhigh`); accepted values depend on the model. Other values are rejected with a WARNING and the flag is omitted.
+- `compile-startup-md`: if `true`, compile `IDENTITY.md` + `INSTRUCTION.md` + `MEMORY.md` into the cwd's `AGENTS.md` (same file and content as pi/agy; change detection via `.codex_hash`).
+
+Notes:
+- `--skip-git-repo-check` is always passed so codex starts even when the agent's profile dir is not a git repository.
+- `--dangerously-bypass-approvals-and-sandbox` is always passed because `gokrax review` writes to `~/.gokrax` and talks to GitLab/Discord, which the codex sandbox would block.
+- `~/.codex/config.toml` and `~/.codex/AGENTS.md` are shared by all codex agents. Do not enable memories.
+- Sessions remain under `~/.codex/sessions/`; gokrax does not delete them.
+- `codex exec --json` writes nothing while a shell command runs, so a single command longer than `INACTIVE_THRESHOLD_SEC` (603 s) is treated as hung and reaped on the next send. The session id and output are kept, and the next send resumes the thread.
+- Recovery: if the log shows `refusing to kill` and sends keep returning BUSY, identify the lock holder with `fuser -v <repo>/.codex-pids/<agent>.out.jsonl` and kill it. The next send resumes automatically.
 
 ### Installing glab CLI
 
@@ -584,7 +613,7 @@ Key configuration items in `settings.py`:
 
 ### Agent Definitions
 
-Register agent IDs. These agent names are used throughout subsequent configuration and serve as the lookup key in each backend's per-agent config file (`agents/config_{pi,cc,gemini,kimi,agy}.json`). The openclaw backend does not use a gokrax-side per-agent config; its agents are identified by the IDs registered here but their models/auth live in the openclaw Gateway.
+Register agent IDs. These agent names are used throughout subsequent configuration and serve as the lookup key in each backend's per-agent config file (`agents/config_{pi,cc,gemini,kimi,agy,codex}.json`). The openclaw backend does not use a gokrax-side per-agent config; its agents are identified by the IDs registered here but their models/auth live in the openclaw Gateway.
 
 ```python
 # Reviewer names
@@ -618,7 +647,10 @@ DEFAULT_AGENT_BACKEND = "kimi"
 # Run agents with Antigravity CLI backend
 DEFAULT_AGENT_BACKEND = "agy"
 
-# Mix backends per agent (any of openclaw / pi / cc / cci / gemini / kimi / agy)
+# Run agents with OpenAI Codex CLI backend
+DEFAULT_AGENT_BACKEND = "codex"
+
+# Mix backends per agent (any of openclaw / pi / cc / cci / gemini / kimi / agy / codex)
 DEFAULT_AGENT_BACKEND = "pi"
 AGENT_BACKEND_OVERRIDE = {"impl1": "openclaw", "reviewer2": "gemini", "reviewer3": "kimi", "reviewer4": "agy"}
 ```

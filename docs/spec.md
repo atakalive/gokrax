@@ -24,7 +24,7 @@ engine/
   reviewer.py             -- Reviewer management (tier, pending, revise decisions)
   agent_meta.py           -- Reviewer metadata snapshot (provider/model/think_level)
   shared.py               -- Shared utilities (log, is_cc_running, is_ok_reply)
-  backend.py              -- Backend dispatch (openclaw/pi/cc/cci/gemini/kimi/agy routing)
+  backend.py              -- Backend dispatch (openclaw/pi/cc/cci/gemini/kimi/agy/codex routing)
   backend_openclaw.py     -- openclaw backend (via Gateway CLI)
   backend_pi.py           -- pi backend (via pi CLI)
   backend_cc.py           -- cc backend (via claude CLI)
@@ -33,6 +33,7 @@ engine/
   backend_gemini.py       -- gemini backend (via gemini CLI, oneshot)
   backend_kimi.py         -- kimi backend (via kimi CLI)
   backend_agy.py          -- agy backend (via antigravity-cli, oneshot)
+  backend_codex.py        -- codex backend (via OpenAI Codex CLI, oneshot)
   backend_types.py        -- Backend return types (SendResult: OK/BUSY/FAIL)
   gemini_quota.py         -- Gemini Pro quota detection & fallback cache
   openai_codex_quota.py   -- OpenAI Codex (ChatGPT) quota detection & fallback (pi backend)
@@ -57,7 +58,7 @@ messages/             -- Template messages (via render())
 settings.py           -- User settings (config override)
 ```
 
-- **Agent communication**: `engine/backend.py` acts as a router, dispatching to the `openclaw`, `pi`, `cc`, `cci`, `gemini`, `kimi`, or `agy` backend per agent. Controlled by `DEFAULT_AGENT_BACKEND` and `AGENT_BACKEND_OVERRIDE` in `settings.py`.
+- **Agent communication**: `engine/backend.py` acts as a router, dispatching to the `openclaw`, `pi`, `cc`, `cci`, `gemini`, `kimi`, `agy`, or `codex` backend per agent. Controlled by `DEFAULT_AGENT_BACKEND` and `AGENT_BACKEND_OVERRIDE` in `settings.py`.
 - **pipeline JSON**: `~/.gokrax/pipelines/<project>.json`
 - **watchdog**: Polls every 20 seconds via `watchdog-loop.sh` (see Chapter 7)
 - **Discord notification channel**: Configured via `DISCORD_CHANNEL` in `settings.py`
@@ -286,7 +287,7 @@ Review modes are defined in `REVIEW_MODES` in `settings.py`. See `settings.examp
 |----------|-------|-------------|
 | NUDGE_GRACE_SEC | 600 sec | No nudges within this period after a transition |
 | EXTEND_NOTICE_THRESHOLD | 300 sec | When remaining time is below this value, extension instructions are appended to nudges |
-| INACTIVE_THRESHOLD_SEC | 603 sec | Nudge threshold: agent considered inactive if no updates for this many seconds. For agy backend, a live process whose activity files (conversations/*.pb, pid file, cli.log) are stale beyond this threshold is treated as hung and reaped on next send (pid killed + pid file removed, session preserved for `-c` continuation). Terminate failure preserves pid file and returns BUSY to prevent dual-process corruption. Backend-specific inactivity methods: pi uses session-file mtime; cc uses PID+cmdline ownership with mtime fallback; gemini and kimi use PID+cmdline only; agy (after this fix) uses PID liveness + activity-file mtime staleness. **Limitations**: (1) a process that hangs while still writing to cli.log evades stale detection; (2) normal processes exceeding 603s without a conversation turn are false-reaped, but `-c` continuation prevents data loss; (3) if agy hangs before persisting any .pb, the nudge provides refresher commands (glab issue view + gokrax get-comments), phase-specific guidance, review criteria, and anonymity constraints for context recovery, but initial-dispatch-specific dynamic context (structured prior-round summaries) is lost. |
+| INACTIVE_THRESHOLD_SEC | 603 sec | Nudge threshold: agent considered inactive if no updates for this many seconds. For agy backend, a live process whose activity files (conversations/*.pb, pid file, cli.log) are stale beyond this threshold is treated as hung and reaped on next send (pid killed + pid file removed, session preserved for `-c` continuation). Terminate failure preserves pid file and returns BUSY to prevent dual-process corruption. Backend-specific inactivity methods: pi uses session-file mtime; cc uses PID+cmdline ownership with mtime fallback; gemini and kimi use PID+cmdline only; agy (after this fix) uses PID liveness + activity-file mtime staleness. **Limitations**: (1) a process that hangs while still writing to cli.log evades stale detection; (2) normal processes exceeding 603s without a conversation turn are false-reaped, but `-c` continuation prevents data loss; (3) if agy hangs before persisting any .pb, the nudge provides refresher commands (glab issue view + gokrax get-comments), phase-specific guidance, review criteria, and anonymity constraints for context recovery, but initial-dispatch-specific dynamic context (structured prior-round summaries) is lost. codex treats a run as live while its stdout file `.codex-pids/<agent>.out.jsonl` is flock-held by the codex process group (the lock is taken before spawn and inherited through stdout), and uses the same activity-file staleness as agy (mtimes of `.out.jsonl`, `.err.log`, `.pid`). `codex exec --json` writes nothing while a shell command runs, so a single command longer than 603 s is false-reaped on the next send (session id and output are kept and the next send resumes the thread). A stale run is killed only when the pid file's pid, /proc start time and cmdline still match a live `codex exec`; otherwise the send returns BUSY and logs a manual-recovery hint. |
 | INACTIVE_THRESHOLD_PLAN_SEC | 900 sec | Nudge interval for implementer during DESIGN_PLAN |
 | BUSY_ESCALATION_SEC | 1800 sec | Spec mode: counts a 30-min sustained `SendResult.BUSY` as one mechanical failure (consumes one retry counter slot) |
 
@@ -332,8 +333,9 @@ Agent sending goes through `send()` / `ping()` in `engine/backend.py`.
 - **gemini**: `engine/backend_gemini.py` — sends via `gemini` CLI as a oneshot process (1 prompt = 1 process). `send()` launches `gemini` with `subprocess.Popen(cwd=<agent profile dir>)` (the Gemini CLI scopes sessions by cwd). Activity is determined by the pid file plus `/proc/<pid>` existence and cmdline containing `"gemini"`. Session continuation uses `-r latest`; because sessions are per-cwd, each agent requires its own profile dir (`agents/<agent_id>/`) to avoid cross-agent session contamination.
 - **kimi**: `engine/backend_kimi.py` — sends via `kimi` CLI as a oneshot process. Liveness uses pid file + `/proc/<pid>` + cmdline contains `"kimi"`. `send()` invokes with `--afk` and `--add-dir REVIEW_FILE_DIR` so reviewer artifacts are readable.
 - **agy**: `engine/backend_agy.py` — sends via `agy` (antigravity-cli) as a oneshot process. Model is selected via `~/.gemini/antigravity-cli/settings.json`; `HOME` is set per-agent so each agent has its own settings.json without polluting the real HOME. Liveness uses pid file + `/proc/<pid>` + cmdline contains `"agy"`. `agy` reads both `AGENTS.md` and `GEMINI.md`, so we generate `AGENTS.md` and strip any stale `GEMINI.md` before launch. `--print-timeout 24h` is fixed and `AGY_CLI_DISABLE_AUTO_UPDATE=1` is set.
+- **codex**: `engine/backend_codex.py` — launches `codex exec --json` as a oneshot process; the prompt is written to a file and fed via stdin (`-`). The first `thread.started` thread id in the saved `--json` stdout is harvested on the next send and the session is continued with `codex exec resume <id> -`. Liveness is the flock on the stdout file (`.codex-pids/<agent>.out.jsonl`), taken before spawn and inherited by the codex process group; the kill target is verified by pid + /proc start time + cmdline. Generates `AGENTS.md` in the cwd (change detection via `.codex_hash`). `--skip-git-repo-check` and `--dangerously-bypass-approvals-and-sandbox` are always passed.
 
-The backend is set via `DEFAULT_AGENT_BACKEND` in `settings.py` (config default: `"openclaw"`, `settings.example.py` recommended: `"pi"`; 7 backends available: openclaw, pi, cc, cci, gemini, kimi, agy), with per-agent override via `AGENT_BACKEND_OVERRIDE`.
+The backend is set via `DEFAULT_AGENT_BACKEND` in `settings.py` (config default: `"openclaw"`, `settings.example.py` recommended: `"pi"`; 8 backends available: openclaw, pi, cc, cci, gemini, kimi, agy, codex), with per-agent override via `AGENT_BACKEND_OVERRIDE`.
 
 **Send-time fallback for Gemini Pro quota (`should_fallback()`):**
 

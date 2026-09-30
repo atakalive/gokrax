@@ -73,6 +73,13 @@ def _resolve(agent_id: str) -> AgentMeta:
             provider = "google"
             model = entry.get("model", "")
             think_level = ""
+        elif backend == "codex":
+            from engine.backend_codex import _load_config as _load_codex_config
+            from engine.backend_codex import _valid_effort, _valid_model
+            entry = _load_codex_config().get(agent_id, {})
+            provider = "openai-codex"
+            model = _valid_model(entry)
+            think_level = _valid_effort(entry) or ""
         elif backend == "openclaw":
             provider = "openclaw"
             model = None

@@ -28,6 +28,10 @@ class TestBlockedPatterns:
         with pytest.raises(RuntimeError, match="blocked process"):
             subprocess.Popen(["glab", "mr", "list"])
 
+    def test_subprocess_popen_blocks_codex(self):
+        with pytest.raises(RuntimeError, match="blocked process"):
+            subprocess.Popen(["codex", "exec", "-"])
+
     def test_subprocess_run_allows_safe_command(self):
         """BLOCKED_PATTERNS に該当しないコマンドは通過する。"""
         result = subprocess.run(["echo", "hello"], capture_output=True, text=True)

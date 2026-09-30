@@ -97,7 +97,7 @@ def block_dangerous_subprocess(monkeypatch):
     original_run = _subprocess.run
     original_popen = _subprocess.Popen
 
-    BLOCKED_PATTERNS = ["claude", "glab", "pi"]
+    BLOCKED_PATTERNS = ["claude", "glab", "pi", "codex"]
 
     def _check_cmd(cmd):
         if isinstance(cmd, (list, tuple)):

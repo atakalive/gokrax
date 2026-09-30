@@ -24,7 +24,7 @@ engine/
   reviewer.py             -- レビュアー管理 (tier, pending, revise 判定)
   agent_meta.py           -- レビュアーのメタ情報スナップショット (provider/model/think_level)
   shared.py               -- 共有ユーティリティ (log, is_cc_running, is_ok_reply)
-  backend.py              -- バックエンドディスパッチ (openclaw/pi/cc/cci/gemini/kimi/agy 振り分け)
+  backend.py              -- バックエンドディスパッチ (openclaw/pi/cc/cci/gemini/kimi/agy/codex 振り分け)
   backend_openclaw.py     -- openclaw バックエンド (Gateway CLI 経由)
   backend_pi.py           -- pi バックエンド (pi CLI 経由)
   backend_cc.py           -- cc バックエンド (claude CLI 経由)
@@ -33,6 +33,7 @@ engine/
   backend_gemini.py       -- gemini バックエンド (gemini CLI 経由, oneshot)
   backend_kimi.py         -- kimi バックエンド (kimi CLI 経由)
   backend_agy.py          -- agy バックエンド (antigravity-cli 経由, oneshot)
+  backend_codex.py        -- codex バックエンド (OpenAI Codex CLI 経由, oneshot)
   backend_types.py        -- バックエンド戻り値型 (SendResult: OK/BUSY/FAIL)
   gemini_quota.py         -- Gemini Pro クォータ検出 & fallback キャッシュ
   openai_codex_quota.py   -- OpenAI Codex (ChatGPT) クォータ検出 & fallback (pi backend)
@@ -57,7 +58,7 @@ messages/             -- テンプレートメッセージ (render() 経由)
 settings.py           -- ユーザー設定 (config override)
 ```
 
-- **エージェント通信**: `engine/backend.py` がルーターとして機能し、エージェントごとに `openclaw`、`pi`、`cc`、`cci`、`gemini`、`kimi`、`agy` バックエンドに振り分ける。`settings.py` の `DEFAULT_AGENT_BACKEND` と `AGENT_BACKEND_OVERRIDE` で制御。
+- **エージェント通信**: `engine/backend.py` がルーターとして機能し、エージェントごとに `openclaw`、`pi`、`cc`、`cci`、`gemini`、`kimi`、`agy`、`codex` バックエンドに振り分ける。`settings.py` の `DEFAULT_AGENT_BACKEND` と `AGENT_BACKEND_OVERRIDE` で制御。
 - **pipeline JSON**: `~/.gokrax/pipelines/<project>.json`
 - **watchdog**: `watchdog-loop.sh` で 20 秒おきにポーリング (後述 7 章)
 - **Discord 通知先**: Discord 通知チャンネル（`settings.py` の `DISCORD_CHANNEL` で設定）
@@ -286,7 +287,7 @@ IDLE -> INITIALIZE -> DESIGN_PLAN -> DESIGN_REVIEW -> DESIGN_APPROVED -> ASSESSM
 |------|---|------|
 | NUDGE_GRACE_SEC | 600 秒 | 遷移直後はこの期間催促しない |
 | EXTEND_NOTICE_THRESHOLD | 300 秒 | 残り時間がこの値未満で延長案内を催促に付加 |
-| INACTIVE_THRESHOLD_SEC | 603 秒 | 催促閾値: この秒数更新がなければ非アクティブ扱い。agy バックエンドでは生存プロセスの活動ファイル (conversations/*.pb, pid ファイル, cli.log) がこの閾値以上 stale な場合ハングとみなし、次回 send 時に reap する（pid kill + pid ファイル削除、セッションは `-c` 継続のため保持）。terminate 失敗時は pid ファイルを保持し BUSY を返す（二重プロセス防止）。バックエンド別の非活動判定: pi はセッションファイル mtime; cc は PID+cmdline 所有権＋mtime フォールバック; gemini/kimi は PID+cmdline のみ; agy（本修正後）は PID 生存＋活動ファイル mtime staleness。**制限事項**: (1) cli.log への書き込みだけが続くハングは stale 検知をすり抜ける; (2) 正常プロセスが 603 秒超会話ターン未更新の場合は誤 reap されるが `-c` 継続によりデータ損失なし; (3) agy が .pb 未生成のままハングした場合、催促には refresher commands (glab issue view + gokrax get-comments)・phase 固有の注記・レビュー観点・匿名制約が含まれ固定指示は復元可能だが、初回配信固有の動的コンテキスト（前ラウンド指摘の構造化要約等）は失われる。 |
+| INACTIVE_THRESHOLD_SEC | 603 秒 | 催促閾値: この秒数更新がなければ非アクティブ扱い。agy バックエンドでは生存プロセスの活動ファイル (conversations/*.pb, pid ファイル, cli.log) がこの閾値以上 stale な場合ハングとみなし、次回 send 時に reap する（pid kill + pid ファイル削除、セッションは `-c` 継続のため保持）。terminate 失敗時は pid ファイルを保持し BUSY を返す（二重プロセス防止）。バックエンド別の非活動判定: pi はセッションファイル mtime; cc は PID+cmdline 所有権＋mtime フォールバック; gemini/kimi は PID+cmdline のみ; agy（本修正後）は PID 生存＋活動ファイル mtime staleness。**制限事項**: (1) cli.log への書き込みだけが続くハングは stale 検知をすり抜ける; (2) 正常プロセスが 603 秒超会話ターン未更新の場合は誤 reap されるが `-c` 継続によりデータ損失なし; (3) agy が .pb 未生成のままハングした場合、催促には refresher commands (glab issue view + gokrax get-comments)・phase 固有の注記・レビュー観点・匿名制約が含まれ固定指示は復元可能だが、初回配信固有の動的コンテキスト（前ラウンド指摘の構造化要約等）は失われる。codex は stdout ファイル `.codex-pids/<agent>.out.jsonl` が codex プロセスグループに flock されている間を実行中とみなし（ロックは起動前に取得し stdout 経由で継承される）、agy と同じ活動ファイル staleness（`.out.jsonl`・`.err.log`・`.pid` の mtime）を使う。`codex exec --json` はシェルコマンド実行中に何も書かないため、603 秒を超える単一コマンドは次回 send で誤 reap される（session id と出力は保持され、次回 send がスレッドを resume する）。stale な実行を kill するのは、pid ファイルの pid・/proc の起動時刻・cmdline が生存中の `codex exec` と一致する場合だけで、一致しなければ send は BUSY を返し、手動復旧の手順をログに出す。 |
 | INACTIVE_THRESHOLD_PLAN_SEC | 900 秒 | DESIGN_PLAN での実装者催促間隔 |
 | BUSY_ESCALATION_SEC | 1800 秒 | spec mode: 30 分継続した `SendResult.BUSY` を 1 回の機械的失敗としてカウント (retry counter を 1 つ消費) |
 
@@ -332,8 +333,9 @@ IDLE -> INITIALIZE -> DESIGN_PLAN -> DESIGN_REVIEW -> DESIGN_APPROVED -> ASSESSM
 - **gemini**: `engine/backend_gemini.py` — `gemini` CLI を oneshot プロセスとして起動して送信する（1 プロンプト = 1 プロセス）。`send()` は `subprocess.Popen(cwd=<agent profile dir>)` で `gemini` を起動する（Gemini CLI はセッションを cwd でスコープする）。アクティビティは pid ファイルに加え `/proc/<pid>` の存在と cmdline に `"gemini"` を含むことで判定する。セッション継続は `-r latest` を使用する。セッションは cwd 単位のため、エージェント間のセッション混在を避けるためにエージェントごとに独立した profile dir（`agents/<agent_id>/`）が必要。
 - **kimi**: `engine/backend_kimi.py` — `kimi` CLI を oneshot プロセスとして起動して送信する。アクティビティは pid ファイル + `/proc/<pid>` + cmdline に `"kimi"` を含むことで判定。`send()` は `--afk` と `--add-dir REVIEW_FILE_DIR` を付与してレビュー成果物を読めるようにしている。
 - **agy**: `engine/backend_agy.py` — `agy` (antigravity-cli) を oneshot プロセスとして起動して送信する。モデルは `~/.gemini/antigravity-cli/settings.json` で選択する仕組みのため、`HOME` をエージェント別に切替え、各エージェントが独立した settings.json を持てるようにして実 HOME を汚染しない。アクティビティは pid ファイル + `/proc/<pid>` + cmdline に `"agy"` を含むことで判定。`agy` は `AGENTS.md` と `GEMINI.md` の両方を読むため、起動前に `AGENTS.md` を生成し、古い `GEMINI.md` は退避する。`--print-timeout 24h` を固定し、`AGY_CLI_DISABLE_AUTO_UPDATE=1` を設定する。
+- **codex**: `engine/backend_codex.py` — `codex exec --json` を oneshot プロセスとして起動する。プロンプトはファイルに書き出して stdin (`-`) から渡す。保存した `--json` の stdout から最初の `thread.started` の thread id を次回 send 時に回収し、`codex exec resume <id> -` でセッションを継続する。生存判定は stdout ファイル (`.codex-pids/<agent>.out.jsonl`) の flock（起動前に取得し codex プロセスグループが継承）で行い、kill 対象は pid + /proc の起動時刻 + cmdline で確認する。cwd に `AGENTS.md` を生成する（変更検知は `.codex_hash`）。`--skip-git-repo-check` と `--dangerously-bypass-approvals-and-sandbox` を常に付ける。
 
-バックエンドは `settings.py` の `DEFAULT_AGENT_BACKEND`（config デフォルト: `"openclaw"`、`settings.example.py` 推奨値: `"pi"`、7 種類: openclaw, pi, cc, cci, gemini, kimi, agy）で設定し、`AGENT_BACKEND_OVERRIDE` でエージェント単位の上書きが可能。
+バックエンドは `settings.py` の `DEFAULT_AGENT_BACKEND`（config デフォルト: `"openclaw"`、`settings.example.py` 推奨値: `"pi"`、8 種類: openclaw, pi, cc, cci, gemini, kimi, agy, codex）で設定し、`AGENT_BACKEND_OVERRIDE` でエージェント単位の上書きが可能。
 
 **送信時の Gemini Pro クォータ fallback (`should_fallback()`):**
 

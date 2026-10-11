@@ -16,6 +16,10 @@ from config import (
     STATE_PHASE_MAP,
     GITLAB_NAMESPACE,
     IMPLEMENTERS,
+    EXTENDABLE_STATES,
+    EXTEND_NOTICE_THRESHOLD,
+    MAX_EXTENDS,
+    MAX_TIMEOUT_EXTENSION,
 )
 from pipeline_io import (
     load_pipeline,
@@ -31,7 +35,12 @@ from pipeline_io import (
 )
 from engine.filter import require_issue_author, UnauthorizedAuthorError
 from engine.glab import run_glab
-from engine.fsm import get_notification_for_state, stale_pending_keys, resolve_active_phase
+from engine.fsm import (
+    get_notification_for_state,
+    get_timeout_info,
+    stale_pending_keys,
+    resolve_active_phase,
+)
 from notify import (
     notify_implementer,
     notify_reviewers,
@@ -207,13 +216,23 @@ def cmd_disable(args):
 def cmd_extend(args):
     """タイムアウト延長申請。
 
-    対象状態: DESIGN_PLAN, DESIGN_REVISE, IMPLEMENTATION, CODE_REVISE
+    対象状態: EXTENDABLE_STATES（DESIGN_PLAN, DESIGN_REVISE, ASSESSMENT, IMPLEMENTATION,
+    CODE_TEST_FIX, CODE_REVISE）。受理するのは残り時間が EXTEND_NOTICE_THRESHOLD 未満
+    かつ期限前（= watchdog が延長案内を送る範囲）のときだけ。案内の配送成否は見ない。
+    拒否は SystemExit(str) で、pipeline と Discord には何も書かない。
     """
-    from config import EXTENDABLE_STATES
+    by = args.by
+    if by <= 0:
+        raise SystemExit(
+            f"Cannot extend: --by must be a positive number of seconds (got {by})."
+        )
+    if by > MAX_TIMEOUT_EXTENSION:
+        raise SystemExit(
+            f"Cannot extend: --by {by}s exceeds the maximum single extension "
+            f"of {MAX_TIMEOUT_EXTENSION}s."
+        )
 
     path = get_path(args.project)
-
-    MAX_EXTENDS = 2
 
     result = {}
 
@@ -224,12 +243,44 @@ def cmd_extend(args):
                 f"Cannot extend: current state {state} is not eligible "
                 f"(eligible: {', '.join(sorted(EXTENDABLE_STATES))})"
             )
+        info = get_timeout_info(state, data)
+        if info is None:
+            raise SystemExit(
+                f"Cannot extend: {state} has no timeout right now (e.g. no-cc mode), "
+                f"so there is nothing to extend."
+            )
         extend_count = data.get("extend_count", 0)
         if extend_count >= MAX_EXTENDS:
             raise SystemExit(
-                f"Cannot extend: maximum extension count ({MAX_EXTENDS}) reached"
+                f"Cannot extend: maximum extension count ({MAX_EXTENDS}) reached for this batch. "
+                f"No further extensions are possible; finish the work within the current deadline."
             )
-        data["timeout_extension"] = data.get("timeout_extension", 0) + args.by
+        if info.remaining <= 0:
+            raise SystemExit(
+                f"Cannot extend: the {state} deadline has already passed; "
+                f"extensions are accepted only before the deadline."
+            )
+        if info.remaining >= EXTEND_NOTICE_THRESHOLD:
+            if extend_count == 0:
+                raise SystemExit(
+                    f"Cannot extend: the {state} deadline is not near yet. "
+                    f"Extensions are accepted only when the deadline is near, and gokrax sends "
+                    f"you an extension notice at that point; do not call extend until then. "
+                    f"Keep working."
+                )
+            raise SystemExit(
+                f"Cannot extend: your previous extension is already in effect "
+                f"({extend_count}/{MAX_EXTENDS} used, total +{info.extension}s) and the new "
+                f"deadline is not near yet. Extensions are accepted again only when the deadline "
+                f"is near again, and gokrax sends you another extension notice at that point; "
+                f"do not call extend until then. Keep working."
+            )
+        if info.extension + by > MAX_TIMEOUT_EXTENSION:
+            raise SystemExit(
+                f"Cannot extend: +{by}s would exceed the total extension cap of "
+                f"{MAX_TIMEOUT_EXTENSION}s (already +{info.extension}s)."
+            )
+        data["timeout_extension"] = info.extension + by
         data["extend_count"] = extend_count + 1
         result["state"] = state
         result["implementer"] = data.get("implementer", IMPLEMENTERS[0])
@@ -242,11 +293,23 @@ def cmd_extend(args):
 
     ts = datetime.now(LOCAL_TZ).strftime("%m/%d %H:%M")
     notify_discord(
-        f"[{args.project}] {result['implementer']} extended timeout by {args.by}s "
+        f"[{args.project}] {result['implementer']} extended timeout by {by}s "
         f"({result['state']}, {result['count']}/{MAX_EXTENDS}, total +{result['total']}s, {ts})"
     )
 
-    print(f"{args.project}: timeout extended +{args.by}s (total +{result['total']}s)")
+    # 回数が残っていても合計上限を使い切っていれば再延長できない（案内もコマンドを載せない）
+    left = MAX_EXTENDS - result["count"] if result["total"] < MAX_TIMEOUT_EXTENSION else 0
+    if left > 0:
+        hint = (
+            "Do not call extend again unless the deadline gets near again; "
+            "gokrax sends another extension notice when it does."
+        )
+    else:
+        hint = "No extensions remain for this batch; finish the work within the new deadline."
+    print(
+        f"{args.project}: timeout extended +{by}s (total +{result['total']}s). "
+        f"{left} extension(s) remaining. {hint}"
+    )
 
 
 def _fetch_open_issues(gitlab: str) -> list[tuple[int, str]]:

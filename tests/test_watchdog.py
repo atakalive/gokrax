@@ -7897,3 +7897,279 @@ class TestDirtyTreeTemplate:
         # 素の三連バッククォート行（fence）が一覧に現れない
         for line in out.splitlines():
             assert line.strip() != "```"
+
+
+class TestExtendNoticeHelpers:
+    """get_timeout_info / _extend_notice_key / _extend_notice_text / 猶予期間内の案内（#399）"""
+
+    @staticmethod
+    def _data(state: str, seconds_ago: float | None, **fields) -> dict:
+        from datetime import datetime, timedelta
+        from config import LOCAL_TZ
+
+        history = []
+        if seconds_ago is not None:
+            at = datetime.now(LOCAL_TZ) - timedelta(seconds=seconds_ago)
+            history = [{"from": "IDLE", "to": state, "at": at.isoformat()}]
+        return {"project": "test-pj", "state": state, "history": history, **fields}
+
+    def test_get_timeout_info_none_without_timer(self):
+        from engine.fsm import get_timeout_info
+        assert get_timeout_info("DESIGN_APPROVED", self._data("DESIGN_APPROVED", 10)) is None
+
+    def test_get_timeout_info_values(self):
+        from engine.fsm import get_timeout_info
+        from config import BLOCK_TIMERS
+
+        info = get_timeout_info("DESIGN_PLAN", self._data("DESIGN_PLAN", 100, timeout_extension=600))
+        assert info.extension == 600
+        assert info.limit == BLOCK_TIMERS["DESIGN_PLAN"] + 600
+        assert 99 <= info.elapsed <= 105
+        assert info.remaining == pytest.approx(info.limit - info.elapsed)
+
+    def test_get_timeout_info_without_history(self):
+        from engine.fsm import get_timeout_info
+        from config import BLOCK_TIMERS
+
+        info = get_timeout_info("DESIGN_PLAN", self._data("DESIGN_PLAN", None))
+        assert info.elapsed == 0.0
+        assert info.remaining == BLOCK_TIMERS["DESIGN_PLAN"]
+
+    def test_get_timeout_info_none_for_no_cc_implementation(self):
+        from engine.fsm import get_timeout_info
+
+        assert get_timeout_info("IMPLEMENTATION", self._data("IMPLEMENTATION", 10, no_cc=True)) is None
+        assert get_timeout_info("IMPLEMENTATION", self._data("IMPLEMENTATION", 10)) is not None
+
+    def test_get_timeout_info_clamps_extension(self):
+        from engine.fsm import get_timeout_info
+        from config import MAX_TIMEOUT_EXTENSION
+
+        info = get_timeout_info(
+            "DESIGN_PLAN", self._data("DESIGN_PLAN", 10, timeout_extension=MAX_TIMEOUT_EXTENSION + 1000)
+        )
+        assert info.extension == MAX_TIMEOUT_EXTENSION
+
+    def test_extend_notice_key_changes_with_count_and_entry(self):
+        from engine.fsm import _extend_notice_key
+
+        a = self._data("DESIGN_PLAN", 100)
+        assert _extend_notice_key("DESIGN_PLAN", a) == _extend_notice_key("DESIGN_PLAN", dict(a))
+        assert _extend_notice_key("DESIGN_PLAN", a) != _extend_notice_key("DESIGN_PLAN", {**a, "extend_count": 1})
+        assert _extend_notice_key("DESIGN_PLAN", a) != _extend_notice_key("DESIGN_PLAN", self._data("DESIGN_PLAN", 200))
+        assert _extend_notice_key("DESIGN_PLAN", self._data("DESIGN_PLAN", None)).endswith("|none|0")
+
+    def test_extend_notice_text_reflects_max_extends(self):
+        from engine.fsm import _extend_notice_text
+        from config import MAX_EXTENDS
+
+        text = _extend_notice_text("test-pj", 500.7, 0, 0)
+        assert "500s until timeout" in text
+        assert f"({MAX_EXTENDS} extension(s) remaining)" in text
+        assert "extend --project test-pj --by 600" in text
+        limit_text = _extend_notice_text("test-pj", 500.0, MAX_EXTENDS, 1200)
+        assert f"Extension limit reached ({MAX_EXTENDS}/{MAX_EXTENDS})" in limit_text
+        assert "extend --project" not in limit_text
+
+    def test_extend_notice_text_caps_by_to_remaining_budget(self):
+        from engine.fsm import _extend_notice_text
+        from config import MAX_TIMEOUT_EXTENSION
+
+        text = _extend_notice_text("test-pj", 500.0, 1, MAX_TIMEOUT_EXTENSION - 300)
+        assert "extend --project test-pj --by 300" in text
+        cap_text = _extend_notice_text("test-pj", 500.0, 1, MAX_TIMEOUT_EXTENSION)
+        assert f"Extension limit reached (total extension cap of {MAX_TIMEOUT_EXTENSION}s used)" in cap_text
+        assert "extend --project" not in cap_text
+
+    def test_check_nudge_passes_clamped_extension_to_notice(self):
+        from engine.fsm import _check_nudge
+        from config import BLOCK_TIMERS, MAX_TIMEOUT_EXTENSION
+
+        elapsed = BLOCK_TIMERS["DESIGN_PLAN"] + MAX_TIMEOUT_EXTENSION - 500
+        data = self._data(
+            "DESIGN_PLAN", elapsed, timeout_extension=MAX_TIMEOUT_EXTENSION + 1000, extend_count=1
+        )
+        action = _check_nudge("DESIGN_PLAN", data)
+        assert "total extension cap" in action.extend_notice
+
+    def test_check_nudge_returns_notice_only_within_grace(self, monkeypatch):
+        """猶予期間内でも残り < EXTEND_NOTICE_THRESHOLD なら、催促なし・案内のみの action を返す"""
+        from engine import fsm
+        from config import EXTEND_NOTICE_THRESHOLD, NUDGE_GRACE_SEC
+
+        monkeypatch.setitem(fsm.BLOCK_TIMERS, "DESIGN_PLAN", 900)
+        elapsed = 900 - (EXTEND_NOTICE_THRESHOLD - 100)
+        assert elapsed < NUDGE_GRACE_SEC, "テスト前提条件: 猶予期間内"
+        action = fsm._check_nudge("DESIGN_PLAN", self._data("DESIGN_PLAN", elapsed))
+        assert action is not None
+        assert action.nudge is None
+        assert action.new_state is None
+        assert "until timeout" in action.extend_notice
+
+
+class TestExtendNoticeDelivery:
+    """期限が近づいたら、実装者の活動状態に関係なく延長案内を 1 回届ける（#399）"""
+
+    def _make_pipeline(
+        self, tmp_path, monkeypatch, remaining: float, *,
+        state: str = "DESIGN_PLAN", extend_count: int = 0, timeout_extension: int = 0, **fields,
+    ) -> Path:
+        import json
+        import config
+        import pipeline_io
+        from datetime import datetime, timedelta, timezone
+        from config import BLOCK_TIMERS
+
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+        elapsed = BLOCK_TIMERS[state] + timeout_extension - remaining
+        entered_at = (datetime.now(timezone.utc) - timedelta(seconds=elapsed)).isoformat()
+        data = {
+            "project": "test-pj",
+            "state": state,
+            "enabled": True,
+            "review_mode": "min",
+            "batch": [{"issue": 1}],
+            "implementer": "implementer1",
+            "history": [{"from": "PREV", "to": state, "at": entered_at, "actor": "watchdog"}],
+            "extend_count": extend_count,
+            "timeout_extension": timeout_extension,
+            "created_at": "2025-01-01T00:00:00+09:00",
+            "updated_at": "2025-01-01T00:00:00+09:00",
+            **fields,
+        }
+        path = tmp_path / "test-pj.json"
+        path.write_text(json.dumps(data))
+        return path
+
+    @staticmethod
+    def _load(path: Path) -> dict:
+        import json
+        return json.loads(path.read_text())
+
+    @staticmethod
+    def _run(path: Path, *, inactive: bool = False, sent: bool = True):
+        from watchdog import process
+        with patch("watchdog.send_to_agent_queued", return_value=sent) as mock_send, \
+             patch("watchdog._is_agent_inactive", return_value=inactive), \
+             patch("watchdog.notify_discord") as mock_discord:
+            process(path)
+        return mock_send, mock_discord
+
+    def test_active_agent_receives_notice_once(self, tmp_path, monkeypatch):
+        from engine.fsm import _extend_notice_key
+
+        path = self._make_pipeline(tmp_path, monkeypatch, remaining=500)
+        expected_key = _extend_notice_key("DESIGN_PLAN", self._load(path))
+        mock_send, mock_discord = self._run(path)
+        assert mock_send.call_count == 1
+        agent, msg = mock_send.call_args[0][:2]
+        assert agent == "implementer1"
+        assert msg.startswith("[test-pj] DESIGN_PLAN: ⏰")
+        assert "extend --project test-pj" in msg
+        assert self._load(path)["_extend_notified"] == expected_key
+        assert any("extension notice sent" in c.args[0] for c in mock_discord.call_args_list)
+
+        mock_send2, _ = self._run(path)
+        mock_send2.assert_not_called()
+
+    def test_failed_send_is_retried(self, tmp_path, monkeypatch):
+        path = self._make_pipeline(tmp_path, monkeypatch, remaining=500)
+        mock_send, mock_discord = self._run(path, sent=False)
+        assert mock_send.call_count == 1
+        assert "_extend_notified" not in self._load(path)
+        assert not any("extension notice sent" in c.args[0] for c in mock_discord.call_args_list)
+
+        mock_send2, _ = self._run(path)
+        assert mock_send2.call_count == 1
+        assert "_extend_notified" in self._load(path)
+
+    def test_notice_resent_after_extension(self, tmp_path, monkeypatch):
+        import json
+        from engine.fsm import _extend_notice_key
+
+        path = self._make_pipeline(tmp_path, monkeypatch, remaining=500, extend_count=1, timeout_extension=600)
+        data = self._load(path)
+        old_key = _extend_notice_key("DESIGN_PLAN", {**data, "extend_count": 0})
+        data["_extend_notified"] = old_key
+        path.write_text(json.dumps(data))
+        mock_send, _ = self._run(path)
+        assert mock_send.call_count == 1
+        assert self._load(path)["_extend_notified"] == _extend_notice_key("DESIGN_PLAN", data)
+
+    def test_inactive_agent_gets_single_nudge_with_notice(self, tmp_path, monkeypatch):
+        path = self._make_pipeline(tmp_path, monkeypatch, remaining=500)
+        mock_send, mock_discord = self._run(path, inactive=True)
+        assert mock_send.call_count == 1
+        msg = mock_send.call_args[0][1]
+        assert not msg.startswith("[test-pj] DESIGN_PLAN: ⏰")
+        assert "until timeout" in msg
+        assert "_extend_notified" in self._load(path)
+        texts = [c.args[0] for c in mock_discord.call_args_list]
+        assert any("nudging implementer" in t for t in texts)
+        assert not any("extension notice sent" in t for t in texts)
+
+    def test_nudge_after_delivered_notice_does_not_repeat_it(self, tmp_path, monkeypatch):
+        """単独案内を送達した後、催促期限が来ても催促に案内を付け直さない"""
+        path = self._make_pipeline(tmp_path, monkeypatch, remaining=500)
+        mock_send, _ = self._run(path, inactive=False)
+        assert mock_send.call_count == 1
+        assert mock_send.call_args[0][1].startswith("[test-pj] DESIGN_PLAN: ⏰")
+
+        mock_send2, mock_discord2 = self._run(path, inactive=True)
+        assert mock_send2.call_count == 1
+        msg = mock_send2.call_args[0][1]
+        assert not msg.startswith("[test-pj] DESIGN_PLAN: ⏰")
+        assert "until timeout" not in msg
+        assert any("nudging implementer" in c.args[0] for c in mock_discord2.call_args_list)
+
+    def test_notice_not_resent_after_nudge_delivery(self, tmp_path, monkeypatch):
+        """催促に付けて送達した後は、単独案内も送らない"""
+        path = self._make_pipeline(tmp_path, monkeypatch, remaining=500)
+        mock_send, _ = self._run(path, inactive=True)
+        assert mock_send.call_count == 1
+        assert "until timeout" in mock_send.call_args[0][1]
+
+        mock_send2, _ = self._run(path, inactive=False)
+        mock_send2.assert_not_called()
+
+    def test_no_notice_when_deadline_far(self, tmp_path, monkeypatch):
+        from config import EXTEND_NOTICE_THRESHOLD
+
+        path = self._make_pipeline(tmp_path, monkeypatch, remaining=EXTEND_NOTICE_THRESHOLD + 100)
+        mock_send, _ = self._run(path)
+        mock_send.assert_not_called()
+        assert "_extend_notified" not in self._load(path)
+
+    def test_limit_reached_notice(self, tmp_path, monkeypatch):
+        from config import MAX_EXTENDS
+
+        path = self._make_pipeline(
+            tmp_path, monkeypatch, remaining=500, extend_count=MAX_EXTENDS, timeout_extension=1200
+        )
+        mock_send, _ = self._run(path)
+        assert mock_send.call_count == 1
+        assert "Extension limit reached" in mock_send.call_args[0][1]
+
+    def test_notice_only_action_delivered_within_grace(self, tmp_path, monkeypatch):
+        """猶予期間内の案内のみ action（nudge=None）も事前チェックで捨てずに届ける"""
+        from engine import fsm
+        from config import NUDGE_GRACE_SEC
+
+        monkeypatch.setitem(fsm.BLOCK_TIMERS, "DESIGN_PLAN", 900)
+        path = self._make_pipeline(tmp_path, monkeypatch, remaining=500)
+        assert 900 - 500 < NUDGE_GRACE_SEC, "テスト前提条件: 猶予期間内"
+        mock_send, _ = self._run(path)
+        assert mock_send.call_count == 1
+        assert mock_send.call_args[0][1].startswith("[test-pj] DESIGN_PLAN: ⏰")
+        assert "_extend_notified" in self._load(path)
+
+    def test_stamp_skipped_when_state_changed(self, tmp_path, monkeypatch):
+        """送信中に state が変わっていたら _extend_notified を刻まない"""
+        import watchdog
+
+        path = self._make_pipeline(tmp_path, monkeypatch, remaining=500, state="DESIGN_REVISE")
+        watchdog._stamp_extend_notified("test-pj", {"extend_notice_key": "k", "old_state": "DESIGN_PLAN"})
+        assert "_extend_notified" not in self._load(path)
+        watchdog._stamp_extend_notified("test-pj", {"extend_notice_key": "k", "old_state": "DESIGN_REVISE"})
+        assert self._load(path)["_extend_notified"] == "k"

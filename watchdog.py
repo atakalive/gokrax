@@ -108,6 +108,8 @@ from config import (
 from engine.fsm import (
     check_transition,
     get_min_reviews,
+    get_timeout_info,
+    _extend_notice_key,
     _nudge_key,
     _recover_pending_notifications,
     build_review_config,
@@ -237,6 +239,18 @@ def _check_queue_wait_expiry():
     _check_queue()
 
 
+def _stamp_extend_notified(pj: str, notification: dict) -> None:
+    """延長案内の送信成功後に _extend_notified を刻む。ロック待ち中に state が変わっていたら刻まない。"""
+    key = notification["extend_notice_key"]
+    old_state = notification["old_state"]
+
+    def _stamp(d: dict) -> None:
+        if d.get("state", "IDLE") == old_state:
+            d["_extend_notified"] = key
+
+    update_pipeline(get_path(pj), _stamp)
+
+
 def process(path: Path):
     # === 第1チェック (ロックなし) ===
     data = load_pipeline(path)
@@ -316,6 +330,7 @@ def process(path: Path):
     if (
         pre_action.new_state is None
         and not pre_action.nudge
+        and not pre_action.extend_notice
         and not pre_action.nudge_reviewers
         and not pre_action.dispute_nudge_reviewers
         and not pre_action.save_grace_met_at
@@ -402,44 +417,58 @@ def process(path: Path):
             )
             return
 
-        # 実装担当催促（遷移なし、カウンタ書き込みのみ）
-        if action.nudge:
+        # 実装担当催促 / 延長案内（遷移なし、カウンタ・刻印準備のみ）
+        if action.nudge or action.extend_notice:
             implementer = data.get("implementer", IMPLEMENTERS[0])
-            if not _is_agent_inactive(implementer, data):
-                # アクティブなら催促しない（カウンタも上げない）
+            nudge_due = False
+            if action.nudge and _is_agent_inactive(implementer, data):
+                # 前回催促からの経過が閾値未満ならスキップ
+                # DESIGN_PLAN は作業時間が長いため専用閾値を使う
+                nudge_threshold = (
+                    INACTIVE_THRESHOLD_PLAN_SEC
+                    if state == "DESIGN_PLAN"
+                    else INACTIVE_THRESHOLD_SEC
+                )
+                nudge_due = True
+                last_nudge = data.get("_last_nudge_at")
+                if last_nudge:
+                    try:
+                        elapsed_since_nudge = (
+                            _datetime.now(LOCAL_TZ) - _datetime.fromisoformat(last_nudge)
+                        ).total_seconds()
+                        if elapsed_since_nudge < nudge_threshold:
+                            nudge_due = False
+                    except (ValueError, TypeError):
+                        pass
+            # 延長案内: 同じ (state 突入, extend_count) には 1 回だけ。刻印は送信成功後にロック外で行う
+            extend_notice_key = None
+            if action.extend_notice:
+                candidate = _extend_notice_key(state, data)
+                if data.get("_extend_notified") != candidate:
+                    extend_notice_key = candidate
+            if not nudge_due and extend_notice_key is None:
                 return
-            # 前回催促からの経過が閾値未満ならスキップ
-            # DESIGN_PLAN は作業時間が長いため専用閾値を使う
-            nudge_threshold = (
-                INACTIVE_THRESHOLD_PLAN_SEC
-                if state == "DESIGN_PLAN"
-                else INACTIVE_THRESHOLD_SEC
-            )
-            last_nudge = data.get("_last_nudge_at")
-            if last_nudge:
-                try:
-                    elapsed_since_nudge = (
-                        _datetime.now(LOCAL_TZ) - _datetime.fromisoformat(last_nudge)
-                    ).total_seconds()
-                    if elapsed_since_nudge < nudge_threshold:
-                        return
-                except (ValueError, TypeError):
-                    pass
-            key = _nudge_key(action.nudge)
-            data[key] = data.get(key, 0) + 1
-            data["_last_nudge_at"] = _datetime.now(LOCAL_TZ).isoformat()
             pj = data.get("project", path.stem)
-            log(f"[{pj}] {action.nudge}: nudge notification sent (count={data[key]})")
+            if nudge_due:
+                key = _nudge_key(action.nudge)
+                data[key] = data.get(key, 0) + 1
+                data["_last_nudge_at"] = _datetime.now(LOCAL_TZ).isoformat()
+                log(f"[{pj}] {action.nudge}: nudge notification sent (count={data[key]})")
+            info = get_timeout_info(state, data)
             notification.update(
                 {
                     "pj": pj,
                     "action": action,
-                    "implementer": data.get("implementer", IMPLEMENTERS[0]),
+                    "implementer": implementer,
                     "batch": list(batch),
                     "p2_fix": data.get("p2_fix", False),   # ← 追加(#380): revise nudge の p2_note 構築用
                     "gitlab": data.get("gitlab", f"{GITLAB_NAMESPACE}/{pj}"),
-                    "nudge_count": data[key],
+                    "nudge_count": data.get(_nudge_key(action.nudge), 0) if action.nudge else 0,
                     "queue_mode": data.get("queue_mode", False),
+                    "old_state": state,
+                    "nudge_due": nudge_due,
+                    "extend_notice_key": extend_notice_key,
+                    "extend_remaining": int(info.remaining) if info is not None else 0,
                 }
             )
             return
@@ -1280,7 +1309,7 @@ def process(path: Path):
                 notify_discord(nudge_notify)
             return
 
-        if action.nudge:
+        if action.nudge and notification.get("nudge_due"):
             # 状態ごとの具体的な指示メッセージ
             nudge_state = action.nudge  # e.g. "DESIGN_REVISE", "CODE_REVISE", etc.
 
@@ -1327,14 +1356,37 @@ def process(path: Path):
             else:
                 nudge_msg = "[Remind] Please proceed and complete your work."
 
-            if action.extend_notice:
+            if notification.get("extend_notice_key"):
+                # 未送の案内だけを催促に付ける（送達済みのキーの案内は付け直さない）
                 nudge_msg += action.extend_notice
-            send_to_agent_queued(notification["implementer"], nudge_msg)
+            sent = send_to_agent_queued(notification["implementer"], nudge_msg)
             ts = _datetime.now(LOCAL_TZ).strftime("%m/%d %H:%M")
             q_prefix = "[Queue]" if notification.get("queue_mode") else ""
             notify_discord(
                 f"{q_prefix}[{pj}] {action.nudge}: nudging implementer {notification['implementer']} ({ts})"
             )
+            if sent and notification.get("extend_notice_key"):
+                _stamp_extend_notified(pj, notification)
+            return
+
+        if notification.get("extend_notice_key"):
+            # 延長案内の単独送信（実装者が活動中 / 催促の間引き中でも、期限が近づいたら 1 回届ける）
+            implementer = notification["implementer"]
+            old_state = notification["old_state"]
+            sent = send_to_agent_queued(
+                implementer, f"[{pj}] {old_state}: " + action.extend_notice.strip()
+            )
+            if sent:
+                ts = _datetime.now(LOCAL_TZ).strftime("%m/%d %H:%M")
+                q_prefix = "[Queue]" if notification.get("queue_mode") else ""
+                notify_discord(
+                    f"{q_prefix}[{pj}] {old_state}: extension notice sent to {implementer} "
+                    f"({notification['extend_remaining']}s until timeout, {ts})"
+                )
+                log(f"[{pj}] {old_state}: extension notice sent to {implementer}")
+                _stamp_extend_notified(pj, notification)
+            else:
+                log(f"[{pj}] {old_state}: extension notice to {implementer} not delivered; retrying next cycle")
             return
 
         ts = _datetime.now(LOCAL_TZ).strftime("%m/%d %H:%M")

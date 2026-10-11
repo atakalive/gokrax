@@ -287,7 +287,8 @@ Review modes are defined in `REVIEW_MODES` in `settings.py`. See `settings.examp
 | Constant | Value | Description |
 |----------|-------|-------------|
 | NUDGE_GRACE_SEC | 600 sec | No nudges within this period after a transition |
-| EXTEND_NOTICE_THRESHOLD | 300 sec | When remaining time is below this value, extension instructions are appended to nudges |
+| EXTEND_NOTICE_THRESHOLD | 600 sec | Shared threshold of the extension notice and `gokrax extend`. Once less than this remains in an extendable state, the watchdog sends the implementer one extension notice regardless of activity (appended to the nudge when a nudge is due, otherwise sent on its own). The notice suggests `--by` capped by the remaining total budget and carries no command once the count or the total cap is used up. `extend` is accepted only while the deadline is still ahead and less than this remains; delivery of the notice is not checked |
+| MAX_EXTENDS | 2 | Maximum number of accepted `extend` calls per batch |
 | INACTIVE_THRESHOLD_SEC | 603 sec | Nudge threshold: agent considered inactive if no updates for this many seconds. For agy backend, a live process whose activity files (conversations/*.pb, pid file, cli.log) are stale beyond this threshold is treated as hung and reaped on next send (pid killed + pid file removed, session preserved for `-c` continuation). Terminate failure preserves pid file and returns BUSY to prevent dual-process corruption. Backend-specific inactivity methods: pi uses session-file mtime; cc uses PID+cmdline ownership with mtime fallback; gemini and kimi use PID+cmdline only; agy (after this fix) uses PID liveness + activity-file mtime staleness. **Limitations**: (1) a process that hangs while still writing to cli.log evades stale detection; (2) normal processes exceeding 603s without a conversation turn are false-reaped, but `-c` continuation prevents data loss; (3) if agy hangs before persisting any .pb, the nudge provides refresher commands (glab issue view + gokrax get-comments), phase-specific guidance, review criteria, and anonymity constraints for context recovery, but initial-dispatch-specific dynamic context (structured prior-round summaries) is lost. codex treats a run as live while its stdout file `.codex-pids/<agent>.out.jsonl` is flock-held by the codex process group (the lock is taken before spawn and inherited through stdout), and uses the same activity-file staleness as agy (mtimes of `.out.jsonl`, `.err.log`, `.pid`). `codex exec --json` writes nothing while a shell command runs, so a single command longer than 603 s is false-reaped on the next send (session id and output are kept and the next send resumes the thread). A stale run is killed only when the pid file's pid, /proc start time and cmdline still match a live `codex exec`; otherwise the send returns BUSY and logs a manual-recovery hint. |
 | INACTIVE_THRESHOLD_PLAN_SEC | 900 sec | Nudge interval for implementer during DESIGN_PLAN |
 | BUSY_ESCALATION_SEC | 1800 sec | Spec mode: counts a 30-min sustained `SendResult.BUSY` as one mechanical failure (consumes one retry counter slot) |
@@ -295,9 +296,11 @@ Review modes are defined in `REVIEW_MODES` in `settings.py`. See `settings.examp
 ### timeout_extension
 
 - `timeout_extension` field in pipeline JSON (int, unit: seconds)
-- Added in engine/fsm.py as `block_sec += data.get("timeout_extension", 0)`
+- Added to the phase timer in engine/fsm.py (`get_timeout_info`) after `_get_timeout_extension` clamps it to [0, MAX_TIMEOUT_EXTENSION]
 - Extended via `gokrax extend --pj <PJ> --by 600` (default 600 sec)
-- Extension count is tracked by `extend_count`. Reset per phase at DONE
+- Accepted only while 0 < remaining < EXTEND_NOTICE_THRESHOLD (the window in which the extension notice is sent; delivery is not checked). Not accepted after the deadline or in IMPLEMENTATION with no_cc (no timer). `--by` must be 1–MAX_TIMEOUT_EXTENSION and the total must not exceed MAX_TIMEOUT_EXTENSION
+- Extension count is tracked by `extend_count` (max MAX_EXTENDS). `timeout_extension` / `extend_count` are reset at batch end (DONE / IDLE) and carried over between phases
+- `_extend_notified` records the last delivered extension notice (state, state entry time, extend_count). It is written only after a successful send, so a BUSY / failed send is retried on the next cycle
 
 ## 7. Watchdog Behavior
 
@@ -450,6 +453,7 @@ Pipeline JSON fields are classified into 3 categories.
 | comment | str \| null | Comment (instructions passed to CC, etc.) |
 | timeout_extension | int | Timeout extension in seconds |
 | extend_count | int | Extension count |
+| _extend_notified | str | Key of the last delivered extension notice (state, state entry time, extend_count) |
 | excluded_reviewers | list[str] | Excluded reviewer list |
 | min_reviews_override | int \| null | Override value for min_reviews |
 | test_result | str \| null | Test result |

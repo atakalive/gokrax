@@ -109,6 +109,7 @@ def _cleanup_batch_state(data: dict, pj: str) -> None:
     data.pop("_npass_target_reviewers", None)
     # Nudge (static + dynamic keys)
     data.pop("_last_nudge_at", None)
+    data.pop("_extend_notified", None)
     for k in [k for k in data if k.startswith(("_nudge_failed_", "_last_nudge_"))]:
         del data[k]
     for k in [k for k in data if k.endswith("_notify_count")]:

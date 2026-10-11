@@ -96,6 +96,8 @@ def _make_full_data() -> dict:
         "_npass_target_reviewers": ["r1"],
         # Nudge (static)
         "_last_nudge_at": "2025-01-01T00:00:00+09:00",
+        # Extension notice (#399)
+        "_extend_notified": "DESIGN_PLAN|2025-01-01T00:00:00+09:00|0",
         # Nudge (dynamic)
         "_nudge_failed_r1": True,
         "_last_nudge_r2": "2025-01-01",
@@ -136,6 +138,7 @@ _CLEANUP_KEYS = {
     "_prev_design_reviews", "_prev_code_reviews",
     "_npass_target_reviewers",
     "_last_nudge_at",
+    "_extend_notified",
     "_nudge_failed_r1", "_last_nudge_r2",
     "design_review_notify_count", "code_review_notify_count",
 }

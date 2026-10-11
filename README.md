@@ -500,7 +500,7 @@ Each state has a timeout configured in `settings.py` (`BLOCK_TIMERS`):
 | `CODE_REVIEW` | 60 min |
 | `CODE_REVISE` | 30 min |
 
-These defaults rarely trigger timeouts, but the `extend` command can extend deadlines (up to 2 times).
+These defaults rarely trigger timeouts. When less than 10 minutes remain, gokrax sends the implementer an extension notice, and the `extend` command is accepted only within those last 10 minutes before the deadline (up to 2 times per batch).
 
 The maximum number of revision loops (REVISE → REVIEW) is limited by `MAX_REVISE_CYCLES` (default: 4).
 

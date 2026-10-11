@@ -80,7 +80,7 @@ gokrax extend --pj myproject --by 600
 | `--pj` | Yes | project name |
 | `--by BY` | No | seconds to add (default: 600) |
 
-Applicable states: DESIGN_PLAN, DESIGN_REVISE, IMPLEMENTATION, CODE_REVISE. Max 2 extensions.
+Applicable states: DESIGN_PLAN, DESIGN_REVISE, ASSESSMENT, IMPLEMENTATION, CODE_TEST_FIX, CODE_REVISE. Accepted only while the phase deadline is still ahead and less than 600 s away — the same window in which gokrax sends the implementer an extension notice (whether the notice was actually delivered is not checked). Calls earlier than that, after the deadline, or in IMPLEMENTATION with no-cc (no timeout) are rejected (exit 1, nothing is changed). Max 2 extensions per batch; `--by` must be 1–3600 and the total extension must not exceed 3600 s.
 
 ### `start` -- Start a batch
 

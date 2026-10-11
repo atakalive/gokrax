@@ -498,7 +498,7 @@ IDLE → INITIALIZE → DESIGN_PLAN → DESIGN_REVIEW ⇄ DESIGN_REVISE
 | `CODE_REVIEW` | 60 分 |
 | `CODE_REVISE` | 30 分 |
 
-初期値でほぼタイムアウトしないが、`extend` コマンドで期限の延長も可能（最大2回）。
+初期値でほぼタイムアウトしないが、残り 10 分を切ると gokrax が実装担当に延長案内を送り、`extend` コマンドは期限前のこの 10 分間に限り受理される（1 バッチ最大 2 回）。
 
 修正ループ（REVISE → REVIEW）の最大回数は `MAX_REVISE_CYCLES`（初期値: 4）で制限される。
 

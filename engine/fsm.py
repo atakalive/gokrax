@@ -11,6 +11,7 @@ from config import (
     EXTENDABLE_STATES,
     EXTEND_NOTICE_THRESHOLD,
     LOCAL_TZ,
+    MAX_EXTENDS,
     MAX_TIMEOUT_EXTENSION,
     NUDGE_GRACE_SEC,
     REVIEW_MODES,
@@ -241,52 +242,99 @@ def _get_timeout_extension(data: dict) -> int:
     return max(0, min(int(raw), MAX_TIMEOUT_EXTENSION))
 
 
-def _check_nudge(state: str, data: dict) -> TransitionAction | None:
-    """催促/BLOCKED判定。該当しなければNone。"""
-    block_sec = BLOCK_TIMERS.get(state)
-    if not block_sec or data is None:
+@dataclass(frozen=True)
+class TimeoutInfo:
+    """Phase deadline arithmetic shared by _check_nudge, the watchdog notice and cmd_extend."""
+
+    elapsed: float  # seconds since the newest history entry with to == state; 0.0 if none
+    limit: int  # BLOCK_TIMERS[state] + clamped timeout_extension
+    extension: int  # clamped timeout_extension (_get_timeout_extension)
+    remaining: float  # limit - elapsed; <= 0 once overdue
+
+
+def get_timeout_info(state: str, data: dict | None) -> TimeoutInfo | None:
+    """state の期限情報。タイマーが掛かっていなければ None。
+
+    None になるのは、BLOCK_TIMER が無い（0 を含む）state、data が None、IMPLEMENTATION の no_cc
+    （check_transition の IMPLEMENTATION 分岐と同じく、手動実装にはタイマーを掛けない）のとき。
+    """
+    base = BLOCK_TIMERS.get(state)
+    if not base or data is None:
         return None
-
-    # 延長分を加算
-    block_sec += _get_timeout_extension(data)
-
+    if state == "IMPLEMENTATION" and data.get("no_cc", False):
+        return None
+    extension = _get_timeout_extension(data)
+    limit = base + extension
     entered_at = _get_state_entered_at(data, state)
     elapsed = 0.0
     if entered_at is not None:
         elapsed = (_datetime.now(LOCAL_TZ) - entered_at).total_seconds()
+    return TimeoutInfo(
+        elapsed=elapsed, limit=limit, extension=extension, remaining=limit - elapsed
+    )
+
+
+def _extend_notice_key(state: str, data: dict) -> str:
+    """延長案内 1 回分の識別子。state 突入 1 回 × 延長回数ごとに 1 回だけ案内する。"""
+    entered_at = _get_state_entered_at(data, state)
+    entered = entered_at.isoformat() if entered_at is not None else "none"
+    return f"{state}|{entered}|{data.get('extend_count', 0)}"
+
+
+def _extend_notice_text(project: str, remaining: float, extend_count: int, extension: int) -> str:
+    """延長案内の本文。催促末尾への付加と watchdog の単独送信で共用する。
+
+    載せる --by は cmd_extend が受理する値に限る（既定 600 秒を、合計上限の残りで頭打ちにする）。
+    回数か合計上限を使い切っていればコマンドは載せない。
+    """
+    by = min(600, MAX_TIMEOUT_EXTENSION - extension)  # 600 = gokrax extend --by の既定値
+    if extend_count < MAX_EXTENDS and by > 0:
+        return (
+            f"\n\n⏰ {int(remaining)}s until timeout "
+            f"({MAX_EXTENDS - extend_count} extension(s) remaining). "
+            f"If you need more time, run now:\n"
+            f"{GOKRAX_CLI} extend --project {project} --by {by}\n"
+            f"Otherwise finish and report within the remaining time."
+        )
+    if extend_count >= MAX_EXTENDS:
+        reason = f"Extension limit reached ({MAX_EXTENDS}/{MAX_EXTENDS})"
+    else:
+        reason = f"Extension limit reached (total extension cap of {MAX_TIMEOUT_EXTENSION}s used)"
+    return (
+        f"\n\n⏰ {int(remaining)}s until timeout. "
+        f"{reason}; finish and report within the remaining time."
+    )
+
+
+def _check_nudge(state: str, data: dict) -> TransitionAction | None:
+    """催促/BLOCKED判定。該当しなければNone。
+
+    猶予期間内でも、残り時間が EXTEND_NOTICE_THRESHOLD 未満なら延長案内のみの action を返す。
+    """
+    info = get_timeout_info(state, data)
+    if info is None:
+        return None
 
     # BLOCKED判定（時間超過）
-    if elapsed >= block_sec:
+    if info.remaining <= 0:
         return TransitionAction(
             new_state="BLOCKED",
             impl_msg=f"{state} timeout. No response received.",
             blocked_reason="timeout",
         )
 
-    # 猶予期間内は催促しない
-    if elapsed < NUDGE_GRACE_SEC:
-        return None
+    # 延長案内（残り EXTEND_NOTICE_THRESHOLD 未満 + 対象フェーズ）
+    notice = None
+    if info.remaining < EXTEND_NOTICE_THRESHOLD and state in EXTENDABLE_STATES:
+        notice = _extend_notice_text(
+            data.get("project", ""), info.remaining, data.get("extend_count", 0), info.extension
+        )
 
-    # 催促メッセージ作成
-    nudge = TransitionAction(nudge=state)
+    # 猶予期間内は催促しない（延長案内だけは返す）
+    if info.elapsed < NUDGE_GRACE_SEC:
+        return TransitionAction(extend_notice=notice) if notice else None
 
-    # 延長案内を付加（残り5分未満 + 対象フェーズ）
-    remaining = block_sec - elapsed
-    if remaining < EXTEND_NOTICE_THRESHOLD and state in EXTENDABLE_STATES:
-        project = data.get("project", "")
-        extend_count = data.get("extend_count", 0)
-        max_extends = 2
-        if extend_count < max_extends:
-            nudge.extend_notice = (
-                f"\n\n⏰ {int(remaining)}s until timeout ({max_extends - extend_count} extensions remaining). To extend:\n"
-                f"{GOKRAX_CLI} extend --project {project} --by 600"
-            )
-        else:
-            nudge.extend_notice = (
-                f"\n\n⏰ {int(remaining)}s until timeout. Extension limit reached."
-            )
-
-    return nudge
+    return TransitionAction(nudge=state, extend_notice=notice)
 
 
 def _get_reviewer_entry(batch: list, key: str, reviewer: str) -> dict | None:

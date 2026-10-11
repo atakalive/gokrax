@@ -287,7 +287,8 @@ IDLE -> INITIALIZE -> DESIGN_PLAN -> DESIGN_REVIEW -> DESIGN_APPROVED -> ASSESSM
 | 定数 | 値 | 説明 |
 |------|---|------|
 | NUDGE_GRACE_SEC | 600 秒 | 遷移直後はこの期間催促しない |
-| EXTEND_NOTICE_THRESHOLD | 300 秒 | 残り時間がこの値未満で延長案内を催促に付加 |
+| EXTEND_NOTICE_THRESHOLD | 600 秒 | 延長案内と `gokrax extend` 受理の共通閾値。延長対象の状態で残り時間がこの値を切ると、watchdog は実装担当の活動状態に関係なく延長案内を 1 回送る（催促を送る巡回なら催促に付加、それ以外は単独送信）。案内の `--by` は合計上限の残りで頭打ちにし、回数か合計上限を使い切っていればコマンドを載せない。`extend` は期限前で残り時間がこの値未満のときだけ受理する（案内の配送成否は見ない） |
+| MAX_EXTENDS | 2 | 1 バッチで受理する `extend` の最大回数 |
 | INACTIVE_THRESHOLD_SEC | 603 秒 | 催促閾値: この秒数更新がなければ非アクティブ扱い。agy バックエンドでは生存プロセスの活動ファイル (conversations/*.pb, pid ファイル, cli.log) がこの閾値以上 stale な場合ハングとみなし、次回 send 時に reap する（pid kill + pid ファイル削除、セッションは `-c` 継続のため保持）。terminate 失敗時は pid ファイルを保持し BUSY を返す（二重プロセス防止）。バックエンド別の非活動判定: pi はセッションファイル mtime; cc は PID+cmdline 所有権＋mtime フォールバック; gemini/kimi は PID+cmdline のみ; agy（本修正後）は PID 生存＋活動ファイル mtime staleness。**制限事項**: (1) cli.log への書き込みだけが続くハングは stale 検知をすり抜ける; (2) 正常プロセスが 603 秒超会話ターン未更新の場合は誤 reap されるが `-c` 継続によりデータ損失なし; (3) agy が .pb 未生成のままハングした場合、催促には refresher commands (glab issue view + gokrax get-comments)・phase 固有の注記・レビュー観点・匿名制約が含まれ固定指示は復元可能だが、初回配信固有の動的コンテキスト（前ラウンド指摘の構造化要約等）は失われる。codex は stdout ファイル `.codex-pids/<agent>.out.jsonl` が codex プロセスグループに flock されている間を実行中とみなし（ロックは起動前に取得し stdout 経由で継承される）、agy と同じ活動ファイル staleness（`.out.jsonl`・`.err.log`・`.pid` の mtime）を使う。`codex exec --json` はシェルコマンド実行中に何も書かないため、603 秒を超える単一コマンドは次回 send で誤 reap される（session id と出力は保持され、次回 send がスレッドを resume する）。stale な実行を kill するのは、pid ファイルの pid・/proc の起動時刻・cmdline が生存中の `codex exec` と一致する場合だけで、一致しなければ send は BUSY を返し、手動復旧の手順をログに出す。 |
 | INACTIVE_THRESHOLD_PLAN_SEC | 900 秒 | DESIGN_PLAN での実装者催促間隔 |
 | BUSY_ESCALATION_SEC | 1800 秒 | spec mode: 30 分継続した `SendResult.BUSY` を 1 回の機械的失敗としてカウント (retry counter を 1 つ消費) |
@@ -295,9 +296,11 @@ IDLE -> INITIALIZE -> DESIGN_PLAN -> DESIGN_REVIEW -> DESIGN_APPROVED -> ASSESSM
 ### timeout_extension
 
 - pipeline JSON の `timeout_extension` フィールド (int, 単位: 秒)
-- engine/fsm.py で `block_sec += data.get("timeout_extension", 0)` として加算される
+- engine/fsm.py（`get_timeout_info`）で `_get_timeout_extension` により [0, MAX_TIMEOUT_EXTENSION] にクランプしてからフェーズのタイマーに加算される
 - 延長は `gokrax extend --pj <PJ> --by 600` (デフォルト 600 秒)
-- 延長回数は `extend_count` で管理。フェーズごとに DONE 時にリセット
+- 受理は 0 < 残り時間 < EXTEND_NOTICE_THRESHOLD のときだけ（延長案内を送る時間帯。案内の配送成否は見ない）。期限後と、IMPLEMENTATION の no_cc（タイマー無し）では受理しない。`--by` は 1〜MAX_TIMEOUT_EXTENSION、合計も MAX_TIMEOUT_EXTENSION 以下
+- 延長回数は `extend_count` で管理（上限 MAX_EXTENDS）。`timeout_extension` / `extend_count` はバッチ終了（DONE / IDLE）でリセットされ、フェーズ間では持ち越す
+- `_extend_notified` は最後に届けた延長案内（state・state 突入時刻・extend_count）を記録する。送信成功時にだけ書くので、BUSY / 失敗の送信は次の巡回で再送される
 
 ## 7. watchdog 動作
 
@@ -450,6 +453,7 @@ pipeline JSON のフィールドは 3 カテゴリに分類される。
 | comment | str \| null | コメント (CC に渡す指示等) |
 | timeout_extension | int | タイムアウト延長秒数 |
 | extend_count | int | 延長回数 |
+| _extend_notified | str | 最後に届けた延長案内のキー（state・state 突入時刻・extend_count） |
 | excluded_reviewers | list[str] | 除外レビュアーリスト |
 | min_reviews_override | int \| null | min_reviews の上書き値 |
 | test_result | str \| null | テスト結果 |

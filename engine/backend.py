@@ -221,11 +221,19 @@ def is_inactive(agent_id: str, pipeline_data: dict | None = None) -> bool:
     return _is_agent_inactive_openclaw(agent_id)
 
 
-def soft_reap(agent_id: str) -> None:
+def soft_reap(agent_id: str, *, submitted_at: float | None = None) -> None:
     """Context-preserving process reap. No-op for backends without a
-    one-live-process model (e.g. openclaw gateway queue)."""
+    one-live-process model (e.g. openclaw gateway queue).
+
+    ``submitted_at`` (epoch seconds of the agent's last review submission in
+    the calling project) is forwarded to cc only; cc reaps an owner only if it
+    was spawned before that time.  agy/cci/codex keep their agent_id-only call.
+    """
     configured = resolve_backend(agent_id, ignore_fallback=True)
-    if configured == "agy":
+    if configured == "cc":
+        from engine.backend_cc import soft_reap as cc_soft_reap
+        cc_soft_reap(agent_id, submitted_at=submitted_at)
+    elif configured == "agy":
         from engine.backend_agy import soft_reap as agy_soft_reap
         agy_soft_reap(agent_id)
     elif configured == "cci":

@@ -15,16 +15,31 @@ Liveness invariant:
     Cross-process consistency relies on PID + session-file mtime as the shared
     liveness signal.  The starting marker is only a local anti-race aid for the
     process that executed ``send()``.
+
+    ``soft_reap()`` may terminate the live owner, but only when it was spawned
+    (``spawned_at``: WSL-clock epoch seconds written by ``send()``) strictly
+    before the agent's last review submission in the calling project.  The
+    session_id is kept so the next ``send()`` resumes the same context.  If the
+    owner cannot be terminated, the pid file is kept so the BUSY guard holds.
+
+    ``send()``, ``soft_reap()`` and ``reset_session()`` serialize their reads and
+    writes of the pid/spawned_at files with the per-agent ``_agent_lock()``.
 """
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
 import logging
+import math
+import os
+import signal
 import subprocess
 import time
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -134,6 +149,36 @@ def _session_id_path(agent_id: str) -> Path:
 def _pid_path(agent_id: str) -> Path:
     """Return the path to the pid file for an agent."""
     return _session_dir(agent_id) / "pid"
+
+
+def _spawned_at_path(agent_id: str) -> Path:
+    """Return the path to the spawned_at file (epoch seconds of the last spawn, WSL clock)."""
+    return _session_dir(agent_id) / "spawned_at"
+
+
+def _lock_path(agent_id: str) -> Path:
+    """Return the path to the per-agent lock file (see _agent_lock)."""
+    return _session_dir(agent_id) / "lock"
+
+
+@contextmanager
+def _agent_lock(agent_id: str) -> Iterator[None]:
+    """Hold the agent's exclusive inter-process lock on its pid/spawned_at files.
+
+    Blocking ``flock(LOCK_EX)`` (not LOCK_NB) on ``<session_dir>/lock``.  send()
+    holds it from the ownership check through the state persist, soft_reap()
+    from the ownership check through the state cleanup, and reset_session()
+    while deleting the files, so none of them can read or delete the files in
+    the middle of another's update.  Not reentrant: never call one of these
+    three while holding the lock.
+    """
+    _session_dir(agent_id).mkdir(parents=True, exist_ok=True)
+    with open(_lock_path(agent_id), "a", encoding="utf-8") as fh:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
 
 
 def _claude_project_dir(cwd: Path) -> Path:
@@ -396,6 +441,16 @@ def send(agent_id: str, message: str, timeout: int) -> SendResult:
 
     _rebuild_claude_md(agent_id)
 
+    with _agent_lock(agent_id):
+        return _send_locked(agent_id, message)
+
+
+def _send_locked(agent_id: str, message: str) -> SendResult:
+    """Spawn part of send(), from the ownership check through the state persist.
+
+    The caller holds _agent_lock(agent_id), so soft_reap() and reset_session()
+    cannot read or delete the pid/spawned_at files in between.
+    """
     # Read one persisted-state snapshot for this call
     state = _read_persisted_state(agent_id)
     ownership = _check_session_ownership(state)
@@ -490,6 +545,7 @@ def send(agent_id: str, message: str, timeout: int) -> SendResult:
     except (OSError, FileNotFoundError) as e:
         logger.warning("cc spawn failed for %s: %s", agent_id, e)
         return SendResult.FAIL
+    spawned_at = time.time()
 
     # Write message to stdin
     try:
@@ -504,23 +560,23 @@ def send(agent_id: str, message: str, timeout: int) -> SendResult:
         _cleanup_proc(proc)
         return SendResult.FAIL
 
-    # Persist session_id and pid
+    # Persist session_id, spawned_at and pid.  spawned_at is written before pid
+    # so that a reader never pairs a new pid with the previous spawn's time.
     sid_path = _session_id_path(agent_id)
+    spawned_p = _spawned_at_path(agent_id)
     pid_p = _pid_path(agent_id)
     try:
         sid_path.write_text(session_id, encoding="utf-8")
+        spawned_p.write_text(repr(spawned_at), encoding="utf-8")
         pid_p.write_text(str(proc.pid), encoding="utf-8")
     except OSError as e:
         logger.warning("cc state persist failed for %s: %s", agent_id, e)
         # Roll back partial writes
-        try:
-            sid_path.unlink(missing_ok=True)
-        except OSError:
-            pass
-        try:
-            pid_p.unlink(missing_ok=True)
-        except OSError:
-            pass
+        for path in (sid_path, spawned_p, pid_p):
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
         _cleanup_proc(proc)
         return SendResult.FAIL
 
@@ -637,6 +693,243 @@ def is_inactive(agent_id: str, pipeline_data: dict | None = None,
 
 
 # ---------------------------------------------------------------------------
+# soft_reap
+# ---------------------------------------------------------------------------
+
+_PROC_ROOT = Path("/proc")
+_TERMINATE_POLLS = 10
+_TERMINATE_POLL_SEC = 0.5
+
+
+def _read_spawned_at(agent_id: str) -> float | None:
+    """Read the spawned_at file. Returns None if missing, unparsable or non-finite."""
+    try:
+        text = _spawned_at_path(agent_id).read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    try:
+        value = float(text)
+    except ValueError:
+        return None
+    return value if math.isfinite(value) else None
+
+
+def _proc_identity(pid: int) -> tuple[int, int] | None:
+    """Return (starttime in clock ticks, pgid) from <_PROC_ROOT>/<pid>/stat.
+
+    Returns None if the process is gone, is a zombie (it has exited and only
+    its parent's wait() is pending), or the stat line cannot be parsed.
+    Modeled on backend_cci._proc_starttime_ticks / _is_zombie; kept local
+    because backends do not import each other's private helpers.
+    """
+    try:
+        stat_line = (_PROC_ROOT / str(pid) / "stat").read_text(
+            encoding="utf-8", errors="replace",
+        )
+    except OSError:
+        return None
+    close_paren = stat_line.rfind(")")
+    if close_paren == -1:
+        return None
+    try:
+        fields = stat_line[close_paren + 2 :].split()
+        if fields[0] == "Z":
+            return None
+        return int(fields[19]), int(fields[2])
+    except (IndexError, ValueError):
+        return None
+
+
+def _snapshot_children(pid: int) -> list[tuple[int, int, int]]:
+    """Return (child pid, starttime ticks, pgid) for each direct child of *pid*.
+
+    Reads <_PROC_ROOT>/<pid>/task/*/children.  Unreadable entries are skipped.
+    """
+    children: list[tuple[int, int, int]] = []
+    try:
+        task_dirs = sorted((_PROC_ROOT / str(pid) / "task").iterdir())
+    except OSError:
+        return children
+    for task_dir in task_dirs:
+        try:
+            tokens = (task_dir / "children").read_text(encoding="utf-8").split()
+        except OSError:
+            continue
+        for token in tokens:
+            try:
+                child_pid = int(token)
+            except ValueError:
+                continue
+            identity = _proc_identity(child_pid)
+            if identity is not None:
+                children.append((child_pid, identity[0], identity[1]))
+    return children
+
+
+def _signalable_pgid(pgid: int | None) -> bool:
+    """True if killpg may target *pgid*: a real group (> 1) that is not our own.
+
+    0 and negative values mean "our own group" / "every process" to
+    kill(2)/killpg(3), and 1 is init's group.
+    """
+    return pgid is not None and pgid > 1 and pgid != os.getpgrp()
+
+
+def _terminate_owner(
+    pid: int, pgid: int | None, state: PersistedCcState, agent_id: str,
+) -> bool:
+    """SIGTERM -> poll -> SIGKILL -> poll the live owner. Returns True once it is gone.
+
+    Signals the owner's process group (send() spawns with start_new_session=True,
+    so the group holds claude and its non-detached descendants), or the pid
+    alone when the pgid is unknown or not signalable.  Liveness is re-evaluated
+    with _check_session_ownership(state) on every poll; a zombie has an empty
+    cmdline and counts as gone.  Same sequence as backend_agy._terminate_pid_tree.
+    """
+    target_pgid = pgid if _signalable_pgid(pgid) else None
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            if target_pgid is not None:
+                os.killpg(target_pgid, sig)
+            else:
+                os.kill(pid, sig)
+        except ProcessLookupError:
+            return True
+        except OSError as e:
+            logger.warning(
+                "cc soft_reap: %s to pid %d (pgid %s) failed for %s: %s",
+                sig.name, pid, target_pgid, agent_id, e,
+            )
+        for _ in range(_TERMINATE_POLLS):
+            if not _check_session_ownership(state).has_live_owner:
+                return True
+            time.sleep(_TERMINATE_POLL_SEC)
+    return not _check_session_ownership(state).has_live_owner
+
+
+def _reap_detached_children(
+    children: list[tuple[int, int, int]], owner_pgid: int | None, agent_id: str,
+) -> None:
+    """Best-effort SIGTERM -> SIGKILL to children that left the owner's process group.
+
+    A child that started its own group (e.g. a Bash tool shell started with
+    setsid) survives killpg on the owner's group.  The child's group is
+    signalled only while the recorded child itself is alive with the same
+    (starttime, pgid), and never when the group is not signalable or is the
+    owner's group.  Once the recorded child is gone, the rest of its group
+    (e.g. a grandchild that ignored SIGTERM) is not signalled: a bare pgid
+    cannot be told apart from a reused one.
+    """
+    for child_pid, starttime, pgid in children:
+        if not _signalable_pgid(pgid) or pgid == owner_pgid:
+            continue
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            if _proc_identity(child_pid) != (starttime, pgid):
+                break
+            try:
+                os.killpg(pgid, sig)
+            except ProcessLookupError:
+                break
+            except OSError as e:
+                logger.warning(
+                    "cc soft_reap: %s to child pgid %d failed for %s: %s",
+                    sig.name, pgid, agent_id, e,
+                )
+                break
+            logger.info(
+                "cc soft_reap: sent %s to child pgid %d (pid %d) for %s",
+                sig.name, pgid, child_pid, agent_id,
+            )
+            for _ in range(_TERMINATE_POLLS):
+                if _proc_identity(child_pid) != (starttime, pgid):
+                    break
+                time.sleep(_TERMINATE_POLL_SEC)
+
+
+def _soft_reap_locked(
+    agent_id: str, submitted_at: float,
+) -> tuple[list[tuple[int, int, int]], int | None] | None:
+    """Owner part of soft_reap(); the caller holds _agent_lock(agent_id).
+
+    Returns (children snapshot, owner pgid) once the owner is gone, or None if
+    nothing was terminated.
+    """
+    state = _read_persisted_state(agent_id)
+    if not _check_session_ownership(state).has_live_owner:
+        return None
+    assert state.pid_text is not None
+    pid = int(state.pid_text)
+    spawned_at = _read_spawned_at(agent_id)
+    if spawned_at is None or spawned_at >= submitted_at:
+        logger.info(
+            "cc soft_reap skipped for %s: live owner pid %d spawned_at=%r "
+            "is not before submitted_at=%r",
+            agent_id, pid, spawned_at, submitted_at,
+        )
+        return None
+
+    children = _snapshot_children(pid)
+    try:
+        owner_pgid: int | None = os.getpgid(pid)
+    except OSError:
+        owner_pgid = None
+    logger.info(
+        "cc soft_reap: terminating live owner pid %d for %s "
+        "(spawned_at=%r < submitted_at=%r)",
+        pid, agent_id, spawned_at, submitted_at,
+    )
+    if not _terminate_owner(pid, owner_pgid, state, agent_id):
+        logger.warning(
+            "cc soft_reap: failed to terminate live owner pid %d for %s; "
+            "keeping pid file to preserve BUSY guard",
+            pid, agent_id,
+        )
+        return None
+
+    _starting_markers.pop(agent_id, None)
+    for path in (_pid_path(agent_id), _spawned_at_path(agent_id)):
+        try:
+            path.unlink(missing_ok=True)
+        except OSError as exc:
+            logger.warning(
+                "cc soft_reap: failed to delete %s file for %s: %s",
+                path.name, agent_id, exc,
+            )
+    return children, owner_pgid
+
+
+def soft_reap(agent_id: str, *, submitted_at: float | None = None) -> None:
+    """Context-preserving reap of a claude process still running after a submission.
+
+    Terminates the live owner only if it was spawned strictly before
+    ``submitted_at`` (epoch seconds of the agent's last review submission in
+    the calling project).  The session/pid files are per agent and shared
+    across projects, and the BUSY guard keeps at most one live owner, so an
+    owner spawned before the submission and still alive is the process that
+    submitted and is doing post-submission work.  An owner spawned at or after
+    ``submitted_at`` (e.g. for another project) is left alone, and so is an
+    owner whose spawned_at is unknown.
+
+    On success the pid and spawned_at files are removed and the session_id is
+    kept, so the next send() resumes the same context.  If the owner cannot be
+    terminated, the files are kept to preserve the BUSY guard.
+
+    Holds _agent_lock(agent_id) from the ownership check through the state
+    cleanup, so no send()/reset_session() can write or delete the files in
+    between.  This relies on every writer of those files taking the lock (code
+    from before this change does not).  Detached children are reaped after the
+    lock is released, so a slow child does not hold up send().
+    """
+    if config.DRY_RUN or submitted_at is None:
+        return
+    with _agent_lock(agent_id):
+        reaped = _soft_reap_locked(agent_id, submitted_at)
+    if reaped is not None:
+        children, owner_pgid = reaped
+        _reap_detached_children(children, owner_pgid, agent_id)
+
+
+# ---------------------------------------------------------------------------
 # reset_session
 # ---------------------------------------------------------------------------
 
@@ -646,23 +939,23 @@ def reset_session(agent_id: str) -> None:
     Contract:
     - Calls _rebuild_claude_md(agent_id)
     - Clears the process-local starting marker unconditionally.
-    - Deletes session_id and pid files if present. Absent files are not an error.
+    - Deletes session_id, pid and spawned_at files if present, holding
+      _agent_lock(agent_id). Absent files are not an error.
     - Does NOT terminate in-flight claude processes.
     - Unexpected OS errors are logged as warnings and swallowed.
     """
     _rebuild_claude_md(agent_id)
-    _starting_markers.pop(agent_id, None)
-    try:
-        _session_id_path(agent_id).unlink(missing_ok=True)
-    except OSError as exc:
-        logger.warning(
-            "reset_session: failed to delete session_id file for %s: %s",
-            agent_id, exc,
-        )
-    try:
-        _pid_path(agent_id).unlink(missing_ok=True)
-    except OSError as exc:
-        logger.warning(
-            "reset_session: failed to delete pid file for %s: %s",
-            agent_id, exc,
-        )
+    with _agent_lock(agent_id):
+        _starting_markers.pop(agent_id, None)
+        for name, path in (
+            ("session_id", _session_id_path(agent_id)),
+            ("pid", _pid_path(agent_id)),
+            ("spawned_at", _spawned_at_path(agent_id)),
+        ):
+            try:
+                path.unlink(missing_ok=True)
+            except OSError as exc:
+                logger.warning(
+                    "reset_session: failed to delete %s file for %s: %s",
+                    name, agent_id, exc,
+                )

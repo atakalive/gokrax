@@ -6477,7 +6477,7 @@ class TestSoftReapBeforeRedispatch:
         reaped: list[str] = []
         monkeypatch.setattr("watchdog.notify_reviewers", lambda *a, **k: [])
         monkeypatch.setattr("watchdog._start_cc", lambda *a, **k: None)
-        with patch("engine.backend.soft_reap", side_effect=reaped.append):
+        with patch("engine.backend.soft_reap", side_effect=lambda r, **kw: reaped.append(r)):
             process(path)
 
         assert set(reaped) == {r1, r3}
@@ -6502,7 +6502,7 @@ class TestSoftReapBeforeRedispatch:
         reaped: list[str] = []
         monkeypatch.setattr("watchdog.notify_reviewers", lambda *a, **k: [])
         monkeypatch.setattr("watchdog._start_cc", lambda *a, **k: None)
-        with patch("engine.backend.soft_reap", side_effect=reaped.append):
+        with patch("engine.backend.soft_reap", side_effect=lambda r, **kw: reaped.append(r)):
             process(path)
 
         assert reaped == [r1]
@@ -6532,7 +6532,7 @@ class TestSoftReapBeforeRedispatch:
         reaped: list[str] = []
         monkeypatch.setattr("watchdog.notify_reviewers", lambda *a, **k: [])
         monkeypatch.setattr("watchdog._start_cc", lambda *a, **k: None)
-        with patch("engine.backend.soft_reap", side_effect=reaped.append):
+        with patch("engine.backend.soft_reap", side_effect=lambda r, **kw: reaped.append(r)):
             process(path)
 
         assert reaped == [r1]
@@ -6551,10 +6551,127 @@ class TestSoftReapBeforeRedispatch:
         reaped: list[str] = []
         monkeypatch.setattr("watchdog.notify_reviewers", lambda *a, **k: [])
         monkeypatch.setattr("watchdog._start_cc", lambda *a, **k: None)
-        with patch("engine.backend.soft_reap", side_effect=reaped.append):
+        with patch("engine.backend.soft_reap", side_effect=lambda r, **kw: reaped.append(r)):
             process(path)
 
         assert reaped == []
+
+    def test_submitted_at_is_latest_at_over_prev_and_kept_reviews(self, tmp_path, monkeypatch):
+        """Issue #401: submitted_at はレビュアーごとに prev_reviews と batch に残った
+        レビュー（APPROVE）の at の最大値。"""
+        from datetime import datetime
+
+        from tests.conftest import TEST_REVIEWERS
+        monkeypatch.setattr("watchdog._now_epoch", lambda: datetime.fromisoformat(_NOW_401).timestamp())
+        r1, r2 = TEST_REVIEWERS[0], TEST_REVIEWERS[1]
+
+        t1 = "2026-10-27T21:20:00+09:00"
+        t2 = "2026-10-27T21:25:34+09:00"
+        t3 = "2026-10-27T21:10:00+09:00"
+        t4 = "2026-10-27T21:15:00+09:00"
+        batch = _make_batch(2, design_ready=True)
+        batch[0]["design_reviews"] = {
+            r1: {"verdict": "P0", "at": t1},
+            r2: {"verdict": "P1", "at": t4},
+        }
+        batch[1]["design_reviews"] = {
+            r1: {"verdict": "APPROVE", "at": t2},
+            r2: {"verdict": "P2", "at": t3},
+        }
+        batch[0]["design_revised"] = True
+        batch[1]["design_revised"] = True
+        path = self._setup_pipeline(
+            tmp_path, monkeypatch, batch, "DESIGN_REVISE", [r1, r2],
+        )
+        from watchdog import process
+
+        calls: dict[str, float | None] = {}
+        monkeypatch.setattr("watchdog.notify_reviewers", lambda *a, **k: [])
+        monkeypatch.setattr("watchdog._start_cc", lambda *a, **k: None)
+        with patch(
+            "engine.backend.soft_reap",
+            side_effect=lambda r, **kw: calls.__setitem__(r, kw.get("submitted_at")),
+        ):
+            process(path)
+
+        assert calls == {
+            r1: datetime.fromisoformat(t2).timestamp(),
+            r2: datetime.fromisoformat(t4).timestamp(),
+        }
+
+    def test_submitted_at_skips_unusable_at(self, tmp_path, monkeypatch):
+        """Issue #401: 空・壊れ・tz なし・日付だけ・未来の at は使わない。使える at が
+        無い提出者には submitted_at=None、ほかに使える at があればそちらを使う。"""
+        from datetime import datetime
+
+        from tests.conftest import TEST_REVIEWERS
+        monkeypatch.setattr("watchdog._now_epoch", lambda: datetime.fromisoformat(_NOW_401).timestamp())
+        r1, r2, r3, r4, r5 = TEST_REVIEWERS[:5]
+
+        valid = "2026-10-27T21:25:34+09:00"
+        batch = _make_batch(2, design_ready=True)
+        batch[0]["design_reviews"] = {
+            r1: {"verdict": "P0", "at": ""},
+            r2: {"verdict": "P1", "at": "not-a-timestamp"},
+            r3: {"verdict": "P2", "at": "2026-10-27T21:20:00"},
+            r4: {"verdict": "REJECT", "at": "2026-10-27"},
+            r5: {"verdict": "P1", "at": "2026-10-27T22:00:01+09:00"},
+        }
+        batch[1]["design_reviews"] = {
+            r5: {"verdict": "APPROVE", "at": valid},
+        }
+        batch[0]["design_revised"] = True
+        batch[1]["design_revised"] = True
+        path = self._setup_pipeline(
+            tmp_path, monkeypatch, batch, "DESIGN_REVISE", [r1, r2, r3, r4, r5],
+        )
+        from watchdog import process
+
+        calls: dict[str, float | None] = {}
+        monkeypatch.setattr("watchdog.notify_reviewers", lambda *a, **k: [])
+        monkeypatch.setattr("watchdog._start_cc", lambda *a, **k: None)
+        with patch(
+            "engine.backend.soft_reap",
+            side_effect=lambda r, **kw: calls.__setitem__(r, kw.get("submitted_at")),
+        ):
+            process(path)
+
+        assert calls == {
+            r1: None, r2: None, r3: None, r4: None,
+            r5: datetime.fromisoformat(valid).timestamp(),
+        }
+
+
+_NOW_401 = "2026-10-27T22:00:00+09:00"
+
+
+class TestLastSubmittedAt:
+    """Issue #401: _last_submitted_at の「今」との境界。_now_epoch を固定する。"""
+
+    @pytest.fixture(autouse=True)
+    def _fixed_now(self, monkeypatch):
+        from datetime import datetime
+
+        self.now = datetime.fromisoformat(_NOW_401).timestamp()
+        monkeypatch.setattr("watchdog._now_epoch", lambda: self.now)
+
+    def test_at_equal_to_now_is_used(self):
+        from watchdog import _last_submitted_at
+
+        prev = {1: {"r1": {"verdict": "P1", "at": _NOW_401}}}
+        assert _last_submitted_at(prev, [], "design_reviews") == {"r1": self.now}
+
+    def test_at_after_now_is_skipped(self):
+        from watchdog import _last_submitted_at
+
+        prev = {1: {"r1": {"verdict": "P1", "at": "2026-10-27T22:00:00.000001+09:00"}}}
+        assert _last_submitted_at(prev, [], "design_reviews") == {}
+
+    def test_other_offset_is_compared_as_the_same_instant(self):
+        from watchdog import _last_submitted_at
+
+        batch = [{"issue": 1, "design_reviews": {"r1": {"verdict": "APPROVE", "at": "2026-10-27T13:00:00+00:00"}}}]
+        assert _last_submitted_at({}, batch, "design_reviews") == {"r1": self.now}
 
 
 # ── Issue #273: DESIGN_PLAN 催促レート制限の閾値切り替えテスト ──────────────

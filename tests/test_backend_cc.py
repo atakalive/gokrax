@@ -5,7 +5,9 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import fcntl
 import os
+import signal
 import subprocess
 import time
 import uuid
@@ -555,7 +557,7 @@ class TestSend:
         mock_proc.stdin = MagicMock()
         mock_proc.pid = 12345
 
-        # Make session_id write succeed but pid write fail
+        # Make session_id and spawned_at writes succeed but pid write fail
         agent_dir = tmp_sessions / "reviewer1"
         agent_dir.mkdir(parents=True)
         orig_write_text = Path.write_text
@@ -563,7 +565,7 @@ class TestSend:
 
         def mock_write_text(self, content, *args, **kwargs):
             call_count[0] += 1
-            if call_count[0] == 2:  # pid file write
+            if call_count[0] == 3:  # pid file write
                 raise OSError("disk full")
             return orig_write_text(self, content, *args, **kwargs)
 
@@ -1805,3 +1807,359 @@ class TestResetSession:
     def test_absent_files_noop(self, tmp_sessions):
         # Should not raise
         backend_cc.reset_session("nonexistent_agent")
+
+    def test_deletes_spawned_at(self, tmp_sessions):
+        d = tmp_sessions / "reviewer1"
+        d.mkdir(parents=True)
+        (d / "spawned_at").write_text("100.0")
+        backend_cc.reset_session("reviewer1")
+        assert not (d / "spawned_at").exists()
+
+    def test_holds_agent_lock_while_deleting(self, tmp_sessions, monkeypatch):
+        held: list[bool] = []
+        orig = backend_cc._spawned_at_path
+
+        def probing_spawned_at_path(agent_id: str) -> Path:
+            held.append(_agent_lock_is_held(agent_id))
+            return orig(agent_id)
+
+        monkeypatch.setattr(backend_cc, "_spawned_at_path", probing_spawned_at_path)
+        backend_cc.reset_session("reviewer1")
+        assert held == [True]
+        assert not _agent_lock_is_held("reviewer1")
+
+
+# ===========================================================================
+# spawned_at / _agent_lock (Issue #401)
+# ===========================================================================
+
+def _agent_lock_is_held(agent_id: str) -> bool:
+    """Probe _agent_lock from a separate open file description (non-blocking)."""
+    with open(backend_cc._lock_path(agent_id), "a", encoding="utf-8") as fh:
+        try:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
+        fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+        return False
+
+
+class TestSpawnedAt:
+    def test_send_writes_spawned_at_before_pid(self, tmp_sessions, monkeypatch):
+        monkeypatch.setattr(config, "DRY_RUN", False)
+        monkeypatch.setattr(backend_cc, "_agent_config_cache", {})
+        mock_proc = MagicMock()
+        mock_proc.stdin = MagicMock()
+        mock_proc.pid = 12345
+        orig_write_text = Path.write_text
+        written: list[str] = []
+
+        def recording_write_text(self, content, *args, **kwargs):
+            written.append(self.name)
+            return orig_write_text(self, content, *args, **kwargs)
+
+        before = time.time()
+        with patch("subprocess.Popen", return_value=mock_proc), \
+             patch.object(Path, "write_text", recording_write_text):
+            result = backend_cc.send("reviewer1", "hello", timeout=30)
+        after = time.time()
+        assert result is SendResult.OK
+        state_writes = [n for n in written if n in ("session_id", "spawned_at", "pid")]
+        assert state_writes == ["session_id", "spawned_at", "pid"]
+        value = float((tmp_sessions / "reviewer1" / "spawned_at").read_text())
+        assert before <= value <= after
+
+    def test_send_holds_agent_lock_while_spawning(self, tmp_sessions, monkeypatch):
+        monkeypatch.setattr(config, "DRY_RUN", False)
+        monkeypatch.setattr(backend_cc, "_agent_config_cache", {})
+        mock_proc = MagicMock()
+        mock_proc.stdin = MagicMock()
+        mock_proc.pid = 12345
+        held: list[bool] = []
+
+        def probing_popen(*args, **kwargs):
+            held.append(_agent_lock_is_held("reviewer1"))
+            return mock_proc
+
+        with patch("subprocess.Popen", side_effect=probing_popen):
+            result = backend_cc.send("reviewer1", "hello", timeout=30)
+        assert result is SendResult.OK
+        assert held == [True]
+        assert not _agent_lock_is_held("reviewer1")
+
+    def test_persist_failure_removes_spawned_at(self, tmp_sessions, monkeypatch):
+        monkeypatch.setattr(config, "DRY_RUN", False)
+        monkeypatch.setattr(backend_cc, "_agent_config_cache", {})
+        mock_proc = MagicMock()
+        mock_proc.stdin = MagicMock()
+        mock_proc.pid = 12345
+        orig_write_text = Path.write_text
+
+        def failing_pid_write(self, content, *args, **kwargs):
+            if self.name == "pid":
+                raise OSError("disk full")
+            return orig_write_text(self, content, *args, **kwargs)
+
+        with patch("subprocess.Popen", return_value=mock_proc), \
+             patch.object(Path, "write_text", failing_pid_write):
+            result = backend_cc.send("reviewer1", "hello", timeout=30)
+        assert result is SendResult.FAIL
+        assert not (tmp_sessions / "reviewer1" / "spawned_at").exists()
+        assert not (tmp_sessions / "reviewer1" / "pid").exists()
+
+
+# ===========================================================================
+# soft_reap (Issue #401)
+# ===========================================================================
+
+_SR_SID = "11111111-2222-3333-4444-555555555555"
+
+
+def _sr_ownership(live: bool) -> backend_cc.SessionOwnership:
+    state = backend_cc.PersistedCcState(session_id=_SR_SID, pid_text="4242")
+    return backend_cc.SessionOwnership(
+        state=state, has_valid_session=True, has_live_owner=live,
+    )
+
+
+class TestSoftReap:
+    """No real process is ever signalled: os.killpg / os.kill / os.getpgid,
+    ownership and the /proc readers are all mocked."""
+
+    @pytest.fixture(autouse=True)
+    def _env(self, tmp_sessions, monkeypatch):
+        monkeypatch.setattr(config, "DRY_RUN", False)
+        d = tmp_sessions / "reviewer1"
+        d.mkdir(parents=True)
+        (d / "session_id").write_text(_SR_SID)
+        (d / "pid").write_text("4242")
+        self.dir = d
+        self.killpg = MagicMock()
+        self.kill = MagicMock()
+        monkeypatch.setattr(backend_cc.os, "killpg", self.killpg)
+        monkeypatch.setattr(backend_cc.os, "kill", self.kill)
+        monkeypatch.setattr(backend_cc.os, "getpgid", lambda pid: pid)
+        monkeypatch.setattr(backend_cc, "_snapshot_children", lambda pid: [])
+        monkeypatch.setattr(backend_cc, "_proc_identity", lambda pid: None)
+
+    def _ownership(self, monkeypatch, *lives: bool) -> None:
+        mock = MagicMock(side_effect=[_sr_ownership(v) for v in lives])
+        monkeypatch.setattr(backend_cc, "_check_session_ownership", mock)
+
+    def _children(self, monkeypatch, children, identities) -> None:
+        seq = iter(identities)
+        monkeypatch.setattr(backend_cc, "_snapshot_children", lambda pid: children)
+        monkeypatch.setattr(backend_cc, "_proc_identity", lambda pid: next(seq, None))
+
+    def _killpg_args(self) -> list[tuple]:
+        return [c.args for c in self.killpg.call_args_list]
+
+    def test_submitted_at_none_does_no_io(self, monkeypatch):
+        read = MagicMock()
+        monkeypatch.setattr(backend_cc, "_read_persisted_state", read)
+        backend_cc.soft_reap("reviewer1")
+        backend_cc.soft_reap("reviewer1", submitted_at=None)
+        read.assert_not_called()
+        self.killpg.assert_not_called()
+
+    def test_dry_run_does_no_io(self, monkeypatch):
+        monkeypatch.setattr(config, "DRY_RUN", True)
+        read = MagicMock()
+        monkeypatch.setattr(backend_cc, "_read_persisted_state", read)
+        backend_cc.soft_reap("reviewer1", submitted_at=200.0)
+        read.assert_not_called()
+        self.killpg.assert_not_called()
+
+    def test_no_live_owner_noop(self, monkeypatch):
+        (self.dir / "spawned_at").write_text("100.0")
+        self._ownership(monkeypatch, False)
+        backend_cc.soft_reap("reviewer1", submitted_at=200.0)
+        self.killpg.assert_not_called()
+        self.kill.assert_not_called()
+        assert (self.dir / "pid").exists()
+        assert (self.dir / "spawned_at").exists()
+
+    def test_owner_spawned_before_submission_is_reaped(self, monkeypatch):
+        (self.dir / "spawned_at").write_text("100.0")
+        self._ownership(monkeypatch, True, False)
+        backend_cc._starting_markers["reviewer1"] = 50.0
+        backend_cc.soft_reap("reviewer1", submitted_at=200.0)
+        assert self._killpg_args() == [(4242, signal.SIGTERM)]
+        self.kill.assert_not_called()
+        assert not (self.dir / "pid").exists()
+        assert not (self.dir / "spawned_at").exists()
+        assert (self.dir / "session_id").read_text() == _SR_SID
+        assert "reviewer1" not in backend_cc._starting_markers
+
+    @pytest.mark.parametrize("spawned_at", ["200.0", "300.0"])
+    def test_owner_spawned_at_or_after_submission_is_kept(self, monkeypatch, spawned_at):
+        (self.dir / "spawned_at").write_text(spawned_at)
+        self._ownership(monkeypatch, True)
+        backend_cc.soft_reap("reviewer1", submitted_at=200.0)
+        self.killpg.assert_not_called()
+        self.kill.assert_not_called()
+        assert (self.dir / "pid").read_text() == "4242"
+        assert (self.dir / "spawned_at").read_text() == spawned_at
+
+    @pytest.mark.parametrize("spawned_at", [None, "", "garbage", "nan", "-inf"])
+    def test_unknown_spawned_at_is_kept(self, monkeypatch, spawned_at):
+        if spawned_at is not None:
+            (self.dir / "spawned_at").write_text(spawned_at)
+        self._ownership(monkeypatch, True)
+        backend_cc.soft_reap("reviewer1", submitted_at=200.0)
+        self.killpg.assert_not_called()
+        self.kill.assert_not_called()
+        assert (self.dir / "pid").read_text() == "4242"
+
+    def test_kill_failure_keeps_pid_and_spawned_at(self, monkeypatch, caplog):
+        (self.dir / "spawned_at").write_text("100.0")
+        monkeypatch.setattr(
+            backend_cc, "_check_session_ownership",
+            MagicMock(return_value=_sr_ownership(True)),
+        )
+        backend_cc._starting_markers["reviewer1"] = 50.0
+        with caplog.at_level(logging.WARNING):
+            backend_cc.soft_reap("reviewer1", submitted_at=200.0)
+        assert self._killpg_args() == [(4242, signal.SIGTERM), (4242, signal.SIGKILL)]
+        assert (self.dir / "pid").read_text() == "4242"
+        assert (self.dir / "spawned_at").read_text() == "100.0"
+        assert "reviewer1" in backend_cc._starting_markers
+        assert any("preserve BUSY guard" in r.message for r in caplog.records)
+
+    def test_owner_already_gone_cleans_up(self, monkeypatch):
+        (self.dir / "spawned_at").write_text("100.0")
+        self._ownership(monkeypatch, True)
+        self.killpg.side_effect = ProcessLookupError()
+        backend_cc.soft_reap("reviewer1", submitted_at=200.0)
+        assert not (self.dir / "pid").exists()
+        assert not (self.dir / "spawned_at").exists()
+        assert (self.dir / "session_id").exists()
+
+    @pytest.mark.parametrize("owner_pgid", ["own_pgrp", 0, 1, -1])
+    def test_unsignalable_owner_pgid_falls_back_to_pid_kill(self, monkeypatch, owner_pgid):
+        (self.dir / "spawned_at").write_text("100.0")
+        self._ownership(monkeypatch, True, False)
+        pgid = os.getpgrp() if owner_pgid == "own_pgrp" else owner_pgid
+        monkeypatch.setattr(backend_cc.os, "getpgid", lambda pid: pgid)
+        backend_cc.soft_reap("reviewer1", submitted_at=200.0)
+        self.killpg.assert_not_called()
+        self.kill.assert_called_once_with(4242, signal.SIGTERM)
+
+    def test_children_snapshot_taken_before_termination(self, monkeypatch):
+        (self.dir / "spawned_at").write_text("100.0")
+        self._ownership(monkeypatch, True, False)
+        order: list[str] = []
+
+        def snapshot(pid: int) -> list[tuple[int, int, int]]:
+            order.append("snapshot")
+            return []
+
+        monkeypatch.setattr(backend_cc, "_snapshot_children", snapshot)
+        self.killpg.side_effect = lambda pgid, sig: order.append("killpg")
+        backend_cc.soft_reap("reviewer1", submitted_at=200.0)
+        assert order == ["snapshot", "killpg"]
+
+    def test_detached_child_with_same_identity_is_killed(self, monkeypatch):
+        (self.dir / "spawned_at").write_text("100.0")
+        self._ownership(monkeypatch, True, False)
+        self._children(monkeypatch, [(5000, 111, 5000)], [(111, 5000)])
+        backend_cc.soft_reap("reviewer1", submitted_at=200.0)
+        assert self._killpg_args() == [(4242, signal.SIGTERM), (5000, signal.SIGTERM)]
+
+    def test_child_surviving_sigterm_gets_sigkill(self, monkeypatch):
+        (self.dir / "spawned_at").write_text("100.0")
+        self._ownership(monkeypatch, True, False)
+        alive = [(111, 5000)] * 12
+        self._children(monkeypatch, [(5000, 111, 5000)], alive)
+        backend_cc.soft_reap("reviewer1", submitted_at=200.0)
+        assert self._killpg_args() == [
+            (4242, signal.SIGTERM), (5000, signal.SIGTERM), (5000, signal.SIGKILL),
+        ]
+
+    def test_child_with_changed_starttime_is_not_killed(self, monkeypatch):
+        (self.dir / "spawned_at").write_text("100.0")
+        self._ownership(monkeypatch, True, False)
+        self._children(monkeypatch, [(5000, 111, 5000)], [(999, 5000)])
+        backend_cc.soft_reap("reviewer1", submitted_at=200.0)
+        assert self._killpg_args() == [(4242, signal.SIGTERM)]
+
+    @pytest.mark.parametrize("which", ["own_pgrp", "owner_pgid", 0, 1, -1])
+    def test_child_in_unsignalable_or_owner_group_is_not_signalled(
+        self, monkeypatch, which,
+    ):
+        (self.dir / "spawned_at").write_text("100.0")
+        self._ownership(monkeypatch, True, False)
+        pgid = {"own_pgrp": os.getpgrp(), "owner_pgid": 4242}.get(which, which)
+        self._children(monkeypatch, [(5000, 111, pgid)], [(111, pgid)] * 3)
+        backend_cc.soft_reap("reviewer1", submitted_at=200.0)
+        assert self._killpg_args() == [(4242, signal.SIGTERM)]
+
+    def test_lock_held_for_owner_released_for_children(self, monkeypatch):
+        (self.dir / "spawned_at").write_text("100.0")
+        self._ownership(monkeypatch, True, False)
+        self._children(monkeypatch, [(5000, 111, 5000)], [(111, 5000)])
+        held: dict[int, bool] = {}
+
+        def probing_killpg(pgid: int, sig: int) -> None:
+            held.setdefault(pgid, _agent_lock_is_held("reviewer1"))
+
+        self.killpg.side_effect = probing_killpg
+        backend_cc.soft_reap("reviewer1", submitted_at=200.0)
+        assert held == {4242: True, 5000: False}
+        assert not _agent_lock_is_held("reviewer1")
+
+
+class TestProcHelpers:
+    """_proc_identity / _snapshot_children against a fake /proc under tmp_path."""
+
+    @pytest.fixture(autouse=True)
+    def _fake_proc(self, tmp_path, monkeypatch):
+        self.proc = tmp_path / "proc"
+        self.proc.mkdir()
+        monkeypatch.setattr(backend_cc, "_PROC_ROOT", self.proc)
+
+    def _stat(self, pid: int, *, comm: str = "bash", state: str = "S",
+              pgrp: int = 300, starttime: int = 777) -> None:
+        d = self.proc / str(pid)
+        d.mkdir(parents=True, exist_ok=True)
+        # fields after "(comm) ": state ppid pgrp session tty_nr tpgid flags minflt
+        # cminflt majflt cmajflt utime stime cutime cstime priority nice
+        # num_threads itrealvalue starttime vsize rss
+        rest = [state, "1", str(pgrp), str(pgrp), "0", "-1", "0", "0", "0", "0",
+                "0", "0", "0", "0", "0", "20", "0", "1", "0", str(starttime), "0", "0"]
+        (d / "stat").write_text(f"{pid} ({comm}) " + " ".join(rest) + "\n")
+
+    def _children_file(self, pid: int, tid: int, text: str) -> None:
+        d = self.proc / str(pid) / "task" / str(tid)
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "children").write_text(text)
+
+    def test_identity_reads_starttime_and_pgid(self):
+        self._stat(200, comm="we) ird (name", pgrp=300, starttime=777)
+        assert backend_cc._proc_identity(200) == (777, 300)
+
+    def test_identity_zombie_is_none(self):
+        self._stat(200, state="Z")
+        assert backend_cc._proc_identity(200) is None
+
+    def test_identity_missing_is_none(self):
+        assert backend_cc._proc_identity(200) is None
+
+    @pytest.mark.parametrize("text", ["garbage", "200 (bash) S 1 300", "200 (bash) S 1 x y"])
+    def test_identity_malformed_is_none(self, text):
+        d = self.proc / "200"
+        d.mkdir()
+        (d / "stat").write_text(text)
+        assert backend_cc._proc_identity(200) is None
+
+    def test_snapshot_children_reads_every_task(self):
+        self._children_file(100, 100, "200 201 x\n")
+        self._children_file(100, 101, "202\n")
+        self._children_file(100, 102, "")
+        self._stat(200, pgrp=200, starttime=11)
+        self._stat(201, pgrp=100, starttime=12)
+        self._stat(202, state="Z")
+        assert backend_cc._snapshot_children(100) == [(200, 11, 200), (201, 12, 100)]
+
+    def test_snapshot_children_missing_pid(self):
+        assert backend_cc._snapshot_children(100) == []

@@ -1237,11 +1237,26 @@ class TestBackendSoftReapDispatch:
             backend.soft_reap("reviewer1")  # should not raise
         mock_agy.assert_not_called()
 
-    def test_cc_is_noop(self, monkeypatch):
+    def test_cc_calls_cc_soft_reap(self, monkeypatch):
         monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "cc")
-        with patch("engine.backend_agy.soft_reap") as mock_agy:
-            backend.soft_reap("reviewer1")
+        with patch("engine.backend_cc.soft_reap") as mock_cc, \
+             patch("engine.backend_agy.soft_reap") as mock_agy:
+            backend.soft_reap("reviewer1", submitted_at=123.5)
+        mock_cc.assert_called_once_with("reviewer1", submitted_at=123.5)
         mock_agy.assert_not_called()
+
+    def test_cc_default_submitted_at_is_none(self, monkeypatch):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "cc")
+        with patch("engine.backend_cc.soft_reap") as mock_cc:
+            backend.soft_reap("reviewer1")
+        mock_cc.assert_called_once_with("reviewer1", submitted_at=None)
+
+    @pytest.mark.parametrize("name", ["agy", "cci", "codex"])
+    def test_submitted_at_not_forwarded_to_other_backends(self, monkeypatch, name):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", name)
+        with patch(f"engine.backend_{name}.soft_reap") as mock_other:
+            backend.soft_reap("reviewer1", submitted_at=123.5)
+        mock_other.assert_called_once_with("reviewer1")
 
     def test_gemini_is_noop(self, monkeypatch):
         monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "gemini")

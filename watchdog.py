@@ -251,6 +251,48 @@ def _stamp_extend_notified(pj: str, notification: dict) -> None:
     update_pipeline(get_path(pj), _stamp)
 
 
+def _now_epoch() -> float:
+    """Return the current time as epoch seconds (seam for tests)."""
+    return _datetime.now(LOCAL_TZ).timestamp()
+
+
+def _last_submitted_at(prev_reviews: dict, batch: list, review_key: str) -> dict[str, float]:
+    """Return reviewer -> epoch seconds of their latest review submission.
+
+    Takes the maximum ``at`` over prev_reviews (entries saved before clear_reviews)
+    and the review entries still left in ``batch`` under ``review_key`` (kept
+    APPROVEs).  Only timezone-aware ISO timestamps that are not later than
+    _now_epoch() count (``now_iso()`` writes them that way); empty, unparsable, naive,
+    date-only and future values are skipped, so a reviewer with none of them is
+    absent from the result.
+    """
+    now = _now_epoch()
+    latest: dict[str, float] = {}
+    sources: list[object] = list(prev_reviews.values())
+    sources.extend(issue.get(review_key) for issue in batch if isinstance(issue, dict))
+    for reviews in sources:
+        if not isinstance(reviews, dict):
+            continue
+        for reviewer, entry in reviews.items():
+            if not isinstance(entry, dict):
+                continue
+            at = entry.get("at")
+            if not isinstance(at, str) or not at:
+                continue
+            try:
+                parsed = _datetime.fromisoformat(at)
+            except ValueError:
+                continue
+            if parsed.tzinfo is None or parsed.utcoffset() is None:
+                continue
+            ts = parsed.timestamp()
+            if ts > now:
+                continue
+            if reviewer not in latest or ts > latest[reviewer]:
+                latest[reviewer] = ts
+    return latest
+
+
 def process(path: Path):
     # === 第1チェック (ロックなし) ===
     data = load_pipeline(path)
@@ -1851,11 +1893,16 @@ def process(path: Path):
             from engine.backend import soft_reap
 
             prev_submitted = {r for reviews in prev_reviews.values() for r in reviews}
+            last_at = _last_submitted_at(
+                prev_reviews,
+                pipeline_data.get("batch", []),
+                "design_reviews" if notify_phase == "design" else "code_reviews",
+            )
             for r in phase_config["members"]:
                 if r in excluded or r not in prev_submitted:
                     continue
                 try:
-                    soft_reap(r)
+                    soft_reap(r, submitted_at=last_at.get(r))
                 except Exception as e:
                     log(f"[{pj}] soft-reap failed for {r}: {e}")
             try:

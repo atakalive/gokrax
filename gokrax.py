@@ -26,6 +26,19 @@ import os
 
 # === Watchdog Loop Management ===
 
+def _loop_management_skipped(what: str) -> bool:
+    """GOKRAX_SKIP_LOOP_MANAGEMENT が真なら stderr に 1 行出して True を返す (Issue #402)。
+
+    テストが本物の watchdog-loop と crontab に触れないためのスイッチ。subprocess の CLI にも
+    in-process の呼び出しにも効くよう、import 時に固定せず呼ぶたびに env を読む。
+    真偽の規則は config の GOKRAX_SKIP_USER_SETTINGS と同じ (strip・lower して "", "0", "false" 以外なら真)。
+    """
+    if os.environ.get("GOKRAX_SKIP_LOOP_MANAGEMENT", "").strip().lower() in ("", "0", "false"):
+        return False
+    print(f"gokrax: {what} skipped (GOKRAX_SKIP_LOOP_MANAGEMENT is set)", file=sys.stderr)
+    return True
+
+
 def _is_loop_running() -> bool:
     """watchdog-loop.sh が稼働中か判定。"""
     if not WATCHDOG_LOOP_PIDFILE.exists():
@@ -39,6 +52,8 @@ def _is_loop_running() -> bool:
 
 def _start_loop():
     """watchdog-loop.sh をバックグラウンド起動し、crontab復帰エントリを追加。"""
+    if _loop_management_skipped("_start_loop"):
+        return
     if not _is_loop_running():
         subprocess.Popen(
             ["nohup", "bash", str(WATCHDOG_LOOP_SCRIPT)],
@@ -85,6 +100,8 @@ def _stop_loop(timeout: float = 3.0) -> None:
     3. 死ななければ SIGKILL escalate
     4. PGIDFILE に記録された iteration 子 PGID も念のため SIGKILL
     """
+    if _loop_management_skipped("_stop_loop"):
+        return
     if not WATCHDOG_LOOP_PIDFILE.exists():
         return
     try:
@@ -113,6 +130,8 @@ def _stop_loop(timeout: float = 3.0) -> None:
 
 def _ensure_cron_entry():
     """crontab に watchdog-loop 復帰エントリがなければ追加。"""
+    if _loop_management_skipped("_ensure_cron_entry"):
+        return
     try:
         current = subprocess.run(
             ["crontab", "-l"], capture_output=True, text=True
@@ -127,6 +146,8 @@ def _ensure_cron_entry():
 
 def _remove_cron_entry():
     """crontab から watchdog-loop エントリを削除。"""
+    if _loop_management_skipped("_remove_cron_entry"):
+        return
     try:
         current = subprocess.run(
             ["crontab", "-l"], capture_output=True, text=True

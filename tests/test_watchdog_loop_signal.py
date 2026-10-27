@@ -60,6 +60,8 @@ def _build_script(tmp_path: Path, dummy_python: str) -> Path:
     """
     dummy_path = tmp_path / "dummy.py"
     dummy_path.write_text(dummy_python)
+    # $DIR (= tmp_path) に watchdog.py が無いと、ループ先頭のガードが最初の周回で exit する (#402)
+    (tmp_path / "watchdog.py").write_text("")
 
     script = tmp_path / "watchdog-loop.sh"
     src = SCRIPT.read_text()
@@ -148,6 +150,36 @@ def test_sigterm_during_sleep_exits_cleanly(tmp_path):
         proc.wait(timeout=2.0)
         assert proc.returncode == 0
         assert not pidfile.exists()
+    finally:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            pass
+
+
+def test_exits_when_watchdog_py_missing(tmp_path):
+    """木が消えて watchdog.py が無くなったら、次の周回の先頭で exit 1 し pidfile を消す (#402)。
+
+    1 周目の子 (dummy) が自分で watchdog.py を消す。2 周目の先頭でガードが効く。
+    """
+    target = tmp_path / "watchdog.py"
+    dummy = f"import os; os.remove({str(target)!r})"
+    script = _build_script(tmp_path, dummy_python=dummy)
+    src = script.read_text().replace("INTERVAL=10", "INTERVAL=0.2")
+    script.write_text(src)
+
+    pidfile = tmp_path / "loop.pid"
+    proc = subprocess.Popen(
+        ["bash", str(script)],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    try:
+        assert proc.wait(timeout=5.0) == 1
+        assert not target.exists(), "1 周目の子が動いていない (ガードが 1 周目で効いた)"
+        assert not pidfile.exists()
+        log = (tmp_path / "watchdog.log").read_text()
+        assert log.count(f"watchdog-loop: {tmp_path}/watchdog.py not found; exiting") == 1
     finally:
         try:
             os.killpg(proc.pid, signal.SIGKILL)

@@ -196,7 +196,7 @@ def cmd_enable(args):
 
 
 def cmd_disable(args):
-    from gokrax import _any_pj_enabled, _stop_loop
+    from gokrax import _any_pj_enabled, _loop_management_skipped, _stop_loop
 
     path = get_path(args.project)
 
@@ -206,7 +206,8 @@ def cmd_disable(args):
     update_pipeline(path, do_disable)
     if not _any_pj_enabled():
         _stop_loop()
-        WATCHDOG_LOOP_PIDFILE.unlink(missing_ok=True)
+        if not _loop_management_skipped("WATCHDOG_LOOP_PIDFILE unlink"):
+            WATCHDOG_LOOP_PIDFILE.unlink(missing_ok=True)
         # Do not unlink LOCKFILE: the running watchdog-loop process tree still
         # holds the inode via inherited fd 200. Unlinking would let the next
         # cron firing create the path with a new inode, bypassing the

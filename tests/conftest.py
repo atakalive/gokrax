@@ -150,6 +150,14 @@ def _clear_default_queue_options(monkeypatch):
     monkeypatch.setattr("config.PROJECT_QUEUE_OPTIONS", {})
 
 
+@pytest.fixture(autouse=True)
+def _skip_loop_management(monkeypatch):
+    """全テストで本物の watchdog-loop と crontab に触れない (Issue #402)。
+    env なので subprocess で叩く CLI にも効く。本物の経路を確かめるテストは自分で delenv する。
+    """
+    monkeypatch.setenv("GOKRAX_SKIP_LOOP_MANAGEMENT", "1")
+
+
 @pytest.fixture
 def tmp_pipelines(tmp_path, monkeypatch):
     """PIPELINES_DIR を tmp_path に差し替え、テスト用パイプラインを返すヘルパー。"""

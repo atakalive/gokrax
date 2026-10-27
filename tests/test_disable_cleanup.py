@@ -10,6 +10,7 @@ sys.path.insert(0, str(ROOT))
 
 def test_cmd_disable_all_pj_disabled_removes_cron_and_cleans_up(tmp_path, monkeypatch):
     """全PJがdisabledになったとき、loop停止→PIDFILEのみ削除。LOCKFILEは維持（crontabは残す）。"""
+    monkeypatch.delenv("GOKRAX_SKIP_LOOP_MANAGEMENT", raising=False)  # 本物の unlink 経路 (#402)
     import gokrax
     import commands.dev.lifecycle as lifecycle
 
@@ -83,6 +84,7 @@ def test_cmd_disable_partial_does_not_cleanup(tmp_path, monkeypatch):
 
 def test_cmd_disable_preserves_lockfile_inode(tmp_path, monkeypatch):
     """cmd_disable 後の LOCKFILE は同一 inode を維持する（flock singleton 保護）。"""
+    monkeypatch.delenv("GOKRAX_SKIP_LOOP_MANAGEMENT", raising=False)  # 本物の unlink 経路 (#402)
     import gokrax
     import commands.dev.lifecycle as lifecycle
 

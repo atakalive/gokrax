@@ -68,6 +68,12 @@ trap 'rm -f "$PIDFILE" "$PGIDFILE"' EXIT
 echo $$ > "$PIDFILE"
 
 while true; do
+    # 木が消えたら居座らずに抜ける。EXIT trap が pid/pgid を消し fd 200 のロックも外れるので、
+    # cron が crontab のパスの loop を起動し直す (Issue #402)
+    if [ ! -f "$DIR/watchdog.py" ]; then
+        echo "watchdog-loop: $DIR/watchdog.py not found; exiting" >> /tmp/gokrax-watchdog.log
+        exit 1
+    fi
     cd "$DIR"
     flock -n /tmp/gokrax-watchdog.lock bash -c 'exec 200>&-; exec python3 watchdog.py' >> /tmp/gokrax-watchdog.log 2>&1 &
     CHILD_PGID=$!

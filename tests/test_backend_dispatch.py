@@ -156,35 +156,35 @@ class TestBackendSendDispatch:
         with patch("engine.backend_pi.send", return_value=SendResult.OK) as mock_pi:
             result = backend.send("reviewer1", "hello", 30)
         assert result is SendResult.OK
-        mock_pi.assert_called_once_with("reviewer1", "hello", 30)
+        mock_pi.assert_called_once_with("reviewer1", "hello", 30, boost=False)
 
     def test_cc_calls_cc_send(self, monkeypatch):
         monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "cc")
         with patch("engine.backend_cc.send", return_value=SendResult.OK) as mock_cc:
             result = backend.send("reviewer1", "hello", 30)
         assert result is SendResult.OK
-        mock_cc.assert_called_once_with("reviewer1", "hello", 30)
+        mock_cc.assert_called_once_with("reviewer1", "hello", 30, boost=False)
 
     def test_cci_calls_cci_send(self, monkeypatch):
         monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "cci")
         with patch("engine.backend_cci.send", return_value=SendResult.OK) as mock_cci:
             result = backend.send("reviewer1", "hello", 30)
         assert result is SendResult.OK
-        mock_cci.assert_called_once_with("reviewer1", "hello", 30)
+        mock_cci.assert_called_once_with("reviewer1", "hello", 30, boost=False)
 
     def test_gemini_calls_gemini_send(self, monkeypatch):
         monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "gemini")
         with patch("engine.backend_gemini.send", return_value=SendResult.OK) as mock_gm:
             result = backend.send("reviewer1", "hello", 30)
         assert result is SendResult.OK
-        mock_gm.assert_called_once_with("reviewer1", "hello", 30)
+        mock_gm.assert_called_once_with("reviewer1", "hello", 30, boost=False)
 
     def test_agy_send_dispatches_to_backend_agy(self, monkeypatch):
         monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "agy")
         with patch("engine.backend_agy.send", return_value=SendResult.OK) as mock_agy:
             result = backend.send("reviewer1", "hello", 30)
         assert result is SendResult.OK
-        mock_agy.assert_called_once_with("reviewer1", "hello", 30)
+        mock_agy.assert_called_once_with("reviewer1", "hello", 30, boost=False)
 
     def test_codex_send_dispatches_to_backend_codex(self, monkeypatch):
         monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "codex")
@@ -1464,3 +1464,25 @@ class TestArchitectureGuard:
                 top_level_funcs.add(node.name)
         assert "send" in top_level_funcs, "backend_openclaw missing public send()"
         assert "ping" in top_level_funcs, "backend_openclaw missing public ping()"
+
+
+# ===========================================================================
+# Issue #400: boost kwarg propagation
+# ===========================================================================
+
+class TestBackendSendBoost:
+    @pytest.mark.parametrize("name", ["pi", "cc", "cci", "gemini", "kimi", "agy", "codex"])
+    def test_boost_true_reaches_backend_send(self, monkeypatch, name):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", name)
+        monkeypatch.setattr(backend, "resolve_backend", lambda agent_id, **kw: name)
+        with patch(f"engine.backend_{name}.send", return_value=SendResult.OK) as mock_send:
+            backend.send("reviewer1", "hello", 30, boost=True)
+        mock_send.assert_called_once_with("reviewer1", "hello", 30, boost=True)
+
+    def test_openclaw_does_not_receive_boost(self, monkeypatch):
+        monkeypatch.setattr(config, "DEFAULT_AGENT_BACKEND", "openclaw")
+        with patch("engine.backend_openclaw.send", return_value=SendResult.OK) as mock_oc, \
+             patch("engine.backend.log") as mock_log:
+            backend.send("reviewer1", "hello", 30, boost=True)
+        mock_oc.assert_called_once_with("reviewer1", "hello", 30)
+        assert any("boost is not supported on openclaw" in str(c) for c in mock_log.call_args_list)

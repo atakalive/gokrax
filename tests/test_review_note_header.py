@@ -60,3 +60,21 @@ class TestFormatReviewNoteHeader:
         """
         result = format_review_note_header("Reviewer 1", "APPROVE", "code", 0, 2)
         assert result == "[Reviewer 1] APPROVE (code review)"
+
+
+class TestFormatReviewNoteHeaderBoost:
+    """Issue #400: [boost] tag."""
+
+    def test_boosted_round1(self):
+        result = format_review_note_header("Reviewer 1", "P1", "design", 1, 1, boosted=True)
+        assert result == "[Reviewer 1] [boost] P1 (design review) Round 1"
+
+    def test_boosted_npass(self):
+        result = format_review_note_header("Reviewer 2", "APPROVE", "design", 1, 2, boosted=True)
+        assert result == "[Reviewer 2] [boost] APPROVE (design review) Round 1, 2-Pass"
+
+    def test_not_boosted_unchanged(self):
+        for args in [("Reviewer 1", "P1", "design", 1, 1), ("Reviewer 1", "APPROVE", "code", 1, 2),
+                     ("Reviewer 1", "P1", "design", 2, 2), ("Reviewer 1", "P1", "code", 0, 1)]:
+            assert format_review_note_header(*args, boosted=False) == format_review_note_header(*args)
+            assert "[boost]" not in format_review_note_header(*args)

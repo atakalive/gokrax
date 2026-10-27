@@ -52,6 +52,7 @@ from config import (
     PROJECT_ROOT,
 )
 from engine.backend_types import SendResult
+from engine.boost import overlay_profile
 
 logger = logging.getLogger(__name__)
 
@@ -417,7 +418,7 @@ def _rebuild_claude_md(agent_id: str) -> None:
 # send
 # ---------------------------------------------------------------------------
 
-def send(agent_id: str, message: str, timeout: int) -> SendResult:
+def send(agent_id: str, message: str, timeout: int, *, boost: bool = False) -> SendResult:
     """Fire-and-forget subprocess launch of ``claude -p``.
 
     Args:
@@ -442,10 +443,10 @@ def send(agent_id: str, message: str, timeout: int) -> SendResult:
     _rebuild_claude_md(agent_id)
 
     with _agent_lock(agent_id):
-        return _send_locked(agent_id, message)
+        return _send_locked(agent_id, message, boost=boost)
 
 
-def _send_locked(agent_id: str, message: str) -> SendResult:
+def _send_locked(agent_id: str, message: str, *, boost: bool = False) -> SendResult:
     """Spawn part of send(), from the ownership check through the state persist.
 
     The caller holds _agent_lock(agent_id), so soft_reap() and reset_session()
@@ -478,6 +479,8 @@ def _send_locked(agent_id: str, message: str) -> SendResult:
 
     config_data = _load_config()
     profile = config_data.get(agent_id, {})
+    if boost:
+        profile = overlay_profile(profile, "cc")
 
     if not profile:
         logger.debug("No cc profile for agent %s; using claude defaults", agent_id)

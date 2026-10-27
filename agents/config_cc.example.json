@@ -1,5 +1,6 @@
 {
   "_comment": {
+    "boost": "Optional dict overlaid on this entry for boost-mode batches (Issue #400). Allowed keys: 'model', 'thinking', 'effort'; other keys are ignored. Upgrade within the same provider only, e.g. {\"model\": \"<higher model>\"}",
     "model":  "Claude model alias or full name (e.g. 'opus', 'sonnet', 'claude-sonnet-4-6')",
     "thinking": "Thinking mode: 'enabled' (always think), 'adaptive' (model decides), 'disabled' (no thinking)",
     "effort": "Effort level: 'low', 'medium', 'high', 'xhigh', 'max', 'ultracode'. ultracode = xhigh + dynamic workflow orchestration; requires ultracode/dynamic-workflow-capable model (Fable 5 / Opus 4.8 / 4.7) + dynamic workflows enabled. High token consumption. Note: xhigh effort is supported on all models including Opus 4.6",

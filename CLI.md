@@ -122,8 +122,10 @@ gokrax start --pj myproject --mode standard
 | `--no-automerge` | No | explicitly require owner confirmation before merge (negates `--automerge`) |
 | `--autopull` | No | run `git pull --ff-only` during INITIALIZE (default: True) |
 | `--no-autopull` | No | skip the INITIALIZE `git pull --ff-only` (negates `--autopull`) |
+| `--boost` | No | upgrade reviewer models (per-agent `boost` in `agents/config_<backend>.json`) in phases where `REVIEW_MODES` enables `boost` |
+| `--no-boost` | No | do not boost reviewer models for this batch (negates `--boost`) |
 
-Defaults for the skip / context / automerge flags come from `DEFAULT_QUEUE_OPTIONS` in `settings.py` (per-project values in `PROJECT_QUEUE_OPTIONS` take precedence). Passing the flag here overrides the default for this batch only.
+Defaults for the skip / context / automerge / boost flags come from `DEFAULT_QUEUE_OPTIONS` in `settings.py` (per-project values in `PROJECT_QUEUE_OPTIONS` take precedence). Passing the flag here overrides the default for this batch only.
 
 Prerequisite: project must be in IDLE state.
 

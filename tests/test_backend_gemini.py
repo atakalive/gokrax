@@ -654,3 +654,20 @@ class TestRebuildGeminiMd:
             backend_gemini._rebuild_gemini_md(AGENT)
         assert (pd / "GEMINI.md").read_text() == "preexisting"
         assert any("non-bool" in r.message for r in caplog.records)
+
+
+# ===========================================================================
+# Issue #400: boost overlay
+# ===========================================================================
+
+class TestSendBoost:
+    @pytest.mark.parametrize("boost, expected", [(True, "gemini-big"), (False, "gemini-base")])
+    def test_model_overlay(self, recorder, monkeypatch, boost, expected):
+        monkeypatch.setattr(backend_gemini, "_count_sessions", lambda cwd: 0)
+        monkeypatch.setattr(
+            backend_gemini, "_load_config",
+            lambda: {AGENT: {"model": "gemini-base", "boost": {"model": "gemini-big"}}},
+        )
+        backend_gemini.send(AGENT, "hi", 30, boost=boost)
+        argv = recorder["popen_calls"][0]
+        assert argv[argv.index("-m") + 1] == expected

@@ -1000,3 +1000,25 @@ class TestLoadConfig:
         with caplog.at_level(logging.WARNING, logger="engine.backend_codex"):
             assert backend_codex._load_config() == {}
         assert any("Expected JSON object" in r.getMessage() for r in caplog.records)
+
+
+# ===========================================================================
+# Issue #400: boost overlay
+# ===========================================================================
+
+class TestSendBoost:
+    _PROFILE = {"model": "m1", "effort": "medium", "boost": {"model": "m2", "effort": "xhigh"}}
+
+    def test_boost_true_overlays(self, recorder, monkeypatch):
+        _set_config(monkeypatch, self._PROFILE)
+        backend_codex.send(AGENT, "hi", 30, boost=True)
+        assert recorder["calls"][0]["argv"] == [
+            "codex", "exec", *FLAGS, "-m", "m2", "-c", 'model_reasoning_effort="xhigh"', "-",
+        ]
+
+    def test_boost_false_keeps_base(self, recorder, monkeypatch):
+        _set_config(monkeypatch, self._PROFILE)
+        backend_codex.send(AGENT, "hi", 30, boost=False)
+        assert recorder["calls"][0]["argv"] == [
+            "codex", "exec", *FLAGS, "-m", "m1", "-c", 'model_reasoning_effort="medium"', "-",
+        ]

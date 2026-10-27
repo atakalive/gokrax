@@ -274,3 +274,60 @@ class TestRecoverPendingNotificationsPhaseConfig:
             "reviewer3",
             "reviewer6",
         ]
+
+
+# ---------------------------------------------------------------------------
+# Issue #400: boost in phase config / REVIEW_MODES validation
+# ---------------------------------------------------------------------------
+import pytest  # noqa: E402
+
+from config import _validate_review_modes  # noqa: E402
+
+
+class TestBuildPhaseConfigBoost:
+    def test_default_false(self):
+        mc = {"members": ["reviewer1"]}
+        assert _build_phase_config(mc, "design")["boost"] is False
+        assert _build_phase_config(mc, "code")["boost"] is False
+
+    def test_top_level_applies_to_both(self):
+        mc = {"members": ["reviewer1"], "boost": True}
+        assert _build_phase_config(mc, "design")["boost"] is True
+        assert _build_phase_config(mc, "code")["boost"] is True
+
+    def test_phase_override(self):
+        mc = {"members": ["reviewer1"], "design": {"boost": True}}
+        assert _build_phase_config(mc, "design")["boost"] is True
+        assert _build_phase_config(mc, "code")["boost"] is False
+
+    def test_phase_override_disables_top_level(self):
+        mc = {"members": ["reviewer1"], "boost": True, "code": {"boost": False}}
+        assert _build_phase_config(mc, "design")["boost"] is True
+        assert _build_phase_config(mc, "code")["boost"] is False
+
+    def test_full_dict(self):
+        mc = {"members": ["reviewer1"], "min_reviews": 1, "grace_period_sec": 0}
+        assert _build_phase_config(mc, "design") == {
+            "members": ["reviewer1"], "n_pass": {}, "grace_period_sec": 0,
+            "min_reviews": 1, "boost": False,
+        }
+
+
+class TestValidateReviewModesBoost:
+    @pytest.mark.parametrize("bad", ["yes", 1])
+    def test_top_level_non_bool_rejected(self, bad):
+        with pytest.raises(ValueError, match=r"REVIEW_MODES\['m'\]\['boost'\] must be a bool"):
+            _validate_review_modes({"m": {"members": ["reviewer1"], "boost": bad}}, ["reviewer1"])
+
+    @pytest.mark.parametrize("bad", ["yes", 1])
+    def test_phase_non_bool_rejected(self, bad):
+        with pytest.raises(ValueError, match=r"REVIEW_MODES\['m'\]\['design'\]\['boost'\] must be a bool"):
+            _validate_review_modes(
+                {"m": {"members": ["reviewer1"], "design": {"boost": bad}}}, ["reviewer1"]
+            )
+
+    def test_bool_accepted(self):
+        _validate_review_modes(
+            {"m": {"members": ["reviewer1"], "boost": True, "code": {"boost": False}}},
+            ["reviewer1"],
+        )

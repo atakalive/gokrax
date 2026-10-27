@@ -959,3 +959,32 @@ class TestSoftReap:
         assert not (d / "child_pid").exists()
         assert (d / "session_id").exists()  # session preserved
         assert "r1" not in backend_cci._starting_markers
+
+
+# ===========================================================================
+# Issue #400: boost overlay
+# ===========================================================================
+
+class TestSendBoost:
+    _PROFILE = {
+        "model": "sonnet", "thinking": "disabled", "effort": "medium",
+        "boost": {"model": "opus", "thinking": "enabled", "effort": "max"},
+    }
+
+    def _cmd(self, monkeypatch, boost: bool) -> list[str]:
+        monkeypatch.setattr(config, "DRY_RUN", False)
+        monkeypatch.setattr(backend_cci, "_agent_config_cache", {"reviewer1": self._PROFILE})
+        with patch("subprocess.Popen", return_value=_mock_proc()) as mp:
+            backend_cci.send("reviewer1", "hello", timeout=30, boost=boost)
+        return mp.call_args[0][0]
+
+    def test_boost_true_overlays(self, tmp_sessions, monkeypatch):
+        cmd = self._cmd(monkeypatch, boost=True)
+        assert cmd[cmd.index("--model") + 1] == "opus"
+        assert cmd[cmd.index("--thinking") + 1] == "enabled"
+        assert cmd[cmd.index("--effort") + 1] == "max"
+
+    def test_boost_false_keeps_base(self, tmp_sessions, monkeypatch):
+        cmd = self._cmd(monkeypatch, boost=False)
+        assert cmd[cmd.index("--model") + 1] == "sonnet"
+        assert cmd[cmd.index("--effort") + 1] == "medium"

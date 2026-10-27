@@ -110,8 +110,13 @@ def get_status_text(enabled_only: bool = False) -> str:
             reviewers_str = ", ".join(f'"{r}"' for r in phase_config["members"])
         else:
             reviewers_str = ""
+        boost_suffix = ""
+        if data.get("boost"):
+            from engine.boost import boost_phases_from_data, format_boost_label
+
+            boost_suffix = "  " + format_boost_label(boost_phases_from_data(data))
         output.write(
-            f"[{enabled}] {pj}: {state}  issues=[{issues}]  ReviewerSize={review_mode}  Reviewers=[{reviewers_str}]\n"
+            f"[{enabled}] {pj}: {state}  issues=[{issues}]  ReviewerSize={review_mode}  Reviewers=[{reviewers_str}]{boost_suffix}\n"
         )
 
         # Show per-issue review progress
@@ -540,6 +545,8 @@ def cmd_start(args):
         args.automerge = False
     if getattr(args, "no_autopull", None):
         args.autopull = False
+    if getattr(args, "no_boost", None):
+        args.boost = False
 
     # デフォルトオプション適用: CLI 引数で明示指定されていない（None のまま）オプションにデフォルト値を注入
     from task_queue import _QUEUE_OPT_ALIASES
@@ -585,6 +592,7 @@ def cmd_start(args):
         d.pop("exclude_high_risk", None)
         d.pop("exclude_any_risk", None)
         d.pop("autopull", None)
+        d.pop("boost", None)
 
     # 2. Issue番号取得（--issue指定 or GitLab API）
     if args.issue:
@@ -653,6 +661,8 @@ def cmd_start(args):
             data["exclude_high_risk"] = True
         if getattr(args, "exclude_any_risk", False):
             data["exclude_any_risk"] = True
+        if getattr(args, "boost", False):
+            data["boost"] = True
         am = getattr(args, "automerge", None)
         if am is not None:
             data["automerge"] = am
@@ -953,6 +963,7 @@ def cmd_transition(args):
             clear_pending_notification(pj, "impl")
     if notif.send_review:
         excluded = ctx["excluded_reviewers"]
+        from engine.boost import is_boost_active
         from engine.fsm import get_phase_config as _gpc
 
         _reset_phase = STATE_PHASE_MAP.get(args.to, "design")
@@ -967,6 +978,7 @@ def cmd_transition(args):
             review_mode=ctx["review_mode"],
             excluded=excluded,
             phase_config=phase_config,
+            boost=is_boost_active(_pipeline_data, args.to),
         )
         clear_pending_notification(pj, "review")
 

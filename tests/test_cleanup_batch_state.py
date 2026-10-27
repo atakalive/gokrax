@@ -45,6 +45,7 @@ def _make_full_data() -> dict:
         "no_cc": True,
         "exclude_high_risk": True,
         "exclude_any_risk": True,
+        "boost": True,
         "review_mode": "full",
         "assessment": {"domain_risk": "HIGH"},
         # Timeout
@@ -117,6 +118,7 @@ _CLEANUP_KEYS = {
     "keep_context", "keep_ctx_batch", "keep_ctx_intra",
     "comment", "skip_cc_plan", "skip_test", "skip_assess", "skip_design",
     "no_cc", "exclude_high_risk", "exclude_any_risk",
+    "boost",
     "review_mode",
     "assessment",
     "timeout_extension", "extend_count",

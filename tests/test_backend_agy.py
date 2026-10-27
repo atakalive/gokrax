@@ -1118,3 +1118,26 @@ class TestConcurrentSend:
         result = backend_agy.send(AGENT, "hi", 30)
         assert result is SendResult.OK
         assert lock_calls == []
+
+
+# ===========================================================================
+# Issue #400: boost overlay
+# ===========================================================================
+
+class TestSendBoost:
+    @pytest.mark.parametrize("boost, expected", [(True, "Big (High)"), (False, "Base (High)")])
+    def test_model_passed_to_ensure_agy_home(self, recorder, monkeypatch, boost, expected):
+        monkeypatch.setattr(
+            backend_agy, "_load_config",
+            lambda: {AGENT: {"model": "Base (High)", "boost": {"model": "Big (High)"}}},
+        )
+        seen: list = []
+        real = backend_agy._ensure_agy_home
+
+        def spy(agent_id, model):
+            seen.append(model)
+            return real(agent_id, model)
+
+        monkeypatch.setattr(backend_agy, "_ensure_agy_home", spy)
+        backend_agy.send(AGENT, "hi", 30, boost=boost)
+        assert seen == [expected]

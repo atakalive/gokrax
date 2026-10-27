@@ -450,6 +450,7 @@ pipeline JSON のフィールドは 3 カテゴリに分類される。
 | keep_ctx_intra | bool | バッチ内コンテキスト保持 |
 | base_commit | str \| null | ベースコミットハッシュ |
 | p2_fix | bool | P2 修正モード |
+| boost | bool | boost モード: `REVIEW_MODES` で `boost` が有効なフェーズのレビュアーモデルを格上げ（True のときのみ書き込み） |
 | comment | str \| null | コメント (CC に渡す指示等) |
 | timeout_extension | int | タイムアウト延長秒数 |
 | extend_count | int | 延長回数 |
@@ -612,6 +613,7 @@ PROJECT ISSUES [MODE] [OPTIONS...]
 | keep-ctx-intra | バッチ内コンテキスト保持 |
 | keep-ctx-all | バッチ間・バッチ内コンテキスト保持 |
 | p2-fix | P2 修正モード |
+| boost / no-boost | バッチのレビュアーモデル格上げを有効 / 無効にする |
 | skip-cc-plan | CC Plan フェーズスキップ |
 | skip-test | CODE_TEST スキップ |
 | skip-assess | ASSESSMENT スキップ |

@@ -75,7 +75,7 @@ def validate_overrides() -> list[str]:
     return unknown
 
 
-def send(agent_id: str, message: str, timeout: int) -> SendResult:
+def send(agent_id: str, message: str, timeout: int, *, boost: bool = False) -> SendResult:
     """Dispatch send to the selected backend."""
     # 全送信経路の唯一のチョークポイント。ここで制御文字を可視化しておけば
     # argv 直載せ backend で生 NUL の embedded null byte を踏まない。
@@ -127,27 +127,29 @@ def send(agent_id: str, message: str, timeout: int) -> SendResult:
                     backend = fb_target
     if backend == "pi":
         from engine.backend_pi import send as pi_send
-        return pi_send(agent_id, message, timeout)
+        return pi_send(agent_id, message, timeout, boost=boost)
     elif backend == "cc":
         from engine.backend_cc import send as cc_send
-        return cc_send(agent_id, message, timeout)
+        return cc_send(agent_id, message, timeout, boost=boost)
     elif backend == "cci":
         from engine.backend_cci import send as cci_send
-        return cci_send(agent_id, message, timeout)
+        return cci_send(agent_id, message, timeout, boost=boost)
     elif backend == "gemini":
         from engine.backend_gemini import send as gm_send
-        return gm_send(agent_id, message, timeout)
+        return gm_send(agent_id, message, timeout, boost=boost)
     elif backend == "kimi":
         from engine.backend_kimi import send as km_send
-        return km_send(agent_id, message, timeout)
+        return km_send(agent_id, message, timeout, boost=boost)
     elif backend == "agy":
         from engine.backend_agy import send as agy_send
-        return agy_send(agent_id, message, timeout)
+        return agy_send(agent_id, message, timeout, boost=boost)
     elif backend == "codex":
         from engine.backend_codex import send as cx_send
-        return cx_send(agent_id, message, timeout)
+        return cx_send(agent_id, message, timeout, boost=boost)
     # openclaw: delegate to the openclaw-specific implementation
     from engine.backend_openclaw import send as oc_send
+    if boost:
+        log(f"WARNING: boost is not supported on openclaw backend; ignored (agent={agent_id})")
     return oc_send(agent_id, message, timeout)
 
 

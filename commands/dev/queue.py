@@ -11,6 +11,54 @@ from pipeline_io import (
 from commands.dev.helpers import _reset_to_idle, _log
 
 
+def _entry_review_mode(entry: dict) -> str | None:
+    """Resolve the review mode a queue entry will start with (Issue #400).
+
+    Falls back to the pipeline's review_mode when the entry omits it, as
+    cmd_start does. Returns None when it cannot be resolved.
+    """
+    mode = entry.get("mode")
+    if mode:
+        return mode
+    try:
+        from pipeline_io import load_pipeline
+        return load_pipeline(get_path(entry["project"])).get("review_mode")
+    except (Exception, SystemExit):
+        return None
+
+
+def _entry_boost_phases(entry: dict) -> list[str] | None:
+    """Phases a queue entry would boost; None when the review mode is unknown (Issue #400)."""
+    import config
+    from engine.boost import boost_phases_from_mode
+
+    mode = _entry_review_mode(entry)
+    if mode is None or mode not in config.REVIEW_MODES:
+        return None
+    return boost_phases_from_mode(config.REVIEW_MODES[mode])
+
+
+def _print_boost_resolution(entry: dict) -> None:
+    """qrun --dry-run: print the boosted resolution per reviewer (Issue #400)."""
+    phases = _entry_boost_phases(entry)
+    if not phases:
+        return
+    import config
+    from engine import agent_meta
+    from engine.fsm import _build_phase_config
+
+    mode_config = config.REVIEW_MODES[_entry_review_mode(entry)]
+    reviewers: list[str] = []
+    for phase in phases:
+        for r in _build_phase_config(mode_config, phase)["members"]:
+            if r not in reviewers:
+                reviewers.append(r)
+    for r in reviewers:
+        m = agent_meta._resolve(r, boost=True)
+        suffix = "" if m.boosted else " (no boost config)"
+        print(f"  boost {r}: backend={m.backend} model={m.model} think_level={m.think_level}{suffix}")
+
+
 def _load_wait_info() -> dict | None:
     from config import QUEUE_WAIT_FILE
     if not QUEUE_WAIT_FILE.exists():
@@ -132,8 +180,13 @@ def cmd_qrun(args):
                 opts.append("no-autopull")
             elif e.get("autopull"):
                 opts.append("autopull")
+            if e.get("boost"):
+                from engine.boost import format_boost_label
+                opts.append(format_boost_label(_entry_boost_phases(e)))
             opts_str = " " + " ".join(opts) if opts else ""
             print(f"{e['project']} {e['issues']}{mode}{opts_str}{done}")
+            if e.get("boost"):
+                _print_boost_resolution(e)
         return
 
     # 次のエントリをpop
@@ -174,6 +227,7 @@ def cmd_qrun(args):
         exclude_high_risk=entry.get("exclude_high_risk", False),
         exclude_any_risk=entry.get("exclude_any_risk", False),
         allow_closed=entry.get("allow_closed", False),
+        boost=entry.get("boost", False),
         autopull=entry["autopull"] if "autopull" in entry.get("_explicit_keys", set()) else None,
     )
 
@@ -244,6 +298,7 @@ def _get_running_info() -> "dict | None":
     """
     import logging
     from config import PIPELINES_DIR
+    from engine.boost import boost_phases_from_data
     from pipeline_io import load_pipeline
 
     candidates = []
@@ -282,6 +337,8 @@ def _get_running_info() -> "dict | None":
                 "allow_closed": data.get("allow_closed", False),
                 "autopull": data.get("autopull"),
                 "comment": data.get("comment"),
+                "boost": bool(data.get("boost")),
+                "boost_phases": boost_phases_from_data(data) if data.get("boost") else [],
             })
 
     if len(candidates) > 1:
@@ -352,6 +409,9 @@ def get_qstatus_text(entries: list[dict], running: "dict | None" = None, wait_in
             parts.append("autopull")
         elif ap is False:
             parts.append("no-autopull")
+        if running.get("boost"):
+            from engine.boost import format_boost_label
+            parts.append(format_boost_label(running.get("boost_phases", [])))
         lines.append(f"[*] {' '.join(parts)}")
     for e in entries:
         idx = e.get("index", 0)
@@ -395,6 +455,9 @@ def get_qstatus_text(entries: list[dict], running: "dict | None" = None, wait_in
             parts.append("no-autopull")
         elif e.get("autopull"):
             parts.append("autopull")
+        if e.get("boost"):
+            from engine.boost import format_boost_label
+            parts.append(format_boost_label(_entry_boost_phases(e)))
         lines.append(f"[{idx}] {' '.join(parts)}")
     return "\n".join(lines)
 

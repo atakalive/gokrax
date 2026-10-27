@@ -1,5 +1,6 @@
 {
   "_comment": {
+    "boost": "Optional dict overlaid on this entry for boost-mode batches (Issue #400). Allowed keys: 'model'; other keys are ignored. Upgrade within the same provider only, e.g. {\"model\": \"<higher model>\"}",
     "model": "Kimi model key (provider/model format, as defined in ~/.kimi/config.toml [models] section)",
     "compile-startup-md": "If true, compile IDENTITY.md + INSTRUCTION.md + MEMORY.md into KIMI.md",
     "fallback": "If true, enable quota-based fallback to fallback_backend when usage exceeds usage_threshold",

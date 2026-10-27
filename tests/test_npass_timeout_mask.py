@@ -196,3 +196,48 @@ def test_npass_timeout_note_reviewer_not_in_map(tmp_pipelines, monkeypatch):
     # フォールバック: REVIEWERS リストのインデックス+1 → Reviewer 1
     assert "Reviewer 1" in bodies[0]
     assert "basho" not in bodies[0]
+
+
+# ---------------------------------------------------------------------------
+# 4. Issue #400: boost_sent が True の (Issue, phase, reviewer) にだけ [boost]
+# ---------------------------------------------------------------------------
+
+import pytest  # noqa: E402
+
+
+@pytest.mark.parametrize("mask", [True, False])
+@pytest.mark.parametrize("boost_sent, tagged", [
+    ({"code": {"basho": True}}, True),
+    ({"code": {"basho": False}}, False),
+    ({"design": {"basho": True}}, False),
+    (None, False),
+])
+def test_npass_timeout_note_boost_tag(tmp_pipelines, monkeypatch, mask, boost_sent, tagged):
+    from watchdog import process
+
+    pipeline_data = _make_npass_pipeline(reviewer="basho", reviewer_number_map={"basho": 3})
+    pipeline_data["boost"] = True
+    if boost_sent is not None:
+        pipeline_data["batch"][0]["boost_sent"] = boost_sent
+    pipeline_path = tmp_pipelines / "test-pj.json"
+    _write_pipeline(pipeline_path, pipeline_data)
+
+    monkeypatch.setattr("config.MASK_AGENT_NAMES", mask)
+    monkeypatch.setattr("config.REVIEWERS", ["basho"])
+    monkeypatch.setattr("config.REVIEW_MODES", {
+        "npass-test": {"members": ["basho"], "min_reviews": 1, "grace_period_sec": 0,
+                       "n_pass": {"basho": 2}},
+        "standard": {"members": ["basho"], "min_reviews": 1, "grace_period_sec": 0},
+    })
+
+    mock_note = MagicMock(return_value=True)
+    with patch("notify.post_gitlab_note", mock_note):
+        process(pipeline_path)
+
+    bodies = [call[0][2] for call in mock_note.call_args_list if "NPASS timeout" in call[0][2]]
+    assert len(bodies) == 1
+    name = "Reviewer 3" if mask else "basho"
+    if tagged:
+        assert f"NPASS timeout: {name} [boost] pass 1/2" in bodies[0]
+    else:
+        assert f"NPASS timeout: {name} pass 1/2" in bodies[0]

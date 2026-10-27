@@ -2145,3 +2145,96 @@ class TestCheckQueueWaitExpiry:
         watchdog._check_queue_wait_expiry()
         assert not wait_file.exists()
         assert called
+
+
+class TestQueueBoost:
+    """Issue #400: boost / no-boost queue options."""
+
+    def test_boost_token(self):
+        result = parse_queue_line("Foo 1 standard boost")
+        assert result["boost"] is True
+        assert result["mode"] == "standard"
+        assert "boost" in result["_explicit_keys"]
+
+    def test_no_boost_token(self):
+        result = parse_queue_line("Foo 1 no-boost")
+        assert result["boost"] is False
+        assert "boost" in result["_explicit_keys"]
+
+    def test_boost_default_false(self):
+        result = parse_queue_line("Foo 1")
+        assert result["boost"] is False
+        assert "boost" not in result["_explicit_keys"]
+
+    def test_default_queue_options_applied(self, monkeypatch):
+        monkeypatch.setattr("config.DEFAULT_QUEUE_OPTIONS", {"boost": True})
+        assert parse_queue_line("Foo 1")["boost"] is True
+
+    def test_no_boost_overrides_default(self, monkeypatch):
+        monkeypatch.setattr("config.DEFAULT_QUEUE_OPTIONS", {"boost": True})
+        assert parse_queue_line("Foo 1 no-boost")["boost"] is False
+
+    def test_last_token_wins(self):
+        assert parse_queue_line("Foo 1 boost no-boost")["boost"] is False
+
+    def test_cmd_qrun_passes_boost_to_cmd_start(self, tmp_path, monkeypatch):
+        import argparse
+        import config as _config
+        import pipeline_io as _pio
+
+        pipelines_dir = tmp_path / "pipelines"
+        pipelines_dir.mkdir()
+        (pipelines_dir / "gokrax.json").write_text(json.dumps({
+            "project": "gokrax", "state": "IDLE",
+            "enabled": False, "batch": [], "history": [],
+            "gitlab": "testns/gokrax", "repo_path": str(tmp_path / "repo"),
+            "implementer": "impl1",
+        }))
+        queue_file = tmp_path / "queue.txt"
+        queue_file.write_text("gokrax 1 lite boost\n")
+        monkeypatch.setattr(_config, "PIPELINES_DIR", pipelines_dir)
+        monkeypatch.setattr(_config, "QUEUE_FILE", queue_file)
+        monkeypatch.setattr(_pio, "PIPELINES_DIR", pipelines_dir)
+
+        with patch("commands.dev.cmd_start") as mock_start, \
+             patch("commands.dev.update_pipeline"):
+            from commands.dev import cmd_qrun
+            cmd_qrun(argparse.Namespace(queue=str(queue_file), dry_run=False))
+        assert mock_start.call_args[0][0].boost is True
+
+    def test_dry_run_label_and_resolution(self, tmp_path, monkeypatch, capsys):
+        import argparse
+        import config as _config
+        modes = {
+            "bm": {"members": ["reviewer1", "reviewer3"], "design": {"boost": True},
+                   "code": {"members": ["reviewer6"]}},
+        }
+        monkeypatch.setattr(_config, "REVIEW_MODES", modes)
+        monkeypatch.setattr("task_queue.REVIEW_MODES", modes)
+        queue_file = tmp_path / "queue.txt"
+        queue_file.write_text("Foo 1 bm boost\n")
+        monkeypatch.setattr(_config, "QUEUE_FILE", queue_file)
+        monkeypatch.setattr("engine.backend.resolve_backend", lambda a, **kw: "cc")
+        monkeypatch.setattr(
+            "engine.backend_cc._load_config",
+            lambda: {"reviewer1": {"model": "sonnet", "boost": {"model": "opus"}},
+                     "reviewer3": {"model": "sonnet"}},
+        )
+        from gokrax import cmd_qrun
+        cmd_qrun(argparse.Namespace(dry_run=True, queue=None))
+        out = capsys.readouterr().out
+        assert "boost[design]" in out
+        assert "  boost reviewer1: backend=cc model=opus think_level=\n" in out
+        assert "  boost reviewer3: backend=cc model=sonnet think_level= (no boost config)" in out
+        assert "reviewer6" not in out
+
+    def test_dry_run_no_boost_unchanged(self, tmp_path, monkeypatch, capsys):
+        import argparse
+        import config as _config
+        queue_file = tmp_path / "queue.txt"
+        queue_file.write_text("Foo 1 lite\n")
+        monkeypatch.setattr(_config, "QUEUE_FILE", queue_file)
+        from gokrax import cmd_qrun
+        cmd_qrun(argparse.Namespace(dry_run=True, queue=None))
+        out = capsys.readouterr().out
+        assert "boost" not in out

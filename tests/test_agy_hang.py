@@ -395,7 +395,7 @@ class TestWatchdogNudgeWiring:
 
         from watchdog import process
         sent_msgs: list[str] = []
-        def capture_send(agent_id, msg, timeout=30):
+        def capture_send(agent_id, msg, timeout=30, **kwargs):
             sent_msgs.append(msg)
             return True
 
@@ -429,7 +429,7 @@ class TestWatchdogNudgeWiring:
 
         from watchdog import process
         sent_msgs: list[str] = []
-        def capture_send(agent_id, msg, timeout=30):
+        def capture_send(agent_id, msg, timeout=30, **kwargs):
             sent_msgs.append(msg)
             return True
 

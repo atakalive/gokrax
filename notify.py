@@ -133,24 +133,27 @@ def review_command(project: str, issue: int, reviewer: str,
 
 
 
-def send_to_agent(agent_id: str, message: str, timeout: int = AGENT_SEND_TIMEOUT) -> bool:
+def send_to_agent(agent_id: str, message: str, timeout: int = AGENT_SEND_TIMEOUT,
+                  *, boost: bool = False) -> bool:
     """Send message to agent, dispatching to the selected backend.
 
     collectキュー（デフォルト）により、run中でもabortせずfollowup turnとして処理される。
     改行を保持する。Returns True only on SendResult.OK (BUSY and FAIL are False).
     """
     from engine.backend import send as _dispatch_send
-    result = _dispatch_send(agent_id, message, timeout)
+    result = _dispatch_send(agent_id, message, timeout, boost=boost)
     return result is SendResult.OK
 
 
-def send_to_agent_queued(agent_id: str, message: str, timeout: int = AGENT_SEND_TIMEOUT) -> bool:
+def send_to_agent_queued(agent_id: str, message: str, timeout: int = AGENT_SEND_TIMEOUT,
+                         *, boost: bool = False) -> bool:
     """send_to_agent のエイリアス。"""
-    return send_to_agent(agent_id, message, timeout)
+    return send_to_agent(agent_id, message, timeout, boost=boost)
 
 
 def send_to_agent_with_status(
     agent_id: str, message: str, timeout: int = AGENT_SEND_TIMEOUT,
+    *, boost: bool = False,
 ) -> SendResult:
     """Three-valued variant: returns SendResult (OK / BUSY / FAIL).
 
@@ -158,7 +161,7 @@ def send_to_agent_with_status(
     BUSY (retry next tick without consuming counter) from FAIL (persistent).
     """
     from engine.backend import send as _dispatch_send
-    return _dispatch_send(agent_id, message, timeout)
+    return _dispatch_send(agent_id, message, timeout, boost=boost)
 
 
 def _write_review_file(
@@ -414,6 +417,8 @@ def format_review_note_header(
     phase: str,
     round_num: int,
     target_pass: int,
+    *,
+    boosted: bool = False,
 ) -> str:
     """Build the header line for a review report comment.
 
@@ -429,6 +434,8 @@ def format_review_note_header(
         Current round number (1-based). 0 means omit.
     target_pass : int
         Total pass count for the target reviewer (from n_pass config).
+    boosted : bool
+        True when the request answered here was sent boosted (Issue #400).
 
     Returns
     -------
@@ -436,6 +443,7 @@ def format_review_note_header(
         e.g. "[Reviewer 1] P1 (design review) Round 1"
         e.g. "[Reviewer 1] APPROVE (code review) Round 1, 2-Pass"
         e.g. "[Reviewer 1] P1 (design review) Round 2"   # Round 2+ は N-Pass を付けない
+        e.g. "[Reviewer 1] [boost] P1 (design review) Round 1"   # boosted=True
 
     Notes
     -----
@@ -444,7 +452,8 @@ def format_review_note_header(
     （engine/fsm.py:629-631）に合わせる。`round_num == 0` のときも N-Pass は
     付加しない（不変条件: `N-Pass は Round 1 の NPASS ラウンドのみ`）。
     """
-    header = f"[{masked_reviewer}] {verdict} ({phase} review)"
+    boost_tag = " [boost]" if boosted else ""
+    header = f"[{masked_reviewer}]{boost_tag} {verdict} ({phase} review)"
     parts: list[str] = []
     if round_num > 0:
         parts.append(f"Round {round_num}")
@@ -890,6 +899,28 @@ def notify_dispute(
     return send_to_agent(reviewer, msg)
 
 
+def _review_request_issue_nums(state: str, batch: list, reviewer: str) -> list[int]:
+    """Issue numbers (batch order) included in the review request notify_reviewers sends to reviewer.
+
+    - DESIGN_REVIEW_NPASS / CODE_REVIEW_NPASS: same condition as
+      _build_npass_review_message (pass < target_pass). Also applies when the
+      NPASS message is externalized, since the file content is the NPASS message.
+    - otherwise: same condition as format_review_request (### #N sections) and
+      _build_file_review_message (verdict != APPROVE).
+    """
+    review_key = "code_reviews" if "CODE" in state else "design_reviews"
+    is_npass = state in ("DESIGN_REVIEW_NPASS", "CODE_REVIEW_NPASS")
+    nums: list[int] = []
+    for i in batch:
+        entry = i.get(review_key, {}).get(reviewer, {})
+        if is_npass:
+            if entry.get("pass", 1) < entry.get("target_pass", 1):
+                nums.append(i["issue"])
+        elif entry.get("verdict", "").upper() != "APPROVE":
+            nums.append(i["issue"])
+    return nums
+
+
 def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
                      repo_path: str = "", review_mode: str = "",
                      prev_reviews: dict = None, excluded: list[str] = None,
@@ -897,7 +928,8 @@ def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
                      comment: str = "",
                      round_num: int | None = None,
                      already_reset: bool = False,
-                     phase_config: dict | None = None) -> list[str]:
+                     phase_config: dict | None = None,
+                     boost: bool = False) -> list[str]:
     """各レビュアーに個別のメッセージを送信。
 
     review_mode が "skip" の場合は通知をスキップ（自動承認用）。
@@ -997,7 +1029,7 @@ def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
                 is_code = "CODE" in state
                 is_npass = state in ("DESIGN_REVIEW_NPASS", "CODE_REVIEW_NPASS")
                 short_msg = _build_file_review_message(project, is_code, r, file_path, batch, round_num, skip_skills=is_npass)
-                if not send_to_agent(r, short_msg):
+                if not send_to_agent(r, short_msg, boost=boost):
                     logger.warning(
                         "Failed to send review request to %s (backend=%s)",
                         r, resolve_backend(r),
@@ -1005,7 +1037,7 @@ def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
                     failed_set.add(r)
                     continue
             else:
-                if not send_to_agent(r, msg):
+                if not send_to_agent(r, msg, boost=boost):
                     logger.warning(
                         "Failed to send review request to %s (backend=%s)",
                         r, resolve_backend(r),
@@ -1024,11 +1056,26 @@ def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
         # --- 送信成功後の best-effort 記録（失敗しても failed_set に入れない）---
         # 送信済みレビュアーが記録IO失敗で failed 扱いになり重複通知/誤 BLOCKED を
         # 招くのを防ぐため、bookkeeping は per-reviewer try の外に置く（#390）。
-        # 送信成功直後のスナップショット（Issue #343）
-        from engine.agent_meta import snapshot
+        # 送信成功直後のスナップショット（Issue #343）と boost 送信記録（Issue #400）
+        from engine.agent_meta import AgentMeta, record_boost_sent, snapshot
         from pipeline_io import update_pipeline, get_path
+        phase_key = "code" if "CODE" in state else "design"
+        _boosted_r = False
+        requested_issue_nums: list[int] = []
         try:
-            update_pipeline(get_path(project), lambda data, _r=r: snapshot(data, _r))
+            requested_issue_nums = _review_request_issue_nums(state, batch, r)
+            _meta_box: list[AgentMeta] = []
+
+            def _snapshot_and_record(data: dict, _r: str = r,
+                                     _nums: list[int] = requested_issue_nums,
+                                     _box: list[AgentMeta] = _meta_box) -> None:
+                meta = snapshot(data, _r, boost=boost)
+                _box.append(meta)
+                record_boost_sent(data, _r, phase_key, _nums, meta.boosted)
+
+            update_pipeline(get_path(project), _snapshot_and_record)
+            # 書き込みまで成功したときだけ boosted 扱い
+            _boosted_r = bool(_meta_box) and _meta_box[-1].boosted
         except Exception as e:
             logger.error(
                 "notify_reviewers: snapshot failed for %s (post-send, ignored): %s: %s",
@@ -1038,7 +1085,6 @@ def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
         # メトリクス記録（Issue #81）
         from pipeline_io import append_metric
         try:
-            phase_key = "code" if "CODE" in state else "design"
             review_key = "code_reviews" if "CODE" in state else "design_reviews"
             for i in batch:
                 existing = i.get(review_key, {}).get(r, {})
@@ -1046,8 +1092,13 @@ def notify_reviewers(project: str, state: str, batch: list, gitlab: str,
                 if existing.get("verdict", "").upper() == "APPROVE":
                     if existing.get("pass", 1) >= existing.get("target_pass", 1):
                         continue
+                _extra = (
+                    {"boosted": True}
+                    if _boosted_r and i["issue"] in requested_issue_nums
+                    else {}
+                )
                 append_metric("review_request", pj=project, issue=i["issue"],
-                              phase=phase_key, reviewer=r)
+                              phase=phase_key, reviewer=r, **_extra)
         except Exception as e:
             logger.error(
                 "notify_reviewers: metric record failed for %s (post-send, ignored): %s: %s",

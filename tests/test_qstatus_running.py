@@ -150,3 +150,64 @@ def test_running_keep_ctx_batch_only():
     result = get_qstatus_text([], running=running)
     assert "keep-ctx-batch" in result
     assert "keep-ctx-all" not in result
+
+
+# ---------------------------------------------------------------------------
+# Issue #400: boost label
+# ---------------------------------------------------------------------------
+
+def _running(**kw) -> dict:
+    return {"project": "TestPJ", "issues": "#1", "state": "DESIGN_REVIEW",
+            "review_mode": "lite", "automerge": True, **kw}
+
+
+def test_running_boost_design_label():
+    result = get_qstatus_text([], running=_running(boost=True, boost_phases=["design"]))
+    assert result.endswith(" boost[design]")
+
+
+def test_running_boost_no_phases_label():
+    result = get_qstatus_text([], running=_running(boost=True, boost_phases=[]))
+    assert result.endswith(" boost[-]")
+
+
+def test_running_no_boost_unchanged():
+    base = get_qstatus_text([], running=_running())
+    assert get_qstatus_text([], running=_running(boost=False, boost_phases=[])) == base
+    assert "boost" not in base
+
+
+def test_entries_boost_label_from_mode(monkeypatch):
+    import config
+    monkeypatch.setattr(config, "REVIEW_MODES",
+                        {"bm": {"members": ["reviewer1"], "design": {"boost": True}}})
+    entries = [{"project": "TestPJ", "issues": "1", "index": 1, "mode": "bm", "boost": True}]
+    assert get_qstatus_text(entries) == "[1] TestPJ 1 bm boost[design]"
+
+
+def test_entries_boost_label_unknown_mode(monkeypatch):
+    monkeypatch.setattr("pipeline_io.load_pipeline", lambda path: {})
+    monkeypatch.setattr("commands.dev.queue.get_path", lambda pj: Path("/nonexistent.json"))
+    entries = [{"project": "TestPJ", "issues": "1", "index": 1, "boost": True}]
+    assert get_qstatus_text(entries) == "[1] TestPJ 1 boost[?]"
+
+
+def test_entries_no_boost_unchanged():
+    entries = [{"project": "TestPJ", "issues": "1", "index": 1, "boost": False}]
+    assert get_qstatus_text(entries) == "[1] TestPJ 1"
+
+
+def test_get_running_info_boost(tmp_path, monkeypatch):
+    import json
+    import config
+    from commands.dev.queue import _get_running_info
+    monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+    rc = {p: {"members": ["reviewer1"], "min_reviews": 1, "n_pass": {},
+              "grace_period_sec": 0, "boost": p == "code"} for p in ("design", "code")}
+    (tmp_path / "pj.json").write_text(json.dumps({
+        "project": "pj", "state": "CODE_REVIEW", "batch": [{"issue": 1}],
+        "review_config": rc, "boost": True,
+    }))
+    info = _get_running_info()
+    assert info["boost"] is True
+    assert info["boost_phases"] == ["code"]

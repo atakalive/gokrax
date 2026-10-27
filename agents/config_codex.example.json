@@ -1,5 +1,6 @@
 {
   "_comment": {
+    "boost": "Optional dict overlaid on this entry for boost-mode batches (Issue #400). Allowed keys: 'model', 'effort'; other keys are ignored. Upgrade within the same provider only, e.g. {\"model\": \"<higher model>\"}",
     "model": "Codex model slug passed as -m (e.g. 'gpt-6-astra'). Omit or leave empty to use the Codex CLI default model. Values starting with '-' are rejected with a WARNING.",
     "effort": "Reasoning effort passed as -c model_reasoning_effort=\"<effort>\". Lowercase letters only (e.g. low, medium, high, xhigh). Accepted values depend on the model; values with other characters are rejected with a WARNING and the flag is omitted.",
     "compile-startup-md": "If true, compile IDENTITY.md + INSTRUCTION.md + MEMORY.md into cwd/AGENTS.md (same file and content as pi/agy; change detection via .codex_hash)",

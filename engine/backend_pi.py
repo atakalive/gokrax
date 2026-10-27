@@ -33,6 +33,7 @@ from config import (
     PROJECT_ROOT,
 )
 from engine.backend_types import SendResult
+from engine.boost import overlay_profile
 
 logger = logging.getLogger(__name__)
 
@@ -122,7 +123,7 @@ def _session_path(agent_id: str) -> Path:
     return PI_SESSIONS_DIR / f"{agent_id}.jsonl"
 
 
-def send(agent_id: str, message: str, timeout: int) -> SendResult:
+def send(agent_id: str, message: str, timeout: int, *, boost: bool = False) -> SendResult:
     """Fire-and-forget subprocess launch of ``pi``.
 
     Args:
@@ -144,6 +145,8 @@ def send(agent_id: str, message: str, timeout: int) -> SendResult:
 
     config_data = _load_config()
     profile = config_data.get(agent_id, {})
+    if boost:
+        profile = overlay_profile(profile, "pi")
 
     if not profile:
         logger.debug("No pi profile for agent %s; using pi defaults", agent_id)

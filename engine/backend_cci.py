@@ -41,6 +41,7 @@ from config import (
     PROJECT_ROOT,
 )
 from engine.backend_types import SendResult
+from engine.boost import overlay_profile
 
 logger = logging.getLogger(__name__)
 
@@ -604,7 +605,7 @@ def _rebuild_claude_md(agent_id: str) -> None:
 # send
 # ---------------------------------------------------------------------------
 
-def send(agent_id: str, message: str, timeout: int) -> SendResult:
+def send(agent_id: str, message: str, timeout: int, *, boost: bool = False) -> SendResult:
     """Fire-and-forget launch of ``engine.cci_runner`` (interactive claude TUI).
 
     Args:
@@ -671,6 +672,8 @@ def send(agent_id: str, message: str, timeout: int) -> SendResult:
 
     config_data = _load_config()
     profile = config_data.get(agent_id, {})
+    if boost:
+        profile = overlay_profile(profile, "cci")
 
     if not profile:
         logger.debug("No cci profile for agent %s; using claude defaults", agent_id)

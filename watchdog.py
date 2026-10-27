@@ -88,6 +88,8 @@ from engine.reviewer import (
     _get_pending_reviewers,
     _cleanup_review_files,
 )
+from engine.agent_meta import was_boosted_for
+from engine.boost import is_boost_active
 from engine.cleanup import _cleanup_batch_state
 from spec_review import (
     should_continue_review,
@@ -945,6 +947,12 @@ def process(path: Path):
                                 "reviewer": reviewer,
                                 "pass": entry.get("pass", 1),
                                 "target_pass": entry.get("target_pass", 1),
+                                "boosted": was_boosted_for(
+                                    data,
+                                    issue["issue"],
+                                    "design" if "DESIGN" in state else "code",
+                                    reviewer,
+                                ),
                             }
                         )
             data.pop("_npass_target_reviewers", None)
@@ -1184,6 +1192,11 @@ def process(path: Path):
                 )
             )
 
+            # Issue #400: boost はバッチ×フェーズで決まるのでループ前に 1 回だけ計算
+            nudge_boost = is_boost_active(pipeline_data, state)
+            nudged_issues: dict[str, list[int]] = {}
+            nudge_phase = "code" if is_code else "design"
+
             for reviewer in all_reviewers:
                 # 前回催促からINACTIVE_THRESHOLD_SEC未満ならスキップ（レート制限）
                 nudge_key = f"_last_nudge_{reviewer}"
@@ -1318,8 +1331,11 @@ def process(path: Path):
 
                 msg = "\n\n".join(msg_parts)
 
-                if send_to_agent_queued(reviewer, msg):
+                if send_to_agent_queued(reviewer, msg, boost=nudge_boost):
                     woken.append(reviewer)
+                    nudged_issues[reviewer] = list(normal_pending_issues) + [
+                        n for n, _ in dispute_items
+                    ]
                 else:
                     failed.append(reviewer)
                     log(f"[{pj}] {reviewer}: nudge send failed, skipping next time")
@@ -1327,11 +1343,28 @@ def process(path: Path):
             nudged = woken + failed
             if nudged:
 
-                def _set_nudge_ts(data, reviewers=nudged, ok=woken, ng=failed):
+                def _set_nudge_ts(
+                    data,
+                    reviewers=nudged,
+                    ok=woken,
+                    ng=failed,
+                    issues_map=nudged_issues,
+                    nb=nudge_boost,
+                    nph=nudge_phase,
+                ):
                     for r in reviewers:
                         data[f"_last_nudge_{r}"] = _datetime.now(LOCAL_TZ).isoformat()
                     for r in ng:
                         data[f"_nudge_failed_{r}"] = _datetime.now(LOCAL_TZ).isoformat()
+                    # Issue #400: 送信成功したレビュアーの snapshot と boost 送信記録
+                    from engine.agent_meta import record_boost_sent, snapshot
+
+                    for r in ok:
+                        try:
+                            meta = snapshot(data, r, boost=nb)
+                            record_boost_sent(data, r, nph, issues_map.get(r, []), meta.boosted)
+                        except Exception as e:
+                            log(f"[{pj}] {r}: nudge snapshot failed (ignored): {e}")
 
                 update_pipeline(notify_path, _set_nudge_ts)
 
@@ -1461,8 +1494,9 @@ def process(path: Path):
             _rnm = notification.get("reviewer_number_map")
             for note in _npass_timeout_notes:
                 masked = mask_agent_name(note["reviewer"], reviewer_number_map=_rnm)
+                tag = " [boost]" if note.get("boosted") else ""
                 body = (
-                    f"[gokrax] NPASS timeout: {masked} pass "
+                    f"[gokrax] NPASS timeout: {masked}{tag} pass "
                     f"{note['pass']}/{note['target_pass']} incomplete, "
                     f"falling back to approval."
                 )
@@ -1920,6 +1954,7 @@ def process(path: Path):
                     round_num=round_num if round_num > 0 else None,
                     already_reset=not skip_reset,  # True if _reset_reviewers() was executed
                     phase_config=phase_config,
+                    boost=is_boost_active(pipeline_data, action.new_state),
                 )
             except KeyError as e:
                 log(
@@ -2155,6 +2190,7 @@ def _handle_qrun(msg_id: str):
             exclude_high_risk=entry.get("exclude_high_risk", False),
             exclude_any_risk=entry.get("exclude_any_risk", False),
             allow_closed=entry.get("allow_closed", False),
+            boost=entry.get("boost", False),
             autopull=entry["autopull"]
             if "autopull" in entry.get("_explicit_keys", set())
             else None,
@@ -2600,6 +2636,10 @@ def main():
     from engine.codex_cli_quota import validate_fallback_config as validate_codex_cli_fallback
 
     for warn in validate_codex_cli_fallback():
+        _log(warn)
+    from engine.boost import validate_boost_config
+
+    for warn in validate_boost_config():
         _log(warn)
 
     # CCI preflight: verify pexpect + cci_runner importability when cci is enabled

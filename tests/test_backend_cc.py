@@ -2163,3 +2163,34 @@ class TestProcHelpers:
 
     def test_snapshot_children_missing_pid(self):
         assert backend_cc._snapshot_children(100) == []
+
+
+# ===========================================================================
+# Issue #400: boost overlay
+# ===========================================================================
+
+class TestSendBoost:
+    _PROFILE = {
+        "model": "sonnet", "thinking": "disabled", "effort": "medium",
+        "boost": {"model": "opus", "thinking": "enabled", "effort": "max"},
+    }
+
+    def _cmd(self, monkeypatch, boost: bool) -> list[str]:
+        monkeypatch.setattr(config, "DRY_RUN", False)
+        monkeypatch.setattr(backend_cc, "_agent_config_cache", {"reviewer1": self._PROFILE})
+        mock_proc = MagicMock()
+        mock_proc.stdin = MagicMock()
+        mock_proc.pid = 12345
+        with patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
+            backend_cc.send("reviewer1", "hello", timeout=30, boost=boost)
+        return mock_popen.call_args[0][0]
+
+    def test_boost_true_overlays(self, tmp_sessions, monkeypatch):
+        cmd = self._cmd(monkeypatch, boost=True)
+        assert cmd[cmd.index("--model") + 1] == "opus"
+        assert cmd[cmd.index("--effort") + 1] == "max"
+
+    def test_boost_false_keeps_base(self, tmp_sessions, monkeypatch):
+        cmd = self._cmd(monkeypatch, boost=False)
+        assert cmd[cmd.index("--model") + 1] == "sonnet"
+        assert cmd[cmd.index("--effort") + 1] == "medium"

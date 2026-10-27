@@ -52,6 +52,7 @@ def _cleanup_batch_state(data: dict, pj: str) -> None:
     data.pop("review_mode", None)
     data.pop("allow_closed", None)
     data.pop("autopull", None)
+    data.pop("boost", None)
     data.pop("assessment", None)
     # Timeout
     data.pop("timeout_extension", None)

@@ -7,6 +7,8 @@ from config import (
     STATE_PHASE_MAP,
     GOKRAX_CLI, OWNER_NAME, GITLAB_NAMESPACE, IMPLEMENTERS,
 )
+from engine.agent_meta import record_boost_sent, snapshot, was_boosted_for
+from engine.boost import is_boost_active
 from engine.glab import run_glab
 from pipeline_io import (
     load_pipeline, update_pipeline,
@@ -74,7 +76,10 @@ def _build_review_note(
     note_key は (issue, reviewer, phase, round, pass_id) で一意（latest-wins 上書き回避）。
     """
     masked = mask_agent_name(args.reviewer, reviewer_number_map=data.get("reviewer_number_map"))
-    header = format_review_note_header(masked, verdict, phase, round_num, target_pass)
+    header = format_review_note_header(
+        masked, verdict, phase, round_num, target_pass,
+        boosted=was_boosted_for(data, args.issue, phase, args.reviewer),
+    )
     note_body = f"{header}\n\n{args.summary or ''}"
     gitlab = data.get("gitlab", f"{GITLAB_NAMESPACE}/{args.project}")
     note_key = f"review_note:{args.issue}:{args.reviewer}:{phase}:{round_num}:{pass_id}"
@@ -320,9 +325,14 @@ def cmd_review(args):
             except (KeyError, ValueError, TypeError):
                 pass
             break
+    _extra = (
+        {"boosted": True}
+        if was_boosted_for(data, args.issue, phase, args.reviewer)
+        else {}
+    )
     append_metric("review_response", pj=args.project, issue=args.issue,
                   phase=phase, reviewer=args.reviewer, verdict=args.verdict,
-                  latency_sec=latency_sec, revise_cycle=revise_cycle)
+                  latency_sec=latency_sec, revise_cycle=revise_cycle, **_extra)
 
     # Issue #379: ノート本文と pending entry は do_review 内で構築済み（クラッシュ安全）。
     # ここでは低レイテンシ維持のための best-effort 即時投稿のみ行う。
@@ -425,14 +435,28 @@ def cmd_dispute(args):
         f"python3 {GOKRAX_CLI} review --pj {args.project} --issue {args.issue} "
         f"--reviewer {args.reviewer} --verdict <APPROVE/P0/P1/P2> --summary \"...\" --force"
     )
-    if not send_to_agent_queued(args.reviewer, dispute_msg):
+    dispute_phase = "design" if "DESIGN" in state else "code"
+    # 送信・記録より前に、異議の対象になった元のレビューが格上げだったかを取る
+    disputed_boosted = was_boosted_for(data, args.issue, dispute_phase, args.reviewer)
+    dispute_boost = is_boost_active(data, state)
+    if not send_to_agent_queued(args.reviewer, dispute_msg, boost=dispute_boost):
         print(f"WARNING: Failed to send dispute notification ({_masked_reviewer(args.reviewer, data.get('reviewer_number_map'))})")
+    else:
+        def _snapshot_and_record(d: dict) -> None:
+            meta = snapshot(d, args.reviewer, boost=dispute_boost)
+            record_boost_sent(d, args.reviewer, dispute_phase, [args.issue], meta.boosted)
+
+        try:
+            update_pipeline(path, _snapshot_and_record)
+        except Exception as e:
+            print(f"WARNING: boost record failed after dispute notification: {e}")
 
     gitlab = data.get("gitlab", f"{GITLAB_NAMESPACE}/{args.project}")
     reviewer_map = data.get("reviewer_number_map")
     masked = mask_agent_name(args.reviewer, reviewer_number_map=reviewer_map)
+    boost_tag = " [boost]" if disputed_boosted else ""
     note_body = (
-        f"[dispute] #{args.issue}: {masked}'s verdict disputed\n\n"
+        f"[dispute] #{args.issue}: {masked}{boost_tag}'s verdict disputed\n\n"
         f"**Reason:**\n\n{args.reason.strip()}"
     )
     _post_gitlab_note(gitlab, args.issue, note_body)

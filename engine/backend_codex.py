@@ -64,6 +64,7 @@ from config import (
     INACTIVE_THRESHOLD_SEC,
 )
 from engine.backend_types import SendResult
+from engine.boost import overlay_profile
 
 logger = logging.getLogger(__name__)
 
@@ -690,7 +691,7 @@ def _rebuild_codex_md(agent_id: str) -> None:
 # Public API
 # ---------------------------------------------------------------------------
 
-def send(agent_id: str, message: str, timeout: int) -> SendResult:
+def send(agent_id: str, message: str, timeout: int, *, boost: bool = False) -> SendResult:
     """Fire-and-forget launch of ``codex exec`` (``timeout`` is unused)."""
     if config.DRY_RUN:
         logger.info("[dry-run] codex send skipped (agent=%s)", agent_id)
@@ -730,6 +731,8 @@ def send(agent_id: str, message: str, timeout: int) -> SendResult:
         _rebuild_codex_md(agent_id)
 
         profile = _load_config().get(agent_id, {})
+        if boost:
+            profile = overlay_profile(profile, "codex")
         session_id = _read_session_id(agent_id)
         cmd = _build_cmd(agent_id, profile, session_id)
 

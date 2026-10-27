@@ -820,3 +820,49 @@ class TestResetSession:
                     if r.levelno == logging.WARNING]
         assert any("reset_session" in r.message and "failed to delete" in r.message
                     for r in warnings)
+
+
+# ===========================================================================
+# Issue #400: boost overlay
+# ===========================================================================
+
+class TestSendBoost:
+    def _cmd(self, monkeypatch, profile: dict, boost: bool) -> list[str]:
+        monkeypatch.setattr(config, "DRY_RUN", False)
+        monkeypatch.setattr(backend_pi, "_agent_config_cache", {"reviewer1": profile})
+        mock_proc = MagicMock()
+        mock_proc.stdin = MagicMock()
+        with patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
+            backend_pi.send("reviewer1", "hello", timeout=30, boost=boost)
+        return mock_popen.call_args[0][0]
+
+    _PROFILE = {
+        "provider": "github-copilot", "model": "base-model", "thinking": "low",
+        "boost": {"model": "big-model", "thinking": "high", "provider": "other"},
+    }
+
+    def test_boost_true_overlays_model_and_thinking(self, tmp_sessions, monkeypatch):
+        cmd = self._cmd(monkeypatch, self._PROFILE, boost=True)
+        assert cmd[cmd.index("--model") + 1] == "github-copilot/big-model"
+        assert cmd[cmd.index("--thinking") + 1] == "high"
+
+    def test_boost_false_keeps_base(self, tmp_sessions, monkeypatch):
+        cmd = self._cmd(monkeypatch, self._PROFILE, boost=False)
+        assert cmd[cmd.index("--model") + 1] == "github-copilot/base-model"
+        assert cmd[cmd.index("--thinking") + 1] == "low"
+
+    def test_mode_a_overrides_provider_model_but_keeps_boost_thinking(
+        self, tmp_sessions, monkeypatch,
+    ):
+        profile = {
+            "provider": "openai-codex", "model": "gpt-base", "thinking": "low",
+            "fallback": True,
+            "boost": {"model": "gpt-big", "thinking": "high"},
+        }
+        monkeypatch.setattr(
+            "engine.openai_codex_quota.should_fallback",
+            lambda agent_id: (True, "github-copilot", "fb-model", False),
+        )
+        cmd = self._cmd(monkeypatch, profile, boost=True)
+        assert cmd[cmd.index("--model") + 1] == "github-copilot/fb-model"
+        assert cmd[cmd.index("--thinking") + 1] == "high"

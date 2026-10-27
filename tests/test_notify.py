@@ -1523,7 +1523,7 @@ class TestNotifyReviewersFailedTracking:
         self._setup_mode(monkeypatch)
         monkeypatch.setattr(config, "MAX_CLI_ARG_BYTES", 999_999)
 
-        def fake_send(agent, msg):
+        def fake_send(agent, msg, **kwargs):
             return agent != "reviewer5"
 
         with patch("notify.send_to_agent", side_effect=fake_send):
@@ -1541,7 +1541,7 @@ class TestNotifyReviewersFailedTracking:
         self._setup_mode(monkeypatch)
         monkeypatch.setattr(config, "MAX_CLI_ARG_BYTES", 10)
 
-        def fake_send(agent, msg):
+        def fake_send(agent, msg, **kwargs):
             return agent != "reviewer1"
 
         with patch("notify.send_to_agent", side_effect=fake_send):
@@ -1713,3 +1713,153 @@ class TestNpassSkillInjection:
                 skip_skills=False,
             )
         assert "<skills>" in msg
+
+
+# ===========================================================================
+# Issue #400: boost — send kwarg, boost_sent record, review_request metrics
+# ===========================================================================
+
+class TestNotifyReviewersBoost:
+    MEMBERS = ["reviewer1", "reviewer2"]
+
+    @pytest.fixture
+    def env(self, tmp_pipelines, monkeypatch):
+        import notify
+        from engine.agent_meta import AgentMeta
+        modes = {"standard": {"members": self.MEMBERS, "min_reviews": 2}}
+        monkeypatch.setattr(notify, "REVIEW_MODES", modes)
+        monkeypatch.setattr(notify, "AGENTS", {r: r for r in self.MEMBERS})
+        monkeypatch.setattr("config.REVIEW_MODES", modes)
+        monkeypatch.setattr("notify.fetch_issue_body", lambda num, gitlab: "body")
+        state = {"boosted": True}
+
+        def fake_resolve(agent_id, boost=False):
+            return AgentMeta(backend="cc", provider="anthropic", model="m", think_level="",
+                             captured_at="t", boosted=boost and state["boosted"])
+
+        monkeypatch.setattr("engine.agent_meta._resolve", fake_resolve)
+        return {"dir": tmp_pipelines, "resolve_state": state}
+
+    @staticmethod
+    def _item(num, design=None, code=None):
+        return {"issue": num, "title": f"t{num}", "commit": None,
+                "design_reviews": design or {}, "code_reviews": code or {}}
+
+    def _write(self, env, batch, boost=True):
+        data = {"project": "proj", "state": "DESIGN_REVIEW", "batch": batch,
+                "history": [], "enabled": True}
+        if boost:
+            data["boost"] = True
+        (env["dir"] / "proj.json").write_text(json.dumps(data))
+
+    def _read_batch(self, env):
+        return json.loads((env["dir"] / "proj.json").read_text())["batch"]
+
+    def _run(self, batch, state="DESIGN_REVIEW", send=None, boost=True):
+        import notify
+        with patch("notify.send_to_agent", side_effect=send or (lambda *a, **k: True)) as ms, \
+             patch("pipeline_io.append_metric") as mm:
+            notify.notify_reviewers("proj", state, batch, "testns/proj",
+                                    review_mode="standard", boost=boost)
+        return ms, mm
+
+    @staticmethod
+    def _req_metrics(mm, reviewer):
+        return {c.kwargs["issue"]: c.kwargs for c in mm.call_args_list
+                if c.args[0] == "review_request" and c.kwargs["reviewer"] == reviewer}
+
+    def test_boost_kwarg_passed_to_send(self, env):
+        batch = [self._item(1)]
+        self._write(env, batch)
+        ms, _ = self._run(batch)
+        assert all(c.kwargs == {"boost": True} for c in ms.call_args_list)
+        ms, _ = self._run(batch, boost=False)
+        assert all(c.kwargs == {"boost": False} for c in ms.call_args_list)
+
+    def test_records_only_for_successful_reviewers(self, env):
+        batch = [self._item(1), self._item(2, design={"reviewer1": {"verdict": "APPROVE"}})]
+        self._write(env, batch)
+        self._run(batch, send=lambda r, m, **k: r == "reviewer1")
+        saved = self._read_batch(env)
+        assert saved[0]["boost_sent"] == {"design": {"reviewer1": True}}
+        assert "boost_sent" not in saved[1]
+
+    def test_non_boost_batch_writes_nothing(self, env):
+        batch = [self._item(1)]
+        self._write(env, batch, boost=False)
+        self._run(batch, boost=False)
+        assert "boost_sent" not in self._read_batch(env)[0]
+
+    def test_npass_final_pass_not_recorded(self, env):
+        done = {"reviewer1": {"verdict": "APPROVE", "pass": 2, "target_pass": 2}}
+        pending = {"reviewer1": {"verdict": "APPROVE", "pass": 1, "target_pass": 2}}
+        item1 = self._item(1, design=done)
+        item1["boost_sent"] = {"design": {"reviewer1": False}}
+        batch = [item1, self._item(2, design=pending)]
+        self._write(env, batch)
+        self._run(batch, state="DESIGN_REVIEW_NPASS")
+        saved = self._read_batch(env)
+        assert saved[0]["boost_sent"]["design"]["reviewer1"] is False
+        assert saved[1]["boost_sent"]["design"]["reviewer1"] is True
+
+    def test_write_failure_drops_boosted_metric(self, env):
+        batch = [self._item(1)]
+        self._write(env, batch)
+        with patch("pipeline_io._atomic_write", side_effect=OSError("disk")):
+            _, mm = self._run(batch)
+        m = self._req_metrics(mm, "reviewer1")
+        assert 1 in m and "boosted" not in m[1]
+
+    def test_metric_boundary_normal_review(self, env):
+        batch = [self._item(1),
+                 self._item(2, design={"reviewer1": {"verdict": "APPROVE", "pass": 1,
+                                                     "target_pass": 2}})]
+        self._write(env, batch)
+        _, mm = self._run(batch)
+        m = self._req_metrics(mm, "reviewer1")
+        assert set(m) == {1, 2}
+        assert m[1].get("boosted") is True
+        assert "boosted" not in m[2]
+        saved = self._read_batch(env)
+        assert "reviewer1" not in saved[1].get("boost_sent", {}).get("design", {})
+
+    def test_metric_boundary_npass(self, env):
+        batch = [self._item(1, design={"reviewer1": {"verdict": "P2", "pass": 2, "target_pass": 2}}),
+                 self._item(2, design={"reviewer1": {"verdict": "APPROVE", "pass": 1,
+                                                     "target_pass": 2}})]
+        self._write(env, batch)
+        _, mm = self._run(batch, state="DESIGN_REVIEW_NPASS")
+        m = self._req_metrics(mm, "reviewer1")
+        assert 1 in m and "boosted" not in m[1]
+        assert m[2].get("boosted") is True
+
+    def test_recorded_value_is_snapshot_boosted(self, env):
+        env["resolve_state"]["boosted"] = False
+        batch = [self._item(1)]
+        self._write(env, batch)
+        _, mm = self._run(batch)
+        assert self._read_batch(env)[0]["boost_sent"]["design"]["reviewer1"] is False
+        assert "boosted" not in self._req_metrics(mm, "reviewer1")[1]
+
+    def test_issue_nums_match_messages(self, tmp_path, monkeypatch):
+        import re
+        import notify
+        monkeypatch.setattr("notify.fetch_issue_body", lambda num, gitlab: "body")
+        r = "reviewer1"
+        batch = [
+            self._item(1),
+            self._item(2, design={r: {"verdict": "P1"}}),
+            self._item(3, design={r: {"verdict": "P2"}}),
+            self._item(4, design={r: {"verdict": "APPROVE", "pass": 1, "target_pass": 2}}),
+            self._item(5, design={r: {"verdict": "APPROVE", "pass": 2, "target_pass": 2}}),
+        ]
+        normal = notify._review_request_issue_nums("DESIGN_REVIEW", batch, r)
+        msg = notify.format_review_request("proj", "DESIGN_REVIEW", batch, "testns/proj", reviewer=r)
+        assert [int(n) for n in re.findall(r"^### #(\d+):", msg, re.M)] == normal
+        fmsg = notify._build_file_review_message("proj", False, r, tmp_path / "f.md", batch, None)
+        assert [int(n) for n in re.findall(r"--issue (\d+)", fmsg)] == normal
+        npass = notify._review_request_issue_nums("DESIGN_REVIEW_NPASS", batch, r)
+        nmsg = notify._build_npass_review_message("proj", "DESIGN_REVIEW_NPASS", batch, r)
+        assert [int(n) for n in re.findall(r"^□ #(\d+):", nmsg, re.M)] == npass
+        assert normal == [1, 2, 3]
+        assert npass == [4]

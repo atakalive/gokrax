@@ -1005,7 +1005,7 @@ class TestDisputeNudgeIntegration:
         from watchdog import process
         with patch("watchdog.update_pipeline", side_effect=fake_update), \
              patch("watchdog.send_to_agent_queued",
-                   side_effect=lambda r, m: captured.append((r, m)) or True), \
+                   side_effect=lambda r, m, **kwargs: captured.append((r, m)) or True), \
              patch("watchdog._is_agent_inactive", return_value=True), \
              patch("watchdog.notify_discord"):
             process(path)
@@ -1092,7 +1092,7 @@ class TestDisputeNudgeIntegration:
         from watchdog import process
         with patch("watchdog.update_pipeline", side_effect=fake_update), \
              patch("watchdog.send_to_agent_queued",
-                   side_effect=lambda r, m: captured.append((r, m)) or True), \
+                   side_effect=lambda r, m, **kwargs: captured.append((r, m)) or True), \
              patch("watchdog._is_agent_inactive", return_value=True), \
              patch("watchdog.notify_discord"):
             process(path)

@@ -125,3 +125,39 @@ class TestCmdStartAutopull:
         cmd_start(args)
         data = json.loads((pipeline_dir / "test.json").read_text())
         assert "autopull" not in data
+
+
+class TestCmdStartBoost:
+    """Tests for boost flag persistence in cmd_start (Issue #400)."""
+
+    def test_boost_explicit_true(self, pipeline_dir):
+        _write_pipeline(pipeline_dir, "test", _base_pipeline())
+        cmd_start(_make_args(boost=True, no_boost=None))
+        data = json.loads((pipeline_dir / "test.json").read_text())
+        assert data["boost"] is True
+
+    def test_boost_not_specified(self, pipeline_dir):
+        _write_pipeline(pipeline_dir, "test", _base_pipeline())
+        cmd_start(_make_args(boost=None, no_boost=None))
+        data = json.loads((pipeline_dir / "test.json").read_text())
+        assert "boost" not in data
+
+    def test_stale_boost_cleared(self, pipeline_dir):
+        _write_pipeline(pipeline_dir, "test", {**_base_pipeline(), "boost": True})
+        cmd_start(_make_args(boost=None, no_boost=None))
+        data = json.loads((pipeline_dir / "test.json").read_text())
+        assert "boost" not in data
+
+    def test_default_queue_option_applies(self, pipeline_dir, monkeypatch):
+        monkeypatch.setattr(config, "resolve_queue_options", lambda project: {"boost": True})
+        _write_pipeline(pipeline_dir, "test", _base_pipeline())
+        cmd_start(_make_args(boost=None, no_boost=None))
+        data = json.loads((pipeline_dir / "test.json").read_text())
+        assert data["boost"] is True
+
+    def test_no_boost_beats_default(self, pipeline_dir, monkeypatch):
+        monkeypatch.setattr(config, "resolve_queue_options", lambda project: {"boost": True})
+        _write_pipeline(pipeline_dir, "test", _base_pipeline())
+        cmd_start(_make_args(boost=None, no_boost=True))
+        data = json.loads((pipeline_dir / "test.json").read_text())
+        assert "boost" not in data

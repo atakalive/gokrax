@@ -136,6 +136,7 @@ def parse_queue_line(line: str, *, validate_batch_size: bool = True) -> dict:
         automerge        — M承認待ちスキップ
         plan=MODEL       — CC Plan段階のモデル指定
         impl=MODEL       — CC Implementation段階のモデル指定
+        boost / no-boost — REVIEW_MODES で boost 有効なフェーズのレビュアーモデルを格上げする / しない
         comment=TEXT     — バッチへの注意事項（末尾専用: comment= 以降の全テキストがコメントになる）
 
     Args:
@@ -210,6 +211,7 @@ def parse_queue_line(line: str, *, validate_batch_size: bool = True) -> dict:
         "exclude_any_risk": False,
         "allow_closed": False,
         "autopull": False,
+        "boost": False,
         "original_line": line.rstrip("\n"),
     }
     result["_explicit_keys"] = set()
@@ -323,6 +325,12 @@ def parse_queue_line(line: str, *, validate_batch_size: bool = True) -> dict:
         elif token == "no-autopull":
             result["autopull"] = False
             result["_explicit_keys"].add("autopull")
+        elif token == "boost":
+            result["boost"] = True
+            result["_explicit_keys"].add("boost")
+        elif token == "no-boost":
+            result["boost"] = False
+            result["_explicit_keys"].add("boost")
         elif token in REVIEW_MODES:
             if result["mode"] is not None:
                 raise ValueError(f"Duplicate mode: already {result['mode']!r}, got {token!r}")

@@ -203,8 +203,12 @@ provider/model/think_level resolved at dispatch time. Schema per entry:
 
 ```json
 {"backend": "pi", "provider": "github-copilot", "model": "claude-sonnet-4.6",
- "think_level": "max", "captured_at": "<iso-timestamp>"}
+ "think_level": "max", "captured_at": "<iso-timestamp>", "boosted": false}
 ```
+
+`boosted` records whether the per-agent `boost` in `config_<backend>.json` was overlaid on the
+send (Issue #400). It becomes true only in the snapshot taken right after a successful boosted
+send. Older entries lack it; a missing value is treated as false.
 
 Resolved by `engine.agent_meta._resolve()` from the active backend's `_load_config()` plus
 quota fallback caches for `openai-codex` (pi only, `engine/openai_codex_quota.py`),
@@ -218,6 +222,14 @@ Gemini Pro (`engine/gemini_quota.py`), agy (`engine/agy_quota.py`), and codex CL
 
 Existing entries are always overwritten with a fresh `captured_at`. Past metrics that
 embedded a snapshot (Issue #340) are unaffected by later config edits.
+
+In boost batches (`data["boost"]` true), each batch issue also carries
+`boost_sent = {"design": {reviewer: bool}, "code": {reviewer: bool}}`.
+`boost_sent[phase][reviewer]` holds the `boosted` value of the snapshot taken right after the
+**last successful send** to that reviewer in that phase that included the issue. Failed sends do
+not write it, nor does phase start (`_save_excluded`, manual transition). GitLab note `[boost]`
+tags and the `boosted` key of `review_response` metrics read only this record
+(`engine.agent_meta.was_boosted_for`), so a send for one issue never changes another issue's display.
 
 ### Review Modes Table
 

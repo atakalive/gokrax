@@ -302,3 +302,130 @@ def test_resolve_integration_pi_hermetic(monkeypatch, tmp_path):
     assert meta == AgentMeta(backend="pi", provider="github-copilot",
                              model="claude-sonnet-4.6", think_level="max",
                              captured_at=meta.captured_at)
+
+
+# ---------------------------------------------------------------------------
+# Issue #400: boost overlay / boost_sent record
+# ---------------------------------------------------------------------------
+
+from engine.agent_meta import record_boost_sent, was_boosted_for  # noqa: E402
+
+
+def test_resolve_boost_overlays_cc(monkeypatch):
+    _patch_backend(monkeypatch, "cc")
+    monkeypatch.setattr(
+        "engine.backend_cc._load_config",
+        lambda: {"alice": {"model": "sonnet", "effort": "medium",
+                           "boost": {"model": "opus", "effort": "max"}}},
+    )
+    meta = _resolve("alice", boost=True)
+    assert meta.model == "opus"
+    assert meta.think_level == "max"
+    assert meta.boosted is True
+    plain = _resolve("alice")
+    assert plain.model == "sonnet"
+    assert plain.boosted is False
+
+
+def test_resolve_boost_pi_thinking(monkeypatch):
+    _patch_backend(monkeypatch, "pi")
+    monkeypatch.setattr(
+        "engine.backend_pi._load_config",
+        lambda: {"kaneko": {"provider": "github-copilot", "model": "m1", "thinking": "low",
+                            "boost": {"model": "m2", "thinking": "high"}}},
+    )
+    monkeypatch.setattr("engine.openai_codex_quota._cache_path",
+                        lambda agent_id: "/nonexistent/x.json")
+    meta = _resolve("kaneko", boost=True)
+    assert (meta.provider, meta.model, meta.think_level, meta.boosted) == (
+        "github-copilot", "m2", "high", True)
+
+
+def test_resolve_boost_without_config_not_boosted(monkeypatch):
+    _patch_backend(monkeypatch, "gemini")
+    monkeypatch.setattr(
+        "engine.backend_gemini._load_config",
+        lambda: {"pascal": {"model": "gemini-base"}},
+    )
+    meta = _resolve("pascal", boost=True)
+    assert meta.model == "gemini-base"
+    assert meta.boosted is False
+
+
+def test_resolve_boost_openclaw_not_boosted(monkeypatch):
+    _patch_backend(monkeypatch, "openclaw")
+    assert _resolve("a", boost=True).boosted is False
+
+
+def test_snapshot_records_boosted(monkeypatch):
+    _patch_backend(monkeypatch, "kimi")
+    monkeypatch.setattr(
+        "engine.backend_kimi._load_config",
+        lambda: {"k": {"model": "base", "boost": {"model": "big"}}},
+    )
+    data: dict = {}
+    meta = snapshot(data, "k", boost=True)
+    assert meta.boosted is True
+    assert data["reviewer_meta"]["k"]["boosted"] is True
+    assert data["reviewer_meta"]["k"]["model"] == "big"
+
+
+def test_lookup_old_entry_without_boosted():
+    data = {"reviewer_meta": {"a": {"backend": "pi", "provider": None, "model": None,
+                                    "think_level": "", "captured_at": "t"}}}
+    out = lookup(data, "a")
+    assert isinstance(out, AgentMeta)
+    assert out.boosted is False
+
+
+def _boost_data(**kw) -> dict:
+    return {"boost": True, "batch": [{"issue": 1}, {"issue": 2}], **kw}
+
+
+def test_record_boost_sent_noop_without_boost_flag():
+    data = {"batch": [{"issue": 1}]}
+    record_boost_sent(data, "r1", "design", [1], True)
+    assert "boost_sent" not in data["batch"][0]
+
+
+def test_record_boost_sent_skips_unknown_issue():
+    data = _boost_data()
+    record_boost_sent(data, "r1", "design", [1, 99], True)
+    assert data["batch"][0]["boost_sent"] == {"design": {"r1": True}}
+    assert "boost_sent" not in data["batch"][1]
+
+
+def test_record_boost_sent_replaces_non_dict():
+    data = _boost_data()
+    data["batch"][0]["boost_sent"] = "garbage"
+    data["batch"][1]["boost_sent"] = {"design": None}
+    record_boost_sent(data, "r1", "design", [1, 2], True)
+    assert data["batch"][0]["boost_sent"] == {"design": {"r1": True}}
+    assert data["batch"][1]["boost_sent"] == {"design": {"r1": True}}
+
+
+def test_record_boost_sent_false_overwrites_true():
+    data = _boost_data()
+    record_boost_sent(data, "r1", "code", [1], True)
+    record_boost_sent(data, "r1", "code", [1], False)
+    assert data["batch"][0]["boost_sent"]["code"]["r1"] is False
+
+
+def test_record_boost_sent_non_list_batch():
+    data = {"boost": True, "batch": None}
+    record_boost_sent(data, "r1", "code", [1], True)
+    assert data["batch"] is None
+
+
+def test_was_boosted_for():
+    data = _boost_data()
+    assert was_boosted_for(data, 99, "design", "r1") is False
+    assert was_boosted_for(data, 1, "design", "r1") is False
+    data["batch"][0]["boost_sent"] = {"code": {"r1": True}}
+    assert was_boosted_for(data, 1, "design", "r1") is False
+    data["batch"][0]["boost_sent"]["design"] = {"r2": True}
+    assert was_boosted_for(data, 1, "design", "r1") is False
+    data["batch"][0]["boost_sent"]["design"]["r1"] = None
+    assert was_boosted_for(data, 1, "design", "r1") is False
+    data["batch"][0]["boost_sent"]["design"]["r1"] = True
+    assert was_boosted_for(data, 1, "design", "r1") is True

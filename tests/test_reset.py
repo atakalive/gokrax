@@ -79,6 +79,7 @@ class TestCmdReset:
             comment="note",
             skip_cc_plan=True,
             skip_test=True,
+            boost=True,
         )
         path = tmp_pipelines / "pj-a.json"
         write_pipeline(path, pipeline)
@@ -97,7 +98,8 @@ class TestCmdReset:
                     "max_design_revise_cycles", "max_code_revise_cycles",
                     "automerge", "p2_fix",
                     "cc_plan_model", "cc_impl_model", "keep_context",
-                    "keep_ctx_batch", "keep_ctx_intra", "comment", "skip_cc_plan", "skip_test"):
+                    "keep_ctx_batch", "keep_ctx_intra", "comment", "skip_cc_plan", "skip_test",
+                    "boost"):
             assert key not in saved, f"key {key!r} should be removed"
 
     def test_multiple_non_idle_all_reset(self, tmp_pipelines, capsys):
@@ -177,6 +179,7 @@ class TestCmdReset:
             "comment": "test",
             "skip_cc_plan": True,
             "skip_test": True,
+            "boost": True,
             "_code_test": {"pid": 99999, "output_path": "/tmp/x", "exit_code_path": "/tmp/x.exit", "script_path": "/tmp/x.sh"},
             "test_result": "fail",
             "test_output": "some output",
@@ -197,7 +200,8 @@ class TestCmdReset:
                     "max_design_revise_cycles", "max_code_revise_cycles",
                     "automerge", "p2_fix",
                     "cc_plan_model", "cc_impl_model", "keep_context",
-                    "keep_ctx_batch", "keep_ctx_intra", "comment", "skip_cc_plan", "skip_test"):
+                    "keep_ctx_batch", "keep_ctx_intra", "comment", "skip_cc_plan", "skip_test",
+                    "boost"):
             assert key not in data, f"key {key!r} should be removed"
         for key in ("_code_test", "test_result", "test_output", "test_retry_count"):
             assert key not in data, f"key {key!r} should be removed"

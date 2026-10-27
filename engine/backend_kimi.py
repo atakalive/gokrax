@@ -34,6 +34,7 @@ from config import (
     REVIEW_FILE_DIR,
 )
 from engine.backend_types import SendResult
+from engine.boost import overlay_profile
 
 logger = logging.getLogger(__name__)
 
@@ -268,7 +269,7 @@ def _rebuild_kimi_md(agent_id: str) -> None:
         logger.warning("_rebuild_kimi_md: failed for %s: %s", agent_id, exc)
 
 
-def send(agent_id: str, message: str, timeout: int) -> SendResult:
+def send(agent_id: str, message: str, timeout: int, *, boost: bool = False) -> SendResult:
     """Fire-and-forget subprocess launch of ``kimi``."""
     if config.DRY_RUN:
         logger.info("[dry-run] kimi send skipped (agent=%s)", agent_id)
@@ -292,6 +293,8 @@ def send(agent_id: str, message: str, timeout: int) -> SendResult:
 
     config_data = _load_config()
     profile = config_data.get(agent_id, {})
+    if boost:
+        profile = overlay_profile(profile, "kimi")
 
     profile_dir = AGENT_PROFILES_DIR / agent_id
     if not profile_dir.is_dir():

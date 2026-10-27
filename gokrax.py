@@ -241,6 +241,9 @@ def main():
     p.add_argument("--autopull", action="store_true", default=None, dest="autopull",
                    help="run git pull --ff-only during INITIALIZE before starting")
     p.add_argument("--no-autopull", action="store_true", default=None, dest="no_autopull")
+    p.add_argument("--boost", action="store_true", default=None, dest="boost",
+                   help="upgrade reviewer models in phases where REVIEW_MODES enables boost")
+    p.add_argument("--no-boost", action="store_true", default=None, dest="no_boost")
 
     # transition
     p = sub.add_parser("transition", help="manually trigger a state transition (normally done by watchdog)")

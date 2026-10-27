@@ -758,7 +758,7 @@ class TestBackendWiring:
         calls: list[str] = []
         _fallback_resets["pi"].side_effect = lambda *a: calls.append("reset")
 
-        def _pi_send(*a):
+        def _pi_send(*a, **kwargs):
             calls.append("send")
             return SendResult.OK
 
@@ -798,7 +798,7 @@ class TestBackendWiring:
         calls: list[str] = []
         _fallback_resets["pi"].side_effect = lambda *a: calls.append("reset")
 
-        def _pi_send(*a):
+        def _pi_send(*a, **kwargs):
             calls.append("send")
             return SendResult.OK
 

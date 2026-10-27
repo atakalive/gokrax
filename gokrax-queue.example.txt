@@ -3,7 +3,7 @@
 #
 # - ISSUES: Comma-separated numbers (e.g.,: 1,2,3) or "all"
 # - MODE: e.g., full, standard, lite, or skip
-# - OPTIONS: plan=MODEL, impl=MODEL, skip-cc-plan, keep-ctx-batch, keep-ctx-intra, keep-ctx-all, p2-fix, etc.
+# - OPTIONS: plan=MODEL, impl=MODEL, skip-cc-plan, keep-ctx-batch, keep-ctx-intra, keep-ctx-all, p2-fix, boost, etc.
 #            See CLI.md for details.
 #            See settings.py: DEFAULT_QUEUE_OPTIONS for default values.
 # - Started lines are automatically marked with the `# done:` prefix.

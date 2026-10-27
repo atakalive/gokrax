@@ -111,6 +111,11 @@ REVIEW_MODES = {
     #     },
     #     # Design review uses all members (inherits top-level, no override needed)
     # },
+    # --- Boost example (Issue #400) ---
+    # "boost": True upgrades reviewer models (per-agent "boost" in agents/config_<backend>.json)
+    # for batches started with the `boost` queue option / --boost. Top-level applies to both phases.
+    # "full-boost": {"members": ["reviewer1", "reviewer2"], "boost": True},
+    # "design-boost": {"members": ["reviewer1", "reviewer2"], "design": {"boost": True}},
 }
 
 # ===========================================================================

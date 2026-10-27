@@ -36,6 +36,7 @@ from config import (
     GEMINI_PIDS_DIR,
 )
 from engine.backend_types import SendResult
+from engine.boost import overlay_profile
 
 logger = logging.getLogger(__name__)
 
@@ -303,7 +304,7 @@ def _rebuild_gemini_md(agent_id: str) -> None:
         logger.warning("_rebuild_gemini_md: failed for %s: %s", agent_id, exc)
 
 
-def send(agent_id: str, message: str, timeout: int) -> SendResult:
+def send(agent_id: str, message: str, timeout: int, *, boost: bool = False) -> SendResult:
     """Fire-and-forget subprocess launch of ``gemini``.
 
     Returns SendResult.OK on spawn + pid persistence success, SendResult.FAIL
@@ -331,6 +332,8 @@ def send(agent_id: str, message: str, timeout: int) -> SendResult:
 
     config_data = _load_config()
     profile = config_data.get(agent_id, {})
+    if boost:
+        profile = overlay_profile(profile, "gemini")
 
     profile_dir = AGENT_PROFILES_DIR / agent_id
     if not profile_dir.is_dir():

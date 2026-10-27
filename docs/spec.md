@@ -450,6 +450,7 @@ Pipeline JSON fields are classified into 3 categories.
 | keep_ctx_intra | bool | Preserve context within a batch |
 | base_commit | str \| null | Base commit hash |
 | p2_fix | bool | P2 fix mode |
+| boost | bool | Boost mode: upgrade reviewer models in phases where `REVIEW_MODES` enables `boost` (written only when True) |
 | comment | str \| null | Comment (instructions passed to CC, etc.) |
 | timeout_extension | int | Timeout extension in seconds |
 | extend_count | int | Extension count |
@@ -612,6 +613,7 @@ PROJECT ISSUES [MODE] [OPTIONS...]
 | keep-ctx-intra | Preserve context within a batch |
 | keep-ctx-all | Preserve context across and within batches |
 | p2-fix | P2 fix mode |
+| boost / no-boost | Enable / disable reviewer model boost for the batch |
 | skip-cc-plan | Skip CC Plan phase |
 | skip-test | Skip CODE_TEST |
 | skip-assess | Skip ASSESSMENT |

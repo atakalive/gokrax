@@ -45,6 +45,7 @@ from config import (
     INACTIVE_THRESHOLD_SEC,
 )
 from engine.backend_types import SendResult
+from engine.boost import overlay_profile
 
 logger = logging.getLogger(__name__)
 
@@ -650,7 +651,7 @@ def _ensure_agy_home(agent_id: str, model: str | None) -> Path | None:
     return agent_home
 
 
-def send(agent_id: str, message: str, timeout: int) -> SendResult:
+def send(agent_id: str, message: str, timeout: int, *, boost: bool = False) -> SendResult:
     """Fire-and-forget subprocess launch of ``agy``.
 
     At most one live agy process per agent is allowed. If a previous
@@ -735,6 +736,8 @@ def send(agent_id: str, message: str, timeout: int) -> SendResult:
 
         config_data = _load_config()
         profile = config_data.get(agent_id, {})
+        if boost:
+            profile = overlay_profile(profile, "agy")
 
         if not agent_home.is_dir():
             logger.warning(

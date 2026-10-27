@@ -413,3 +413,19 @@ class TestTerminatePidTree:
         proc.wait.return_value = 0
         backend_kimi._terminate_pid_tree(1234, AGENT, proc=proc)
         assert calls == [backend_kimi.signal.SIGTERM]
+
+
+# ===========================================================================
+# Issue #400: boost overlay
+# ===========================================================================
+
+class TestSendBoost:
+    @pytest.mark.parametrize("boost, expected", [(True, "kimi-big"), (False, "kimi-base")])
+    def test_model_overlay(self, recorder, monkeypatch, boost, expected):
+        monkeypatch.setattr(
+            backend_kimi, "_load_config",
+            lambda: {AGENT: {"model": "kimi-base", "boost": {"model": "kimi-big"}}},
+        )
+        backend_kimi.send(AGENT, "hi", 30, boost=boost)
+        argv = recorder["popen_calls"][0]
+        assert argv[argv.index("-m") + 1] == expected

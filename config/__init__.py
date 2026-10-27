@@ -69,6 +69,7 @@ NONE_TO_FALSE_KEYS: tuple[str, ...] = (
     "skip_assess",
     "skip_design",
     "no_cc",
+    "boost",
 )
 
 # CC model
@@ -202,8 +203,13 @@ import importlib.util as _importlib_util  # noqa: E402
 def _validate_review_modes(review_modes: dict, reviewers: list[str]) -> None:
     """REVIEW_MODES のフェーズ上書きをバリデーションする。起動時に呼ばれる。"""
     _VALID_PHASE_KEYS = {"design", "code"}
-    _VALID_OVERRIDE_FIELDS = {"members", "min_reviews", "n_pass", "grace_period_sec"}
+    _VALID_OVERRIDE_FIELDS = {"members", "min_reviews", "n_pass", "grace_period_sec", "boost"}
     for mode_name, mode_cfg in review_modes.items():
+        if "boost" in mode_cfg and not isinstance(mode_cfg["boost"], bool):
+            raise ValueError(
+                f"REVIEW_MODES['{mode_name}']['boost'] must be a bool, "
+                f"got {type(mode_cfg['boost']).__name__}"
+            )
         for key in mode_cfg:
             if key in _VALID_PHASE_KEYS:
                 override = mode_cfg[key]
@@ -216,6 +222,11 @@ def _validate_review_modes(review_modes: dict, reviewers: list[str]) -> None:
                     raise ValueError(
                         f"REVIEW_MODES['{mode_name}']['{key}'] has unknown keys: {unknown}. "
                         f"Valid keys: {sorted(_VALID_OVERRIDE_FIELDS)}"
+                    )
+                if "boost" in override and not isinstance(override["boost"], bool):
+                    raise ValueError(
+                        f"REVIEW_MODES['{mode_name}']['{key}']['boost'] must be a bool, "
+                        f"got {type(override['boost']).__name__}"
                     )
                 if "members" in override:
                     unknown_members = set(override["members"]) - set(reviewers)

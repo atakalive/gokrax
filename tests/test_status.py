@@ -134,3 +134,37 @@ def test_status_per_issue_excluded(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert "APPROVE: alice" in line
     assert "P1: bob" in line
     assert "2/2 reviews" in line
+
+
+def _boost_rc(design: bool, code: bool) -> dict:
+    return {
+        "design": {"members": ["alice"], "min_reviews": 1, "n_pass": {},
+                   "grace_period_sec": 0, "boost": design},
+        "code": {"members": ["alice"], "min_reviews": 1, "n_pass": {},
+                 "grace_period_sec": 0, "boost": code},
+    }
+
+
+def _status_line(text: str, pj: str) -> str:
+    return next(ln for ln in text.splitlines() if f"] {pj}:" in ln)
+
+
+def test_status_boost_label(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Issue #400: boost batch shows boost[...] label at end of line."""
+    import commands.dev
+    monkeypatch.setattr(commands.dev, "PIPELINES_DIR", tmp_path)
+    _write(tmp_path, {"project": "bp", "state": "DESIGN_PLAN", "enabled": True,
+                      "batch": [{"issue": 400}], "review_mode": "custom",
+                      "review_config": _boost_rc(True, False), "boost": True})
+    line = _status_line(get_status_text(), "bp")
+    assert line.endswith('Reviewers=["alice"]  boost[design]')
+
+
+def test_status_no_boost_unchanged(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import commands.dev
+    monkeypatch.setattr(commands.dev, "PIPELINES_DIR", tmp_path)
+    _write(tmp_path, {"project": "np", "state": "DESIGN_PLAN", "enabled": True,
+                      "batch": [{"issue": 1}], "review_mode": "custom",
+                      "review_config": _boost_rc(True, True)})
+    line = _status_line(get_status_text(), "np")
+    assert line == '[ON] np: DESIGN_PLAN  issues=[#1]  ReviewerSize=custom  Reviewers=["alice"]'

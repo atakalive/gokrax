@@ -8290,3 +8290,184 @@ class TestExtendNoticeDelivery:
         assert "_extend_notified" not in self._load(path)
         watchdog._stamp_extend_notified("test-pj", {"extend_notice_key": "k", "old_state": "DESIGN_REVISE"})
         assert self._load(path)["_extend_notified"] == "k"
+
+
+# ===========================================================================
+# Issue #400: boost wiring (review request / recovery / nudge / _save_excluded)
+# ===========================================================================
+
+class TestBoostWiring:
+    """design だけ格上げするモードで、レビュアー宛て送信に boost が渡ること。"""
+
+    @staticmethod
+    def _review_config() -> dict:
+        from engine.fsm import _build_phase_config
+        mc = {"members": ["reviewer1"], "min_reviews": 1, "grace_period_sec": 0,
+              "design": {"boost": True}}
+        return {"design": _build_phase_config(mc, "design"),
+                "code": _build_phase_config(mc, "code")}
+
+    def _pipeline(self, state: str, batch: list, **kw) -> dict:
+        data = {
+            "project": "test-pj", "gitlab": "testns/test-pj", "state": state,
+            "enabled": True, "implementer": "implementer1", "batch": batch,
+            "history": [], "review_mode": "min", "boost": True,
+            "review_config": self._review_config(),
+            "created_at": "2025-01-01T00:00:00+09:00",
+            "updated_at": "2025-01-01T00:00:00+09:00",
+        }
+        data.update(kw)
+        return data
+
+    @staticmethod
+    def _item(num: int, **kw) -> dict:
+        item = {"issue": num, "title": f"Issue {num}", "commit": None,
+                "cc_session_id": None, "design_reviews": {}, "code_reviews": {},
+                "added_at": "2025-01-01T00:00:00+09:00"}
+        item.update(kw)
+        return item
+
+    def _process(self, tmp_path, monkeypatch, data: dict) -> MagicMock:
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+        path = tmp_path / "test-pj.json"
+        path.write_text(json.dumps(data))
+        from watchdog import process
+        with patch("watchdog.notify_implementer"), \
+             patch("watchdog.notify_reviewers", return_value=[]) as mock_nr, \
+             patch("watchdog.notify_discord"), \
+             patch("watchdog._reset_reviewers", return_value=[]):
+            process(path)
+        return mock_nr
+
+    def test_design_review_request_boosted(self, tmp_path, monkeypatch):
+        data = self._pipeline("DESIGN_PLAN", [self._item(1, design_ready=True)])
+        mock_nr = self._process(tmp_path, monkeypatch, data)
+        mock_nr.assert_called_once()
+        assert mock_nr.call_args.args[1] == "DESIGN_REVIEW"
+        assert mock_nr.call_args.kwargs["boost"] is True
+
+    def test_code_review_request_not_boosted(self, tmp_path, monkeypatch):
+        data = self._pipeline("CODE_TEST", [self._item(1, commit="abc123")],
+                              test_result="pass", test_output="ok", test_retry_count=0)
+        mock_nr = self._process(tmp_path, monkeypatch, data)
+        mock_nr.assert_called_once()
+        assert mock_nr.call_args.args[1] == "CODE_REVIEW"
+        assert mock_nr.call_args.kwargs["boost"] is False
+
+    @pytest.mark.parametrize("state, expected", [("DESIGN_REVIEW", True), ("CODE_REVIEW", False)])
+    def test_recovery_boost(self, state, expected):
+        data = self._pipeline(state, [self._item(1)], excluded_reviewers=[], comment="")
+        pending = {"review": {"new_state": state, "batch": data["batch"],
+                              "gitlab": "testns/test-pj", "repo_path": "",
+                              "review_mode": "min"}}
+        with patch("engine.fsm.load_pipeline", return_value=data), \
+             patch("engine.fsm.notify_reviewers") as mock_nr, \
+             patch("engine.fsm._conditional_clear_pending"):
+            from engine.fsm import _recover_pending_notifications
+            _recover_pending_notifications("test-pj", pending, state)
+        assert mock_nr.call_args.kwargs["boost"] is expected
+
+    def _nudge_data(self, state: str = "DESIGN_REVIEW") -> dict:
+        import datetime as dt_mod
+        from config import NUDGE_GRACE_SEC
+        entered_at = (dt_mod.datetime.now(dt_mod.timezone.utc)
+                      - dt_mod.timedelta(seconds=NUDGE_GRACE_SEC + 60)).isoformat()
+        key = "design_reviews" if "DESIGN" in state else "code_reviews"
+        phase = "design" if "DESIGN" in state else "code"
+        batch = [
+            self._item(1, **{key: {"reviewer1": {"verdict": "P1", "at": "2025-01-01T00:00:00+09:00"}}},
+                       disputes=[{"reviewer": "reviewer1", "status": "pending", "phase": phase,
+                                  "filed_verdict": "P1", "reason": "why"}]),
+            self._item(2, commit="abc"),
+            self._item(3, commit="abc", **{key: {"reviewer1": {"verdict": "APPROVE",
+                                                               "at": "2025-01-01T00:00:00+09:00"}}}),
+        ]
+        prev = "DESIGN_REVISE" if "DESIGN" in state else "CODE_REVISE"
+        return self._pipeline(state, batch, history=[{"from": prev, "to": state,
+                                                      "at": entered_at, "actor": "watchdog"}])
+
+    def _run_nudge(self, tmp_path, monkeypatch, data, send_ok=True, snapshot_exc=None):
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+        path = tmp_path / "test-pj.json"
+        path.write_text(json.dumps(data))
+        from engine.agent_meta import AgentMeta
+
+        def fake_resolve(agent_id, boost=False):
+            if snapshot_exc:
+                raise snapshot_exc
+            return AgentMeta(backend="cc", provider="anthropic", model="m",
+                             think_level="", captured_at="t", boosted=boost)
+
+        def fake_update(p, cb):
+            cb(data)
+            return data
+
+        from watchdog import process
+        with patch("watchdog.update_pipeline", side_effect=fake_update), \
+             patch("watchdog.send_to_agent_queued", return_value=send_ok) as mock_send, \
+             patch("watchdog._is_agent_inactive", return_value=True), \
+             patch("engine.agent_meta._resolve", side_effect=fake_resolve), \
+             patch("watchdog.notify_discord"):
+            process(path)
+        return mock_send
+
+    def test_nudge_boosted_and_recorded(self, tmp_path, monkeypatch):
+        data = self._nudge_data()
+        mock_send = self._run_nudge(tmp_path, monkeypatch, data)
+        calls = [c for c in mock_send.call_args_list if c.args[0] == "reviewer1"]
+        assert len(calls) == 1
+        assert calls[0].kwargs == {"boost": True}
+        assert data["reviewer_meta"]["reviewer1"]["boosted"] is True
+        assert data["batch"][0]["boost_sent"] == {"design": {"reviewer1": True}}
+        assert data["batch"][1]["boost_sent"] == {"design": {"reviewer1": True}}
+        assert "boost_sent" not in data["batch"][2]
+
+    def test_nudge_code_phase_not_boosted(self, tmp_path, monkeypatch):
+        data = self._nudge_data("CODE_REVIEW")
+        mock_send = self._run_nudge(tmp_path, monkeypatch, data)
+        calls = [c for c in mock_send.call_args_list if c.args[0] == "reviewer1"]
+        assert calls and calls[0].kwargs == {"boost": False}
+        assert data["batch"][1]["boost_sent"] == {"code": {"reviewer1": False}}
+
+    def test_nudge_failure_not_recorded(self, tmp_path, monkeypatch):
+        data = self._nudge_data()
+        self._run_nudge(tmp_path, monkeypatch, data, send_ok=False)
+        assert "reviewer_meta" not in data
+        assert all("boost_sent" not in i for i in data["batch"])
+        assert "_nudge_failed_reviewer1" in data
+
+    def test_nudge_snapshot_failure_keeps_timestamp(self, tmp_path, monkeypatch):
+        data = self._nudge_data()
+        self._run_nudge(tmp_path, monkeypatch, data, snapshot_exc=RuntimeError("boom"))
+        assert "_last_nudge_reviewer1" in data
+        assert all("boost_sent" not in i for i in data["batch"])
+
+    def test_save_excluded_snapshot_not_boosted(self, tmp_path, monkeypatch):
+        """フェーズ開始時の snapshot は boost を渡さず、boost_sent も書かない。"""
+        data = self._pipeline("DESIGN_APPROVED", [self._item(1)],
+                              skip_assess=True, no_cc=True)
+        monkeypatch.setattr(config, "PIPELINES_DIR", tmp_path)
+        monkeypatch.setattr(pipeline_io, "PIPELINES_DIR", tmp_path)
+        path = tmp_path / "test-pj.json"
+        path.write_text(json.dumps(data))
+        from engine.agent_meta import AgentMeta
+        seen: list[bool] = []
+
+        def fake_resolve(agent_id, boost=False):
+            seen.append(boost)
+            return AgentMeta(backend="cc", provider="anthropic", model="m",
+                             think_level="", captured_at="t", boosted=boost)
+
+        from watchdog import process
+        with patch("watchdog.notify_implementer"), \
+             patch("watchdog.notify_reviewers", return_value=[]), \
+             patch("watchdog.notify_discord"), \
+             patch("engine.agent_meta._resolve", side_effect=fake_resolve), \
+             patch("watchdog._reset_reviewers", return_value=[]):
+            process(path)
+        saved = json.loads(path.read_text())
+        assert seen and not any(seen)
+        assert saved["reviewer_meta"]["reviewer1"]["boosted"] is False
+        assert "boost_sent" not in saved["batch"][0]

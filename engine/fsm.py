@@ -41,6 +41,7 @@ class PhaseConfig(TypedDict):
     min_reviews: int
     n_pass: dict[str, int]
     grace_period_sec: int
+    boost: bool
 
 
 def get_min_reviews(mode_config: dict) -> int:
@@ -67,6 +68,7 @@ def _build_phase_config(mode_config: dict, phase: str) -> PhaseConfig:
         "members": list(mode_config.get("members", [])),
         "n_pass": dict(mode_config.get("n_pass", {})),
         "grace_period_sec": mode_config.get("grace_period_sec", 0),
+        "boost": mode_config.get("boost", False) is True,
     }
 
     # Step 2: フェーズ override を適用（min_reviews 以外）
@@ -78,6 +80,8 @@ def _build_phase_config(mode_config: dict, phase: str) -> PhaseConfig:
             base["n_pass"] = dict(override["n_pass"])
         if "grace_period_sec" in override:
             base["grace_period_sec"] = override["grace_period_sec"]
+        if "boost" in override:
+            base["boost"] = override["boost"] is True
 
     # Step 3: min_reviews を解決（override 適用後の members を考慮）
     if override and "min_reviews" in override:
@@ -116,15 +120,19 @@ def get_phase_config(data: dict | None, phase: str) -> PhaseConfig:
     """pipeline data から指定フェーズ（"design" or "code"）の review config を取得する。
 
     review_config が存在すれば使い、なければ review_mode から REVIEW_MODES を引いてフォールバックする。
-    フォールバック時も _build_phase_config を経由するため、返り値の構造は常に同一
-    （members, min_reviews, n_pass, grace_period_sec の4キーが保証される）。
+    フォールバック時（_build_phase_config 経由）は members, min_reviews, n_pass,
+    grace_period_sec, boost の5キーを返す。
+    保存済みの review_config[phase] は正規化せずそのまま返す。#400 より前に INITIALIZE
+    したパイプラインの review_config には boost キーが無いため、boost を読む側は必ず
+    .get("boost", False) を使うこと。
 
     Args:
         data: pipeline.json の data dict。None の場合は REVIEW_MODES["standard"] にフォールバック。
         phase: "design" or "code"
 
     Returns:
-        {"members": list[str], "min_reviews": int, "n_pass": dict, "grace_period_sec": int}
+        {"members": list[str], "min_reviews": int, "n_pass": dict, "grace_period_sec": int,
+         "boost": bool（保存済み review_config では欠けうる）}
     """
     if data is not None:
         rc = data.get("review_config", {}).get(phase)
@@ -1364,6 +1372,8 @@ def _recover_pending_notifications(pj: str, pending: dict, state: str) -> None:
     if "review" in pending:
         info = pending["review"]
         try:
+            from engine.boost import is_boost_active
+
             fresh_data = load_pipeline(get_path(pj))
             excluded = fresh_data.get("excluded_reviewers", [])
             comment = fresh_data.get("comment", "")
@@ -1380,6 +1390,7 @@ def _recover_pending_notifications(pj: str, pending: dict, state: str) -> None:
                 base_commit=info.get("base_commit"),
                 comment=comment,
                 phase_config=phase_config,
+                boost=is_boost_active(fresh_data, info["new_state"]),
             )
             _conditional_clear_pending(pj, "review", pending["review"])
         except Exception as e:
